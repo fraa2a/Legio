@@ -61,7 +61,33 @@ derivative work containing material protected by the Licensor's copyright
 where the Licensor's permission is otherwise required.
 
 
-5. NonCommercial Purposes
+5. Contributions
+
+Notwithstanding the restriction on distributing Modified Software, you may
+make Modified Software available solely for the purpose of proposing a
+contribution to the Software through a contribution channel designated by the
+Licensor, including a pull request, patch, or fork used for that purpose. This
+permission does not authorize distribution of Modified Software for any other
+purpose.
+
+By intentionally submitting material for inclusion in the Software, you grant
+the Licensor a perpetual, worldwide, royalty-free, non-exclusive, irrevocable
+copyright license to use, reproduce, modify, prepare derivative works of,
+distribute, and sublicense your contribution as part of or in connection with
+the Software.
+
+You retain ownership of your contribution. You represent that you have
+sufficient rights to submit it and to grant the license above.
+
+To the extent you control patent claims necessarily infringed by your
+contribution, you also grant the Licensor a perpetual, worldwide, royalty-free,
+non-exclusive, irrevocable patent license to make, use, distribute, and
+sublicense the contribution as part of or in connection with the Software.
+
+The Licensor is not required to accept or include any contribution.
+
+
+6. NonCommercial Purposes
 
 A NonCommercial Purpose is a purpose not primarily intended for, directed
 toward, or materially connected with commercial advantage, monetary
@@ -80,7 +106,7 @@ connected with commercial activity.
 A Commercial Purpose is not permitted under these terms.
 
 
-6. Notices
+7. Notices
 
 If you distribute Unmodified Software, you must give each recipient a copy of
 these terms, or a clear URL for them, and preserve all copyright, license, and
@@ -93,7 +119,7 @@ Recipients receive their licenses directly from the Licensor. You may not
 sublicense or relicense the Software under different terms.
 
 
-7. Statutory Rights
+8. Statutory Rights
 
 These terms do not limit fair use, fair dealing, exhaustion, first sale,
 interoperability rights, legally protected reverse engineering, backup,
@@ -109,7 +135,7 @@ Nothing in this section expands any statutory right beyond the scope provided
 by applicable law.
 
 
-8. Ownership and Other Rights
+9. Ownership and Other Rights
 
 The Licensor retains all intellectual-property rights not expressly licensed
 under these terms. These terms do not sell, assign, or transfer ownership of
@@ -128,7 +154,7 @@ identify the original Software, comply with attribution requirements, or
 truthfully describe compatibility.
 
 
-9. Patent License
+10. Patent License
 
 To the extent the Licensor owns or controls patent claims necessarily
 infringed by exercising a permission granted under these terms with respect
@@ -141,7 +167,7 @@ functionality, combinations, or modifications not supplied by the Licensor,
 except to the extent necessarily implicated by the Private Changes License.
 
 
-10. Third-Party Material
+11. Third-Party Material
 
 These terms apply only to rights the Licensor has authority to license.
 
@@ -150,7 +176,7 @@ subject to separate terms remain governed by those terms. Nothing here
 relicenses third-party material or grants rights the Licensor does not have.
 
 
-11. Term and Violations
+12. Term and Violations
 
 The licenses granted under these terms continue for the duration of the
 applicable rights while you comply with these terms. The Licensor may stop
@@ -173,7 +199,7 @@ violation. Termination affects only licenses granted under these terms and not
 rights you have independently under applicable law.
 
 
-12. Disclaimer and Liability
+13. Disclaimer and Liability
 
 To the maximum extent permitted by applicable law, the Software is provided
 "as is" and "as available", without warranties or conditions of any kind,
@@ -187,7 +213,7 @@ Nothing in these terms excludes or limits a warranty, consumer right, remedy,
 or liability that applicable law does not permit to be excluded or limited.
 
 
-13. Definitions
+14. Definitions
 
 "Licensor" means the individual or legal entity offering the Software under
 these terms.
