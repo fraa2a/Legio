@@ -1,0 +1,261 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    name: Detect version change
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.version.outputs.release }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect Cargo version change
+        id: version
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        shell: bash
+        run: |
+          python <<'PY'
+          import os
+          import re
+          import subprocess
+          import tomllib
+
+          output = os.environ["GITHUB_OUTPUT"]
+          before = os.environ["BEFORE_SHA"]
+
+          def write(name, value):
+              with open(output, "a", encoding="utf-8") as handle:
+                  handle.write(f"{name}={value}\n")
+
+          manifest = "src-tauri/Cargo.toml"
+          if not os.path.isfile(manifest):
+              write("release", "false")
+              raise SystemExit(0)
+
+          with open(manifest, "rb") as handle:
+              current_data = tomllib.load(handle)
+
+          try:
+              current = current_data["package"]["version"]
+          except KeyError as exc:
+              raise SystemExit("src-tauri/Cargo.toml must define package.version") from exc
+
+          try:
+              previous_raw = subprocess.check_output(
+                  ["git", "show", f"{before}:{manifest}"],
+                  stderr=subprocess.DEVNULL,
+              )
+          except subprocess.CalledProcessError:
+              write("release", "false")
+              raise SystemExit(0)
+
+          previous_data = tomllib.loads(previous_raw.decode("utf-8"))
+          try:
+              previous = previous_data["package"]["version"]
+          except KeyError as exc:
+              raise SystemExit("Previous src-tauri/Cargo.toml does not define package.version") from exc
+
+          if current == previous:
+              write("release", "false")
+              raise SystemExit(0)
+
+          semver = re.compile(
+              r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+              r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
+              r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$"
+          )
+
+          def parse(value):
+              match = semver.fullmatch(value)
+              if not match:
+                  raise SystemExit(f"Invalid Semantic Version: {value}")
+              major, minor, patch, prerelease, _build = match.groups()
+              identifiers = prerelease.split(".") if prerelease else None
+              return int(major), int(minor), int(patch), identifiers
+
+          def compare_prerelease(left, right):
+              if left is None and right is None:
+                  return 0
+              if left is None:
+                  return 1
+              if right is None:
+                  return -1
+
+              for a, b in zip(left, right):
+                  if a == b:
+                      continue
+                  a_numeric = a.isdigit()
+                  b_numeric = b.isdigit()
+                  if a_numeric and b_numeric:
+                      return 1 if int(a) > int(b) else -1
+                  if a_numeric != b_numeric:
+                      return -1 if a_numeric else 1
+                  return 1 if a > b else -1
+
+              if len(left) == len(right):
+                  return 0
+              return 1 if len(left) > len(right) else -1
+
+          def compare(left, right):
+              left_parsed = parse(left)
+              right_parsed = parse(right)
+
+              if left_parsed[:3] != right_parsed[:3]:
+                  return 1 if left_parsed[:3] > right_parsed[:3] else -1
+
+              return compare_prerelease(left_parsed[3], right_parsed[3])
+
+          if compare(current, previous) <= 0:
+              raise SystemExit(
+                  f"Version must increase: {previous} -> {current}"
+              )
+
+          tag = f"v{current}"
+          tag_check = subprocess.run(
+              ["git", "rev-parse", "--quiet", "--verify", f"refs/tags/{tag}"],
+              stdout=subprocess.DEVNULL,
+              stderr=subprocess.DEVNULL,
+          )
+          if tag_check.returncode == 0:
+              raise SystemExit(f"Tag already exists: {tag}")
+
+          prerelease = parse(current)[3] is not None
+
+          write("release", "true")
+          write("version", current)
+          write("tag", tag)
+          write("prerelease", str(prerelease).lower())
+          PY
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: detect
+    if: needs.detect.outputs.release == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-22.04
+            artifact: legio-linux
+          - name: Windows
+            os: windows-latest
+            artifact: legio-windows
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            rpm \
+            wget
+
+      - name: Set up Rust
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        shell: bash
+        run: corepack enable
+
+      - name: Install dependencies
+        shell: bash
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Tauri application
+        shell: bash
+        run: pnpm tauri build
+
+      - name: Upload bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: src-tauri/target/release/bundle/**/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs:
+      - detect
+      - build
+    if: needs.detect.outputs.release == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release bundles
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.detect.outputs.tag }}
+          VERSION: ${{ needs.detect.outputs.version }}
+          PRERELEASE: ${{ needs.detect.outputs.prerelease }}
+          TARGET_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          mapfile -d '' files < <(find release-assets -type f -print0)
+
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "No release assets were produced."
+            exit 1
+          fi
+
+          args=(
+            release
+            create
+            "$TAG"
+            --target
+            "$TARGET_SHA"
+            --title
+            "Legio $VERSION"
+            --generate-notes
+          )
+
+          if [[ "$PRERELEASE" == "true" ]]; then
+            args+=(--prerelease)
+          fi
+
+          gh "${args[@]}" "${files[@]}"

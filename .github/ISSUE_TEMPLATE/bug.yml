@@ -1,0 +1,39 @@
+name: Bug report
+description: Report a reproducible problem in Legio.
+title: "[Bug] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How can it be reproduced?
+      description: Give the shortest reliable steps you know.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Legio version
+      placeholder: 0.1.0
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      placeholder: Windows 11, Arch Linux, or similar
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add logs, screenshots, or other useful details.

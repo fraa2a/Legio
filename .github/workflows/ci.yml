@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Detect frontend project
+        id: frontend
+        shell: bash
+        run: |
+          if [[ -f package.json ]]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node
+        if: steps.frontend.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        if: steps.frontend.outputs.present == 'true'
+        run: corepack enable
+
+      - name: Install frontend dependencies
+        if: steps.frontend.outputs.present == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Check Svelte and TypeScript
+        if: steps.frontend.outputs.present == 'true'
+        run: pnpm run check
+
+      - name: Lint frontend
+        if: steps.frontend.outputs.present == 'true'
+        run: pnpm run --if-present lint
+
+      - name: Test frontend
+        if: steps.frontend.outputs.present == 'true'
+        run: pnpm run --if-present test
+
+      - name: Build frontend
+        if: steps.frontend.outputs.present == 'true'
+        run: pnpm run build
+
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Detect Rust project
+        id: rust
+        shell: bash
+        run: |
+          if [[ -f src-tauri/Cargo.toml ]]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Linux dependencies
+        if: steps.rust.outputs.present == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            wget
+
+      - name: Set up Rust
+        if: steps.rust.outputs.present == 'true'
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup component add rustfmt clippy
+
+      - name: Check formatting
+        if: steps.rust.outputs.present == 'true'
+        working-directory: src-tauri
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        if: steps.rust.outputs.present == 'true'
+        working-directory: src-tauri
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run Rust tests
+        if: steps.rust.outputs.present == 'true'
+        working-directory: src-tauri
+        run: cargo test --all-features
