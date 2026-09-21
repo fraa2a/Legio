@@ -1,7 +1,11 @@
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
-use crate::database::{self, CreateGameInput, DatabaseState, Game, Settings, UpdateGameInput};
+use crate::{
+    database::{self, CreateGameInput, DatabaseState, Game, Settings, UpdateGameInput},
+    network::{ConnectivityCheck, NetworkState, NetworkStatus},
+    steam_local,
+};
 
 #[derive(Serialize)]
 pub struct AppInfo {
@@ -58,4 +62,38 @@ pub fn update_game(
 #[tauri::command]
 pub fn remove_game(state: State<'_, DatabaseState>, id: String) -> Result<(), String> {
     database::remove_game(&state, &id)
+}
+
+#[tauri::command]
+pub fn scan_steam_installations() -> steam_local::SteamScan {
+    steam_local::scan_default_installations()
+}
+
+#[tauri::command]
+pub fn get_network_status(state: State<'_, NetworkState>) -> Result<NetworkStatus, String> {
+    state.status()
+}
+
+#[tauri::command]
+pub async fn check_steam_connectivity(
+    state: State<'_, NetworkState>,
+) -> Result<ConnectivityCheck, String> {
+    Ok(state.inner().clone().check_connectivity().await)
+}
+
+#[tauri::command]
+pub async fn search_catalog(
+    app: AppHandle,
+    query: String,
+) -> Result<crate::catalog::CatalogSearch, crate::catalog::CatalogError> {
+    crate::catalog::search_catalog(app, query).await
+}
+
+#[tauri::command]
+pub async fn refresh_catalog(
+    app: AppHandle,
+    state: State<'_, NetworkState>,
+    query: String,
+) -> Result<crate::catalog::CatalogSearch, crate::catalog::CatalogError> {
+    crate::catalog::refresh_catalog(app, state.inner(), query).await
 }
