@@ -3,6 +3,7 @@ use tauri::{AppHandle, State};
 
 use crate::{
     database::{self, CreateGameInput, DatabaseState, Game, Settings, UpdateGameInput},
+    network::{ConnectivityCheck, NetworkState, NetworkStatus},
     steam_local,
 };
 
@@ -66,4 +67,16 @@ pub fn remove_game(state: State<'_, DatabaseState>, id: String) -> Result<(), St
 #[tauri::command]
 pub fn scan_steam_installations() -> steam_local::SteamScan {
     steam_local::scan_default_installations()
+}
+
+#[tauri::command]
+pub fn get_network_status(state: State<'_, NetworkState>) -> Result<NetworkStatus, String> {
+    state.status()
+}
+
+#[tauri::command]
+pub async fn check_steam_connectivity(
+    state: State<'_, NetworkState>,
+) -> Result<ConnectivityCheck, String> {
+    Ok(state.inner().clone().check_connectivity().await)
 }
