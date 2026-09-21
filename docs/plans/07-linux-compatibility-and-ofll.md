@@ -1,0 +1,63 @@
+# Phase 07: Linux compatibility and OFLL
+
+## Status
+
+Planned
+
+## Canonical requirements
+
+Owns `PLAN.md` sections 3, 25, 26, and 28.
+
+## Objective
+
+Run supported Windows games on Linux through explicit compatibility configuration and reproduce the required Online Fix Linux Launcher behavior in Rust.
+
+## Scope
+
+Runner discovery and management, prefixes and runtime configuration, launch options, process handling, diagnostics, and an evidence-backed responsibility parity matrix.
+
+## Milestones and principal tasks
+
+### 07A: Runner discovery and basic launch
+
+- Discover Proton, GE-Proton, and Wine installations.
+- Validate runner paths and versions.
+- Launch one supported Windows game through the Phase 06 lifecycle.
+
+Verification: available runners are detected without false success and a basic Windows-game launch reaches the actual game process on Linux.
+
+### 07B: Compatibility configuration
+
+- Manage runners, defaults, game overrides, prefixes, and custom paths.
+- Support Steam Runtime, environment variables, DLL overrides, arguments, and working directory.
+- Support Steam startup, overlay, graphics, WineD3D, and Wayland options where canonical requirements allow.
+- Preserve process handling and actionable diagnostics.
+
+Verification: each supported setting changes the observable launch environment, invalid combinations fail before launch, and diagnostics identify the applied configuration.
+
+### 07C: OFLL parity matrix
+
+- Record the exact upstream Online Fix Linux Launcher revision under review.
+- Map each required behavior to Legio ownership and evidence.
+- Cover debug logs, shortcuts, icons, and supported game or fix behavior.
+- Mark unsupported or intentionally excluded behavior explicitly.
+
+Verification: every required upstream responsibility has a Rust implementation and an exercised scenario, or an approved documented exclusion.
+
+## Dependencies
+
+Phase 06 supplies the shared launch lifecycle, sessions, process tracking, and diagnostics contract.
+
+## Completion criteria
+
+Runner discovery and configuration are reliable, supported Windows games launch on Linux, failures are diagnosable, and the required OFLL capability set has revision-specific evidence.
+
+## Open technical decisions
+
+- Record the exact upstream OFLL revision before claiming parity.
+- Define supported runner search locations and precedence before 07A.
+- Confirm which graphics and overlay combinations are supportable before 07B.
+
+## Update notes
+
+No implementation updates yet.
