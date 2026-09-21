@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned
+Completed
 
 ## Canonical requirements
 
@@ -53,9 +53,33 @@ The database migrates safely, settings persist through typed boundaries, and loc
 
 ## Open technical decisions
 
-- Choose the SQLite crate and migration mechanism at 02A based on current needs and Tauri compatibility.
-- Define the first settings set immediately before 02B to avoid speculative columns.
+None.
 
 ## Update notes
 
-No implementation updates yet.
+- 2026-09-21: Phase completed. Rust owns SQLite initialization at the Tauri application-data path through one managed connection. Schema version 1 stores the current theme setting and local-library records only.
+- 2026-09-21: Selected bundled rusqlite with transactional PRAGMA user_version migrations and Rust-generated UUID game IDs. Theme is the first implemented setting and applies to the verification surface. The other canonical settings remain deferred until their consumers exist.
+- 2026-09-21: Added functional settings and library API testing controls. The native window initialized its local database, and automated persistence tests proved restart retention, override-preserving enrichment, rejected invalid updates, and unsupported-schema recovery.
+
+### Milestone evidence
+
+#### 02A
+
+- **Platform:** Linux x86_64 native Tauri runtime and Rust tests.
+- **Command or scenario:** launch `corepack pnpm tauri dev`; verify the application database at the resolved application-data path; run `cargo test --manifest-path src-tauri/Cargo.toml`.
+- **Observable result:** the native Legio window initialized `legio.sqlite3`. Fresh and reopened profiles completed version 1 initialization once, while a newer unsupported schema remained intact and reported an actionable error.
+- **Remaining blockers:** None.
+
+#### 02B
+
+- **Platform:** Linux x86_64 native Tauri runtime and frontend checks.
+- **Command or scenario:** launch `corepack pnpm tauri dev`; run `corepack pnpm check`, `corepack pnpm lint`, and `corepack pnpm build`.
+- **Observable result:** the native runtime initialized its persisted settings store. The testing surface includes only the typed `system`, `dark`, and `light` Theme control, and all frontend checks passed with zero warnings.
+- **Remaining blockers:** None.
+
+#### 02C
+
+- **Platform:** Rust persistence tests and the Linux native verification window.
+- **Command or scenario:** create, reopen, enrich, update, and remove local records through the Rust database API; run `cargo test --manifest-path src-tauri/Cargo.toml`.
+- **Observable result:** all three Rust persistence tests passed. Every record received a Rust-generated stable UUID, optional Steam App IDs persisted, a manual name override outlasted enrichment, invalid nameless updates were rejected, and removal targets only the selected UUID.
+- **Remaining blockers:** None.
