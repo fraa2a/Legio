@@ -1,0 +1,278 @@
+use std::sync::{Arc, Mutex};
+
+use serde::Serialize;
+
+const CONNECT_TIMEOUT_SECONDS: u64 = 5;
+const REQUEST_TIMEOUT_SECONDS: u64 = 10;
+const CONNECTIVITY_URL: &str = "https://store.steampowered.com/";
+const HYDRA_SEARCH_URL: &str = "https://hydra-api-us-east-1.losbroxas.org/catalogue/search";
+const MAX_CATALOG_BYTES: usize = 2 * 1024 * 1024;
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum NetworkError {
+    Timeout,
+    Transport { message: String },
+    Http { status: u16 },
+    TooLarge,
+}
+
+impl From<reqwest::Error> for NetworkError {
+    fn from(error: reqwest::Error) -> Self {
+        if error.is_timeout() {
+            Self::Timeout
+        } else {
+            Self::Transport {
+                message: error.without_url().to_string(),
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NetworkStatus {
+    Unknown,
+    Online,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectivityCheck {
+    pub status: NetworkStatus,
+    pub detail: Option<String>,
+}
+#[derive(Clone)]
+pub struct NetworkState {
+    client: reqwest::Client,
+    status: Arc<Mutex<NetworkStatus>>,
+}
+
+impl NetworkState {
+    pub fn new(version: &str) -> Result<Self, String> {
+        let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(CONNECT_TIMEOUT_SECONDS))
+            .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
+            .redirect(reqwest::redirect::Policy::limited(3))
+            .user_agent(format!("Legio/{version}"))
+            .build()
+            .map_err(|error| format!("could not initialize the network client: {error}"))?;
+        Ok(Self {
+            client,
+            status: Arc::new(Mutex::new(NetworkStatus::Unknown)),
+        })
+    }
+    pub fn status(&self) -> Result<NetworkStatus, String> {
+        self.status
+            .lock()
+            .map(|status| *status)
+            .map_err(|_| "network status lock was poisoned".to_owned())
+    }
+
+    pub async fn hydra_search(&self, body: Vec<u8>) -> Result<Vec<u8>, NetworkError> {
+        self.post_catalog(HYDRA_SEARCH_URL, body).await
+    }
+
+    // Dropping this future cancels the request and body read without background work.
+    async fn post_catalog(&self, url: &str, body: Vec<u8>) -> Result<Vec<u8>, NetworkError> {
+        let mut response = self
+            .client
+            .post(url)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(body)
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            return Err(NetworkError::Http {
+                status: response.status().as_u16(),
+            });
+        }
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_CATALOG_BYTES as u64)
+        {
+            return Err(NetworkError::TooLarge);
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            if chunk.len() > MAX_CATALOG_BYTES - bytes.len() {
+                return Err(NetworkError::TooLarge);
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok(bytes)
+    }
+
+    pub async fn check_connectivity(&self) -> ConnectivityCheck {
+        match self.client.get(CONNECTIVITY_URL).send().await {
+            Ok(_) => self.update(NetworkStatus::Online, None),
+            Err(error) => self.update(
+                NetworkStatus::Unknown,
+                Some(format!("Steam connectivity check failed: {error}")),
+            ),
+        }
+    }
+
+    fn update(&self, status: NetworkStatus, detail: Option<String>) -> ConnectivityCheck {
+        if let Ok(mut current) = self.status.lock() {
+            *current = status;
+        }
+        ConnectivityCheck { status, detail }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        sync::mpsc,
+        thread,
+        time::Duration,
+    };
+
+    fn server(response: Vec<u8>) -> (String, thread::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/catalogue/search", listener.local_addr().unwrap());
+        let thread = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            let request = String::from_utf8(request).unwrap();
+            let length: usize = request
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length: ")
+                        .map(str::to_owned)
+                })
+                .unwrap()
+                .parse()
+                .unwrap();
+            let mut body = vec![0; length];
+            stream.read_exact(&mut body).unwrap();
+            // Early rejection can close the socket before all oversized bytes are sent.
+            let _ = stream.write_all(&response);
+            request + &String::from_utf8(body).unwrap()
+        });
+        (url, thread)
+    }
+
+    #[test]
+    fn sends_anonymous_json_with_truthful_user_agent() {
+        let (url, server) =
+            server(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}".to_vec());
+        let state = NetworkState::new("0.1.0").unwrap();
+        let bytes = tauri::async_runtime::block_on(
+            state.post_catalog(&url, br#"{"title":"Portal","take":50,"skip":0}"#.to_vec()),
+        )
+        .unwrap();
+        assert_eq!(bytes, b"{}");
+        let request = server.join().unwrap();
+        assert!(request.starts_with("POST /catalogue/search HTTP/1.1"));
+        assert!(request.contains("user-agent: Legio/0.1.0\r\n"));
+        assert!(!request.to_ascii_lowercase().contains("authorization:"));
+        assert!(!request.to_ascii_lowercase().contains("cookie:"));
+        assert!(request.ends_with(r#"{"title":"Portal","take":50,"skip":0}"#));
+    }
+
+    #[test]
+    fn rejects_http_errors_and_both_declared_and_streamed_oversize() {
+        let mut chunked =
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n".to_vec();
+        chunked.extend_from_slice(format!("{:x}\r\n", MAX_CATALOG_BYTES + 1).as_bytes());
+        chunked.resize(chunked.len() + MAX_CATALOG_BYTES + 1, b'x');
+        chunked.extend_from_slice(b"\r\n0\r\n\r\n");
+        for (response, expected) in [
+            (
+                b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\n\r\n".to_vec(),
+                NetworkError::Http { status: 429 },
+            ),
+            (
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+                    MAX_CATALOG_BYTES + 1
+                )
+                .into_bytes(),
+                NetworkError::TooLarge,
+            ),
+            (chunked, NetworkError::TooLarge),
+        ] {
+            let (url, server) = server(response);
+            let state = NetworkState::new("0.1.0").unwrap();
+            assert_eq!(
+                tauri::async_runtime::block_on(state.post_catalog(&url, b"{}".to_vec()))
+                    .unwrap_err(),
+                expected
+            );
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn dropping_request_future_cancels_pending_response() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/catalogue/search", listener.local_addr().unwrap());
+        let (received, wait_received) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut buffer = [0; 4096];
+            assert!(stream.read(&mut buffer).unwrap() > 0);
+            received.send(()).unwrap();
+            loop {
+                match stream.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(_) => continue,
+                    Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => break,
+                    Err(error) => panic!("cancelled request kept connection open: {error}"),
+                }
+            }
+        });
+        let state = NetworkState::new("0.1.0").unwrap();
+        let task =
+            tauri::async_runtime::spawn(
+                async move { state.post_catalog(&url, b"{}".to_vec()).await },
+            );
+        wait_received.recv_timeout(Duration::from_secs(3)).unwrap();
+        task.abort();
+        assert!(tauri::async_runtime::block_on(task).is_err());
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn classifies_timeout_and_connection_failure() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/catalogue/search", listener.local_addr().unwrap());
+        let (release, wait_release) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (_stream, _) = listener.accept().unwrap();
+            wait_release.recv_timeout(Duration::from_secs(3)).unwrap();
+        });
+        let mut state = NetworkState::new("0.1.0").unwrap();
+        state.client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(50))
+            .build()
+            .unwrap();
+        assert_eq!(
+            tauri::async_runtime::block_on(state.post_catalog(&url, b"{}".to_vec())).unwrap_err(),
+            NetworkError::Timeout
+        );
+        release.send(()).unwrap();
+        server.join().unwrap();
+        assert!(matches!(
+            tauri::async_runtime::block_on(state.post_catalog(&url, b"{}".to_vec())),
+            Err(NetworkError::Transport { .. })
+        ));
+    }
+}

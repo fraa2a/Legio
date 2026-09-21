@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 const THEME_KEY: &str = "theme";
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -87,7 +87,7 @@ impl DatabaseState {
         Self { database }
     }
 
-    fn database(&self) -> Result<&Database, String> {
+    pub(crate) fn database(&self) -> Result<&Database, String> {
         self.database.as_ref().map_err(Clone::clone)
     }
 }
@@ -228,7 +228,7 @@ impl Database {
         })
     }
 
-    fn with_connection<T>(
+    pub(crate) fn with_connection<T>(
         &self,
         operation: impl FnOnce(&Connection) -> Result<T, String>,
     ) -> Result<T, String> {
@@ -267,6 +267,25 @@ fn migrate(connection: &Connection) -> Result<(), String> {
                  );
                  CREATE INDEX games_steam_app_id_idx ON games (steam_app_id);
                  PRAGMA user_version = 1;",
+            )
+            .map_err(database_error)?;
+    }
+    if version < 2 {
+        transaction
+            .execute_batch(
+                "CREATE TABLE catalog_games (
+                steam_app_id INTEGER PRIMARY KEY CHECK (steam_app_id BETWEEN 1 AND 4294967295),
+                name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 512),
+                search_name TEXT NOT NULL,
+                fetched_at INTEGER NOT NULL
+             );
+             CREATE TABLE catalog_cache (
+                provider TEXT PRIMARY KEY CHECK (provider = 'hydra'),
+                query TEXT NOT NULL,
+                fetched_at INTEGER NOT NULL,
+                remote_count INTEGER NOT NULL CHECK (remote_count >= 0)
+             );
+             PRAGMA user_version = 2;",
             )
             .map_err(database_error)?;
     }
@@ -358,6 +377,36 @@ pub fn remove_game(state: &DatabaseState, id: &str) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn migrates_v1_without_replacing_user_data() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE games (id TEXT PRIMARY KEY, steam_app_id INTEGER, automatic_name TEXT, name_override TEXT); INSERT INTO settings VALUES ('theme', 'light'); INSERT INTO games VALUES ('manual', 400, 'Portal', 'My Portal'); PRAGMA user_version = 1;").unwrap();
+        migrate(&connection).unwrap();
+        migrate(&connection).unwrap();
+        let name: String = connection
+            .query_row(
+                "SELECT name_override FROM games WHERE id = 'manual'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(name, "My Portal");
+        let theme: String = connection
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'theme'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(theme, "light");
+        connection
+            .execute(
+                "INSERT INTO catalog_games VALUES (400, 'Portal', 'portal', 100)",
+                [],
+            )
+            .unwrap();
+    }
+
     fn temporary_directory() -> std::path::PathBuf {
         let directory =
             std::env::temp_dir().join(format!("legio-database-test-{}", Uuid::new_v4()));
@@ -437,7 +486,7 @@ mod tests {
         database
             .with_connection(|connection| {
                 connection
-                    .execute_batch("PRAGMA user_version = 2")
+                    .execute_batch("PRAGMA user_version = 3")
                     .map_err(database_error)
             })
             .unwrap();
@@ -453,7 +502,7 @@ mod tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
         fs::remove_dir_all(directory).unwrap();
     }
 }
