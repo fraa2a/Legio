@@ -1,5 +1,6 @@
 use tauri::Manager;
 
+mod catalog;
 mod commands;
 mod database;
 mod network;
@@ -26,6 +27,8 @@ pub fn run() -> tauri::Result<()> {
             commands::scan_steam_installations,
             commands::get_network_status,
             commands::check_steam_connectivity,
+            commands::search_catalog,
+            commands::refresh_catalog,
         ])
         .run(tauri::generate_context!())
 }

@@ -80,3 +80,20 @@ pub async fn check_steam_connectivity(
 ) -> Result<ConnectivityCheck, String> {
     Ok(state.inner().clone().check_connectivity().await)
 }
+
+#[tauri::command]
+pub async fn search_catalog(
+    app: AppHandle,
+    query: String,
+) -> Result<crate::catalog::CatalogSearch, crate::catalog::CatalogError> {
+    crate::catalog::search_catalog(app, query).await
+}
+
+#[tauri::command]
+pub async fn refresh_catalog(
+    app: AppHandle,
+    state: State<'_, NetworkState>,
+    query: String,
+) -> Result<crate::catalog::CatalogSearch, crate::catalog::CatalogError> {
+    crate::catalog::refresh_catalog(app, state.inner(), query).await
+}
