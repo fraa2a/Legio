@@ -12,6 +12,7 @@
     type Theme,
   } from "./lib/services/local-state";
   import { scanSteamInstallations, type SteamScan } from "./lib/services/steam";
+  import { checkSteamConnectivity, getNetworkStatus, type NetworkStatus } from "./lib/services/network";
   type LoadState = "loading" | "ready" | "error";
 
   let appInfo = $state<AppInfo | null>(null);
@@ -26,6 +27,12 @@
   let steamIdDraft = $state("");
   let steamScan = $state<SteamScan | null>(null);
   let scanningSteam = $state(false);
+  let steamError = $state<string | null>(null);
+  let networkStatus = $state<NetworkStatus | null>(null);
+  let networkState = $state<LoadState>("loading");
+  let checkingConnectivity = $state(false);
+  let networkError = $state<string | null>(null);
+  let networkDetail = $state<string | null>(null);
   let systemPrefersDark = $state(window.matchMedia("(prefers-color-scheme: dark)").matches);
   const darkTheme = $derived(settings.theme === "dark" || (settings.theme === "system" && systemPrefersDark));
 
@@ -127,21 +134,53 @@
 
   async function scanSteam() {
     scanningSteam = true;
-    error = null;
-    message = null;
+    steamError = null;
+    steamScan = null;
     try {
       steamScan = await scanSteamInstallations();
-      message = "Steam installation scan completed.";
     } catch (reason) {
-      error = messageFor(reason);
+      steamError = messageFor(reason);
     } finally {
       scanningSteam = false;
+    }
+  }
+
+  async function loadNetworkStatus() {
+    networkState = "loading";
+    networkError = null;
+    networkDetail = null;
+    networkStatus = null;
+    try {
+      networkStatus = await getNetworkStatus();
+      networkState = "ready";
+    } catch (reason) {
+      networkError = messageFor(reason);
+      networkState = "error";
+    }
+  }
+
+  async function checkConnectivity() {
+    checkingConnectivity = true;
+    networkError = null;
+    networkDetail = null;
+    networkStatus = null;
+    try {
+      const result = await checkSteamConnectivity();
+      networkStatus = result.status;
+      networkDetail = result.detail;
+      networkState = "ready";
+    } catch (reason) {
+      networkError = messageFor(reason);
+      networkState = "error";
+    } finally {
+      checkingConnectivity = false;
     }
   }
 
   $effect(() => {
     void loadAppInfo();
     void loadLocalState();
+    void loadNetworkStatus();
   });
 
   $effect(() => {
@@ -153,15 +192,15 @@
 </script>
 
 <svelte:head>
-  <title>Legio local state verification</title>
+  <title>Legio backend verification</title>
 </svelte:head>
 
 <main class={darkTheme ? "min-h-screen bg-slate-950 px-6 py-12 text-slate-100" : "min-h-screen bg-slate-100 px-6 py-12 text-slate-950"}>
   <section class={darkTheme ? "mx-auto w-full max-w-4xl rounded-2xl border border-slate-800 bg-slate-900 p-8" : "mx-auto w-full max-w-4xl rounded-2xl border border-slate-300 bg-white p-8"}>
     <p class="text-sm font-semibold tracking-[0.2em] text-amber-400 uppercase">Legio</p>
-    <h1 class="mt-3 text-3xl font-semibold">Local state verification</h1>
+    <h1 class="mt-3 text-3xl font-semibold">Backend verification</h1>
     <p class="mt-3 text-sm text-slate-400">
-      Functional persistence testing only. This is not the final product UI.
+      Functional local state, Steam detection, and connectivity testing. This is not the final product UI.
     </p>
 
     {#if appInfoState === "loading"}
@@ -236,30 +275,62 @@
           </div>
         {/if}
       </section>
-
-      <section class="mt-8" aria-labelledby="steam-heading">
-        <h2 id="steam-heading" class="text-xl font-semibold">Local Steam detection</h2>
-        <p class="mt-2 text-sm text-slate-400">Scans supported default Steam locations without sending local data remotely.</p>
-        <button class="mt-4 rounded bg-amber-400 px-3 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50" type="button" disabled={scanningSteam} onclick={scanSteam}>
-          {scanningSteam ? "Scanning..." : "Scan local Steam installations"}
-        </button>
-        {#if steamScan}
-          <p class="mt-3 text-sm">Detected {steamScan.games.length} installed Steam game{steamScan.games.length === 1 ? "" : "s"}.</p>
-          {#if steamScan.games.length > 0}
-            <ul class="mt-3 space-y-2 text-sm">
-              {#each steamScan.games as game (game.appId)}
-                <li class="rounded border border-slate-800 p-3">{game.name} (Steam App ID {game.appId})</li>
-              {/each}
-            </ul>
-          {/if}
-          {#if steamScan.diagnostics.length > 0}
-            <ul class="mt-3 list-disc space-y-1 pl-5 text-xs text-slate-400">
-              {#each steamScan.diagnostics as diagnostic (diagnostic)}<li>{diagnostic}</li>{/each}
-            </ul>
-          {/if}
-        {/if}
-      </section>
     {/if}
+
+    <section class="mt-8" aria-labelledby="steam-heading">
+      <h2 id="steam-heading" class="text-xl font-semibold">Local Steam detection</h2>
+      <p class="mt-2 text-sm text-slate-400">Scans supported default Steam locations without sending local data remotely.</p>
+      <button class="mt-4 rounded bg-amber-400 px-3 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50" type="button" disabled={scanningSteam} onclick={scanSteam}>
+        {scanningSteam ? "Scanning..." : "Scan local Steam installations"}
+      </button>
+      {#if scanningSteam}
+        <p class="mt-3 text-sm" role="status">Reading local Steam installation metadata...</p>
+      {:else if steamError}
+        <p class="mt-3 break-words rounded border border-red-900 bg-red-950/30 p-4 text-sm" role="alert">Steam scan failed: {steamError}. Run the native app and retry the scan.</p>
+      {/if}
+      {#if steamScan}
+        <p class="mt-3 text-sm" role="status">Scan completed. Detected {steamScan.games.length} Steam game record{steamScan.games.length === 1 ? "" : "s"}. No games were imported or launched.</p>
+        {#if steamScan.games.length > 0}
+          <ul class="mt-3 space-y-2 text-sm">
+            {#each steamScan.games as game (game.appId)}
+              <li class="rounded border border-slate-800 p-3">
+                <p>{game.name} (Steam App ID {game.appId})</p>
+                <p class="mt-1 break-all text-xs text-slate-400">Installation directory: {game.installDir}</p>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        {#if steamScan.diagnostics.length > 0}
+          <ul class="mt-3 list-disc space-y-1 pl-5 text-xs text-slate-400">
+            {#each steamScan.diagnostics as diagnostic, index (index)}<li class="break-words">{diagnostic}</li>{/each}
+          </ul>
+        {/if}
+      {/if}
+    </section>
+
+    <section class="mt-8" aria-labelledby="network-heading">
+      <h2 id="network-heading" class="text-xl font-semibold">Steam connectivity</h2>
+      <p class="mt-2 text-sm text-slate-400">Reads Rust-owned connectivity state. Checking contacts the public Steam Store; it does not fetch the catalog or send local game data.</p>
+      <div class="mt-4 flex flex-wrap gap-3">
+        <button class="rounded bg-amber-400 px-3 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50" type="button" disabled={networkState === "loading" || checkingConnectivity} onclick={checkConnectivity}>
+          {checkingConnectivity ? "Checking..." : "Check Steam connectivity"}
+        </button>
+        <button class="text-sm underline disabled:opacity-50" type="button" disabled={networkState === "loading" || checkingConnectivity} onclick={loadNetworkStatus}>Reload network status</button>
+      </div>
+      {#if checkingConnectivity}
+        <p class="mt-3 text-sm" role="status">Contacting Steam Store...</p>
+      {:else if networkState === "loading"}
+        <p class="mt-3 text-sm" role="status">Loading native network status...</p>
+      {:else if networkError}
+        <p class="mt-3 break-words rounded border border-red-900 bg-red-950/30 p-4 text-sm" role="alert">Connectivity command failed: {networkError}. Run the native app and retry.</p>
+      {:else if networkStatus}
+        <p class="mt-3 text-sm" role="status">Native network status: {networkStatus === "online" ? "Online" : "Unknown"}.</p>
+        <p class="mt-2 text-xs text-slate-400">{networkStatus === "online" ? "Steam Store responded to the last check. This does not guarantee catalog or download availability." : "Connectivity has not been established. Unknown does not mean that the device is offline."}</p>
+      {/if}
+      {#if networkDetail}
+        <p class="mt-3 break-words rounded border border-amber-800 p-4 text-sm" role="alert">{networkDetail}</p>
+      {/if}
+    </section>
 
     {#if error && localState === "ready"}
       <p class="mt-6 rounded border border-red-900 bg-red-950/30 p-4 text-sm" role="alert">{error}</p>
