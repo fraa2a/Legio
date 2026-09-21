@@ -14,7 +14,7 @@
 
 | Phase | Status | Dependencies | Next uncompleted milestone |
 | --- | --- | --- | --- |
-| [01 Foundation and application shell](01-foundation-and-application-shell.md) | In progress | None | 01C successful Windows CI smoke run |
+| [01 Foundation and application shell](01-foundation-and-application-shell.md) | Completed | None | 02A SQLite initialization and migrations |
 | [02 Local state, settings, and library](02-local-state-settings-and-library.md) | Planned | 01 | 02A SQLite initialization and migrations |
 | [03 Steam integration and catalog](03-steam-integration-and-catalog.md) | Planned | 02 | 03A HTTP, connectivity, cache, and diagnostics |
 | [04 Legio source, Store, and trust](04-legio-source-store-and-trust.md) | Planned | 03 | Resolve the source URL, then 04A manifest validation |

@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Completed
 
 ## Canonical requirements
 
@@ -48,7 +48,7 @@ Verification: the native application renders `Legio`, `0.1.0`, and `linux`; brow
 - [x] Pass Rust format, Clippy with denied warnings, and tests.
 - [x] Pass a local Linux debug no-bundle Tauri build and native runtime smoke.
 - [x] Configure mandatory Ubuntu and Windows Tauri smoke jobs.
-- [ ] Record a successful Windows CI run before completing the phase.
+- [x] Record a successful Windows CI run before completing the phase.
 
 Verification: exact commands and observable results are recorded below. Windows proof must come from CI.
 
@@ -93,10 +93,10 @@ None. This phase creates the prerequisites for every later phase.
 
 #### 01C
 
-- **Platform:** Linux x86_64 locally; Ubuntu and Windows configured in GitHub Actions.
-- **Command or scenario:** `corepack pnpm check`, `corepack pnpm lint`, `corepack pnpm build`, Cargo format, Clippy with `-D warnings`, Cargo tests, and `corepack pnpm tauri build --debug --no-bundle`.
-- **Observable result:** all local frontend and Rust checks passed with zero Svelte warnings, and the debug desktop binary was produced at `src-tauri/target/debug/legio`. CI now has ungated `frontend`, `rust`, and Ubuntu/Windows `tauri-smoke` jobs.
-- **Remaining blockers:** A successful Windows `tauri-smoke` CI run has not occurred in this local task. Phase 01 remains In progress until that evidence exists.
+- **Platform:** Linux x86_64 locally; Ubuntu and Windows GitHub-hosted runners.
+- **Command or scenario:** local frontend and Rust quality commands; `corepack pnpm tauri build --debug --no-bundle`; GitHub Actions run `35624188349`.
+- **Observable result:** Frontend passed in 19 seconds, Rust passed in 3 minutes 3 seconds, Linux Tauri smoke passed in 2 minutes 33 seconds, and Windows Tauri smoke passed in 3 minutes 16 seconds. The Windows build succeeded after adding the required `src-tauri/icons/icon.ico` resource.
+- **Remaining blockers:** None.
 
-- 2026-09-21: Milestones 01A and 01B completed. Milestone 01C is complete locally on Linux and awaits only the Windows CI smoke result.
-- 2026-09-21: A neutral transparent window icon was added only because Tauri code generation requires a PNG. Final branding remains a Phase 08 decision after the missing mockup is supplied.
+- 2026-09-21: Phase completed after GitHub Actions run `35624188349` passed all required frontend, Rust, Linux, and Windows checks.
+- 2026-09-21: A neutral transparent window icon was added only because Tauri code generation requires platform icon resources. Final branding remains a Phase 08 decision after the missing mockup is supplied.
