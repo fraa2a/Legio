@@ -23,45 +23,25 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Detect frontend project
-        id: frontend
-        shell: bash
-        run: |
-          if [[ -f package.json ]]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Set up Node
-        if: steps.frontend.outputs.present == 'true'
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v4
         with:
           node-version: 22
 
       - name: Enable Corepack
-        if: steps.frontend.outputs.present == 'true'
         run: corepack enable
 
       - name: Install frontend dependencies
-        if: steps.frontend.outputs.present == 'true'
-        run: pnpm install --frozen-lockfile
+        run: corepack pnpm install --frozen-lockfile
 
       - name: Check Svelte and TypeScript
-        if: steps.frontend.outputs.present == 'true'
-        run: pnpm run check
+        run: corepack pnpm check
 
       - name: Lint frontend
-        if: steps.frontend.outputs.present == 'true'
-        run: pnpm run --if-present lint
-
-      - name: Test frontend
-        if: steps.frontend.outputs.present == 'true'
-        run: pnpm run --if-present test
+        run: corepack pnpm lint
 
       - name: Build frontend
-        if: steps.frontend.outputs.present == 'true'
-        run: pnpm run build
+        run: corepack pnpm build
 
   rust:
     name: Rust
@@ -70,18 +50,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Detect Rust project
-        id: rust
-        shell: bash
-        run: |
-          if [[ -f src-tauri/Cargo.toml ]]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Install Linux dependencies
-        if: steps.rust.outputs.present == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -95,24 +64,69 @@ jobs:
             libxdo-dev \
             wget
 
-      - name: Set up Rust
-        if: steps.rust.outputs.present == 'true'
+      - name: Set up Rust 1.98.1
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-          rustup component add rustfmt clippy
+          rustup toolchain install 1.98.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.98.1
 
       - name: Check formatting
-        if: steps.rust.outputs.present == 'true'
-        working-directory: src-tauri
-        run: cargo fmt --all -- --check
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
       - name: Run Clippy
-        if: steps.rust.outputs.present == 'true'
-        working-directory: src-tauri
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --locked -- -D warnings
 
       - name: Run Rust tests
-        if: steps.rust.outputs.present == 'true'
-        working-directory: src-tauri
-        run: cargo test --all-features
+        run: cargo test --manifest-path src-tauri/Cargo.toml --all-features --locked
+
+  tauri-smoke:
+    name: Tauri smoke (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+          - name: Windows
+            os: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            wget
+
+      - name: Set up Rust 1.98.1
+        shell: bash
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup default 1.98.1
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        shell: bash
+        run: corepack enable
+
+      - name: Install dependencies
+        shell: bash
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Build Tauri application
+        shell: bash
+        run: corepack pnpm tauri build --debug --no-bundle
