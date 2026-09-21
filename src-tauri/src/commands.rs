@@ -1,7 +1,10 @@
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
-use crate::database::{self, CreateGameInput, DatabaseState, Game, Settings, UpdateGameInput};
+use crate::{
+    database::{self, CreateGameInput, DatabaseState, Game, Settings, UpdateGameInput},
+    steam_local,
+};
 
 #[derive(Serialize)]
 pub struct AppInfo {
@@ -58,4 +61,9 @@ pub fn update_game(
 #[tauri::command]
 pub fn remove_game(state: State<'_, DatabaseState>, id: String) -> Result<(), String> {
     database::remove_game(&state, &id)
+}
+
+#[tauri::command]
+pub fn scan_steam_installations() -> steam_local::SteamScan {
+    steam_local::scan_default_installations()
 }

@@ -11,7 +11,7 @@
     type Settings,
     type Theme,
   } from "./lib/services/local-state";
-
+  import { scanSteamInstallations, type SteamScan } from "./lib/services/steam";
   type LoadState = "loading" | "ready" | "error";
 
   let appInfo = $state<AppInfo | null>(null);
@@ -24,6 +24,8 @@
   let message = $state<string | null>(null);
   let nameDraft = $state("");
   let steamIdDraft = $state("");
+  let steamScan = $state<SteamScan | null>(null);
+  let scanningSteam = $state(false);
   let systemPrefersDark = $state(window.matchMedia("(prefers-color-scheme: dark)").matches);
   const darkTheme = $derived(settings.theme === "dark" || (settings.theme === "system" && systemPrefersDark));
 
@@ -123,6 +125,20 @@
     }
   }
 
+  async function scanSteam() {
+    scanningSteam = true;
+    error = null;
+    message = null;
+    try {
+      steamScan = await scanSteamInstallations();
+      message = "Steam installation scan completed.";
+    } catch (reason) {
+      error = messageFor(reason);
+    } finally {
+      scanningSteam = false;
+    }
+  }
+
   $effect(() => {
     void loadAppInfo();
     void loadLocalState();
@@ -218,6 +234,29 @@
               </form>
             {/each}
           </div>
+        {/if}
+      </section>
+
+      <section class="mt-8" aria-labelledby="steam-heading">
+        <h2 id="steam-heading" class="text-xl font-semibold">Local Steam detection</h2>
+        <p class="mt-2 text-sm text-slate-400">Scans supported default Steam locations without sending local data remotely.</p>
+        <button class="mt-4 rounded bg-amber-400 px-3 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50" type="button" disabled={scanningSteam} onclick={scanSteam}>
+          {scanningSteam ? "Scanning..." : "Scan local Steam installations"}
+        </button>
+        {#if steamScan}
+          <p class="mt-3 text-sm">Detected {steamScan.games.length} installed Steam game{steamScan.games.length === 1 ? "" : "s"}.</p>
+          {#if steamScan.games.length > 0}
+            <ul class="mt-3 space-y-2 text-sm">
+              {#each steamScan.games as game (game.appId)}
+                <li class="rounded border border-slate-800 p-3">{game.name} (Steam App ID {game.appId})</li>
+              {/each}
+            </ul>
+          {/if}
+          {#if steamScan.diagnostics.length > 0}
+            <ul class="mt-3 list-disc space-y-1 pl-5 text-xs text-slate-400">
+              {#each steamScan.diagnostics as diagnostic (diagnostic)}<li>{diagnostic}</li>{/each}
+            </ul>
+          {/if}
         {/if}
       </section>
     {/if}

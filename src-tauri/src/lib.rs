@@ -2,6 +2,7 @@ use tauri::Manager;
 
 mod commands;
 mod database;
+mod steam_local;
 
 pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
@@ -17,6 +18,7 @@ pub fn run() -> tauri::Result<()> {
             commands::create_game,
             commands::update_game,
             commands::remove_game,
+            commands::scan_steam_installations,
         ])
         .run(tauri::generate_context!())
 }
