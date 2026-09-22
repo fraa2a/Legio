@@ -9,7 +9,7 @@ use tauri::Manager;
 
 use crate::{
     database::{Database, DatabaseState, database_error},
-    network::{NetworkError, NetworkState},
+    network::{NetworkError, NetworkState, is_steam_asset_url},
 };
 
 const CACHE_LIMIT: u32 = 128;
@@ -185,24 +185,7 @@ fn steam_image(value: Option<String>) -> Option<String> {
         let Ok(url) = reqwest::Url::parse(value) else {
             return false;
         };
-        url.scheme() == "https"
-            && url.username().is_empty()
-            && url.password().is_none()
-            && url.port().is_none()
-            && url.host_str().is_some_and(|host| {
-                [
-                    "steamstatic.com",
-                    "steamusercontent.com",
-                    "steampowered.com",
-                ]
-                .iter()
-                .any(|domain| {
-                    host == *domain
-                        || host
-                            .strip_suffix(domain)
-                            .is_some_and(|prefix| prefix.ends_with('.'))
-                })
-            })
+        is_steam_asset_url(&url)
     })
 }
 
@@ -359,6 +342,14 @@ fn cached(
             })
         }
     }
+}
+
+pub(crate) fn cached_details(
+    database: &Database,
+    app_id: u32,
+) -> Result<Option<SteamDetails>, DetailsError> {
+    validate_app_id(app_id)?;
+    Ok(cached(database, app_id, now()?)?.details)
 }
 
 pub async fn get_details(

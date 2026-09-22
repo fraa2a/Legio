@@ -33,3 +33,16 @@ export interface SteamDetailsError {
 export function getSteamDetails(steamAppId: number, refresh: boolean): Promise<SteamDetailsResult> {
   return invoke<SteamDetailsResult>("get_steam_details", { steamAppId, refresh });
 }
+
+export type SteamAssetKind = "header" | "capsule" | "screenshot";
+
+export interface SteamAsset {
+  bytes: number[];
+  contentType: string;
+  stale: boolean;
+  cacheWarning: string | null;
+}
+
+export function getSteamAsset(steamAppId: number, asset: SteamAssetKind, index?: number): Promise<SteamAsset> {
+  return invoke<SteamAsset>("get_steam_asset", { steamAppId, asset, index });
+}
