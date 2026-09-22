@@ -577,7 +577,11 @@ mod tests {
             .unwrap();
         assert_eq!(version, SCHEMA_VERSION + 1);
         let theme: String = connection
-            .query_row("SELECT value FROM settings WHERE key = 'theme'", [], |row| row.get(0))
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'theme'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(theme, "light");
         fs::remove_dir_all(directory).unwrap();
