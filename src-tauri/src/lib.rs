@@ -3,6 +3,7 @@ use tauri::Manager;
 mod catalog;
 mod commands;
 mod database;
+mod diagnostics;
 mod network;
 mod steam_details;
 mod steam_import;
@@ -12,10 +13,17 @@ pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
         .setup(|app| {
             app.manage(database::DatabaseState::new(app.path().app_data_dir()));
-            app.manage(
-                network::NetworkState::new(&app.package_info().version.to_string())
-                    .map_err(std::io::Error::other)?,
+            let diagnostics = diagnostics::Diagnostics::new(
+                app.path().app_log_dir().map_err(|error| error.to_string()),
             );
+            app.manage(
+                network::NetworkState::new(
+                    &app.package_info().version.to_string(),
+                    diagnostics.clone(),
+                )
+                .map_err(std::io::Error::other)?,
+            );
+            app.manage(diagnostics);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -29,6 +37,7 @@ pub fn run() -> tauri::Result<()> {
             commands::scan_steam_installations,
             commands::import_steam_installations,
             commands::get_network_status,
+            commands::get_network_log_status,
             commands::check_steam_connectivity,
             commands::search_catalog,
             commands::refresh_catalog,

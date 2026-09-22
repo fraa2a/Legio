@@ -3,6 +3,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::{
     database::{self, CreateGameInput, DatabaseState, Game, Settings, UpdateGameInput},
+    diagnostics::{Diagnostics, LogStatus},
     network::{ConnectivityCheck, NetworkState, NetworkStatus},
     steam_local,
 };
@@ -82,6 +83,11 @@ pub async fn import_steam_installations(
 
 #[tauri::command]
 pub fn get_network_status(state: State<'_, NetworkState>) -> Result<NetworkStatus, String> {
+    state.status()
+}
+
+#[tauri::command]
+pub fn get_network_log_status(state: State<'_, Diagnostics>) -> LogStatus {
     state.status()
 }
 
