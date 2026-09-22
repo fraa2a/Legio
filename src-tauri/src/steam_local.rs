@@ -353,6 +353,36 @@ fn read_metadata(path: &Path) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
+#[cfg(any(windows, test))]
+fn windows_installation_roots(
+    program_files_x86: Option<std::ffi::OsString>,
+    program_files: Option<std::ffi::OsString>,
+) -> Vec<PathBuf> {
+    [program_files_x86, program_files]
+        .into_iter()
+        .flatten()
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .map(|path| path.join("Steam"))
+        .collect()
+}
+
+#[cfg(windows)]
+pub fn scan_default_installations() -> SteamScan {
+    let roots = windows_installation_roots(
+        env::var_os("ProgramFiles(x86)"),
+        env::var_os("ProgramFiles"),
+    );
+    if roots.is_empty() {
+        return SteamScan {
+            games: Vec::new(),
+            diagnostics: vec!["Program Files directories are unavailable".to_owned()],
+        };
+    }
+    scan_installations(roots)
+}
+
+#[cfg(not(windows))]
 pub fn scan_default_installations() -> SteamScan {
     let Some(home) = env::var_os("HOME") else {
         return SteamScan {
@@ -538,6 +568,31 @@ mod tests {
         fn drop(&mut self) {
             fs::remove_dir_all(&self.0).unwrap();
         }
+    }
+
+    #[test]
+    fn windows_default_roots_scan_both_program_files_directories() {
+        let fixture = Fixture::new();
+        fixture.library("Program Files (x86)/Steam", 1);
+        fixture.library("Program Files/Steam", 2);
+        let roots = windows_installation_roots(
+            Some(fixture.0.join("Program Files (x86)").into_os_string()),
+            Some(fixture.0.join("Program Files").into_os_string()),
+        );
+        let scan = scan_installations(roots);
+        assert_eq!(
+            scan.games
+                .iter()
+                .map(|game| game.app_id)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        assert!(scan.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn windows_default_roots_ignore_relative_paths() {
+        assert!(windows_installation_roots(Some("relative".into()), None).is_empty());
     }
 
     #[test]
