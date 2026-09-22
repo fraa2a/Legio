@@ -4,6 +4,7 @@ mod catalog;
 mod commands;
 mod database;
 mod network;
+mod steam_details;
 mod steam_import;
 mod steam_local;
 
@@ -31,6 +32,7 @@ pub fn run() -> tauri::Result<()> {
             commands::check_steam_connectivity,
             commands::search_catalog,
             commands::refresh_catalog,
+            commands::get_steam_details,
         ])
         .run(tauri::generate_context!())
 }

@@ -7,6 +7,7 @@ const REQUEST_TIMEOUT_SECONDS: u64 = 10;
 const CONNECTIVITY_URL: &str = "https://store.steampowered.com/";
 const HYDRA_SEARCH_URL: &str = "https://hydra-api-us-east-1.losbroxas.org/catalogue/search";
 const MAX_CATALOG_BYTES: usize = 2 * 1024 * 1024;
+const STEAM_DETAILS_URL: &str = "https://store.steampowered.com/api/appdetails";
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -73,15 +74,32 @@ impl NetworkState {
         self.post_catalog(HYDRA_SEARCH_URL, body).await
     }
 
+    pub async fn steam_details(&self, app_id: u32) -> Result<Vec<u8>, NetworkError> {
+        self.get_steam_details(STEAM_DETAILS_URL, app_id).await
+    }
+
+    async fn get_steam_details(&self, url: &str, app_id: u32) -> Result<Vec<u8>, NetworkError> {
+        let response = self
+            .client
+            .get(format!("{url}?appids={app_id}&l=english"))
+            .send()
+            .await?;
+        Self::read_bounded(response).await
+    }
+
     // Dropping this future cancels the request and body read without background work.
     async fn post_catalog(&self, url: &str, body: Vec<u8>) -> Result<Vec<u8>, NetworkError> {
-        let mut response = self
+        let response = self
             .client
             .post(url)
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .body(body)
             .send()
             .await?;
+        Self::read_bounded(response).await
+    }
+
+    async fn read_bounded(mut response: reqwest::Response) -> Result<Vec<u8>, NetworkError> {
         if !response.status().is_success() {
             return Err(NetworkError::Http {
                 status: response.status().as_u16(),
@@ -154,7 +172,7 @@ mod tests {
                         .strip_prefix("content-length: ")
                         .map(str::to_owned)
                 })
-                .unwrap()
+                .unwrap_or_else(|| "0".to_owned())
                 .parse()
                 .unwrap();
             let mut body = vec![0; length];
@@ -164,6 +182,19 @@ mod tests {
             request + &String::from_utf8(body).unwrap()
         });
         (url, thread)
+    }
+
+    #[test]
+    fn steam_details_requests_one_public_app_without_credentials() {
+        let (url, server) =
+            server(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}".to_vec());
+        let state = NetworkState::new("0.1.0").unwrap();
+        let bytes = tauri::async_runtime::block_on(state.get_steam_details(&url, 400)).unwrap();
+        assert_eq!(bytes, b"{}");
+        let request = server.join().unwrap();
+        assert!(request.starts_with("GET /catalogue/search?appids=400&l=english HTTP/1.1"));
+        assert!(!request.to_ascii_lowercase().contains("authorization:"));
+        assert!(!request.to_ascii_lowercase().contains("cookie:"));
     }
 
     #[test]

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getAppInfo, type AppInfo } from "./lib/services/app";
   import CatalogVerification from "./lib/components/CatalogVerification.svelte";
+  import SteamDetailsVerification from "./lib/components/SteamDetailsVerification.svelte";
   import {
     createGame,
     getSettings,
@@ -223,7 +224,7 @@
     <p class="text-sm font-semibold tracking-[0.2em] text-amber-400 uppercase">Legio</p>
     <h1 class="mt-3 text-3xl font-semibold">Backend verification</h1>
     <p class="mt-3 text-sm text-slate-400">
-      Functional local state, Steam detection, catalog search, and connectivity testing. This is not the final product UI.
+      Functional local state, Steam detection, catalog search, Steam details, and connectivity testing. This is not the final product UI.
     </p>
 
     {#if appInfoState === "loading"}
@@ -354,6 +355,7 @@
     </section>
 
     <CatalogVerification />
+    <SteamDetailsVerification />
 
     <section class="mt-8" aria-labelledby="network-heading">
       <h2 id="network-heading" class="text-xl font-semibold">Steam connectivity</h2>
