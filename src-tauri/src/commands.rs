@@ -1,5 +1,5 @@
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::{
     database::{self, CreateGameInput, DatabaseState, Game, Settings, UpdateGameInput},
@@ -67,6 +67,17 @@ pub fn remove_game(state: State<'_, DatabaseState>, id: String) -> Result<(), St
 #[tauri::command]
 pub fn scan_steam_installations() -> steam_local::SteamScan {
     steam_local::scan_default_installations()
+}
+
+#[tauri::command]
+pub async fn import_steam_installations(
+    app: AppHandle,
+) -> Result<crate::steam_import::SteamImportResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::steam_import::import_default_installations(&app.state::<DatabaseState>())
+    })
+    .await
+    .map_err(|error| format!("Steam import task failed: {error}"))?
 }
 
 #[tauri::command]

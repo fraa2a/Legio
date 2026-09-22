@@ -4,6 +4,7 @@ export interface DetectedSteamGame {
   appId: number;
   name: string;
   installDir: string;
+  installPath: string;
 }
 
 export interface SteamScan {
@@ -13,4 +14,16 @@ export interface SteamScan {
 
 export function scanSteamInstallations(): Promise<SteamScan> {
   return invoke<SteamScan>("scan_steam_installations");
+}
+
+export interface SteamImportResult {
+  detected: number;
+  inserted: number;
+  updated: number;
+  unchanged: number;
+  diagnostics: string[];
+}
+
+export function importSteamInstallations(): Promise<SteamImportResult> {
+  return invoke<SteamImportResult>("import_steam_installations");
 }

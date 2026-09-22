@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 const THEME_KEY: &str = "theme";
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -72,6 +72,7 @@ pub struct Game {
     pub automatic_name: Option<String>,
     pub name_override: Option<String>,
     pub name: String,
+    pub steam_install_path: Option<String>,
 }
 
 pub struct DatabaseState {
@@ -97,7 +98,7 @@ pub struct Database {
 }
 
 impl Database {
-    fn open(data_dir: &Path) -> Result<Self, String> {
+    pub(crate) fn open(data_dir: &Path) -> Result<Self, String> {
         fs::create_dir_all(data_dir)
             .map_err(|error| format!("could not create application data directory: {error}"))?;
         let connection = Connection::open(data_dir.join("legio.sqlite3"))
@@ -148,7 +149,7 @@ impl Database {
         self.with_connection(|connection| {
             let mut statement = connection
                 .prepare(
-                    "SELECT id, steam_app_id, automatic_name, name_override
+                    "SELECT id, steam_app_id, automatic_name, name_override, steam_install_path
                      FROM games ORDER BY COALESCE(name_override, automatic_name), id",
                 )
                 .map_err(database_error)?;
@@ -167,6 +168,7 @@ impl Database {
             automatic_name: None,
             name_override: Some(name.clone()),
             name,
+            steam_install_path: None,
         };
 
         self.with_connection(|connection| {
@@ -190,28 +192,22 @@ impl Database {
         let id = parse_game_id(&input.id)?;
         let automatic_name = optional_name(input.automatic_name, "automatic name")?;
         let name_override = optional_name(input.name_override, "name override")?;
-        let name = effective_name(&automatic_name, &name_override)?;
+        effective_name(&automatic_name, &name_override)?;
 
         self.with_connection(|connection| {
-            let changed = connection
-                .execute(
+            connection
+                .query_row(
                     "UPDATE games
-                     SET steam_app_id = ?2, automatic_name = ?3, name_override = ?4
-                     WHERE id = ?1",
+                     SET steam_install_path = CASE WHEN steam_app_id IS ?2 THEN steam_install_path ELSE NULL END,
+                         steam_app_id = ?2, automatic_name = ?3, name_override = ?4
+                     WHERE id = ?1
+                     RETURNING id, steam_app_id, automatic_name, name_override, steam_install_path",
                     params![id, input.steam_app_id, automatic_name, name_override],
+                    game_from_row,
                 )
-                .map_err(database_error)?;
-            if changed == 0 {
-                return Err("game was not found".to_owned());
-            }
-
-            Ok(Game {
-                id,
-                steam_app_id: input.steam_app_id,
-                automatic_name,
-                name_override,
-                name,
-            })
+                .optional()
+                .map_err(database_error)?
+                .ok_or_else(|| "game was not found".to_owned())
         })
     }
 
@@ -289,6 +285,14 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             )
             .map_err(database_error)?;
     }
+    if version < 3 {
+        transaction
+            .execute_batch(
+                "ALTER TABLE games ADD COLUMN steam_install_path TEXT;
+                 PRAGMA user_version = 3;",
+            )
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }
 
@@ -312,10 +316,11 @@ fn game_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Game> {
         automatic_name,
         name_override,
         name,
+        steam_install_path: row.get(4)?,
     })
 }
 
-fn required_name(value: String, field: &str) -> Result<String, String> {
+pub(crate) fn required_name(value: String, field: &str) -> Result<String, String> {
     optional_name(Some(value), field)?.ok_or_else(|| format!("{field} is required"))
 }
 
@@ -350,7 +355,7 @@ fn parse_game_id(value: &str) -> Result<String, String> {
         .map_err(|_| "game id is invalid".to_owned())
 }
 
-fn database_error(error: rusqlite::Error) -> String {
+pub(crate) fn database_error(error: rusqlite::Error) -> String {
     format!("local database error: {error}")
 }
 
@@ -405,6 +410,66 @@ mod tests {
                 [],
             )
             .unwrap();
+    }
+
+    #[test]
+    fn migrates_v2_preserving_duplicate_games_settings_and_catalog() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(
+            "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             CREATE TABLE games (id TEXT PRIMARY KEY NOT NULL, steam_app_id INTEGER, automatic_name TEXT, name_override TEXT);
+             CREATE INDEX games_steam_app_id_idx ON games (steam_app_id);
+             CREATE TABLE catalog_games (steam_app_id INTEGER PRIMARY KEY, name TEXT NOT NULL, search_name TEXT NOT NULL, fetched_at INTEGER NOT NULL);
+             CREATE TABLE catalog_cache (provider TEXT PRIMARY KEY, query TEXT NOT NULL, fetched_at INTEGER NOT NULL, remote_count INTEGER NOT NULL);
+             INSERT INTO settings VALUES ('theme', 'dark');
+             INSERT INTO games VALUES ('first', 400, 'Portal', 'First copy'), ('second', 400, 'Portal', 'Second copy');
+             INSERT INTO catalog_games VALUES (400, 'Portal', 'portal', 100);
+             INSERT INTO catalog_cache VALUES ('hydra', 'portal', 100, 1);
+             PRAGMA user_version = 2;"
+        ).unwrap();
+        migrate(&connection).unwrap();
+        migrate(&connection).unwrap();
+        let catalog_name: String = connection
+            .query_row(
+                "SELECT name FROM catalog_games WHERE steam_app_id = 400",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(catalog_name, "Portal");
+        let cached_query: String = connection
+            .query_row(
+                "SELECT query FROM catalog_cache WHERE provider = 'hydra'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(cached_query, "portal");
+        let database = Database {
+            connection: Mutex::new(connection),
+        };
+        assert_eq!(database.settings().unwrap().theme, Theme::Dark);
+        assert_eq!(
+            database.games().unwrap(),
+            vec![
+                Game {
+                    id: "first".to_owned(),
+                    steam_app_id: Some(400),
+                    automatic_name: Some("Portal".to_owned()),
+                    name_override: Some("First copy".to_owned()),
+                    name: "First copy".to_owned(),
+                    steam_install_path: None
+                },
+                Game {
+                    id: "second".to_owned(),
+                    steam_app_id: Some(400),
+                    automatic_name: Some("Portal".to_owned()),
+                    name_override: Some("Second copy".to_owned()),
+                    name: "Second copy".to_owned(),
+                    steam_install_path: None
+                },
+            ]
+        );
     }
 
     fn temporary_directory() -> std::path::PathBuf {
@@ -486,7 +551,7 @@ mod tests {
         database
             .with_connection(|connection| {
                 connection
-                    .execute_batch("PRAGMA user_version = 3")
+                    .execute_batch("PRAGMA user_version = 4")
                     .map_err(database_error)
             })
             .unwrap();
@@ -502,7 +567,7 @@ mod tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
         fs::remove_dir_all(directory).unwrap();
     }
 }
