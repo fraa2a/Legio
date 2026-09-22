@@ -11,7 +11,7 @@ const MAX_OBJECT_DEPTH: usize = 32;
 
 /// Metadata declared by an app manifest, not proof that its files are installed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct InstalledSteamGame {
+pub struct SteamAppManifest {
     pub app_id: u32,
     pub name: String,
     /// A single directory component; filesystem containment still needs checking.
@@ -54,7 +54,7 @@ impl std::error::Error for ManifestDiagnostic {}
 
 /// Parses one quoted KeyValues AppState object, including unknown nested fields.
 /// Input size and nesting are bounded before allocating records or recursing.
-pub fn parse_app_manifest(bytes: &[u8]) -> Result<InstalledSteamGame, ManifestDiagnostic> {
+pub fn parse_app_manifest(bytes: &[u8]) -> Result<SteamAppManifest, ManifestDiagnostic> {
     if bytes.len() > MAX_MANIFEST_BYTES {
         return Err(ManifestDiagnostic::InputTooLarge);
     }
@@ -99,7 +99,7 @@ pub fn parse_app_manifest(bytes: &[u8]) -> Result<InstalledSteamGame, ManifestDi
     {
         return Err(ManifestDiagnostic::InvalidField("installdir"));
     }
-    Ok(InstalledSteamGame {
+    Ok(SteamAppManifest {
         app_id,
         name: name.into_owned(),
         install_dir: install_dir.into_owned(),
@@ -239,6 +239,15 @@ impl<'a> Parser<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct InstalledSteamGame {
+    pub app_id: u32,
+    pub name: String,
+    pub install_dir: String,
+    pub install_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SteamScan {
     pub games: Vec<InstalledSteamGame>,
     pub diagnostics: Vec<String>,
@@ -360,7 +369,7 @@ pub fn scan_default_installations() -> SteamScan {
     ])
 }
 
-fn scan_installations(roots: impl IntoIterator<Item = PathBuf>) -> SteamScan {
+pub(crate) fn scan_installations(roots: impl IntoIterator<Item = PathBuf>) -> SteamScan {
     let mut scan = SteamScan {
         games: Vec::new(),
         diagnostics: Vec::new(),
@@ -470,17 +479,29 @@ fn scan_installations(roots: impl IntoIterator<Item = PathBuf>) -> SteamScan {
                     .push("ignored a Steam manifest with a mismatched filename App ID".to_owned());
                 continue;
             }
-            let installed = common.as_ref().is_some_and(|common| {
-                fs::canonicalize(common.join(&game.install_dir)).is_ok_and(|directory| {
-                    directory.starts_with(common) && directory != *common && directory.is_dir()
-                })
+            let installed = common.as_ref().and_then(|common| {
+                fs::canonicalize(common.join(&game.install_dir))
+                    .ok()
+                    .filter(|directory| {
+                        directory.starts_with(common) && directory != common && directory.is_dir()
+                    })
             });
-            if !installed {
+            let Some(installed) = installed else {
                 scan.diagnostics.push("ignored a Steam manifest whose install directory is unavailable or outside its library".to_owned());
                 continue;
-            }
+            };
+            let Some(install_path) = installed.to_str() else {
+                scan.diagnostics
+                    .push("ignored a Steam installation whose path is not valid UTF-8".to_owned());
+                continue;
+            };
             if seen_games.insert(game.app_id) {
-                scan.games.push(game);
+                scan.games.push(InstalledSteamGame {
+                    app_id: game.app_id,
+                    name: game.name,
+                    install_dir: game.install_dir,
+                    install_path: install_path.to_owned(),
+                });
             }
         }
     }
@@ -744,7 +765,7 @@ mod tests {
             }"#;
         assert_eq!(
             parse_app_manifest(manifest),
-            Ok(InstalledSteamGame {
+            Ok(SteamAppManifest {
                 app_id: 570,
                 name: "Dota 2".into(),
                 install_dir: "dota 2 beta".into(),

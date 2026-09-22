@@ -4,6 +4,7 @@ mod catalog;
 mod commands;
 mod database;
 mod network;
+mod steam_import;
 mod steam_local;
 
 pub fn run() -> tauri::Result<()> {
@@ -25,6 +26,7 @@ pub fn run() -> tauri::Result<()> {
             commands::update_game,
             commands::remove_game,
             commands::scan_steam_installations,
+            commands::import_steam_installations,
             commands::get_network_status,
             commands::check_steam_connectivity,
             commands::search_catalog,
