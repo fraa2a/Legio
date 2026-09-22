@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 const THEME_KEY: &str = "theme";
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -293,6 +293,18 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             )
             .map_err(database_error)?;
     }
+    if version < 4 {
+        transaction
+            .execute_batch(
+                "CREATE TABLE steam_details_cache (
+                steam_app_id INTEGER PRIMARY KEY CHECK (steam_app_id BETWEEN 1 AND 4294967295),
+                details TEXT NOT NULL CHECK (length(CAST(details AS BLOB)) BETWEEN 1 AND 65536),
+                fetched_at INTEGER NOT NULL CHECK (fetched_at >= 0)
+            );
+            PRAGMA user_version = 4;",
+            )
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }
 
@@ -551,23 +563,27 @@ mod tests {
         database
             .with_connection(|connection| {
                 connection
-                    .execute_batch("PRAGMA user_version = 4")
+                    .pragma_update(None, "user_version", SCHEMA_VERSION + 1)
                     .map_err(database_error)
             })
             .unwrap();
         drop(database);
 
-        let error = match Database::open(&directory) {
-            Ok(_) => panic!("an unsupported schema must not open"),
-            Err(error) => error,
-        };
-        assert!(error.contains("newer than this Legio build supports"));
+        assert!(Database::open(&directory).is_err());
 
         let connection = Connection::open(directory.join("legio.sqlite3")).unwrap();
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, SCHEMA_VERSION + 1);
+        let theme: String = connection
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'theme'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(theme, "light");
         fs::remove_dir_all(directory).unwrap();
     }
 }

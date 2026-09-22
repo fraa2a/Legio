@@ -108,3 +108,13 @@ pub async fn refresh_catalog(
 ) -> Result<crate::catalog::CatalogSearch, crate::catalog::CatalogError> {
     crate::catalog::refresh_catalog(app, state.inner(), query).await
 }
+
+#[tauri::command]
+pub async fn get_steam_details(
+    app: AppHandle,
+    state: State<'_, NetworkState>,
+    steam_app_id: u32,
+    refresh: bool,
+) -> Result<crate::steam_details::DetailsResult, crate::steam_details::DetailsError> {
+    crate::steam_details::get_details(app, state.inner(), steam_app_id, refresh).await
+}
