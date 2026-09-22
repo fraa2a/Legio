@@ -14,7 +14,7 @@
     type Theme,
   } from "./lib/services/local-state";
   import { importSteamInstallations, scanSteamInstallations, type SteamImportResult, type SteamScan } from "./lib/services/steam";
-  import { checkSteamConnectivity, getNetworkStatus, type NetworkStatus } from "./lib/services/network";
+  import { checkSteamConnectivity, getNetworkLogStatus, getNetworkStatus, type NetworkLogStatus, type NetworkStatus } from "./lib/services/network";
   type LoadState = "loading" | "ready" | "error";
 
   let appInfo = $state<AppInfo | null>(null);
@@ -38,6 +38,9 @@
   let checkingConnectivity = $state(false);
   let networkError = $state<string | null>(null);
   let networkDetail = $state<string | null>(null);
+  let networkLogStatus = $state<NetworkLogStatus | null>(null);
+  let networkLogState = $state<LoadState>("loading");
+  let networkLogError = $state<string | null>(null);
   let systemPrefersDark = $state(window.matchMedia("(prefers-color-scheme: dark)").matches);
   const darkTheme = $derived(settings.theme === "dark" || (settings.theme === "system" && systemPrefersDark));
 
@@ -198,6 +201,19 @@
       networkState = "error";
     } finally {
       checkingConnectivity = false;
+      void loadNetworkLogStatus();
+    }
+  }
+
+  async function loadNetworkLogStatus() {
+    networkLogState = "loading";
+    networkLogError = null;
+    try {
+      networkLogStatus = await getNetworkLogStatus();
+      networkLogState = "ready";
+    } catch (reason) {
+      networkLogError = messageFor(reason);
+      networkLogState = "error";
     }
   }
 
@@ -205,6 +221,7 @@
     void loadAppInfo();
     void loadLocalState();
     void loadNetworkStatus();
+    void loadNetworkLogStatus();
   });
 
   $effect(() => {
@@ -378,6 +395,29 @@
       {/if}
       {#if networkDetail}
         <p class="mt-3 break-words rounded border border-amber-800 p-4 text-sm" role="alert">{networkDetail}</p>
+      {/if}
+    </section>
+
+    <section class="mt-8" aria-labelledby="network-log-heading">
+      <div class="flex items-baseline justify-between gap-4">
+        <h2 id="network-log-heading" class="text-xl font-semibold">Network diagnostics</h2>
+        <button class="text-sm underline disabled:opacity-50" type="button" disabled={networkLogState === "loading"} onclick={loadNetworkLogStatus}>Reload log status</button>
+      </div>
+      <p class="mt-2 text-sm text-slate-400">Local request outcomes for Steam and Hydra. Logs contain no URLs, request content, or game data.</p>
+      {#if networkLogState === "loading"}
+        <p class="mt-3 text-sm" role="status">Loading local log status...</p>
+      {:else if networkLogError}
+        <p class="mt-3 break-words rounded border border-red-900 bg-red-950/30 p-4 text-sm" role="alert">Could not read log status: {networkLogError}. Retry above.</p>
+      {:else if networkLogStatus}
+        {#if networkLogStatus.lastError}
+          <p class="mt-3 break-words rounded border border-red-900 bg-red-950/30 p-4 text-sm" role="alert">{networkLogStatus.lastError}</p>
+        {:else}
+          <p class="mt-3 text-sm" role="status">Local logging is available.</p>
+        {/if}
+        {#if networkLogStatus.directory}
+          <p class="mt-2 break-all text-xs text-slate-400">Log directory: {networkLogStatus.directory}</p>
+        {/if}
+        <p class="mt-2 text-xs text-slate-400">Pending records: {networkLogStatus.pendingRecords}. Dropped records: {networkLogStatus.droppedRecords}.</p>
       {/if}
     </section>
 
