@@ -950,7 +950,10 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute_batch(
-                        "ALTER TABLE downloads DROP COLUMN staged_path; PRAGMA user_version = 7;",
+                        "ALTER TABLE downloads DROP COLUMN staged_path;
+                         DROP INDEX games_executable_path_idx;
+                         ALTER TABLE games DROP COLUMN executable_path;
+                         PRAGMA user_version = 7;",
                     )
                     .map_err(db_error)
             })
