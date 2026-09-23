@@ -30,6 +30,7 @@ pub enum ManifestDiagnostic {
     MissingField(&'static str),
     InvalidField(&'static str),
     DuplicateField(&'static str),
+    TooManyRecords,
 }
 
 impl fmt::Display for ManifestDiagnostic {
@@ -49,6 +50,7 @@ impl fmt::Display for ManifestDiagnostic {
             Self::MissingField(field) => write!(formatter, "Steam manifest is missing {field}"),
             Self::InvalidField(field) => write!(formatter, "Steam manifest has invalid {field}"),
             Self::DuplicateField(field) => write!(formatter, "Steam manifest repeats {field}"),
+            Self::TooManyRecords => formatter.write_str("Steam account list has too many records"),
         }
     }
 }
@@ -256,6 +258,97 @@ pub struct SteamScan {
     pub diagnostics: Vec<String>,
     #[serde(skip)]
     pub(crate) excluded_non_games: Vec<InstalledSteamGame>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedSteamAccount {
+    pub steam_id: String,
+    pub display_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedSteamAccounts {
+    pub accounts: Vec<SavedSteamAccount>,
+    pub diagnostics: Vec<String>,
+}
+
+const MAX_SAVED_ACCOUNTS: usize = 128;
+
+fn parse_saved_accounts(bytes: &[u8]) -> Result<Vec<SavedSteamAccount>, ManifestDiagnostic> {
+    if bytes.len() > MAX_MANIFEST_BYTES {
+        return Err(ManifestDiagnostic::InputTooLarge);
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| ManifestDiagnostic::InvalidUtf8)?;
+    let mut parser = Parser {
+        text,
+        offset: usize::from(text.starts_with('\u{feff}')) * 3,
+    };
+    if !matches!(parser.next()?, Some(Token::Text(root)) if root.eq_ignore_ascii_case("users"))
+        || !matches!(parser.next()?, Some(Token::Open))
+    {
+        return Err(parser.malformed());
+    }
+    let mut accounts = Vec::new();
+    let mut ids = HashSet::new();
+    loop {
+        let steam_id = match parser.next()? {
+            Some(Token::Close) => break,
+            Some(Token::Text(value)) => value,
+            _ => return Err(parser.malformed()),
+        };
+        let valid_id = steam_id
+            .parse::<u64>()
+            .ok()
+            .filter(|id| *id > 0 && id.to_string() == steam_id)
+            .is_some();
+        if !valid_id {
+            return Err(ManifestDiagnostic::InvalidField("Steam ID"));
+        }
+        if !ids.insert(steam_id.to_string()) {
+            return Err(ManifestDiagnostic::DuplicateField("Steam ID"));
+        }
+        if !matches!(parser.next()?, Some(Token::Open)) {
+            return Err(parser.malformed());
+        }
+        let mut display_name = None;
+        loop {
+            let key = match parser.next()? {
+                Some(Token::Close) => break,
+                Some(Token::Text(key)) => key,
+                _ => return Err(parser.malformed()),
+            };
+            match parser.next()? {
+                Some(Token::Text(value)) if key.eq_ignore_ascii_case("PersonaName") => {
+                    if display_name.is_some() {
+                        return Err(ManifestDiagnostic::DuplicateField("PersonaName"));
+                    }
+                    let name = value.trim();
+                    if name.chars().count() > 200 || name.chars().any(char::is_control) {
+                        return Err(ManifestDiagnostic::InvalidField("PersonaName"));
+                    }
+                    display_name = Some(name.to_owned());
+                }
+                Some(Token::Text(_)) => {}
+                Some(Token::Open) => parser.object(3, &mut Fields::default())?,
+                _ => return Err(parser.malformed()),
+            }
+        }
+        accounts.push(SavedSteamAccount {
+            steam_id: steam_id.into_owned(),
+            display_name: display_name
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| "Steam account".to_owned()),
+        });
+        if accounts.len() > MAX_SAVED_ACCOUNTS {
+            return Err(ManifestDiagnostic::TooManyRecords);
+        }
+    }
+    if parser.next()?.is_some() {
+        return Err(parser.malformed());
+    }
+    Ok(accounts)
 }
 
 fn parse_library_folders(bytes: &[u8]) -> Result<Vec<PathBuf>, ManifestDiagnostic> {
@@ -551,37 +644,129 @@ fn windows_installation_roots(
 }
 
 #[cfg(windows)]
-pub fn scan_default_installations() -> SteamScan {
+fn default_steam_roots() -> Option<Vec<PathBuf>> {
     let roots = windows_installation_roots(
         env::var_os("ProgramFiles(x86)"),
         env::var_os("ProgramFiles"),
     );
-    if roots.is_empty() {
-        return SteamScan {
-            games: Vec::new(),
-            diagnostics: vec!["Program Files directories are unavailable".to_owned()],
-            excluded_non_games: Vec::new(),
-        };
-    }
-    scan_installations(roots)
+    (!roots.is_empty()).then_some(roots)
 }
 
 #[cfg(not(windows))]
-pub fn scan_default_installations() -> SteamScan {
-    let Some(home) = env::var_os("HOME") else {
-        return SteamScan {
-            games: Vec::new(),
-            diagnostics: vec!["home directory is unavailable".to_owned()],
-            excluded_non_games: Vec::new(),
-        };
-    };
-    scan_installations([
+fn default_steam_roots() -> Option<Vec<PathBuf>> {
+    let home = env::var_os("HOME")?;
+    Some(vec![
         PathBuf::from(&home).join(".local/share/Steam"),
         PathBuf::from(&home).join(".steam/steam"),
         PathBuf::from(&home).join(".steam/root"),
         PathBuf::from(&home).join(".steam/debian-installation"),
         PathBuf::from(&home).join(".var/app/com.valvesoftware.Steam/.local/share/Steam"),
     ])
+}
+
+#[cfg(windows)]
+const MISSING_STEAM_ROOTS: &str = "Program Files directories are unavailable";
+#[cfg(not(windows))]
+const MISSING_STEAM_ROOTS: &str = "home directory is unavailable";
+
+pub fn scan_default_installations() -> SteamScan {
+    let Some(roots) = default_steam_roots() else {
+        return SteamScan {
+            games: Vec::new(),
+            diagnostics: vec![MISSING_STEAM_ROOTS.to_owned()],
+            excluded_non_games: Vec::new(),
+        };
+    };
+    scan_installations(roots)
+}
+
+pub fn scan_saved_accounts() -> SavedSteamAccounts {
+    let Some(roots) = default_steam_roots() else {
+        return SavedSteamAccounts {
+            accounts: Vec::new(),
+            diagnostics: vec![MISSING_STEAM_ROOTS.to_owned()],
+        };
+    };
+    scan_saved_accounts_in(roots)
+}
+
+fn scan_saved_accounts_in(roots: impl IntoIterator<Item = PathBuf>) -> SavedSteamAccounts {
+    let mut result = SavedSteamAccounts {
+        accounts: Vec::new(),
+        diagnostics: Vec::new(),
+    };
+    let mut seen_roots = HashSet::new();
+    let mut seen_accounts = HashSet::new();
+    for root in roots {
+        let root = match fs::canonicalize(root) {
+            Ok(root) => root,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                result.diagnostics.push(format!(
+                    "could not access a Steam installation: {:?}",
+                    error.kind()
+                ));
+                continue;
+            }
+        };
+        if !seen_roots.insert(root.clone()) {
+            continue;
+        }
+        let config = root.join("config");
+        match fs::symlink_metadata(&config) {
+            Ok(metadata) if metadata.file_type().is_dir() => {}
+            Ok(_) => {
+                result
+                    .diagnostics
+                    .push("ignored non-directory Steam configuration".to_owned());
+                continue;
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                result.diagnostics.push(format!(
+                    "could not inspect Steam configuration: {:?}",
+                    error.kind()
+                ));
+                continue;
+            }
+        }
+        match read_metadata(&config.join("loginusers.vdf")) {
+            Ok(bytes) => match parse_saved_accounts(&bytes) {
+                Ok(accounts) => {
+                    for account in accounts {
+                        if seen_accounts.insert(account.steam_id.clone()) {
+                            if result.accounts.len() == MAX_SAVED_ACCOUNTS {
+                                if !result.diagnostics.iter().any(|diagnostic| {
+                                    diagnostic == "Steam account list has too many records"
+                                }) {
+                                    result
+                                        .diagnostics
+                                        .push(ManifestDiagnostic::TooManyRecords.to_string());
+                                }
+                                continue;
+                            }
+                            result.accounts.push(account);
+                        }
+                    }
+                }
+                Err(error) => result
+                    .diagnostics
+                    .push(format!("ignored Steam account metadata: {error}")),
+            },
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => result.diagnostics.push(format!(
+                "could not read Steam account metadata: {:?}",
+                error.kind()
+            )),
+        }
+    }
+    result.accounts.sort_by(|left, right| {
+        left.display_name
+            .to_lowercase()
+            .cmp(&right.display_name.to_lowercase())
+            .then_with(|| left.steam_id.cmp(&right.steam_id))
+    });
+    result
 }
 
 pub(crate) fn scan_installations(roots: impl IntoIterator<Item = PathBuf>) -> SteamScan {
@@ -763,6 +948,72 @@ pub(crate) fn scan_installations(roots: impl IntoIterator<Item = PathBuf>) -> St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_accounts_expose_only_ids_and_display_names() {
+        let accounts = parse_saved_accounts(br#""users" {
+            "76561198000000001" { "AccountName" "secret-login" "PersonaName" "Same name" "RememberPassword" "1" }
+            "76561198000000002" { "PersonaName" "Same name" "Token" { "value" "secret-token" } }
+        }"#).unwrap();
+        assert_eq!(accounts.len(), 2);
+        assert_eq!(accounts[0].display_name, "Same name");
+        assert_eq!(accounts[1].display_name, "Same name");
+        let output = serde_json::to_string(&accounts).unwrap();
+        assert!(!output.contains("secret-login"));
+        assert!(!output.contains("secret-token"));
+    }
+
+    #[test]
+    fn saved_account_metadata_is_bounded_and_validated() {
+        assert_eq!(
+            parse_saved_accounts(&vec![b' '; MAX_MANIFEST_BYTES + 1]),
+            Err(ManifestDiagnostic::InputTooLarge)
+        );
+        for text in [
+            r#""users" { "0" { "PersonaName" "Name" } }"#,
+            r#""users" { "01" { "PersonaName" "Name" } }"#,
+            r#""users" { "18446744073709551616" { "PersonaName" "Name" } }"#,
+            r#""users" { "1" { "PersonaName" "Name" } "1" { "PersonaName" "Again" } }"#,
+            r#""users" { "1" { "PersonaName" "Name" } } "extra" "data""#,
+        ] {
+            assert!(parse_saved_accounts(text.as_bytes()).is_err());
+        }
+        let many = format!(
+            r#""users" {{ {} }}"#,
+            (1..=MAX_SAVED_ACCOUNTS + 1)
+                .map(|id| format!(r#""{id}" {{ "PersonaName" "Name" }}"#))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        assert_eq!(
+            parse_saved_accounts(many.as_bytes()),
+            Err(ManifestDiagnostic::TooManyRecords)
+        );
+    }
+
+    #[test]
+    fn saved_account_scan_deduplicates_roots_and_skips_symlinked_metadata() {
+        let fixture = Fixture::new();
+        let root = fixture.0.join("steam");
+        fs::create_dir_all(root.join("config")).unwrap();
+        fs::write(
+            root.join("config/loginusers.vdf"),
+            r#""users" { "76561198000000001" { "PersonaName" "Display" } }"#,
+        )
+        .unwrap();
+        let scan = scan_saved_accounts_in([root.clone(), root.clone()]);
+        assert_eq!(scan.accounts.len(), 1);
+        assert!(scan.diagnostics.is_empty());
+        #[cfg(unix)]
+        {
+            fs::remove_file(root.join("config/loginusers.vdf")).unwrap();
+            std::os::unix::fs::symlink(fixture.0.join("other"), root.join("config/loginusers.vdf"))
+                .unwrap();
+            let scan = scan_saved_accounts_in([root]);
+            assert!(scan.accounts.is_empty());
+            assert_eq!(scan.diagnostics.len(), 1);
+        }
+    }
 
     struct Fixture(PathBuf);
 
