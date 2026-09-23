@@ -127,6 +127,11 @@ jobs:
         shell: bash
         run: corepack pnpm install --frozen-lockfile
 
+      - name: Test Windows Steam discovery
+        if: runner.os == 'Windows'
+        shell: bash
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked steam_local::tests::windows_default_roots
+
       - name: Build Tauri application
         shell: bash
         run: corepack pnpm tauri build --debug --no-bundle
