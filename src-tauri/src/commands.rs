@@ -2,7 +2,9 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
 use crate::{
-    database::{self, CreateGameInput, DatabaseState, Game, Settings, UpdateGameInput},
+    database::{
+        self, AccountCheck, CreateGameInput, DatabaseState, Game, Settings, UpdateGameInput,
+    },
     diagnostics::{Diagnostics, LogStatus},
     network::{ConnectivityCheck, NetworkState, NetworkStatus},
     steam_local,
@@ -63,6 +65,118 @@ pub fn update_game(
 #[tauri::command]
 pub fn remove_game(state: State<'_, DatabaseState>, id: String) -> Result<(), String> {
     database::remove_game(&state, &id)
+}
+
+#[tauri::command]
+pub async fn list_saved_steam_accounts() -> Result<steam_local::SavedSteamAccounts, String> {
+    tauri::async_runtime::spawn_blocking(steam_local::scan_saved_accounts)
+        .await
+        .map_err(|error| format!("Steam account scan task failed: {error}"))
+}
+
+#[tauri::command]
+pub async fn set_game_steam_account_preference(
+    app: AppHandle,
+    game_id: String,
+    steam_id: Option<String>,
+) -> Result<Game, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(ref steam_id) = steam_id {
+            let saved = steam_local::scan_saved_accounts();
+            if !saved
+                .accounts
+                .iter()
+                .any(|account| account.steam_id == *steam_id)
+            {
+                return Err("Steam account is not in the local saved account list".to_owned());
+            }
+        }
+        database::set_game_steam_account(
+            &app.state::<DatabaseState>(),
+            &game_id,
+            steam_id.as_deref(),
+        )
+    })
+    .await
+    .map_err(|error| format!("Steam account preference task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn check_game_steam_account(
+    app: AppHandle,
+    game_id: String,
+) -> Result<AccountCheck, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let check = database::check_game_steam_account(&app.state::<DatabaseState>(), &game_id)?;
+        if check.selected_steam_id.is_none() {
+            return Ok(check);
+        }
+        Ok(check_saved_account_presence(
+            check,
+            &steam_local::scan_saved_accounts(),
+        ))
+    })
+    .await
+    .map_err(|error| format!("Steam account check task failed: {error}"))?
+}
+
+fn check_saved_account_presence(
+    mut check: AccountCheck,
+    saved: &steam_local::SavedSteamAccounts,
+) -> AccountCheck {
+    if let Some(ref id) = check.selected_steam_id
+        && !saved.accounts.iter().any(|account| account.steam_id == *id)
+        && saved.diagnostics.is_empty()
+    {
+        check.status = database::AccountCheckStatus::MissingSavedAccount;
+        check.message = Some(
+            "Selected Steam account is no longer saved. Choose another saved account or clear the preference.",
+        );
+    }
+    check
+}
+
+#[cfg(test)]
+mod account_tests {
+    use super::*;
+    use database::AccountCheckStatus;
+
+    #[test]
+    fn missing_saved_account_is_distinct_from_uncertain_metadata() {
+        let check = AccountCheck {
+            status: AccountCheckStatus::Unknown,
+            account_requirement_met: false,
+            selected_steam_id: Some("76561198000000001".to_owned()),
+            message: None,
+        };
+        let empty = steam_local::SavedSteamAccounts {
+            accounts: vec![],
+            diagnostics: vec![],
+        };
+        let missing = check_saved_account_presence(check.clone(), &empty);
+        assert_eq!(missing.status, AccountCheckStatus::MissingSavedAccount);
+        assert!(!missing.account_requirement_met);
+        assert!(missing.message.unwrap().contains("Choose another"));
+        let uncertain = steam_local::SavedSteamAccounts {
+            accounts: vec![],
+            diagnostics: vec!["unreadable metadata".to_owned()],
+        };
+        assert_eq!(
+            check_saved_account_presence(check.clone(), &uncertain).status,
+            AccountCheckStatus::Unknown
+        );
+        let saved = steam_local::SavedSteamAccounts {
+            accounts: vec![steam_local::SavedSteamAccount {
+                steam_id: "76561198000000001".to_owned(),
+                display_name: "Display".to_owned(),
+            }],
+            diagnostics: vec![],
+        };
+        assert_eq!(
+            check_saved_account_presence(check, &saved).status,
+            AccountCheckStatus::Unknown
+        );
+    }
 }
 
 #[tauri::command]

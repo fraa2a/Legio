@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 const THEME_KEY: &str = "theme";
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -73,6 +73,26 @@ pub struct Game {
     pub name_override: Option<String>,
     pub name: String,
     pub steam_install_path: Option<String>,
+    pub steam_account_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountCheckStatus {
+    NotRequired,
+    MissingSavedAccount,
+    Match,
+    Mismatch,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountCheck {
+    pub status: AccountCheckStatus,
+    pub account_requirement_met: bool,
+    pub selected_steam_id: Option<String>,
+    pub message: Option<&'static str>,
 }
 
 pub struct DatabaseState {
@@ -149,7 +169,7 @@ impl Database {
         self.with_connection(|connection| {
             let mut statement = connection
                 .prepare(
-                    "SELECT id, steam_app_id, automatic_name, name_override, steam_install_path
+                    "SELECT id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id
                      FROM games ORDER BY COALESCE(name_override, automatic_name), id",
                 )
                 .map_err(database_error)?;
@@ -169,6 +189,7 @@ impl Database {
             name_override: Some(name.clone()),
             name,
             steam_install_path: None,
+            steam_account_id: None,
         };
 
         self.with_connection(|connection| {
@@ -199,15 +220,52 @@ impl Database {
                 .query_row(
                     "UPDATE games
                      SET steam_install_path = CASE WHEN steam_app_id IS ?2 THEN steam_install_path ELSE NULL END,
+                         steam_account_id = CASE WHEN steam_app_id IS ?2 THEN steam_account_id ELSE NULL END,
                          steam_app_id = ?2, automatic_name = ?3, name_override = ?4
                      WHERE id = ?1
-                     RETURNING id, steam_app_id, automatic_name, name_override, steam_install_path",
+                     RETURNING id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id",
                     params![id, input.steam_app_id, automatic_name, name_override],
                     game_from_row,
                 )
                 .optional()
                 .map_err(database_error)?
                 .ok_or_else(|| "game was not found".to_owned())
+        })
+    }
+
+    pub fn set_game_steam_account(
+        &self,
+        game_id: &str,
+        steam_id: Option<&str>,
+    ) -> Result<Game, String> {
+        let game_id = parse_game_id(game_id)?;
+        if let Some(steam_id) = steam_id {
+            parse_steam_id(steam_id)?;
+        }
+        self.with_connection(|connection| {
+            connection.query_row(
+                "UPDATE games SET steam_account_id = ?2 WHERE id = ?1 AND (steam_app_id IS NOT NULL OR ?2 IS NULL)
+                 RETURNING id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id",
+                params![game_id, steam_id], game_from_row,
+            ).optional().map_err(database_error)?.ok_or_else(|| "game was not found or has no Steam App ID".to_owned())
+        })
+    }
+
+    pub fn check_game_steam_account(&self, game_id: &str) -> Result<AccountCheck, String> {
+        let game_id = parse_game_id(game_id)?;
+        self.with_connection(|connection| {
+            let selected_steam_id: Option<Option<String>> = connection
+                .query_row(
+                    "SELECT steam_account_id FROM games WHERE id = ?1",
+                    [game_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(database_error)?;
+            let selected_steam_id =
+                selected_steam_id.ok_or_else(|| "game was not found".to_owned())?;
+            // Saved Steam accounts do not establish the active client identity.
+            Ok(account_preflight(selected_steam_id, None))
         })
     }
 
@@ -305,6 +363,14 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             )
             .map_err(database_error)?;
     }
+    if version < 5 {
+        transaction
+            .execute_batch(
+                "ALTER TABLE games ADD COLUMN steam_account_id TEXT;
+             PRAGMA user_version = 5;",
+            )
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }
 
@@ -329,6 +395,7 @@ fn game_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Game> {
         name_override,
         name,
         steam_install_path: row.get(4)?,
+        steam_account_id: row.get(5)?,
     })
 }
 
@@ -367,6 +434,43 @@ fn parse_game_id(value: &str) -> Result<String, String> {
         .map_err(|_| "game id is invalid".to_owned())
 }
 
+fn parse_steam_id(value: &str) -> Result<u64, String> {
+    value
+        .parse::<u64>()
+        .ok()
+        .filter(|id| *id > 0 && id.to_string() == value)
+        .ok_or_else(|| "Steam ID is invalid".to_owned())
+}
+
+pub(crate) fn account_preflight(
+    selected_steam_id: Option<String>,
+    active_steam_id: Option<&str>,
+) -> AccountCheck {
+    let (status, message) = match (selected_steam_id.as_deref(), active_steam_id) {
+        (None, _) => (AccountCheckStatus::NotRequired, None),
+        (Some(selected), Some(active)) if selected == active => (AccountCheckStatus::Match, None),
+        (Some(_), Some(_)) => (
+            AccountCheckStatus::Mismatch,
+            Some("Steam is signed into a different account. Change accounts in Steam and retry."),
+        ),
+        (Some(_), None) => (
+            AccountCheckStatus::Unknown,
+            Some(
+                "Legio cannot verify which Steam account is active. Account-specific launch is unavailable.",
+            ),
+        ),
+    };
+    AccountCheck {
+        account_requirement_met: matches!(
+            status,
+            AccountCheckStatus::NotRequired | AccountCheckStatus::Match
+        ),
+        selected_steam_id,
+        status,
+        message,
+    }
+}
+
 pub(crate) fn database_error(error: rusqlite::Error) -> String {
     format!("local database error: {error}")
 }
@@ -388,6 +492,19 @@ pub fn update_game(state: &DatabaseState, input: UpdateGameInput) -> Result<Game
 }
 pub fn remove_game(state: &DatabaseState, id: &str) -> Result<(), String> {
     state.database()?.remove_game(id)
+}
+pub fn set_game_steam_account(
+    state: &DatabaseState,
+    game_id: &str,
+    steam_id: Option<&str>,
+) -> Result<Game, String> {
+    state.database()?.set_game_steam_account(game_id, steam_id)
+}
+pub fn check_game_steam_account(
+    state: &DatabaseState,
+    game_id: &str,
+) -> Result<AccountCheck, String> {
+    state.database()?.check_game_steam_account(game_id)
 }
 
 #[cfg(test)]
@@ -470,7 +587,8 @@ mod tests {
                     automatic_name: Some("Portal".to_owned()),
                     name_override: Some("First copy".to_owned()),
                     name: "First copy".to_owned(),
-                    steam_install_path: None
+                    steam_install_path: None,
+                    steam_account_id: None
                 },
                 Game {
                     id: "second".to_owned(),
@@ -478,7 +596,8 @@ mod tests {
                     automatic_name: Some("Portal".to_owned()),
                     name_override: Some("Second copy".to_owned()),
                     name: "Second copy".to_owned(),
-                    steam_install_path: None
+                    steam_install_path: None,
+                    steam_account_id: None
                 },
             ]
         );
@@ -549,6 +668,112 @@ mod tests {
             .unwrap_err();
         assert_eq!(error, "a game needs an automatic name or a name override");
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn account_selection_persists_and_app_id_change_clears_it() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let game = database
+            .create_game(CreateGameInput {
+                name: "Test game".to_owned(),
+                steam_app_id: Some(400),
+            })
+            .unwrap();
+        assert_eq!(
+            database.check_game_steam_account(&game.id).unwrap().status,
+            AccountCheckStatus::NotRequired
+        );
+        let selected = database
+            .set_game_steam_account(&game.id, Some("76561198000000001"))
+            .unwrap();
+        assert_eq!(
+            selected.steam_account_id.as_deref(),
+            Some("76561198000000001")
+        );
+        let check = database.check_game_steam_account(&game.id).unwrap();
+        assert_eq!(check.status, AccountCheckStatus::Unknown);
+        assert!(!check.account_requirement_met);
+        assert_eq!(
+            check.selected_steam_id.as_deref(),
+            Some("76561198000000001")
+        );
+        assert_eq!(
+            database
+                .update_game(UpdateGameInput {
+                    id: game.id.clone(),
+                    steam_app_id: Some(400),
+                    automatic_name: None,
+                    name_override: Some("Renamed".to_owned()),
+                })
+                .unwrap()
+                .steam_account_id,
+            selected.steam_account_id
+        );
+        drop(database);
+        let reopened = Database::open(&directory).unwrap();
+        assert_eq!(
+            reopened.games().unwrap()[0].steam_account_id.as_deref(),
+            Some("76561198000000001")
+        );
+        assert_eq!(
+            reopened
+                .update_game(UpdateGameInput {
+                    id: game.id,
+                    steam_app_id: Some(401),
+                    automatic_name: None,
+                    name_override: Some("Renamed".to_owned()),
+                })
+                .unwrap()
+                .steam_account_id,
+            None
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn account_selection_rejects_invalid_ids_and_games_without_steam_app_id() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let game = database
+            .create_game(CreateGameInput {
+                name: "Test game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        for id in ["0", "01", "18446744073709551616", "x"] {
+            assert_eq!(
+                database
+                    .set_game_steam_account(&game.id, Some(id))
+                    .unwrap_err(),
+                "Steam ID is invalid"
+            );
+        }
+        assert_eq!(
+            database
+                .set_game_steam_account(&game.id, Some("76561198000000001"))
+                .unwrap_err(),
+            "game was not found or has no Steam App ID"
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn account_preflight_requires_verified_match_for_selected_account() {
+        let selected = Some("76561198000000001".to_owned());
+        let matched = account_preflight(selected.clone(), Some("76561198000000001"));
+        assert_eq!(matched.status, AccountCheckStatus::Match);
+        assert!(matched.account_requirement_met);
+        let mismatched = account_preflight(selected.clone(), Some("76561198000000002"));
+        assert_eq!(mismatched.status, AccountCheckStatus::Mismatch);
+        assert!(!mismatched.account_requirement_met);
+        assert!(mismatched.message.unwrap().contains("Change accounts"));
+        let unknown = account_preflight(selected, None);
+        assert_eq!(unknown.status, AccountCheckStatus::Unknown);
+        assert!(!unknown.account_requirement_met);
+        let no_requirement = account_preflight(None, None);
+        assert_eq!(no_requirement.status, AccountCheckStatus::NotRequired);
+        assert!(no_requirement.account_requirement_met);
     }
 
     #[test]
