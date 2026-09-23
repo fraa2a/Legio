@@ -56,8 +56,10 @@ Only validated manifests become current, the last valid cache survives bad refre
 ## Open technical decisions
 
 - The project-controlled source URL is `https://source.taxphobia.top/store.json`. The file has not been published yet; refresh must report unavailability until it exists.
-- Define manifest cache age and refresh triggers before 04B.
+- A cached manifest is fresh for 24 hours. Refresh is explicit until the Store flow is implemented.
 
 ## Update notes
 
 04A validates the exact versioned source document, applies a size limit, and retrieves only the fixed HTTPS URL `https://source.taxphobia.top/store.json`. The endpoint may return an availability error until the project publishes `store.json`. Cache retention and catalog merge remain 04B work.
+
+04B stores the validated manifest in a single SQLite row. A failed refresh preserves that row and returns it with a stale warning. Catalog searches report source availability by Steam App ID and keep the catalog title. A missing cache reports unknown availability; an absent ID in a valid cache reports unavailable.
