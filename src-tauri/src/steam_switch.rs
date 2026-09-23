@@ -90,6 +90,7 @@ pub(crate) fn launch(
 
     check_cancel(cancel)?;
     steam_process::steam_executable(&steam_root)?;
+    // Validate the files in memory before closing Steam. No file is written here.
     prepare_file_patches(&steam_root, target_id)?;
     #[cfg(windows)]
     validate_windows_registry()?;
@@ -208,7 +209,7 @@ fn patch_account_chooser(config: &[u8]) -> Result<Vec<u8>, String> {
         &["Software", "Valve", "Steam", "AlwaysShowUserChooser"],
         "0",
     )
-    .map_err(|error| format!("Could not update Steam's account chooser setting: {error}"))
+    .map_err(|error| format!("Could not prepare Steam's account chooser setting: {error}"))
 }
 
 #[cfg(target_os = "linux")]
@@ -218,7 +219,7 @@ fn patch_registry_account(registry: &[u8], account_name: &str) -> Result<Vec<u8>
         &["HKCU", "Software", "Valve", "Steam", "AutoLoginUser"],
         account_name,
     )
-    .map_err(|error| format!("Could not update Steam's selected account: {error}"))
+    .map_err(|error| format!("Could not prepare Steam's selected account: {error}"))
 }
 
 fn saved_account_name(steam_root: &Path, target_id: &str) -> Result<String, String> {
@@ -289,6 +290,13 @@ fn backup_path(path: &Path) -> PathBuf {
 fn apply_file_patches(files: &[FilePatch]) -> Result<(), String> {
     if steam_process::is_running()? {
         return Err("Steam is running; account settings were left untouched".to_owned());
+    }
+    for file in files {
+        if read_bounded_file(&file.path)? != file.original {
+            return Err(
+                "Steam configuration changed before account selection was written".to_owned(),
+            );
+        }
     }
     for file in files {
         create_backup(&file.path, &file.original)?;

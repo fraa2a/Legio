@@ -401,7 +401,9 @@ impl Parser<'_> {
                         self.offset += 1;
                     }
                 }
-                0..=31 => return Err(self.malformed()),
+                0..=31 if !matches!(byte, b'\t' | b'\r' | b'\n') => {
+                    return Err(self.malformed());
+                }
                 _ => self.offset += 1,
             }
         }
@@ -576,6 +578,26 @@ impl Parser<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scalar_upsert_preserves_multiline_quoted_values() {
+        let input = b"\"InstallConfigStore\" { \"Unrelated\" \"line one\r\n\tline two\" \"Software\" { \"Valve\" { \"Steam\" { \"Other\" \"keep\" } } } }";
+        let updated = upsert_keyvalues_scalar(
+            input,
+            &["Software", "Valve", "Steam", "AlwaysShowUserChooser"],
+            "0",
+        )
+        .unwrap();
+        assert!(
+            updated
+                .starts_with(b"\"InstallConfigStore\" { \"Unrelated\" \"line one\r\n\tline two\"")
+        );
+        assert!(
+            std::str::from_utf8(&updated)
+                .unwrap()
+                .contains("\"AlwaysShowUserChooser\" \"0\"")
+        );
+    }
 
     const SAMPLE: &str = "// header\n\"users\" {\n  \"76561198000000001\" {\n    \"AccountName\" \"login-one\"\n    \"PersonaName\" \"Same name\"\n    \"RememberPassword\" \"1\"\n    \"AutoLogin\" \"0\"\n    \"MostRecent\" \"0\"\n    \"AllowAutoLogin\" \"1\"\n    \"FutureField\" { \"nested\" \"preserve me\" }\n  }\n  \"76561198000000002\" {\n    \"AccountName\" \"login-two\"\n    \"RememberPassword\" \"1\"\n    \"AutoLogin\" \"1\"\n    \"MostRecent\" \"1\"\n    \"AllowAutoLogin\" \"1\"\n    \"Unknown\" \"untouched\"\n  }\n}\n";
 
