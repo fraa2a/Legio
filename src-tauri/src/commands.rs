@@ -66,8 +66,10 @@ pub fn remove_game(state: State<'_, DatabaseState>, id: String) -> Result<(), St
 }
 
 #[tauri::command]
-pub fn scan_steam_installations() -> steam_local::SteamScan {
-    steam_local::scan_default_installations()
+pub async fn scan_steam_installations() -> Result<steam_local::SteamScan, String> {
+    tauri::async_runtime::spawn_blocking(steam_local::scan_default_installations)
+        .await
+        .map_err(|error| format!("Steam scan task failed: {error}"))
 }
 
 #[tauri::command]

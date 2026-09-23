@@ -15,6 +15,7 @@ pub struct SteamImportResult {
     pub inserted: usize,
     pub updated: usize,
     pub unchanged: usize,
+    pub removed: usize,
     pub diagnostics: Vec<String>,
 }
 
@@ -32,9 +33,18 @@ fn import_scan(database: &Database, scan: SteamScan) -> Result<SteamImportResult
             inserted: 0,
             updated: 0,
             unchanged: 0,
+            removed: 0,
             diagnostics: scan.diagnostics,
         };
         {
+            let mut remove = transaction
+                .prepare("DELETE FROM games WHERE steam_app_id = ?1 AND automatic_name = ?2 AND steam_install_path = ?3 AND name_override IS NULL")
+                .map_err(database_error)?;
+            for app in scan.excluded_non_games {
+                if let Ok(name) = required_name(app.name, "automatic name") {
+                    result.removed += remove.execute(params![app.app_id, name, app.install_path]).map_err(database_error)?;
+                }
+            }
             let mut count = transaction
                 .prepare("SELECT COUNT(*) FROM games WHERE steam_app_id = ?1")
                 .map_err(database_error)?;
@@ -107,6 +117,26 @@ mod tests {
                 steamapps.join(format!("appmanifest_{app_id}.acf")),
                 format!(
                     r#""AppState" {{ "appid" "{app_id}" "name" "{name}" "installdir" "{directory}" }}"#
+                ),
+            )
+            .unwrap();
+            let mut ids = fs::read_dir(&steamapps)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .filter_map(|name| {
+                    name.to_str().and_then(|name| {
+                        name.strip_prefix("appmanifest_")
+                            .and_then(|name| name.strip_suffix(".acf"))
+                            .and_then(|id| id.parse::<u32>().ok())
+                    })
+                })
+                .collect::<Vec<_>>();
+            ids.sort_unstable();
+            fs::create_dir_all(self.0.join("steam/appcache")).unwrap();
+            fs::write(
+                self.0.join("steam/appcache/appinfo.vdf"),
+                steam_local::appinfo_fixture(
+                    &ids.iter().map(|id| (*id, "Game")).collect::<Vec<_>>(),
                 ),
             )
             .unwrap();
@@ -216,6 +246,52 @@ mod tests {
             })
             .unwrap();
         assert_eq!(reassigned.steam_install_path, None);
+    }
+
+    #[test]
+    fn removes_only_unchanged_automatic_rows_for_non_games() {
+        let fixture = Fixture::new();
+        fixture.install(1, "Game", "Game");
+        fixture.install(2, "Compatibility", "Compatibility");
+        fixture.install(3, "Runtime", "Runtime");
+        let database = Database::open(&fixture.0).unwrap();
+        assert_eq!(import_scan(&database, fixture.scan()).unwrap().inserted, 3);
+        let edited = database
+            .games()
+            .unwrap()
+            .into_iter()
+            .find(|game| game.steam_app_id == Some(3))
+            .unwrap();
+        database
+            .update_game(UpdateGameInput {
+                id: edited.id.clone(),
+                steam_app_id: edited.steam_app_id,
+                automatic_name: edited.automatic_name,
+                name_override: Some("Keep my edited row".to_owned()),
+            })
+            .unwrap();
+        let manual = database
+            .create_game(CreateGameInput {
+                name: "My tool entry".to_owned(),
+                steam_app_id: Some(2),
+            })
+            .unwrap();
+        fs::write(
+            fixture.0.join("steam/appcache/appinfo.vdf"),
+            steam_local::appinfo_fixture(&[(1, "Game"), (2, "Tool"), (3, "Tool")]),
+        )
+        .unwrap();
+        let result = import_scan(&database, fixture.scan()).unwrap();
+        assert_eq!((result.detected, result.removed), (1, 1));
+        let games = database.games().unwrap();
+        assert_eq!(games.len(), 3);
+        assert!(games.iter().any(|game| game.id == manual.id));
+        assert!(
+            games
+                .iter()
+                .any(|game| game.id == edited.id && game.name == "Keep my edited row")
+        );
+        assert!(games.iter().any(|game| game.steam_app_id == Some(1)));
     }
 
     #[test]
