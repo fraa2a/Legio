@@ -6,7 +6,7 @@ use crate::{
         self, AccountCheck, CreateGameInput, DatabaseState, Game, Settings, UpdateGameInput,
     },
     diagnostics::{Diagnostics, LogStatus},
-    legio_source_cache,
+    legio_source_cache, manual_import,
     network::{ConnectivityCheck, NetworkState, NetworkStatus},
     steam_local,
 };
@@ -243,6 +243,43 @@ pub async fn import_steam_installations(
     })
     .await
     .map_err(|error| format!("Steam import task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn scan_game_executables(
+    directory: String,
+    game_name: Option<String>,
+) -> Result<manual_import::ExecutableScan, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        manual_import::scan_directory(&directory, game_name.as_deref())
+    })
+    .await
+    .map_err(|error| format!("Executable scan task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn import_manual_game(
+    app: AppHandle,
+    input: manual_import::ManualImportInput,
+) -> Result<Game, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        manual_import::import(&app.state::<DatabaseState>(), input)
+    })
+    .await
+    .map_err(|error| format!("Manual import task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn set_game_executable(
+    app: AppHandle,
+    game_id: String,
+    executable_path: String,
+) -> Result<Game, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        manual_import::set_executable(&app.state::<DatabaseState>(), &game_id, &executable_path)
+    })
+    .await
+    .map_err(|error| format!("Executable selection task failed: {error}"))?
 }
 
 #[tauri::command]
