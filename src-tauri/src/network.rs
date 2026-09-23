@@ -8,8 +8,10 @@ const CONNECT_TIMEOUT_SECONDS: u64 = 5;
 const REQUEST_TIMEOUT_SECONDS: u64 = 10;
 const CONNECTIVITY_URL: &str = "https://store.steampowered.com/";
 const HYDRA_SEARCH_URL: &str = "https://hydra-api-us-east-1.losbroxas.org/catalogue/search";
+const HYDRA_HOST: &str = "hydra-api-us-east-1.losbroxas.org";
 const MAX_CATALOG_BYTES: usize = 2 * 1024 * 1024;
 const STEAM_DETAILS_URL: &str = "https://store.steampowered.com/api/appdetails";
+const MAX_ASSET_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -57,7 +59,13 @@ impl NetworkState {
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(CONNECT_TIMEOUT_SECONDS))
             .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
-            .redirect(reqwest::redirect::Policy::limited(3))
+            .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                if attempt.previous().len() < 3 && is_approved_redirect(attempt.url()) {
+                    attempt.follow()
+                } else {
+                    attempt.stop()
+                }
+            }))
             .user_agent(format!("Legio/{version}"))
             .build()
             .map_err(|error| format!("could not initialize the network client: {error}"))?;
@@ -82,6 +90,17 @@ impl NetworkState {
         self.get_steam_details(STEAM_DETAILS_URL, app_id).await
     }
 
+    pub async fn steam_asset(&self, url: &str) -> Result<Vec<u8>, NetworkError> {
+        let mut log = self.diagnostics.request(Operation::SteamAsset);
+        let result = async {
+            let response = self.client.get(url).send().await?;
+            Self::read_bounded_to(response, MAX_ASSET_BYTES, &mut log).await
+        }
+        .await;
+        log.finish(&result);
+        result
+    }
+
     async fn get_steam_details(&self, url: &str, app_id: u32) -> Result<Vec<u8>, NetworkError> {
         let mut log = self.diagnostics.request(Operation::SteamDetails);
         let result = async {
@@ -90,7 +109,7 @@ impl NetworkState {
                 .get(format!("{url}?appids={app_id}&l=english"))
                 .send()
                 .await?;
-            Self::read_bounded(response, &mut log).await
+            Self::read_bounded_to(response, MAX_CATALOG_BYTES, &mut log).await
         }
         .await;
         log.finish(&result);
@@ -108,15 +127,16 @@ impl NetworkState {
                 .body(body)
                 .send()
                 .await?;
-            Self::read_bounded(response, &mut log).await
+            Self::read_bounded_to(response, MAX_CATALOG_BYTES, &mut log).await
         }
         .await;
         log.finish(&result);
         result
     }
 
-    async fn read_bounded(
+    async fn read_bounded_to(
         mut response: reqwest::Response,
+        limit: usize,
         log: &mut RequestLog<'_>,
     ) -> Result<Vec<u8>, NetworkError> {
         log.set_status(response.status().as_u16());
@@ -127,14 +147,14 @@ impl NetworkState {
         }
         if response
             .content_length()
-            .is_some_and(|length| length > MAX_CATALOG_BYTES as u64)
+            .is_some_and(|length| length > limit as u64)
         {
             return Err(NetworkError::TooLarge);
         }
         let mut bytes = Vec::new();
         while let Some(chunk) = response.chunk().await? {
             log.set_response_bytes(bytes.len().saturating_add(chunk.len()));
-            if chunk.len() > MAX_CATALOG_BYTES - bytes.len() {
+            if chunk.len() > limit - bytes.len() {
                 return Err(NetworkError::TooLarge);
             }
             bytes.extend_from_slice(&chunk);
@@ -192,6 +212,36 @@ impl NetworkState {
         }
         ConnectivityCheck { status, detail }
     }
+}
+
+pub(crate) fn is_steam_asset_url(url: &reqwest::Url) -> bool {
+    url.scheme() == "https"
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port().is_none()
+        && url.host_str().is_some_and(|host| {
+            [
+                "steamstatic.com",
+                "steamusercontent.com",
+                "steampowered.com",
+            ]
+            .iter()
+            .any(|domain| {
+                host == *domain
+                    || host
+                        .strip_suffix(domain)
+                        .is_some_and(|prefix| prefix.ends_with('.'))
+            })
+        })
+}
+
+fn is_approved_redirect(url: &reqwest::Url) -> bool {
+    is_steam_asset_url(url)
+        || (url.scheme() == "https"
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.port().is_none()
+            && url.host_str() == Some(HYDRA_HOST))
 }
 
 #[cfg(test)]
@@ -455,5 +505,31 @@ mod tests {
         assert_eq!(record["outcome"], "http");
         assert_eq!(record["status"], 503);
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn redirects_only_to_approved_https_hosts() {
+        for url in [
+            "http://store.steampowered.com/image.jpg",
+            "https://steamstatic.com.evil.test/image.jpg",
+            "https://evil.test/image.jpg",
+            "https://user@steamstatic.com/image.jpg",
+        ] {
+            assert!(!is_approved_redirect(&reqwest::Url::parse(url).unwrap()));
+        }
+        assert!(is_approved_redirect(
+            &reqwest::Url::parse("https://cdn.steamstatic.com/image.jpg").unwrap()
+        ));
+        assert!(is_approved_redirect(
+            &reqwest::Url::parse(HYDRA_SEARCH_URL).unwrap()
+        ));
+
+        let (url, server) = server(b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/private\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec());
+        let state = NetworkState::new("0.1.0", Diagnostics::new(Err("test".into()))).unwrap();
+        assert_eq!(
+            tauri::async_runtime::block_on(state.steam_asset(&url)).unwrap_err(),
+            NetworkError::Http { status: 302 }
+        );
+        server.join().unwrap();
     }
 }

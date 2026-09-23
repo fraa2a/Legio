@@ -18,6 +18,7 @@ const QUEUE_CAPACITY: usize = 64;
 pub enum Operation {
     HydraSearch,
     SteamDetails,
+    SteamAsset,
     SteamConnectivity,
 }
 
