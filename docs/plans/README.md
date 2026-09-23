@@ -15,8 +15,8 @@
 | Phase | Status | Dependencies | Next uncompleted milestone |
 | --- | --- | --- | --- |
 | [01 Foundation and application shell](01-foundation-and-application-shell.md) | Completed | None | 02A SQLite initialization and migrations |
-| [02 Local state, settings, and library](02-local-state-settings-and-library.md) | Completed | 01 | 03A HTTP, connectivity, cache, and diagnostics |
-| [03 Steam integration and catalog](03-steam-integration-and-catalog.md) | Planned | 02 | 03A HTTP, connectivity, cache, and diagnostics |
+| [02 Local state, settings, and library](02-local-state-settings-and-library.md) | Completed | 01 | 04A source manifest validation |
+| [03 Steam integration and catalog](03-steam-integration-and-catalog.md) | Completed | 02 | 04A source manifest validation |
 | [04 Legio source, Store, and trust](04-legio-source-store-and-trust.md) | Planned | 03 | Resolve the source URL, then 04A manifest validation |
 | [05 Downloads, installation, and import](05-downloads-installation-and-import.md) | Planned | 04 | 05A persistent download queue |
 | [06 Launch, playtime, and offline](06-launch-playtime-and-offline.md) | Planned | 05 | 06A shared launch lifecycle |
