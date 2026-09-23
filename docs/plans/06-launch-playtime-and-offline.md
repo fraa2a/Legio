@@ -31,7 +31,8 @@ Verification: a controlled executable traverses every stage, termination is obse
 - Launch Steam-managed games through Steam.
 - Enumerate locally saved Steam account IDs and display names using bounded, read-only parsing of Steam-owned local metadata. Do not expose login names, passwords, tokens, or the raw source file.
 - Persist an optional per-game Steam account ID in the local database without changing the game's Steam App ID, internal ID, or manual overrides. A missing or renamed local account must not silently change that selection.
-- Before a game with an account selection launches, verify the active Steam account against the selected ID. Launch through Steam only on a verified match. On mismatch, a missing selected account, or uncertain active identity, return an actionable error and leave the game unlaunched. Recheck after the user changes accounts in Steam.
+- In each Steam game's override settings, provide a toggle for account selection. When enabled, show a dropdown of locally saved account display names backed by SteamID64 values. Distinguish duplicate names, keep a missing selection visible, and require a selected account before saving the enabled override. Add this UI only when the launch check can verify the active account.
+- Ensure Steam is running before a game with an account selection launches, then verify the active Steam account against the selected ID. Launch through Steam only on a verified match. On mismatch, a missing selected account, or uncertain active identity, return an actionable error and leave the game unlaunched. Recheck after the user changes accounts in Steam.
 - Never switch accounts by passing credentials, editing Steam account files, or terminating Steam or running games. Do not silently launch under whichever account is active.
 - Launch native Windows games with structured arguments and working directory.
 - Track actual game lifetime rather than short-lived helpers.
