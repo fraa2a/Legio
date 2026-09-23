@@ -136,11 +136,45 @@ fn migrate_legacy_data_dir(data_dir: &Path) -> Result<(), String> {
     if !legacy.is_dir() || legacy.file_type().is_symlink() {
         return Err("previous application data directory is not a regular directory".to_owned());
     }
-    if data_dir.exists() {
+    let current = match fs::symlink_metadata(data_dir) {
+        Ok(metadata) => Some(metadata),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => {
+            return Err(format!(
+                "could not inspect current application data: {error}"
+            ));
+        }
+    };
+    if let Some(current) = current {
+        if !current.is_dir() || current.file_type().is_symlink() {
+            return Err("current application data directory is not a regular directory".to_owned());
+        }
         if data_dir.join("legio.sqlite3").exists() {
             return Ok(());
         }
-        return Err("both previous and current application data directories exist; could not safely migrate the previous data".to_owned());
+        let mut entries = fs::read_dir(data_dir)
+            .map_err(|error| format!("could not inspect current application data: {error}"))?;
+        let generated_only = entries
+            .all(|entry| entry.is_ok_and(|entry| entry.file_name() == "hsts-storage.sqlite"));
+        if !generated_only {
+            return Err("both previous and current application data directories exist; could not safely migrate the previous data".to_owned());
+        }
+        let saved_dir = data_dir.with_file_name("dev.fraa2a.legio.before-migration");
+        if saved_dir.exists() {
+            return Err("a previous application data migration backup already exists".to_owned());
+        }
+        fs::rename(data_dir, &saved_dir).map_err(|error| {
+            format!("could not preserve current application data before migration: {error}")
+        })?;
+        if let Err(error) = fs::rename(&legacy_dir, data_dir) {
+            return Err(match fs::rename(&saved_dir, data_dir) {
+                Ok(()) => format!("could not move previous application data: {error}"),
+                Err(restore_error) => format!(
+                    "could not move previous application data: {error}; could not restore current data: {restore_error}"
+                ),
+            });
+        }
+        return Ok(());
     }
     fs::rename(&legacy_dir, data_dir).map_err(|error| {
         format!("could not move previous application data to the new directory: {error}")
@@ -604,6 +638,37 @@ mod tests {
         assert_eq!(reopened.settings().unwrap().theme, Theme::Light);
         assert_eq!(reopened.games().unwrap().len(), 1);
         drop(reopened);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn moves_previous_data_when_webview_created_hsts_storage_first() {
+        let parent = temporary_directory();
+        let legacy_dir = parent.join("io.legio.launcher");
+        let current_dir = parent.join("dev.fraa2a.legio");
+        let saved_dir = parent.join("dev.fraa2a.legio.before-migration");
+        let database = Database::open(&legacy_dir).unwrap();
+        database
+            .create_game(CreateGameInput {
+                name: "Portal".to_owned(),
+                steam_app_id: Some(400),
+            })
+            .unwrap();
+        drop(database);
+        fs::create_dir(&current_dir).unwrap();
+        fs::write(current_dir.join("hsts-storage.sqlite"), b"new WebView data").unwrap();
+
+        migrate_legacy_data_dir(&current_dir).unwrap();
+
+        assert_eq!(
+            Database::open(&current_dir).unwrap().games().unwrap().len(),
+            1
+        );
+        assert_eq!(
+            fs::read(saved_dir.join("hsts-storage.sqlite")).unwrap(),
+            b"new WebView data"
+        );
+        assert!(!legacy_dir.exists());
         fs::remove_dir_all(parent).unwrap();
     }
 
