@@ -38,7 +38,7 @@ fn import_scan(database: &Database, scan: SteamScan) -> Result<SteamImportResult
         };
         {
             let mut remove = transaction
-                .prepare("DELETE FROM games WHERE steam_app_id = ?1 AND automatic_name = ?2 AND steam_install_path = ?3 AND name_override IS NULL AND steam_account_id IS NULL")
+                .prepare("DELETE FROM games WHERE steam_app_id = ?1 AND automatic_name = ?2 AND steam_install_path = ?3 AND name_override IS NULL AND steam_account_id IS NULL AND executable_path IS NULL")
                 .map_err(database_error)?;
             for app in scan.excluded_non_games {
                 if let Ok(name) = required_name(app.name, "automatic name") {
@@ -46,7 +46,7 @@ fn import_scan(database: &Database, scan: SteamScan) -> Result<SteamImportResult
                 }
             }
             let mut count = transaction
-                .prepare("SELECT COUNT(*) FROM games WHERE steam_app_id = ?1")
+                .prepare("SELECT COUNT(*) FROM games WHERE steam_app_id = ?1 AND executable_path IS NULL")
                 .map_err(database_error)?;
             let mut insert = transaction
                 .prepare(
@@ -57,7 +57,7 @@ fn import_scan(database: &Database, scan: SteamScan) -> Result<SteamImportResult
             let mut update = transaction
                 .prepare(
                     "UPDATE games SET automatic_name = ?2, steam_install_path = ?3
-                     WHERE steam_app_id = ?1
+                     WHERE steam_app_id = ?1 AND executable_path IS NULL
                        AND (automatic_name IS NOT ?2 OR steam_install_path IS NOT ?3)",
                 )
                 .map_err(database_error)?;
@@ -246,6 +246,39 @@ mod tests {
             })
             .unwrap();
         assert_eq!(reassigned.steam_install_path, None);
+    }
+
+    #[test]
+    fn steam_scan_keeps_executable_import_separate_even_with_matching_app_id() {
+        let fixture = Fixture::new();
+        fixture.install(400, "Portal", "Portal");
+        let database = Database::open(&fixture.0).unwrap();
+        let manual = database
+            .create_game(CreateGameInput {
+                name: "My Portal".to_owned(),
+                steam_app_id: Some(400),
+            })
+            .unwrap();
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE games SET executable_path = ?2 WHERE id = ?1",
+                        params![manual.id, "/games/Portal.exe"],
+                    )
+                    .map_err(database_error)?;
+                Ok(())
+            })
+            .unwrap();
+        let result = import_scan(&database, fixture.scan()).unwrap();
+        assert_eq!((result.inserted, result.updated), (1, 0));
+        assert!(
+            database
+                .game(&manual.id)
+                .unwrap()
+                .steam_install_path
+                .is_none()
+        );
     }
 
     #[test]
