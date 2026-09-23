@@ -2191,6 +2191,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-opener",
  "uuid",
+ "winreg",
 ]
 
 [[package]]

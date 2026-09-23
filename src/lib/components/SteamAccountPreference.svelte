@@ -69,7 +69,7 @@
 
 <fieldset class="mt-4 rounded border border-slate-700 p-3" disabled={busy || !game.steamAppId}>
   <legend class="px-1 text-sm font-semibold">Steam account override</legend>
-  <p class="mb-3 text-xs text-slate-400">Testing only: Legio cannot yet verify or switch Steam's active account. Launch is blocked while an account override is saved.</p>
+  <p class="mb-3 text-xs text-slate-400">When Steam is using a different or unknown account, launching asks before switching accounts and may close Steam and running Steam games.</p>
   <label class="flex items-center gap-2 text-sm">
     <input type="checkbox" bind:checked={enabled} /> Use a saved Steam account for this game
   </label>

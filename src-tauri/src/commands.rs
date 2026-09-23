@@ -71,10 +71,23 @@ pub fn remove_game(state: State<'_, DatabaseState>, id: String) -> Result<(), St
 pub async fn launch_steam_game(
     app: AppHandle,
     game_id: String,
-) -> Result<crate::steam_launch::SteamLaunchResult, String> {
-    tauri::async_runtime::spawn_blocking(move || crate::steam_launch::launch(&app, &game_id))
+    confirm_account_switch: bool,
+) -> Result<crate::steam_switch::SteamLaunchResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::steam_switch::launch(&app, &game_id, confirm_account_switch)
+    })
+    .await
+    .map_err(|error| format!("Steam launch task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn inspect_steam_game_launch(
+    app: AppHandle,
+    game_id: String,
+) -> Result<crate::steam_switch::LaunchInspection, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::steam_switch::inspect(&app, &game_id))
         .await
-        .map_err(|error| format!("Steam launch task failed: {error}"))?
+        .map_err(|error| format!("Steam launch inspection task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -179,6 +192,7 @@ mod account_tests {
             accounts: vec![steam_local::SavedSteamAccount {
                 steam_id: "76561198000000001".to_owned(),
                 display_name: "Display".to_owned(),
+                account_name: None,
             }],
             diagnostics: vec![],
         };

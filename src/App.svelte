@@ -3,7 +3,7 @@
   import CatalogVerification from "./lib/components/CatalogVerification.svelte";
   import SteamDetailsVerification from "./lib/components/SteamDetailsVerification.svelte";
   import SteamAccountPreference from "./lib/components/SteamAccountPreference.svelte";
-  import { launchSteamGame } from "./lib/services/steam-accounts";
+  import { inspectSteamGameLaunch, launchSteamGame, type SteamGameLaunchInspection } from "./lib/services/steam-accounts";
   import {
     createGame,
     getSettings,
@@ -26,6 +26,9 @@
   let savedTheme = $state<Theme>("system");
   let games = $state<Game[]>([]);
   let launchingGameId = $state<string | null>(null);
+  let switchingAccount = $state(false);
+  let launchPrompt = $state<{ game: Game; inspection: SteamGameLaunchInspection } | null>(null);
+  let launchDialog: HTMLDialogElement;
   let error = $state<string | null>(null);
   let message = $state<string | null>(null);
   let nameDraft = $state("");
@@ -65,14 +68,51 @@
     error = null;
     message = null;
     try {
-      await launchSteamGame(game.id);
+      const inspection = await inspectSteamGameLaunch(game.id);
+      if (inspection.steamRunning && (inspection.status === "mismatch" || inspection.status === "unknown")) {
+        launchPrompt = { game, inspection };
+        launchDialog.showModal();
+        return;
+      }
+      await launchSteamGame(game.id, false);
       message = `Sent ${game.name} to Steam for launch.`;
     } catch (reason) {
       error = messageFor(reason);
     } finally {
-      launchingGameId = null;
+      if (!launchPrompt) launchingGameId = null;
     }
   }
+
+  function cancelAccountSwitch() {
+    if (switchingAccount) return;
+    launchDialog.close();
+    launchPrompt = null;
+    launchingGameId = null;
+  }
+
+  async function confirmAccountSwitch() {
+    if (!launchPrompt) return;
+    const { game } = launchPrompt;
+    launchingGameId = game.id;
+    switchingAccount = true;
+    error = null;
+    try {
+      await launchSteamGame(game.id, true);
+      message = `Sent ${game.name} to Steam for launch.`;
+    } catch (reason) {
+      error = messageFor(reason);
+    } finally {
+      launchDialog.close();
+      launchPrompt = null;
+      launchingGameId = null;
+      switchingAccount = false;
+    }
+  }
+
+  const launchPromptTitle = $derived(launchPrompt?.inspection.status === "mismatch" ? "Switch Steam account?" : "Steam account could not be verified");
+  const launchPromptDescription = $derived(launchPrompt?.inspection.status === "mismatch"
+    ? `Steam is open as ${launchPrompt.inspection.currentAccountName ?? "another account"}, but ${launchPrompt.game.name} is set to use ${launchPrompt.inspection.targetAccountName ?? "the selected account"}. Continuing will close Steam and any running Steam games, then reopen Steam with the selected account.`
+    : `Steam is running, but Legio could not determine which account it is using for ${launchPrompt?.game.name ?? "this game"}. Continuing will close Steam and any running Steam games, then reopen Steam with the selected account.`);
 
   async function loadAppInfo() {
     appInfoState = "loading";
@@ -333,7 +373,7 @@
                 </div>
                 <p class="mt-3 text-xs text-slate-500">Manual name overrides take precedence over automatic names.</p>
                 <button class="mt-4 rounded bg-amber-400 px-3 py-2 text-sm font-semibold text-slate-950" type="submit">Save entry</button>
-                <button class="ml-3 mt-4 rounded border border-slate-600 px-3 py-2 text-sm disabled:opacity-50" type="button" disabled={launchingGameId === game.id || !game.steamAppId || !game.steamInstallPath} onclick={() => void launchGame(game)}>{launchingGameId === game.id ? "Opening Steam..." : "Launch game"}</button>
+                <button class="ml-3 mt-4 rounded border border-slate-600 px-3 py-2 text-sm disabled:opacity-50" type="button" disabled={launchingGameId === game.id || !game.steamAppId || !game.steamInstallPath} onclick={() => void launchGame(game)}>{launchingGameId === game.id ? "Checking Steam..." : "Launch game"}</button>
                 <SteamAccountPreference {game} onSaved={(updated) => { games = games.map((entry) => entry.id === updated.id ? updated : entry); }} />
               </form>
             {/each}
@@ -450,3 +490,12 @@
     {/if}
   </section>
 </main>
+<dialog bind:this={launchDialog} oncancel={(event) => { event.preventDefault(); cancelAccountSwitch(); }} class="w-[min(32rem,calc(100%-2rem))] rounded-xl border border-slate-700 bg-slate-900 p-6 text-slate-100 backdrop:bg-black/70">
+  <h2 class="text-lg font-semibold" id="launch-prompt-title">{launchPromptTitle}</h2>
+  <p class="mt-3 text-sm text-slate-300" id="launch-prompt-description">{launchPromptDescription}</p>
+  <p class="mt-3 text-xs text-slate-400">Steam may ask you to sign in or complete Steam Guard if the saved session is no longer valid.</p>
+  <div class="mt-5 flex justify-end gap-3">
+    <button class="rounded border border-slate-600 px-3 py-2 text-sm disabled:opacity-50" type="button" disabled={switchingAccount} onclick={cancelAccountSwitch}>Cancel</button>
+    <button class="rounded bg-amber-400 px-3 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50" type="button" disabled={switchingAccount} onclick={() => void confirmAccountSwitch()}>{switchingAccount ? "Switching account..." : "Continue and switch"}</button>
+  </div>
+</dialog>

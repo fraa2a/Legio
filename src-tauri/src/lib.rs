@@ -8,8 +8,10 @@ mod network;
 mod steam_assets;
 mod steam_details;
 mod steam_import;
-mod steam_launch;
 mod steam_local;
+mod steam_process;
+mod steam_switch;
+mod steam_vdf;
 
 pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
@@ -45,6 +47,7 @@ pub fn run() -> tauri::Result<()> {
             commands::update_game,
             commands::remove_game,
             commands::launch_steam_game,
+            commands::inspect_steam_game_launch,
             commands::list_saved_steam_accounts,
             commands::set_game_steam_account_preference,
             commands::check_game_steam_account,
