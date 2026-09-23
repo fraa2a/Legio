@@ -298,8 +298,32 @@ fn linux_selected_account_id(steam_root: &Path) -> Result<Option<String>, String
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(format!("Could not read Steam account selection: {error}")),
     };
-    crate::steam_vdf::selected_account_id(&bytes)
+    selected_account_id_from_loginusers(&bytes)
         .map_err(|error| format!("Could not read Steam account selection: {error}"))
+}
+
+#[cfg(target_os = "linux")]
+fn selected_account_id_from_loginusers(
+    bytes: &[u8],
+) -> Result<Option<String>, crate::steam_vdf::VdfError> {
+    let selected = crate::steam_vdf::selected_account_id(bytes)?;
+    if selected.is_some() {
+        return Ok(selected);
+    }
+
+    let users = crate::steam_vdf::parse_loginusers(bytes)?;
+    // Some Linux Steam installations omit MostRecent for every saved account.
+    if users.iter().any(|user| user.most_recent.is_some()) {
+        return Ok(None);
+    }
+    let mut auto_login = users
+        .iter()
+        .filter(|user| user.auto_login.as_deref() == Some("1"));
+    let selected = auto_login.next();
+    if auto_login.next().is_some() {
+        return Ok(None);
+    }
+    Ok(selected.map(|user| user.steam_id.clone()))
 }
 
 #[cfg(test)]
@@ -324,6 +348,40 @@ mod tests {
     fn selected_account_reader_returns_unknown_without_loginusers_file() {
         let root = std::env::temp_dir().join(format!("legio-steam-process-{}", std::process::id()));
         assert_eq!(linux_selected_account_id(&root).unwrap(), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_selection_uses_unique_auto_login_when_most_recent_is_absent() {
+        let loginusers = br#""users" {
+            "76561198000000001" { "AutoLogin" "1" }
+            "76561198000000002" { "AutoLogin" "0" }
+        }"#;
+        assert_eq!(
+            selected_account_id_from_loginusers(loginusers).unwrap(),
+            Some("76561198000000001".to_owned())
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_selection_stays_unknown_when_auto_login_is_ambiguous_or_conflicting() {
+        let ambiguous = br#""users" {
+            "76561198000000001" { "AutoLogin" "1" }
+            "76561198000000002" { "AutoLogin" "1" }
+        }"#;
+        let conflicting = br#""users" {
+            "76561198000000001" { "AutoLogin" "1" "MostRecent" "0" }
+            "76561198000000002" { "AutoLogin" "0" "MostRecent" "1" }
+        }"#;
+        assert_eq!(
+            selected_account_id_from_loginusers(ambiguous).unwrap(),
+            None
+        );
+        assert_eq!(
+            selected_account_id_from_loginusers(conflicting).unwrap(),
+            None
+        );
     }
 
     #[test]
