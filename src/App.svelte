@@ -2,6 +2,8 @@
   import { getAppInfo, type AppInfo } from "./lib/services/app";
   import CatalogVerification from "./lib/components/CatalogVerification.svelte";
   import SteamDetailsVerification from "./lib/components/SteamDetailsVerification.svelte";
+  import SteamAccountPreference from "./lib/components/SteamAccountPreference.svelte";
+  import { launchSteamGame } from "./lib/services/steam-accounts";
   import {
     createGame,
     getSettings,
@@ -23,6 +25,7 @@
   let settings = $state<Settings>({ theme: "system" });
   let savedTheme = $state<Theme>("system");
   let games = $state<Game[]>([]);
+  let launchingGameId = $state<string | null>(null);
   let error = $state<string | null>(null);
   let message = $state<string | null>(null);
   let nameDraft = $state("");
@@ -55,6 +58,20 @@
 
   function messageFor(error: unknown) {
     return error instanceof Error ? error.message : String(error);
+  }
+
+  async function launchGame(game: Game) {
+    launchingGameId = game.id;
+    error = null;
+    message = null;
+    try {
+      await launchSteamGame(game.id);
+      message = `Sent ${game.name} to Steam for launch.`;
+    } catch (reason) {
+      error = messageFor(reason);
+    } finally {
+      launchingGameId = null;
+    }
   }
 
   async function loadAppInfo() {
@@ -316,6 +333,8 @@
                 </div>
                 <p class="mt-3 text-xs text-slate-500">Manual name overrides take precedence over automatic names.</p>
                 <button class="mt-4 rounded bg-amber-400 px-3 py-2 text-sm font-semibold text-slate-950" type="submit">Save entry</button>
+                <button class="ml-3 mt-4 rounded border border-slate-600 px-3 py-2 text-sm disabled:opacity-50" type="button" disabled={launchingGameId === game.id || !game.steamAppId || !game.steamInstallPath} onclick={() => void launchGame(game)}>{launchingGameId === game.id ? "Opening Steam..." : "Launch game"}</button>
+                <SteamAccountPreference {game} onSaved={(updated) => { games = games.map((entry) => entry.id === updated.id ? updated : entry); }} />
               </form>
             {/each}
           </div>

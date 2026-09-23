@@ -68,6 +68,16 @@ pub fn remove_game(state: State<'_, DatabaseState>, id: String) -> Result<(), St
 }
 
 #[tauri::command]
+pub async fn launch_steam_game(
+    app: AppHandle,
+    game_id: String,
+) -> Result<crate::steam_launch::SteamLaunchResult, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::steam_launch::launch(&app, &game_id))
+        .await
+        .map_err(|error| format!("Steam launch task failed: {error}"))?
+}
+
+#[tauri::command]
 pub async fn list_saved_steam_accounts() -> Result<steam_local::SavedSteamAccounts, String> {
     tauri::async_runtime::spawn_blocking(steam_local::scan_saved_accounts)
         .await

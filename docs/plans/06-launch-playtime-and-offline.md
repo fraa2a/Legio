@@ -31,13 +31,13 @@ Verification: a controlled executable traverses every stage, termination is obse
 - Launch Steam-managed games through Steam.
 - Enumerate locally saved Steam account IDs and display names using bounded, read-only parsing of Steam-owned local metadata. Do not expose login names, passwords, tokens, or the raw source file.
 - Persist an optional per-game Steam account ID in the local database without changing the game's Steam App ID, internal ID, or manual overrides. A missing or renamed local account must not silently change that selection.
-- In each Steam game's override settings, provide a toggle for account selection. When enabled, show a dropdown of locally saved account display names backed by SteamID64 values. Distinguish duplicate names, keep a missing selection visible, and require a selected account before saving the enabled override. Add this UI only when the launch check can verify the active account.
-- Ensure Steam is running before a game with an account selection launches, then verify the active Steam account against the selected ID. Launch through Steam only on a verified match. On mismatch, a missing selected account, or uncertain active identity, return an actionable error and leave the game unlaunched. Recheck after the user changes accounts in Steam.
-- Never switch accounts by passing credentials, editing Steam account files, or terminating Steam or running games. Do not silently launch under whichever account is active.
+- In each Steam game's override settings, provide a toggle for account selection. When enabled, show a dropdown of locally saved account display names backed by SteamID64 values. Distinguish duplicate names, keep a missing selection visible, and require a selected account before saving the enabled override. The testing UI may expose configuration earlier, but its launch button must show that account-specific launch remains blocked until the active account can be verified.
+- Ensure Steam is running before a game with an account selection launches, then verify the active Steam account against the selected ID. Launch through Steam only on a verified match. On a mismatch, show a confirmation that changing accounts may close Steam and running games. If the user confirms and a validated Steam-supported way to restart with that specific saved account exists, switch, verify the active ID again, and only then launch. Cancellation leaves Steam and the game untouched.
+- If the selected account is missing, the active identity is uncertain, or automatic selection cannot be verified, explain the condition and leave the game unlaunched. Never pass credentials in process arguments, edit Steam account files, force-kill processes, or promise an automatic switch without a validated mechanism.
 - Launch native Windows games with structured arguments and working directory.
 - Track actual game lifetime rather than short-lived helpers.
 
-Verification: Steam ownership remains intact and helper-exit scenarios do not prematurely end monitoring. Fixture tests cover missing or malformed account metadata, duplicate display names, stale selections, matching and mismatched active IDs, unknown active identity, and no sensitive fields in errors or logs. Native Linux and Windows checks show that account-specific launch proceeds only after the active Steam ID is verified as the selected ID. Running games are not stopped by Legio.
+Verification: Steam ownership remains intact and helper-exit scenarios do not prematurely end monitoring. Fixture tests cover missing or malformed account metadata, duplicate display names, stale selections, matching and mismatched active IDs, unknown active identity, confirmation cancellation, switch failure, and no sensitive fields in errors or logs. Native Linux and Windows checks show that account-specific launch proceeds only after the active Steam ID is verified as the selected ID. Steam and running games remain open when confirmation is declined.
 
 ### 06C: Sessions, product surfaces, and offline behavior
 
@@ -61,7 +61,7 @@ Supported games launch through the correct owner, actual game lifetime drives se
 ## Open technical decisions
 
 - Define helper-to-game process association rules before 06B.
-- Validate a trustworthy way to read the active desktop Steam account ID on Linux and Windows before enabling account-specific launch. A locally saved account list or a last-used marker does not prove current identity. If identity cannot be verified, keep account-specific launch unavailable with a clear error.
+- Validate a trustworthy way to read the active desktop Steam account ID on Linux and Windows before enabling account-specific launch. A locally saved account list or a last-used marker does not prove current identity. Also validate a Steam-supported way to select a specific saved account after explicit confirmation. If either mechanism is unavailable, keep automatic switching and account-specific launch unavailable with a clear error.
 - Define session crash recovery and overlap rules before 06C.
 
 ## Update notes
