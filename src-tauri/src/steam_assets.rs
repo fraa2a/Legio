@@ -178,6 +178,9 @@ fn prune(directory: &Path) -> io::Result<()> {
     let mut files = Vec::new();
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
         if entry
             .path()
             .extension()
@@ -571,6 +574,23 @@ mod tests {
                 .is_err()
         );
         fs::remove_dir_all(cache.directory().unwrap()).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn broken_symlink_does_not_hide_other_cached_images() {
+        let cache = cache();
+        let url = "https://steamstatic.com/image.jpg";
+        cache.write("400-header", url, JPEG, "image/jpeg").unwrap();
+        let directory = cache.directory().unwrap();
+        std::os::unix::fs::symlink(
+            directory.join("missing.asset"),
+            directory.join("broken.asset"),
+        )
+        .unwrap();
+        assert!(cache.read("400-header", url).unwrap().is_some());
+        cache.write("400-capsule", url, JPEG, "image/jpeg").unwrap();
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
