@@ -41,14 +41,27 @@ pub(crate) fn request_shutdown_and_wait(
     }
 
     let executable = steam_executable(steam_root)?;
-    let status = Command::new(executable)
+    let start = Instant::now();
+    let mut request = Command::new(executable)
         .arg("-shutdown")
-        .status()
+        .spawn()
         .map_err(|error| format!("Could not request Steam shutdown: {error}"))?;
-    if !status.success() {
-        return Err(format!("Steam shutdown request exited with {status}"));
+    loop {
+        if let Some(status) = request
+            .try_wait()
+            .map_err(|error| format!("Could not wait for Steam shutdown request: {error}"))?
+        {
+            if !status.success() {
+                return Err(format!("Steam shutdown request exited with {status}"));
+            }
+            break;
+        }
+        if start.elapsed() >= timeout {
+            return Err("Timed out waiting for Steam shutdown request".to_owned());
+        }
+        thread::sleep(POLL_INTERVAL.min(timeout.saturating_sub(start.elapsed())));
     }
-    wait_until_stopped(timeout)
+    wait_until_stopped(timeout.saturating_sub(start.elapsed()))
 }
 
 pub(crate) fn launch_and_wait_selected_account(
