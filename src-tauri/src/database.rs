@@ -152,13 +152,6 @@ fn migrate_legacy_data_dir(data_dir: &Path) -> Result<(), String> {
         if data_dir.join("legio.sqlite3").exists() {
             return Ok(());
         }
-        let mut entries = fs::read_dir(data_dir)
-            .map_err(|error| format!("could not inspect current application data: {error}"))?;
-        let generated_only = entries
-            .all(|entry| entry.is_ok_and(|entry| entry.file_name() == "hsts-storage.sqlite"));
-        if !generated_only {
-            return Err("both previous and current application data directories exist; could not safely migrate the previous data".to_owned());
-        }
         let saved_dir = data_dir.with_file_name("dev.fraa2a.legio.before-migration");
         if saved_dir.exists() {
             return Err("a previous application data migration backup already exists".to_owned());
@@ -673,18 +666,22 @@ mod tests {
     }
 
     #[test]
-    fn refuses_to_replace_a_partially_initialized_current_directory() {
+    fn preserves_current_data_without_a_database_in_a_backup_directory() {
         let parent = temporary_directory();
         let legacy_dir = parent.join("io.legio.launcher");
         let current_dir = parent.join("dev.fraa2a.legio");
+        let saved_dir = parent.join("dev.fraa2a.legio.before-migration");
         fs::create_dir_all(&legacy_dir).unwrap();
-        fs::create_dir_all(&current_dir).unwrap();
+        fs::create_dir_all(current_dir.join("WebKitCache")).unwrap();
         fs::write(legacy_dir.join("legio.sqlite3"), b"old").unwrap();
-        fs::write(current_dir.join("unknown-data"), b"new").unwrap();
+        fs::write(current_dir.join("WebKitCache/cache-entry"), b"new").unwrap();
 
-        assert!(migrate_legacy_data_dir(&current_dir).is_err());
-        assert_eq!(fs::read(legacy_dir.join("legio.sqlite3")).unwrap(), b"old");
-        assert_eq!(fs::read(current_dir.join("unknown-data")).unwrap(), b"new");
+        migrate_legacy_data_dir(&current_dir).unwrap();
+        assert_eq!(fs::read(current_dir.join("legio.sqlite3")).unwrap(), b"old");
+        assert_eq!(
+            fs::read(saved_dir.join("WebKitCache/cache-entry")).unwrap(),
+            b"new"
+        );
         fs::remove_dir_all(parent).unwrap();
     }
 
