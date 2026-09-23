@@ -29,7 +29,6 @@ pub struct ExecutableScan {
 pub struct ManualImportInput {
     pub executable_path: String,
     pub name: Option<String>,
-    pub steam_app_id: Option<u32>,
 }
 
 pub fn scan_directory(directory: &str, game_name: Option<&str>) -> Result<ExecutableScan, String> {
@@ -137,9 +136,6 @@ fn import_into(database: &Database, input: ManualImportInput) -> Result<Game, St
         .and_then(|name| name.to_str())
         .ok_or("executable filename is invalid")?;
     let name = required_name(input.name.unwrap_or_else(|| stem.to_owned()), "name")?;
-    if input.steam_app_id == Some(0) {
-        return Err("Steam App ID must be positive".to_owned());
-    }
     let executable_path = path
         .to_str()
         .ok_or("executable path is not valid UTF-8")?
@@ -153,8 +149,8 @@ fn import_into(database: &Database, input: ManualImportInput) -> Result<Game, St
             return Err("executable is already in the library".to_owned());
         }
         connection.execute(
-            "INSERT INTO games (id, steam_app_id, name_override, executable_path) VALUES (?1, ?2, ?3, ?4)",
-            params![id, input.steam_app_id, name, executable_path],
+            "INSERT INTO games (id, name_override, executable_path) VALUES (?1, ?2, ?3)",
+            params![id, name, executable_path],
         ).map_err(database_error)?;
         connection.query_row(
             "SELECT id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path FROM games WHERE id = ?1",
@@ -308,7 +304,6 @@ mod tests {
             ManualImportInput {
                 executable_path: executable.to_str().unwrap().to_owned(),
                 name: Some("Portal".to_owned()),
-                steam_app_id: None,
             },
         )
         .unwrap();
