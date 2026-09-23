@@ -31,6 +31,8 @@ Verification: restart, cancellation, retry, offline waiting, Range support, Rang
 
 ### 05B: Verification and safe staged extraction
 
+Status: Backend implemented; manual restart and platform verification remain.
+
 - Verify SHA256 before extraction.
 - Extract supported ZIP, 7z, and RAR archives into staging.
 - Reject traversal, absolute paths, malformed paths, symlink escape, and unsafe expansion.
@@ -41,6 +43,8 @@ Verification: adversarial fixtures cannot escape staging, invalid hashes never i
 
 ### 05C: Executable detection and manual import
 
+Status: Backend implemented; candidate selection and manual import UI remain.
+
 - Rank executable candidates using explicit signals.
 - Ask the user when ranking is ambiguous.
 - Begin manual import from a user-selected executable.
@@ -48,6 +52,8 @@ Verification: adversarial fixtures cannot escape staging, invalid hashes never i
 Verification: clear candidates auto-select, ambiguous candidates require choice, and manual imports create a valid Phase 02 library entry.
 
 ### 05D: Atomic finalization
+
+Status: Not implemented.
 
 - Move staged content safely across filesystems.
 - Make filesystem and database finalization recoverable as one user-visible operation.
@@ -66,8 +72,6 @@ The queue is persistent and controllable, supported archives are verified and ex
 
 ## Open technical decisions
 
-- Resolve archive backend selection and redistribution constraints before 05B.
-- Define invalid-hash removal versus quarantine policy before 05B.
 - Define finalization recovery records before 05D.
 
 ## Update notes
@@ -77,3 +81,5 @@ The queue is persistent and controllable, supported archives are verified and ex
 The `stage_download` command takes a 05A download ID, verifies the queue-owned archive, and persists `staging` then `staged` with a deterministic staging path in schema v8. Startup removes interrupted staging content and returns that job to `downloaded` or `queued`. A hash or extraction failure records `failed`; a database write failure removes newly extracted content and leaves `staging` for startup recovery.
 
 Encrypted archives, multipart archives, self-extracting archives, links, special files, and formats outside ZIP, 7z, and RAR are unsupported. RAR variants unsupported by libarchive return an extraction error. Linux builds need libarchive development headers and a runtime library; Windows builds use a statically linked vcpkg libarchive package. 05D will connect staged content to finalization.
+
+05C backend: executable scanning ranks candidates by game name and directory location, filters common installers and helpers, and returns choices when ranking is ambiguous. Manual import validates a user-selected executable and stores its path in a local library entry. The selected path can be changed later. No selection UI or native launch path is implemented yet; 05D finalization remains.
