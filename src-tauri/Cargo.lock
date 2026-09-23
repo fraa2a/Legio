@@ -2183,6 +2183,7 @@ dependencies = [
 name = "legio"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "reqwest",
  "rusqlite",
  "serde",

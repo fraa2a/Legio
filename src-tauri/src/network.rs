@@ -12,6 +12,7 @@ const HYDRA_HOST: &str = "hydra-api-us-east-1.losbroxas.org";
 const MAX_CATALOG_BYTES: usize = 2 * 1024 * 1024;
 const STEAM_DETAILS_URL: &str = "https://store.steampowered.com/api/appdetails";
 const MAX_ASSET_BYTES: usize = 2 * 1024 * 1024;
+const LEGIO_SOURCE_HOST: &str = "source.taxphobia.top";
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -60,7 +61,13 @@ impl NetworkState {
             .connect_timeout(std::time::Duration::from_secs(CONNECT_TIMEOUT_SECONDS))
             .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
             .redirect(reqwest::redirect::Policy::custom(|attempt| {
-                if attempt.previous().len() < 3 && is_approved_redirect(attempt.url()) {
+                if attempt.previous().len() < 3
+                    && !attempt
+                        .previous()
+                        .iter()
+                        .any(|url| url.host_str() == Some(LEGIO_SOURCE_HOST))
+                    && is_approved_redirect(attempt.url())
+                {
                     attempt.follow()
                 } else {
                     attempt.stop()
@@ -95,6 +102,21 @@ impl NetworkState {
         let result = async {
             let response = self.client.get(url).send().await?;
             Self::read_bounded_to(response, MAX_ASSET_BYTES, &mut log).await
+        }
+        .await;
+        log.finish(&result);
+        result
+    }
+
+    pub async fn legio_source(&self) -> Result<Vec<u8>, NetworkError> {
+        let mut log = self.diagnostics.request(Operation::LegioSource);
+        let result = async {
+            let response = self
+                .client
+                .get(crate::legio_source::SOURCE_URL)
+                .send()
+                .await?;
+            Self::read_bounded_to(response, crate::legio_source::MAX_MANIFEST_BYTES, &mut log).await
         }
         .await;
         log.finish(&result);
