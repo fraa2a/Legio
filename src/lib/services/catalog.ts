@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 export interface CatalogGame {
   steamAppId: number;
   name: string;
+  availability: "unknown" | "unavailable" | "verified" | "unverified";
 }
 
 export interface CatalogSearch {
@@ -10,6 +11,8 @@ export interface CatalogSearch {
   total: number;
   cachedAt: number | null;
   stale: boolean;
+  sourceCachedAt: number | null;
+  sourceStale: boolean;
 }
 
 export function searchCatalog(query: string): Promise<CatalogSearch> {

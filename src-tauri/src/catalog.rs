@@ -9,6 +9,7 @@ use tauri::Manager;
 
 use crate::{
     database::{Database, DatabaseState},
+    legio_source_cache,
     network::{NetworkError, NetworkState},
 };
 
@@ -23,6 +24,16 @@ const STALE_SECONDS: i64 = 24 * 60 * 60;
 pub struct CatalogGame {
     pub steam_app_id: u32,
     pub name: String,
+    pub availability: SourceAvailability,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceAvailability {
+    Unknown,
+    Unavailable,
+    Verified,
+    Unverified,
 }
 
 #[derive(Debug, Serialize)]
@@ -32,6 +43,8 @@ pub struct CatalogSearch {
     pub total: u32,
     pub cached_at: Option<i64>,
     pub stale: bool,
+    pub source_cached_at: Option<i64>,
+    pub source_stale: bool,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -172,6 +185,7 @@ fn decode(bytes: &[u8]) -> Result<CatalogPage, CatalogError> {
         games.push(CatalogGame {
             steam_app_id,
             name: name.to_owned(),
+            availability: SourceAvailability::Unknown,
         });
     }
     Ok(CatalogPage {
@@ -235,9 +249,40 @@ fn search(
         let last_refresh: Option<i64> = connection.query_row("SELECT fetched_at FROM catalog_cache WHERE provider = 'hydra'", [], |row| row.get(0)).optional().map_err(sql_error)?;
         let cached_at = oldest.or(last_refresh);
         let mut statement = connection.prepare_cached("SELECT steam_app_id, name FROM catalog_games WHERE search_name LIKE ?1 ESCAPE '\\' ORDER BY search_name, steam_app_id LIMIT ?2").map_err(sql_error)?;
-        let games = statement.query_map(params![pattern, LOCAL_LIMIT], |row| Ok(CatalogGame { steam_app_id: row.get(0)?, name: row.get(1)? })).map_err(sql_error)?.collect::<Result<Vec<_>, _>>().map_err(sql_error)?;
-        Ok(CatalogSearch { games, total, cached_at, stale: cached_at.is_none_or(|time| time > current_time || current_time.saturating_sub(time) >= STALE_SECONDS) })
+        let games = statement.query_map(params![pattern, LOCAL_LIMIT], |row| Ok(CatalogGame { steam_app_id: row.get(0)?, name: row.get(1)?, availability: SourceAvailability::Unknown })).map_err(sql_error)?.collect::<Result<Vec<_>, _>>().map_err(sql_error)?;
+        Ok(CatalogSearch { games, total, cached_at, stale: cached_at.is_none_or(|time| time > current_time || current_time.saturating_sub(time) >= STALE_SECONDS), source_cached_at: None, source_stale: true })
     }).map_err(CatalogError::database)
+}
+
+fn merge_source(
+    mut result: CatalogSearch,
+    source: Option<legio_source_cache::CachedSource>,
+    current_time: i64,
+) -> CatalogSearch {
+    if let Some(source) = source {
+        result.source_cached_at = Some(source.fetched_at);
+        result.source_stale = legio_source_cache::is_stale(source.fetched_at, current_time);
+        for game in &mut result.games {
+            game.availability = if source
+                .manifest
+                .verified
+                .iter()
+                .any(|entry| entry.steam_app_id == game.steam_app_id)
+            {
+                SourceAvailability::Verified
+            } else if source
+                .manifest
+                .unverified
+                .iter()
+                .any(|entry| entry.steam_app_id == game.steam_app_id)
+            {
+                SourceAvailability::Unverified
+            } else {
+                SourceAvailability::Unavailable
+            };
+        }
+    }
+    result
 }
 
 pub async fn search_catalog(
@@ -247,11 +292,11 @@ pub async fn search_catalog(
     let query = query(&value)?.to_owned();
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatabaseState>();
-        search(
-            state.database().map_err(CatalogError::database)?,
-            &query,
-            now()?,
-        )
+        let database = state.database().map_err(CatalogError::database)?;
+        let current_time = now()?;
+        let result = search(database, &query, current_time)?;
+        let source = legio_source_cache::cached(database).map_err(CatalogError::database)?;
+        Ok(merge_source(result, source, current_time))
     })
     .await
     .map_err(|error| CatalogError::new(CatalogErrorKind::Internal, error.to_string()))?
@@ -276,7 +321,9 @@ pub async fn refresh_catalog(
         let database = state.database().map_err(CatalogError::database)?;
         let now = now()?;
         store(database, &query, &page, now)?;
-        search(database, &query, now)
+        let result = search(database, &query, now)?;
+        let source = legio_source_cache::cached(database).map_err(CatalogError::database)?;
+        Ok(merge_source(result, source, now))
     })
     .await
     .map_err(|error| CatalogError::new(CatalogErrorKind::Internal, error.to_string()))?
@@ -285,6 +332,51 @@ pub async fn refresh_catalog(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::legio_source::parse_manifest;
+
+    #[test]
+    fn merges_source_by_app_id_without_replacing_catalog_identity() {
+        let manifest = parse_manifest(br#"{"schemaVersion":1,"generatedAt":"2026-09-22T00:00:00Z","verified":[{"steamAppId":400,"name":"Source title","release":{"version":"1","publishedAt":"2026-09-22T00:00:00Z"},"download":{"url":"https://example.invalid/a.zip","sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","sizeBytes":1}}],"unverified":[{"steamAppId":401,"name":"Other source title","release":{"version":"1","publishedAt":"2026-09-22T00:00:00Z"},"download":{"url":"https://example.invalid/b.zip","sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","sizeBytes":1}}]}"#).unwrap();
+        let games = [400, 401, 402]
+            .into_iter()
+            .map(|steam_app_id| CatalogGame {
+                steam_app_id,
+                name: format!("Catalog {steam_app_id}"),
+                availability: SourceAvailability::Unknown,
+            })
+            .collect();
+        let search = CatalogSearch {
+            games,
+            total: 3,
+            cached_at: Some(100),
+            stale: false,
+            source_cached_at: None,
+            source_stale: true,
+        };
+        let merged = merge_source(
+            search,
+            Some(legio_source_cache::CachedSource {
+                manifest,
+                fetched_at: 100,
+            }),
+            101,
+        );
+        assert_eq!(
+            merged
+                .games
+                .iter()
+                .map(|game| game.availability)
+                .collect::<Vec<_>>(),
+            vec![
+                SourceAvailability::Verified,
+                SourceAvailability::Unverified,
+                SourceAvailability::Unavailable
+            ]
+        );
+        assert_eq!(merged.games[0].name, "Catalog 400");
+        assert_eq!(merged.source_cached_at, Some(100));
+        assert!(!merged.source_stale);
+    }
 
     #[test]
     fn isolates_steam_identity_and_ignores_provider_download_sources() {
@@ -293,12 +385,13 @@ mod tests {
             page.games,
             vec![CatalogGame {
                 steam_app_id: 400,
-                name: "Portal".into()
+                name: "Portal".into(),
+                availability: SourceAvailability::Unknown,
             }]
         );
         assert_eq!(
             serde_json::to_value(&page.games).unwrap(),
-            serde_json::json!([{"steamAppId":400,"name":"Portal"}])
+            serde_json::json!([{"steamAppId":400,"name":"Portal","availability":"unknown"}])
         );
     }
 
@@ -330,6 +423,7 @@ mod tests {
             games: vec![CatalogGame {
                 steam_app_id: 400,
                 name: "Portal 100%_É".into(),
+                availability: SourceAvailability::Unknown,
             }],
             remote_count: 1,
         };
@@ -362,6 +456,7 @@ mod tests {
             games: vec![CatalogGame {
                 steam_app_id: 400,
                 name: "Portal".into(),
+                availability: SourceAvailability::Unknown,
             }],
             remote_count: 1,
         };
@@ -371,10 +466,12 @@ mod tests {
                 CatalogGame {
                     steam_app_id: 400,
                     name: "Changed".into(),
+                    availability: SourceAvailability::Unknown,
                 },
                 CatalogGame {
                     steam_app_id: 0,
                     name: "Invalid".into(),
+                    availability: SourceAvailability::Unknown,
                 },
             ],
             remote_count: 2,
@@ -398,6 +495,7 @@ mod tests {
                 .map(|id| CatalogGame {
                     steam_app_id: id,
                     name: format!("Game {id:05}"),
+                    availability: SourceAvailability::Unknown,
                 })
                 .collect(),
             remote_count: CACHE_LIMIT + 1,
@@ -407,6 +505,7 @@ mod tests {
             games: vec![CatalogGame {
                 steam_app_id: CACHE_LIMIT + 2,
                 name: "Newest".into(),
+                availability: SourceAvailability::Unknown,
             }],
             remote_count: 1,
         };

@@ -6,7 +6,7 @@ use crate::{
         self, AccountCheck, CreateGameInput, DatabaseState, Game, Settings, UpdateGameInput,
     },
     diagnostics::{Diagnostics, LogStatus},
-    legio_source,
+    legio_source_cache,
     network::{ConnectivityCheck, NetworkState, NetworkStatus},
     steam_local,
 };
@@ -257,9 +257,17 @@ pub fn get_network_log_status(state: State<'_, Diagnostics>) -> LogStatus {
 
 #[tauri::command]
 pub async fn get_legio_source(
+    app: AppHandle,
+) -> Result<legio_source_cache::SourceSnapshot, String> {
+    legio_source_cache::cached_source(app).await
+}
+
+#[tauri::command]
+pub async fn refresh_legio_source(
+    app: AppHandle,
     state: State<'_, NetworkState>,
-) -> Result<legio_source::Manifest, String> {
-    legio_source::fetch_manifest(state.inner()).await
+) -> Result<legio_source_cache::SourceSnapshot, String> {
+    legio_source_cache::refresh_source(app, state.inner()).await
 }
 
 #[tauri::command]
