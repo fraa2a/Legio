@@ -183,6 +183,8 @@ impl GameLaunchManager {
             return;
         }
         let started = Instant::now();
+        let mut steam_progress = SteamLaunchProgress::default();
+        let mut cancelled_without_process_since = None;
         loop {
             match game_process::matching_pids(app_id, &install_path) {
                 Ok(pids) if !pids.is_empty() => {
@@ -199,14 +201,37 @@ impl GameLaunchManager {
                     return;
                 }
             }
-            if let Some(error) = steam_log.launch_failure(app_id) {
-                self.set_state(&game_id, GameStatus::Idle, Some(error));
-                return;
+            while let Some(event) = steam_log.launch_event(app_id) {
+                if let Some(error) = steam_progress.observe(event) {
+                    let error = (!cancel.load(Ordering::Acquire)).then_some(error);
+                    self.set_state(&game_id, GameStatus::Idle, error);
+                    return;
+                }
+            }
+            if cancel.load(Ordering::Acquire)
+                && steam_progress.completed
+                && steam_progress.active_processes == 0
+            {
+                let since = cancelled_without_process_since.get_or_insert_with(Instant::now);
+                if since.elapsed() >= EXIT_GRACE {
+                    self.set_state(&game_id, GameStatus::Idle, None);
+                    return;
+                }
+            } else {
+                cancelled_without_process_since = None;
             }
             if started.elapsed() >= START_TIMEOUT {
-                let error = (!cancel.load(Ordering::Acquire)).then_some(
-                    "Steam did not start a detectable game process within two minutes".to_owned(),
-                );
+                let error = if cancel.load(Ordering::Acquire) {
+                    (steam_progress.active_processes > 0).then_some(
+                        "Steam did not confirm that the game launch stopped within two minutes"
+                            .to_owned(),
+                    )
+                } else {
+                    Some(
+                        "Steam did not start a detectable game process within two minutes"
+                            .to_owned(),
+                    )
+                };
                 self.set_state(&game_id, GameStatus::Idle, error);
                 return;
             }
@@ -255,6 +280,45 @@ struct SteamLaunchLog {
     pending: Vec<u8>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum SteamLaunchEvent {
+    Failed(String),
+    Completed,
+    ProcessAdded,
+    ProcessUpdated,
+    ProcessRemoved,
+}
+
+#[derive(Default)]
+struct SteamLaunchProgress {
+    completed: bool,
+    active_processes: usize,
+}
+
+impl SteamLaunchProgress {
+    fn observe(&mut self, event: SteamLaunchEvent) -> Option<String> {
+        match event {
+            SteamLaunchEvent::Failed(error) => Some(error),
+            SteamLaunchEvent::Completed => {
+                self.completed = true;
+                None
+            }
+            SteamLaunchEvent::ProcessAdded => {
+                self.active_processes = self.active_processes.saturating_add(1);
+                None
+            }
+            SteamLaunchEvent::ProcessUpdated => {
+                self.active_processes = self.active_processes.max(1);
+                None
+            }
+            SteamLaunchEvent::ProcessRemoved => {
+                self.active_processes = self.active_processes.saturating_sub(1);
+                None
+            }
+        }
+    }
+}
+
 impl SteamLaunchLog {
     fn new(path: PathBuf) -> Self {
         let offset = fs::metadata(&path)
@@ -267,7 +331,7 @@ impl SteamLaunchLog {
         }
     }
 
-    fn launch_failure(&mut self, app_id: u32) -> Option<String> {
+    fn launch_event(&mut self, app_id: u32) -> Option<SteamLaunchEvent> {
         let mut file = File::open(&self.path).ok()?;
         let len = file.metadata().ok()?.len();
         if len < self.offset {
@@ -283,9 +347,9 @@ impl SteamLaunchLog {
         while let Some(end) = self.pending.iter().position(|byte| *byte == b'\n') {
             let line = self.pending.drain(..=end).collect::<Vec<_>>();
             if let Ok(line) = std::str::from_utf8(&line)
-                && let Some(error) = parse_launch_failure(line, app_id)
+                && let Some(event) = parse_launch_event(line, app_id)
             {
-                return Some(error);
+                return Some(event);
             }
         }
         if self.pending.len() > LOG_LINE_LIMIT {
@@ -295,7 +359,16 @@ impl SteamLaunchLog {
     }
 }
 
-fn parse_launch_failure(line: &str, app_id: u32) -> Option<String> {
+fn parse_launch_event(line: &str, app_id: u32) -> Option<SteamLaunchEvent> {
+    if line.contains(&format!("Game process added : AppID {app_id} ")) {
+        return Some(SteamLaunchEvent::ProcessAdded);
+    }
+    if line.contains(&format!("Game process updated : AppID {app_id} ")) {
+        return Some(SteamLaunchEvent::ProcessUpdated);
+    }
+    if line.contains(&format!("Game process removed: AppID {app_id} ")) {
+        return Some(SteamLaunchEvent::ProcessRemoved);
+    }
     let marker = format!("GameAction [AppID {app_id}, ActionID ");
     let action = line.split_once(&marker)?.1;
     let action = action.split_once("] : LaunchApp ")?.1;
@@ -307,13 +380,22 @@ fn parse_launch_failure(line: &str, app_id: u32) -> Option<String> {
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
         {
-            return Some(format!("Steam refused to launch this game ({code})"));
+            return Some(SteamLaunchEvent::Failed(format!(
+                "Steam refused to launch this game ({code})"
+            )));
         }
-        return Some("Steam refused to launch this game".to_owned());
+        return Some(SteamLaunchEvent::Failed(
+            "Steam refused to launch this game".to_owned(),
+        ));
+    }
+    if action.starts_with("changed task to Failed") {
+        return Some(SteamLaunchEvent::Failed(
+            "Steam reported that this game launch failed".to_owned(),
+        ));
     }
     action
-        .starts_with("changed task to Failed")
-        .then(|| "Steam reported that this game launch failed".to_owned())
+        .starts_with("changed task to Completed")
+        .then_some(SteamLaunchEvent::Completed)
 }
 
 #[cfg(test)]
@@ -334,20 +416,22 @@ mod tests {
         )
         .unwrap();
         let mut watch = SteamLaunchLog::new(path.clone());
-        assert_eq!(watch.launch_failure(42), None);
+        assert_eq!(watch.launch_event(42), None);
         let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
         file.write_all(
             b"[time] GameAction [AppID 43, ActionID 2] : LaunchApp failed with AppError_5 with \"\"\n",
         )
         .unwrap();
-        assert_eq!(watch.launch_failure(42), None);
+        assert_eq!(watch.launch_event(42), None);
         file.write_all(
             b"[time] GameAction [AppID 42, ActionID 3] : LaunchApp failed with AppError_5 with \"\"\n",
         )
         .unwrap();
         assert_eq!(
-            watch.launch_failure(42).as_deref(),
-            Some("Steam refused to launch this game (AppError_5)")
+            watch.launch_event(42),
+            Some(SteamLaunchEvent::Failed(
+                "Steam refused to launch this game (AppError_5)".to_owned()
+            ))
         );
         fs::remove_file(path).unwrap();
     }
@@ -355,20 +439,29 @@ mod tests {
     #[test]
     fn parse_failure_never_echoes_untrusted_steam_log_content() {
         assert_eq!(
-            parse_launch_failure(
+            parse_launch_event(
                 "GameAction [AppID 42, ActionID 1] : LaunchApp failed with secret=value with \"\"",
                 42,
-            )
-            .as_deref(),
-            Some("Steam refused to launch this game")
+            ),
+            Some(SteamLaunchEvent::Failed(
+                "Steam refused to launch this game".to_owned()
+            ))
         );
         assert_eq!(
-            parse_launch_failure(
+            parse_launch_event(
                 "GameAction [AppID 42, ActionID 1] : LaunchApp changed task to Failed with \"\"",
                 42,
-            )
-            .as_deref(),
-            Some("Steam reported that this game launch failed")
+            ),
+            Some(SteamLaunchEvent::Failed(
+                "Steam reported that this game launch failed".to_owned()
+            ))
+        );
+        assert_eq!(
+            parse_launch_event(
+                "GameAction [AppID 42, ActionID 1] : LaunchApp changed task to Completed with \"\"",
+                42,
+            ),
+            Some(SteamLaunchEvent::Completed)
         );
     }
 
@@ -387,9 +480,83 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            watch.launch_failure(42).as_deref(),
-            Some("Steam refused to launch this game (AppError_5)")
+            watch.launch_event(42),
+            Some(SteamLaunchEvent::Failed(
+                "Steam refused to launch this game (AppError_5)".to_owned()
+            ))
         );
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn reads_completed_launch_only_for_requested_app() {
+        let path = std::env::temp_dir().join(format!(
+            "legio-steam-completed-log-{}-{:?}",
+            std::process::id(),
+            thread::current().id()
+        ));
+        fs::write(&path, b"").unwrap();
+        let mut watch = SteamLaunchLog::new(path.clone());
+        let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+        file.write_all(
+            b"GameAction [AppID 43, ActionID 1] : LaunchApp changed task to Completed with \"\"\n",
+        )
+        .unwrap();
+        assert_eq!(watch.launch_event(42), None);
+        file.write_all(
+            b"GameAction [AppID 42, ActionID 2] : LaunchApp changed task to Completed with \"\"\n",
+        )
+        .unwrap();
+        assert_eq!(watch.launch_event(42), Some(SteamLaunchEvent::Completed));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn steam_process_events_keep_proton_launch_active_after_completion() {
+        let path = std::env::temp_dir().join(format!(
+            "legio-steam-process-log-{}-{:?}",
+            std::process::id(),
+            thread::current().id()
+        ));
+        fs::write(&path, b"").unwrap();
+        let mut watch = SteamLaunchLog::new(path.clone());
+        let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+        file.write_all(concat!(
+            "Game process added : AppID 42 \"steam-launch-wrapper\", ProcID 10\n",
+            "GameAction [AppID 42, ActionID 1] : LaunchApp changed task to Completed with \"\"\n",
+            "Game process updated : AppID 42 \"steam-launch-wrapper\", ProcID 11\n",
+            "Game process removed: AppID 42 \"steam-launch-wrapper\", ProcID 11\n",
+        ).as_bytes())
+        .unwrap();
+        assert_eq!(watch.launch_event(42), Some(SteamLaunchEvent::ProcessAdded));
+        assert_eq!(watch.launch_event(42), Some(SteamLaunchEvent::Completed));
+        assert_eq!(
+            watch.launch_event(42),
+            Some(SteamLaunchEvent::ProcessUpdated)
+        );
+        assert_eq!(
+            watch.launch_event(42),
+            Some(SteamLaunchEvent::ProcessRemoved)
+        );
+        assert_eq!(watch.launch_event(42), None);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn completion_waits_for_all_steam_game_processes_to_end() {
+        let mut progress = SteamLaunchProgress::default();
+        for event in [
+            SteamLaunchEvent::ProcessAdded,
+            SteamLaunchEvent::ProcessAdded,
+            SteamLaunchEvent::Completed,
+            SteamLaunchEvent::ProcessUpdated,
+            SteamLaunchEvent::ProcessRemoved,
+        ] {
+            assert_eq!(progress.observe(event), None);
+        }
+        assert!(progress.completed);
+        assert_eq!(progress.active_processes, 1);
+        assert_eq!(progress.observe(SteamLaunchEvent::ProcessRemoved), None);
+        assert_eq!(progress.active_processes, 0);
     }
 }

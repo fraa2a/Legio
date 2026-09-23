@@ -11,7 +11,7 @@
   let error = $state<string | null>(null);
   let message = $state<string | null>(null);
 
-  const selectedMissing = $derived(Boolean(game.steamAccountId && saved && !saved.accounts.some((account) => account.steamId === game.steamAccountId)));
+  const selectedMissing = $derived(Boolean(enabled && selectedId && saved && !saved.accounts.some((account) => account.steamId === selectedId)));
 
   $effect(() => {
     enabled = game.steamAccountId !== null;
@@ -28,6 +28,7 @@
     error = null;
     try {
       saved = await listSavedSteamAccounts();
+      if (enabled && !selectedId) selectedId = saved.accounts[0]?.steamId ?? "";
     } catch (reason) {
       error = String(reason);
     } finally {
@@ -40,7 +41,9 @@
     error = null;
     message = null;
     try {
-      if (enabled && !selectedId) throw new Error("Select a saved Steam account first.");
+      if (enabled && !saved?.accounts.some((account) => account.steamId === selectedId)) {
+        throw new Error("Select a saved Steam account first.");
+      }
       const updated = await setGameSteamAccountPreference(game.id, enabled ? selectedId : null);
       onSaved(updated);
       check = null;
@@ -64,6 +67,11 @@
     }
   }
 
+  function toggleOverride(checked: boolean) {
+    enabled = checked;
+    if (checked && !selectedId) selectedId = saved?.accounts[0]?.steamId ?? "";
+  }
+
   $effect(() => { void loadAccounts(); });
 </script>
 
@@ -71,15 +79,14 @@
   <legend class="px-1 text-sm font-semibold">Steam account override</legend>
   <p class="mb-3 text-xs text-slate-400">When Steam is using a different or unknown account, launching asks before switching accounts and may close Steam and running Steam games.</p>
   <label class="flex items-center gap-2 text-sm">
-    <input type="checkbox" bind:checked={enabled} /> Use a saved Steam account for this game
+    <input type="checkbox" checked={enabled} onchange={(event) => toggleOverride(event.currentTarget.checked)} disabled={!enabled && !saved?.accounts.length} /> Use a saved Steam account for this game
   </label>
   {#if enabled}
     <label class="mt-3 block text-sm">
       Saved account
       <select class="mt-1 block w-full rounded border border-slate-600 bg-slate-950 px-3 py-2" bind:value={selectedId}>
-        <option value="">Select an account</option>
         {#if selectedMissing}
-          <option value={game.steamAccountId ?? ""} disabled>Previously selected account is no longer saved</option>
+          <option value={selectedId} disabled>Previously selected account is no longer saved</option>
         {/if}
         {#each saved?.accounts ?? [] as account (account.steamId)}
           <option value={account.steamId}>{labelFor(account.steamId, account.displayName)}</option>
@@ -95,6 +102,7 @@
 </fieldset>
 {#if !game.steamAppId}<p class="mt-2 text-xs text-slate-400">Set and save a Steam App ID before selecting an account.</p>{/if}
 {#if saved?.diagnostics.length}<ul class="mt-2 list-disc pl-5 text-xs text-amber-300">{#each saved.diagnostics as diagnostic, index (index)}<li>{diagnostic}</li>{/each}</ul>{/if}
+{#if saved && !saved.accounts.length}<p class="mt-2 text-xs text-amber-300">No saved Steam accounts found. Sign in to Steam and refresh the account list before enabling an override.</p>{/if}
 {#if selectedMissing}<p class="mt-2 text-xs text-amber-300">The selected account is no longer saved locally. Choose another account or clear the override.</p>{/if}
 {#if check}<p class="mt-2 text-xs" role="status">Account check: {check.status}. {check.message ?? ""}</p>{/if}
 {#if message}<p class="mt-2 text-xs" role="status">{message}</p>{/if}
