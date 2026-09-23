@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -29,24 +30,89 @@ fn executable_candidates(steam_root: &Path, windows: bool) -> Vec<PathBuf> {
 }
 
 pub(crate) fn is_running() -> Result<bool, String> {
-    running_processes()
+    running_processes(true)
+}
+
+fn client_is_running() -> Result<bool, String> {
+    running_processes(false)
+}
+
+pub(crate) fn ensure_running(
+    steam_root: &Path,
+    timeout: Duration,
+    cancel: &AtomicBool,
+) -> Result<(), String> {
+    check_cancelled(cancel)?;
+    if client_is_running()? {
+        check_cancelled(cancel)?;
+        return Ok(());
+    }
+
+    let executable = steam_executable(steam_root)?;
+    check_cancelled(cancel)?;
+    let mut request = Command::new(executable)
+        .spawn()
+        .map_err(|error| format!("Could not start Steam: {error}"))?;
+    let start = Instant::now();
+    loop {
+        check_cancelled(cancel)?;
+        if client_is_running()? {
+            check_cancelled(cancel)?;
+            return Ok(());
+        }
+        if let Some(status) = request
+            .try_wait()
+            .map_err(|error| format!("Could not wait for Steam startup: {error}"))?
+            && !status.success()
+        {
+            return Err(format!("Steam startup exited with {status}"));
+        }
+        if start.elapsed() >= timeout {
+            return Err("Timed out while waiting for Steam to start".to_owned());
+        }
+        thread::sleep(POLL_INTERVAL.min(timeout.saturating_sub(start.elapsed())));
+    }
+}
+
+pub(crate) fn request_game_launch(
+    steam_root: &Path,
+    app_id: u32,
+    cancel: &AtomicBool,
+) -> Result<(), String> {
+    if app_id == 0 {
+        return Err("Steam App ID is invalid".to_owned());
+    }
+    check_cancelled(cancel)?;
+    let executable = steam_executable(steam_root)?;
+    check_cancelled(cancel)?;
+    Command::new(executable)
+        .arg("-applaunch")
+        .arg(app_id.to_string())
+        .spawn()
+        .map_err(|error| format!("Could not ask Steam to launch the game: {error}"))?;
+    Ok(())
 }
 
 pub(crate) fn request_shutdown_and_wait(
     steam_root: &Path,
     timeout: Duration,
+    cancel: &AtomicBool,
 ) -> Result<(), String> {
+    check_cancelled(cancel)?;
     if !is_running()? {
+        check_cancelled(cancel)?;
         return Ok(());
     }
 
     let executable = steam_executable(steam_root)?;
+    check_cancelled(cancel)?;
     let start = Instant::now();
     let mut request = Command::new(executable)
         .arg("-shutdown")
         .spawn()
         .map_err(|error| format!("Could not request Steam shutdown: {error}"))?;
     loop {
+        check_cancelled(cancel)?;
         if let Some(status) = request
             .try_wait()
             .map_err(|error| format!("Could not wait for Steam shutdown request: {error}"))?
@@ -61,30 +127,35 @@ pub(crate) fn request_shutdown_and_wait(
         }
         thread::sleep(POLL_INTERVAL.min(timeout.saturating_sub(start.elapsed())));
     }
-    wait_until_stopped(timeout.saturating_sub(start.elapsed()))
+    wait_until_stopped(timeout.saturating_sub(start.elapsed()), cancel)
 }
 
 pub(crate) fn launch_and_wait_selected_account(
     steam_root: &Path,
     expected_account_id: &str,
     timeout: Duration,
+    cancel: &AtomicBool,
 ) -> Result<(), String> {
+    check_cancelled(cancel)?;
     if is_running()? {
         return Err(
             "Steam is already running. Close it before selecting another account.".to_owned(),
         );
     }
     let executable = steam_executable(steam_root)?;
+    check_cancelled(cancel)?;
     Command::new(executable)
         .spawn()
         .map_err(|error| format!("Could not start Steam: {error}"))?;
 
     let start = Instant::now();
     loop {
-        if is_running()?
+        check_cancelled(cancel)?;
+        if client_is_running()?
             && let Some(selected_id) = active_account_id(steam_root)?
         {
             if selected_id == expected_account_id {
+                check_cancelled(cancel)?;
                 return Ok(());
             }
             return Err(format!(
@@ -116,10 +187,12 @@ pub(crate) fn active_account_id(steam_root: &Path) -> Result<Option<String>, Str
     }
 }
 
-fn wait_until_stopped(timeout: Duration) -> Result<(), String> {
+fn wait_until_stopped(timeout: Duration, cancel: &AtomicBool) -> Result<(), String> {
     let start = Instant::now();
     loop {
+        check_cancelled(cancel)?;
         if !is_running()? {
+            check_cancelled(cancel)?;
             return Ok(());
         }
         if start.elapsed() >= timeout {
@@ -129,8 +202,16 @@ fn wait_until_stopped(timeout: Duration) -> Result<(), String> {
     }
 }
 
+fn check_cancelled(cancel: &AtomicBool) -> Result<(), String> {
+    if cancel.load(Ordering::Relaxed) {
+        Err("Launch cancelled".to_owned())
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(windows)]
-fn running_processes() -> Result<bool, String> {
+fn running_processes(include_helpers: bool) -> Result<bool, String> {
     let output = Command::new("tasklist")
         .args(["/FO", "CSV", "/NH"])
         .output()
@@ -149,15 +230,13 @@ fn running_processes() -> Result<bool, String> {
             .split('"')
             .next()
             .unwrap_or("");
-        matches!(
-            name.to_ascii_lowercase().as_str(),
-            "steam.exe" | "steamwebhelper.exe"
-        )
+        name.eq_ignore_ascii_case("steam.exe")
+            || (include_helpers && name.eq_ignore_ascii_case("steamwebhelper.exe"))
     }))
 }
 
 #[cfg(target_os = "linux")]
-fn running_processes() -> Result<bool, String> {
+fn running_processes(include_helpers: bool) -> Result<bool, String> {
     let entries = std::fs::read_dir("/proc")
         .map_err(|error| format!("Could not inspect running processes: {error}"))?;
     for entry in entries {
@@ -177,7 +256,7 @@ fn running_processes() -> Result<bool, String> {
             Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => continue,
             Err(error) => return Err(format!("Could not inspect a running process: {error}")),
         };
-        if matches!(comm.trim(), "steam" | "steamwebhelper") {
+        if comm.trim() == "steam" || (include_helpers && comm.trim() == "steamwebhelper") {
             return Ok(true);
         }
     }
@@ -185,7 +264,7 @@ fn running_processes() -> Result<bool, String> {
 }
 
 #[cfg(not(any(windows, target_os = "linux")))]
-fn running_processes() -> Result<bool, String> {
+fn running_processes(_include_helpers: bool) -> Result<bool, String> {
     Err("Steam process inspection is unsupported on this platform".to_owned())
 }
 
@@ -245,5 +324,26 @@ mod tests {
     fn selected_account_reader_returns_unknown_without_loginusers_file() {
         let root = std::env::temp_dir().join(format!("legio-steam-process-{}", std::process::id()));
         assert_eq!(linux_selected_account_id(&root).unwrap(), None);
+    }
+
+    #[test]
+    fn cancelled_launch_does_not_start_steam() {
+        let cancel = AtomicBool::new(true);
+        let result = launch_and_wait_selected_account(
+            Path::new("/missing-steam"),
+            "123",
+            Duration::from_secs(1),
+            &cancel,
+        );
+        assert_eq!(result.unwrap_err(), "Launch cancelled");
+    }
+
+    #[test]
+    fn game_launch_rejects_invalid_app_id() {
+        let cancel = AtomicBool::new(false);
+        assert_eq!(
+            request_game_launch(Path::new("/missing-steam"), 0, &cancel).unwrap_err(),
+            "Steam App ID is invalid"
+        );
     }
 }

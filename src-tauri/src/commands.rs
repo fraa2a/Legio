@@ -73,11 +73,34 @@ pub async fn launch_steam_game(
     game_id: String,
     confirm_account_switch: bool,
 ) -> Result<crate::steam_switch::SteamLaunchResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        crate::steam_switch::launch(&app, &game_id, confirm_account_switch)
-    })
-    .await
-    .map_err(|error| format!("Steam launch task failed: {error}"))?
+    app.state::<crate::game_lifecycle::GameLaunchManager>()
+        .launch(app.clone(), game_id, confirm_account_switch)
+}
+
+#[tauri::command]
+pub fn list_game_launch_states(
+    state: State<'_, crate::game_lifecycle::GameLaunchManager>,
+) -> Result<Vec<crate::game_lifecycle::GameLaunchState>, String> {
+    state.list()
+}
+
+#[tauri::command]
+pub fn cancel_game_launch(
+    state: State<'_, crate::game_lifecycle::GameLaunchManager>,
+    game_id: String,
+) -> Result<(), String> {
+    state.cancel(&game_id)
+}
+
+#[tauri::command]
+pub async fn stop_game(app: AppHandle, game_id: String) -> Result<(), String> {
+    let manager = app
+        .state::<crate::game_lifecycle::GameLaunchManager>()
+        .inner()
+        .clone();
+    tauri::async_runtime::spawn_blocking(move || manager.stop(&game_id))
+        .await
+        .map_err(|error| format!("Game stop task failed: {error}"))?
 }
 
 #[tauri::command]

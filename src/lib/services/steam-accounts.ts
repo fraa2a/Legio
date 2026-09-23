@@ -49,3 +49,21 @@ export function inspectSteamGameLaunch(gameId: string): Promise<SteamGameLaunchI
 export function launchSteamGame(gameId: string, confirmAccountSwitch: boolean): Promise<SteamLaunchResult> {
   return invoke<SteamLaunchResult>("launch_steam_game", { gameId, confirmAccountSwitch });
 }
+
+export interface GameLaunchState {
+  gameId: string;
+  status: "idle" | "launching" | "running";
+  error?: string | null;
+}
+
+export function listGameLaunchStates(): Promise<GameLaunchState[]> {
+  return invoke<GameLaunchState[]>("list_game_launch_states");
+}
+
+export function cancelGameLaunch(gameId: string): Promise<void> {
+  return invoke<void>("cancel_game_launch", { gameId });
+}
+
+export function stopGame(gameId: string): Promise<void> {
+  return invoke<void>("stop_game", { gameId });
+}

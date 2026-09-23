@@ -2,11 +2,11 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
-use tauri_plugin_opener::OpenerExt;
 
 use crate::{
     database::{DatabaseState, Game},
@@ -50,21 +50,24 @@ pub(crate) fn launch(
     app: &AppHandle,
     game_id: &str,
     confirm_account_switch: bool,
+    cancel: &AtomicBool,
 ) -> Result<SteamLaunchResult, String> {
     let _guard = LAUNCH_LOCK
         .lock()
         .map_err(|_| "Steam launch is unavailable after an earlier task failed".to_owned())?;
+    check_cancel(cancel)?;
     let game = app.state::<DatabaseState>().database()?.game(game_id)?;
-    let (steam_app_id, uri) = launch_uri(&game)?;
+    let steam_app_id = launch_app_id(&game)?;
+    let steam_root = steam_local::find_steam_root_for_game(&game)?;
     let Some(target_id) = game.steam_account_id.as_deref() else {
-        open_game(app, uri)?;
+        steam_process::ensure_running(&steam_root, SWITCH_TIMEOUT, cancel)?;
+        steam_process::request_game_launch(&steam_root, steam_app_id, cancel)?;
         return Ok(SteamLaunchResult {
             game_id: game.id,
             steam_app_id,
         });
     };
 
-    let steam_root = steam_local::find_steam_root_for_game(&game)?;
     saved_account_name(&steam_root, target_id)?;
     let steam_running = steam_process::is_running()?;
     let current_id = if steam_running {
@@ -73,7 +76,7 @@ pub(crate) fn launch(
         None
     };
     if steam_running && current_id.as_deref() == Some(target_id) {
-        open_game(app, uri)?;
+        steam_process::request_game_launch(&steam_root, steam_app_id, cancel)?;
         return Ok(SteamLaunchResult {
             game_id: game.id,
             steam_app_id,
@@ -85,20 +88,28 @@ pub(crate) fn launch(
         );
     }
 
+    check_cancel(cancel)?;
     steam_process::steam_executable(&steam_root)?;
     prepare_file_patches(&steam_root, target_id)?;
     #[cfg(windows)]
     validate_windows_registry()?;
     if steam_running {
-        steam_process::request_shutdown_and_wait(&steam_root, SWITCH_TIMEOUT)?;
+        steam_process::request_shutdown_and_wait(&steam_root, SWITCH_TIMEOUT, cancel)?;
     }
+    check_cancel(cancel)?;
     if steam_process::is_running()? {
         return Err("Steam started again before its account settings could be changed".to_owned());
     }
     let files = prepare_file_patches(&steam_root, target_id)?;
+    check_cancel(cancel)?;
     apply_file_patches(&files)?;
-    steam_process::launch_and_wait_selected_account(&steam_root, target_id, SWITCH_TIMEOUT)?;
-    open_game(app, uri)?;
+    steam_process::launch_and_wait_selected_account(
+        &steam_root,
+        target_id,
+        SWITCH_TIMEOUT,
+        cancel,
+    )?;
+    steam_process::request_game_launch(&steam_root, steam_app_id, cancel)?;
     Ok(SteamLaunchResult {
         game_id: game.id,
         steam_app_id,
@@ -158,18 +169,7 @@ fn prepare_file_patches(steam_root: &Path, target_id: &str) -> Result<Vec<FilePa
     let patched_loginusers = steam_vdf::patch_account_selection(&loginusers, target_id)
         .map_err(|error| format!("Could not update saved Steam accounts: {error}"))?;
     let config = read_bounded_file(&config_path)?;
-    let patched_config = steam_vdf::patch_keyvalues_scalar(
-        &config,
-        &[
-            "InstallConfigStore",
-            "Software",
-            "Valve",
-            "Steam",
-            "AlwaysShowUserChooser",
-        ],
-        "0",
-    )
-    .map_err(|error| format!("Could not update Steam's account chooser setting: {error}"))?;
+    let patched_config = patch_account_chooser(&config)?;
 
     let mut files = vec![FilePatch {
         path: loginusers_path,
@@ -191,19 +191,7 @@ fn prepare_file_patches(steam_root: &Path, target_id: &str) -> Result<Vec<FilePa
             .ok_or_else(|| "The selected Steam account has no saved account name".to_owned())?;
         let registry_path = steam_local::steam_registry_path(steam_root)?;
         let registry = read_bounded_file(&registry_path)?;
-        let patched_registry = steam_vdf::patch_keyvalues_scalar(
-            &registry,
-            &[
-                "Registry",
-                "HKCU",
-                "Software",
-                "Valve",
-                "Steam",
-                "AutoLoginUser",
-            ],
-            account_name,
-        )
-        .map_err(|error| format!("Could not update Steam's selected account: {error}"))?;
+        let patched_registry = patch_registry_account(&registry, account_name)?;
         files.push(FilePatch {
             path: registry_path,
             original: registry,
@@ -212,6 +200,25 @@ fn prepare_file_patches(steam_root: &Path, target_id: &str) -> Result<Vec<FilePa
     }
 
     Ok(files)
+}
+
+fn patch_account_chooser(config: &[u8]) -> Result<Vec<u8>, String> {
+    steam_vdf::upsert_keyvalues_scalar(
+        config,
+        &["Software", "Valve", "Steam", "AlwaysShowUserChooser"],
+        "0",
+    )
+    .map_err(|error| format!("Could not update Steam's account chooser setting: {error}"))
+}
+
+#[cfg(target_os = "linux")]
+fn patch_registry_account(registry: &[u8], account_name: &str) -> Result<Vec<u8>, String> {
+    steam_vdf::upsert_keyvalues_scalar(
+        registry,
+        &["HKCU", "Software", "Valve", "Steam", "AutoLoginUser"],
+        account_name,
+    )
+    .map_err(|error| format!("Could not update Steam's selected account: {error}"))
 }
 
 fn saved_account_name(steam_root: &Path, target_id: &str) -> Result<String, String> {
@@ -366,7 +373,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-fn launch_uri(game: &Game) -> Result<(u32, String), String> {
+fn launch_app_id(game: &Game) -> Result<u32, String> {
     let app_id = game
         .steam_app_id
         .filter(|id| *id > 0)
@@ -380,14 +387,15 @@ fn launch_uri(game: &Game) -> Result<(u32, String), String> {
             "Steam installation directory is missing. Rescan Steam games and retry.".to_owned(),
         );
     }
-    Ok((app_id, format!("steam://run/{app_id}")))
+    Ok(app_id)
 }
 
-fn open_game(app: &AppHandle, uri: String) -> Result<(), String> {
-    app.opener()
-        .open_url(uri, None::<&str>)
-        .map_err(|error| format!("Could not ask Steam to launch the game: {error}"))?;
-    Ok(())
+fn check_cancel(cancel: &AtomicBool) -> Result<(), String> {
+    if cancel.load(Ordering::Acquire) {
+        Err("Launch cancelled".to_owned())
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(windows)]
@@ -466,6 +474,27 @@ fn restore_registry_value(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chooser_is_inserted_into_steam_config_shape() {
+        let config = br#""InstallConfigStore" { "Software" { "Valve" { "Steam" { "OtherSetting" "keep" } } } }"#;
+        let patched = patch_account_chooser(config).unwrap();
+        let text = std::str::from_utf8(&patched).unwrap();
+        assert!(text.contains("\"AlwaysShowUserChooser\" \"0\""));
+        assert!(text.contains("\"OtherSetting\" \"keep\""));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn registry_login_name_is_updated_under_registry_root() {
+        let registry = br#""Registry" { "HKCU" { "Software" { "Valve" { "Steam" { "AutoLoginUser" "previous" } } } } }"#;
+        let patched = patch_registry_account(registry, "selected-login").unwrap();
+        assert!(
+            std::str::from_utf8(&patched)
+                .unwrap()
+                .contains("\"AutoLoginUser\" \"selected-login\"")
+        );
+    }
 
     #[test]
     fn backup_and_rollback_restore_the_original_file() {

@@ -4,6 +4,8 @@ mod catalog;
 mod commands;
 mod database;
 mod diagnostics;
+mod game_lifecycle;
+mod game_process;
 mod network;
 mod steam_assets;
 mod steam_details;
@@ -15,13 +17,9 @@ mod steam_vdf;
 
 pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
-        .plugin(
-            tauri_plugin_opener::Builder::new()
-                .open_js_links_on_click(false)
-                .build(),
-        )
         .setup(|app| {
             app.manage(database::DatabaseState::new(app.path().app_data_dir()));
+            app.manage(game_lifecycle::GameLaunchManager::new());
             let diagnostics = diagnostics::Diagnostics::new(
                 app.path().app_log_dir().map_err(|error| error.to_string()),
             );
@@ -47,6 +45,9 @@ pub fn run() -> tauri::Result<()> {
             commands::update_game,
             commands::remove_game,
             commands::launch_steam_game,
+            commands::list_game_launch_states,
+            commands::cancel_game_launch,
+            commands::stop_game,
             commands::inspect_steam_game_launch,
             commands::list_saved_steam_accounts,
             commands::set_game_steam_account_preference,

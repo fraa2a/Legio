@@ -240,6 +240,54 @@ pub(crate) fn patch_keyvalues_scalar(
     Ok(output)
 }
 
+/// Updates a scalar or inserts it into an existing, unique parent object.
+pub(crate) fn upsert_keyvalues_scalar(
+    bytes: &[u8],
+    path: &[&str],
+    value: &str,
+) -> Result<Vec<u8>, VdfError> {
+    match patch_keyvalues_scalar(bytes, path, value) {
+        Ok(updated) => return Ok(updated),
+        Err(VdfError::ScalarNotFound) if path.len() >= 2 => {}
+        Err(error) => return Err(error),
+    }
+
+    let text = std::str::from_utf8(bytes).map_err(|_| VdfError::InvalidUtf8)?;
+    let mut parser = Parser {
+        bytes,
+        offset: usize::from(text.starts_with('\u{feff}')) * 3,
+        entries: 0,
+    };
+    if !matches!(parser.next()?, Some(token) if token.kind == TokenKind::Text)
+        || !matches!(parser.next()?, Some(token) if token.kind == TokenKind::Open)
+    {
+        return Err(parser.malformed());
+    }
+    let mut closes = Vec::new();
+    parser.find_object_close(1, &path[..path.len() - 1], &mut closes)?;
+    if parser.next()?.is_some() {
+        return Err(parser.malformed());
+    }
+    let [close] = closes.as_slice() else {
+        return Err(if closes.is_empty() {
+            VdfError::ScalarNotFound
+        } else {
+            VdfError::AmbiguousSelection
+        });
+    };
+    let mut output = bytes.to_vec();
+    output.splice(
+        *close..*close,
+        format!(
+            "\n\t\"{}\" \"{}\"\n",
+            escape_scalar(path[path.len() - 1]),
+            escape_scalar(value)
+        )
+        .bytes(),
+    );
+    Ok(output)
+}
+
 fn escape_scalar(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
     for ch in value.chars() {
@@ -417,6 +465,39 @@ impl Parser<'_> {
     }
 
     fn skip_object(&mut self, depth: usize) -> Result<(), VdfError> {
+        self.object_close(depth).map(|_| ())
+    }
+
+    fn object_close(&mut self, depth: usize) -> Result<usize, VdfError> {
+        if depth > MAX_DEPTH {
+            return Err(VdfError::NestingTooDeep);
+        }
+        loop {
+            let Some(key) = self.next()? else {
+                return Err(self.malformed());
+            };
+            if key.kind == TokenKind::Close {
+                return Ok(key.start);
+            }
+            if key.kind != TokenKind::Text {
+                return Err(self.malformed());
+            }
+            let value = self.next()?.ok_or_else(|| self.malformed())?;
+            self.count_entry()?;
+            match value.kind {
+                TokenKind::Text => {}
+                TokenKind::Open => self.skip_object(depth + 1)?,
+                TokenKind::Close => return Err(self.malformed()),
+            }
+        }
+    }
+
+    fn find_object_close(
+        &mut self,
+        depth: usize,
+        path: &[&str],
+        closes: &mut Vec<usize>,
+    ) -> Result<(), VdfError> {
         if depth > MAX_DEPTH {
             return Err(VdfError::NestingTooDeep);
         }
@@ -433,8 +514,15 @@ impl Parser<'_> {
             let value = self.next()?.ok_or_else(|| self.malformed())?;
             self.count_entry()?;
             match value.kind {
-                TokenKind::Text => {}
+                TokenKind::Open if key.value.eq_ignore_ascii_case(path[0]) => {
+                    if path.len() == 1 {
+                        closes.push(self.object_close(depth + 1)?);
+                    } else {
+                        self.find_object_close(depth + 1, &path[1..], closes)?;
+                    }
+                }
                 TokenKind::Open => self.skip_object(depth + 1)?,
+                TokenKind::Text => {}
                 TokenKind::Close => return Err(self.malformed()),
             }
         }
@@ -617,5 +705,28 @@ mod tests {
         );
         let malformed = br#""root" { "safe" "value" "broken" { "unterminated" "value" }"#;
         assert!(patch_keyvalues_scalar(malformed, &["safe"], "new").is_err());
+    }
+
+    #[test]
+    fn inserts_missing_chooser_without_rewriting_unknown_fields() {
+        let input =
+            br#""InstallConfigStore" { "Software" { "Valve" { "Steam" { "Future" "keep" } } } }"#;
+        let path = &["Software", "Valve", "Steam", "AlwaysShowUserChooser"];
+        let updated = upsert_keyvalues_scalar(input, path, "0").unwrap();
+        let text = std::str::from_utf8(&updated).unwrap();
+        assert!(text.contains("\"Future\" \"keep\""));
+        assert!(text.contains("\"AlwaysShowUserChooser\" \"0\""));
+        let replaced = upsert_keyvalues_scalar(&updated, path, "1").unwrap();
+        assert!(
+            std::str::from_utf8(&replaced)
+                .unwrap()
+                .contains("\"AlwaysShowUserChooser\" \"1\"")
+        );
+
+        let ambiguous = br#""root" { "parent" {} "parent" {} }"#;
+        assert_eq!(
+            upsert_keyvalues_scalar(ambiguous, &["parent", "target"], "1"),
+            Err(VdfError::AmbiguousSelection)
+        );
     }
 }
