@@ -13,6 +13,7 @@ export interface Game {
   nameOverride: string | null;
   name: string;
   steamInstallPath: string | null;
+  steamAccountId: string | null;
 }
 
 export interface CreateGameInput {
