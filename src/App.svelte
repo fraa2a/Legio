@@ -219,7 +219,9 @@
 
   $effect(() => {
     void loadAppInfo();
-    void loadLocalState();
+    void loadLocalState().then(() => {
+      if (localState === "ready") void importSteam();
+    });
     void loadNetworkStatus();
     void loadNetworkLogStatus();
   });
@@ -323,13 +325,13 @@
 
     <section class="mt-8" aria-labelledby="steam-heading">
       <h2 id="steam-heading" class="text-xl font-semibold">Local Steam detection and import</h2>
-      <p class="mt-2 text-sm text-slate-400">Scans supported default Steam locations without sending local data remotely. Import refreshes automatic metadata and preserves manual names. Missing games are not removed.</p>
+      <p class="mt-2 text-sm text-slate-400">Installed Steam games are imported when Legio opens. Rescan refreshes automatic metadata and preserves manual names. Missing games are retained; previously imported Steam tools are removed only when unchanged. Local data is not sent remotely.</p>
       <div class="mt-4 flex flex-wrap gap-3">
         <button class="rounded bg-amber-400 px-3 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50" type="button" disabled={scanningSteam || importingSteam} onclick={scanSteam}>
           {scanningSteam ? "Scanning..." : "Scan local Steam installations"}
         </button>
         <button class="rounded bg-amber-400 px-3 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50" type="button" disabled={scanningSteam || importingSteam || localState !== "ready"} onclick={importSteam}>
-          {importingSteam ? "Importing..." : "Import installed Steam games"}
+          {importingSteam ? "Importing..." : "Rescan and import Steam games"}
         </button>
       </div>
       {#if importingSteam}
@@ -338,7 +340,7 @@
         <p class="mt-3 break-words rounded border border-red-900 bg-red-950/30 p-4 text-sm" role="alert">Steam import failed: {steamImportError}. No import changes were committed.</p>
       {/if}
       {#if steamImport}
-        <p class="mt-3 text-sm" role="status">Import committed. Detected {steamImport.detected} Steam games. Library rows: {steamImport.inserted} inserted, {steamImport.updated} updated, {steamImport.unchanged} unchanged.</p>
+        <p class="mt-3 text-sm" role="status">Import committed. Detected {steamImport.detected} Steam games. Library rows: {steamImport.inserted} inserted, {steamImport.updated} updated, {steamImport.unchanged} unchanged, {steamImport.removed} unchanged Steam tools removed.</p>
         <p class="mt-2 text-xs text-slate-400">Existing entries sharing a Steam App ID are refreshed separately, never merged. Nothing was launched.</p>
         {#if steamImport.diagnostics.length > 0}
           <ul class="mt-3 list-disc space-y-1 pl-5 text-xs text-slate-400">

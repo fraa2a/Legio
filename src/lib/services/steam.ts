@@ -21,6 +21,7 @@ export interface SteamImportResult {
   inserted: number;
   updated: number;
   unchanged: number;
+  removed: number;
   diagnostics: string[];
 }
 
