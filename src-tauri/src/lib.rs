@@ -5,6 +5,7 @@ mod commands;
 mod database;
 mod diagnostics;
 mod network;
+mod steam_assets;
 mod steam_details;
 mod steam_import;
 mod steam_local;
@@ -16,6 +17,9 @@ pub fn run() -> tauri::Result<()> {
             let diagnostics = diagnostics::Diagnostics::new(
                 app.path().app_log_dir().map_err(|error| error.to_string()),
             );
+            app.manage(steam_assets::AssetCacheState::new(
+                app.path().app_cache_dir(),
+            ));
             app.manage(
                 network::NetworkState::new(
                     &app.package_info().version.to_string(),
@@ -42,6 +46,7 @@ pub fn run() -> tauri::Result<()> {
             commands::search_catalog,
             commands::refresh_catalog,
             commands::get_steam_details,
+            commands::get_steam_asset,
         ])
         .run(tauri::generate_context!())
 }

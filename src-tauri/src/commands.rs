@@ -124,3 +124,14 @@ pub async fn get_steam_details(
 ) -> Result<crate::steam_details::DetailsResult, crate::steam_details::DetailsError> {
     crate::steam_details::get_details(app, state.inner(), steam_app_id, refresh).await
 }
+
+#[tauri::command]
+pub async fn get_steam_asset(
+    app: AppHandle,
+    state: State<'_, NetworkState>,
+    steam_app_id: u32,
+    asset: crate::steam_assets::AssetKind,
+    index: Option<usize>,
+) -> Result<crate::steam_assets::AssetResult, String> {
+    crate::steam_assets::get_asset(app, state.inner(), steam_app_id, asset, index).await
+}
