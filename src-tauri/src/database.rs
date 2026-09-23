@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 const THEME_KEY: &str = "theme";
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -417,6 +417,18 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             .execute_batch(
                 "ALTER TABLE games ADD COLUMN steam_account_id TEXT;
              PRAGMA user_version = 5;",
+            )
+            .map_err(database_error)?;
+    }
+    if version < 6 {
+        transaction
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS legio_source_cache (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    manifest BLOB NOT NULL CHECK (length(manifest) BETWEEN 1 AND 2097152),
+                    fetched_at INTEGER NOT NULL CHECK (fetched_at >= 0)
+                );
+                PRAGMA user_version = 6;",
             )
             .map_err(database_error)?;
     }
