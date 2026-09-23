@@ -103,10 +103,7 @@ impl DatabaseState {
     pub fn new(data_dir: Result<std::path::PathBuf, tauri::Error>) -> Self {
         let database = data_dir
             .map_err(|error| format!("could not resolve the application data directory: {error}"))
-            .and_then(|data_dir| {
-                migrate_legacy_data_dir(&data_dir)?;
-                Database::open(&data_dir)
-            });
+            .and_then(|data_dir| Database::open(&data_dir));
 
         Self { database }
     }
@@ -114,37 +111,6 @@ impl DatabaseState {
     pub(crate) fn database(&self) -> Result<&Database, String> {
         self.database.as_ref().map_err(Clone::clone)
     }
-}
-
-fn migrate_legacy_data_dir(data_dir: &Path) -> Result<(), String> {
-    if data_dir
-        .file_name()
-        .is_none_or(|name| name != "dev.fraa2a.legio")
-    {
-        return Ok(());
-    }
-    let legacy_dir = data_dir.with_file_name("io.legio.launcher");
-    let legacy = match fs::symlink_metadata(&legacy_dir) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => {
-            return Err(format!(
-                "could not inspect the previous application data: {error}"
-            ));
-        }
-    };
-    if !legacy.is_dir() || legacy.file_type().is_symlink() {
-        return Err("previous application data directory is not a regular directory".to_owned());
-    }
-    if data_dir.exists() {
-        if data_dir.join("legio.sqlite3").exists() {
-            return Ok(());
-        }
-        return Err("both previous and current application data directories exist; could not safely migrate the previous data".to_owned());
-    }
-    fs::rename(&legacy_dir, data_dir).map_err(|error| {
-        format!("could not move previous application data to the new directory: {error}")
-    })
 }
 
 pub struct Database {
@@ -571,108 +537,6 @@ pub fn check_game_steam_account(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn moves_previous_app_data_without_losing_the_library() {
-        let parent = temporary_directory();
-        let legacy_dir = parent.join("io.legio.launcher");
-        let current_dir = parent.join("dev.fraa2a.legio");
-        let database = Database::open(&legacy_dir).unwrap();
-        database
-            .save_settings(Settings {
-                theme: Theme::Light,
-            })
-            .unwrap();
-        database
-            .create_game(CreateGameInput {
-                name: "Portal".to_owned(),
-                steam_app_id: Some(400),
-            })
-            .unwrap();
-        drop(database);
-        fs::write(legacy_dir.join("extra-data"), b"preserved").unwrap();
-        fs::write(legacy_dir.join("legio.sqlite3-wal"), b"wal sidecar").unwrap();
-        fs::write(legacy_dir.join("legio.sqlite3-shm"), b"shm sidecar").unwrap();
-
-        migrate_legacy_data_dir(&current_dir).unwrap();
-        migrate_legacy_data_dir(&current_dir).unwrap();
-
-        assert!(!legacy_dir.exists());
-        assert_eq!(
-            fs::read(current_dir.join("extra-data")).unwrap(),
-            b"preserved"
-        );
-        assert_eq!(
-            fs::read(current_dir.join("legio.sqlite3-wal")).unwrap(),
-            b"wal sidecar"
-        );
-        assert_eq!(
-            fs::read(current_dir.join("legio.sqlite3-shm")).unwrap(),
-            b"shm sidecar"
-        );
-        fs::remove_file(current_dir.join("legio.sqlite3-wal")).unwrap();
-        fs::remove_file(current_dir.join("legio.sqlite3-shm")).unwrap();
-        let reopened = Database::open(&current_dir).unwrap();
-        assert_eq!(reopened.settings().unwrap().theme, Theme::Light);
-        assert_eq!(reopened.games().unwrap().len(), 1);
-        drop(reopened);
-        fs::remove_dir_all(parent).unwrap();
-    }
-
-    #[test]
-    fn refuses_to_replace_a_partially_initialized_current_directory() {
-        let parent = temporary_directory();
-        let legacy_dir = parent.join("io.legio.launcher");
-        let current_dir = parent.join("dev.fraa2a.legio");
-        fs::create_dir_all(&legacy_dir).unwrap();
-        fs::create_dir_all(&current_dir).unwrap();
-        fs::write(legacy_dir.join("legio.sqlite3"), b"old").unwrap();
-        fs::write(current_dir.join("unknown-data"), b"new").unwrap();
-
-        assert!(migrate_legacy_data_dir(&current_dir).is_err());
-        assert_eq!(fs::read(legacy_dir.join("legio.sqlite3")).unwrap(), b"old");
-        assert_eq!(fs::read(current_dir.join("unknown-data")).unwrap(), b"new");
-        fs::remove_dir_all(parent).unwrap();
-    }
-
-    #[test]
-    fn keeps_existing_current_data_when_previous_data_also_exists() {
-        let parent = temporary_directory();
-        let legacy_dir = parent.join("io.legio.launcher");
-        let current_dir = parent.join("dev.fraa2a.legio");
-        let legacy = Database::open(&legacy_dir).unwrap();
-        let current = Database::open(&current_dir).unwrap();
-        legacy
-            .save_settings(Settings {
-                theme: Theme::Light,
-            })
-            .unwrap();
-        current
-            .save_settings(Settings { theme: Theme::Dark })
-            .unwrap();
-        drop(legacy);
-        drop(current);
-
-        migrate_legacy_data_dir(&current_dir).unwrap();
-
-        assert_eq!(
-            Database::open(&legacy_dir)
-                .unwrap()
-                .settings()
-                .unwrap()
-                .theme,
-            Theme::Light
-        );
-        assert_eq!(
-            Database::open(&current_dir)
-                .unwrap()
-                .settings()
-                .unwrap()
-                .theme,
-            Theme::Dark
-        );
-        fs::remove_dir_all(parent).unwrap();
-    }
 
     #[test]
     fn migrates_v1_without_replacing_user_data() {
