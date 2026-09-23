@@ -38,7 +38,7 @@ fn import_scan(database: &Database, scan: SteamScan) -> Result<SteamImportResult
         };
         {
             let mut remove = transaction
-                .prepare("DELETE FROM games WHERE steam_app_id = ?1 AND automatic_name = ?2 AND steam_install_path = ?3 AND name_override IS NULL")
+                .prepare("DELETE FROM games WHERE steam_app_id = ?1 AND automatic_name = ?2 AND steam_install_path = ?3 AND name_override IS NULL AND steam_account_id IS NULL")
                 .map_err(database_error)?;
             for app in scan.excluded_non_games {
                 if let Ok(name) = required_name(app.name, "automatic name") {
@@ -254,8 +254,9 @@ mod tests {
         fixture.install(1, "Game", "Game");
         fixture.install(2, "Compatibility", "Compatibility");
         fixture.install(3, "Runtime", "Runtime");
+        fixture.install(4, "Service", "Service");
         let database = Database::open(&fixture.0).unwrap();
-        assert_eq!(import_scan(&database, fixture.scan()).unwrap().inserted, 3);
+        assert_eq!(import_scan(&database, fixture.scan()).unwrap().inserted, 4);
         let edited = database
             .games()
             .unwrap()
@@ -276,16 +277,26 @@ mod tests {
                 steam_app_id: Some(2),
             })
             .unwrap();
+        let selected = database
+            .games()
+            .unwrap()
+            .into_iter()
+            .find(|game| game.steam_app_id == Some(4))
+            .unwrap();
+        database
+            .set_game_steam_account(&selected.id, Some("76561198000000001"))
+            .unwrap();
         fs::write(
             fixture.0.join("steam/appcache/appinfo.vdf"),
-            steam_local::appinfo_fixture(&[(1, "Game"), (2, "Tool"), (3, "Tool")]),
+            steam_local::appinfo_fixture(&[(1, "Game"), (2, "Tool"), (3, "Tool"), (4, "Tool")]),
         )
         .unwrap();
         let result = import_scan(&database, fixture.scan()).unwrap();
         assert_eq!((result.detected, result.removed), (1, 1));
         let games = database.games().unwrap();
-        assert_eq!(games.len(), 3);
+        assert_eq!(games.len(), 4);
         assert!(games.iter().any(|game| game.id == manual.id));
+        assert!(games.iter().any(|game| game.id == selected.id));
         assert!(
             games
                 .iter()

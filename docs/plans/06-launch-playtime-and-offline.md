@@ -14,7 +14,7 @@ Provide one reliable launch lifecycle across ownership types, persist actual pla
 
 ## Scope
 
-Shared launch lifecycle, Steam-managed launch, native Windows process tracking, session storage and aggregation, Home, local Library, launch configuration and errors, Retry, and offline waiting semantics.
+Shared launch lifecycle, Steam-managed launch, optional per-game Steam account selection, native Windows process tracking, session storage and aggregation, Home, local Library, launch configuration and errors, Retry, and offline waiting semantics.
 
 ## Milestones and principal tasks
 
@@ -29,10 +29,15 @@ Verification: a controlled executable traverses every stage, termination is obse
 ### 06B: Steam and native Windows launch
 
 - Launch Steam-managed games through Steam.
+- Enumerate locally saved Steam account IDs and display names using bounded, read-only parsing of Steam-owned local metadata. Do not expose login names, passwords, tokens, or the raw source file.
+- Persist an optional per-game Steam account ID in the local database without changing the game's Steam App ID, internal ID, or manual overrides. A missing or renamed local account must not silently change that selection.
+- In each Steam game's override settings, provide a toggle for account selection. When enabled, show a dropdown of locally saved account display names backed by SteamID64 values. Distinguish duplicate names, keep a missing selection visible, and require a selected account before saving the enabled override. Add this UI only when the launch check can verify the active account.
+- Ensure Steam is running before a game with an account selection launches, then verify the active Steam account against the selected ID. Launch through Steam only on a verified match. On mismatch, a missing selected account, or uncertain active identity, return an actionable error and leave the game unlaunched. Recheck after the user changes accounts in Steam.
+- Never switch accounts by passing credentials, editing Steam account files, or terminating Steam or running games. Do not silently launch under whichever account is active.
 - Launch native Windows games with structured arguments and working directory.
 - Track actual game lifetime rather than short-lived helpers.
 
-Verification: Steam ownership remains intact and helper-exit scenarios do not prematurely end monitoring.
+Verification: Steam ownership remains intact and helper-exit scenarios do not prematurely end monitoring. Fixture tests cover missing or malformed account metadata, duplicate display names, stale selections, matching and mismatched active IDs, unknown active identity, and no sensitive fields in errors or logs. Native Linux and Windows checks show that account-specific launch proceeds only after the active Steam ID is verified as the selected ID. Running games are not stopped by Legio.
 
 ### 06C: Sessions, product surfaces, and offline behavior
 
@@ -56,8 +61,11 @@ Supported games launch through the correct owner, actual game lifetime drives se
 ## Open technical decisions
 
 - Define helper-to-game process association rules before 06B.
+- Validate a trustworthy way to read the active desktop Steam account ID on Linux and Windows before enabling account-specific launch. A locally saved account list or a last-used marker does not prove current identity. If identity cannot be verified, keep account-specific launch unavailable with a clear error.
 - Define session crash recovery and overlap rules before 06C.
 
 ## Update notes
 
-No implementation updates yet.
+[PR #18](https://github.com/fraa2a/Legio/pull/18) prepares the Rust backend for per-game Steam account preferences: bounded local account enumeration, SQLite persistence, and a fail-closed prelaunch check. It does not add account controls to the testing UI or launch a game. A trustworthy active-account source and actual Steam launch integration remain required before this feature can be enabled.
+
+[Valve's September 2026 Steam client update](https://steamcommunity.com/app/593110/announcements/) says Change Account opens Steam's account chooser and restarts Steam as the chosen account. It warns that changing accounts while a game is running can close active games and says Steam waits for just-exited games to finish cloud sync. [Steamworks documentation](https://partner.steamgames.com/doc/sdk/api) describes `steam://run/<AppID>` and requires a license on the currently active Steam account. Therefore, a game launch URI alone does not select a saved account. [Steam Support](https://help.steampowered.com/faqs/view/7EFD-3CAE-64D3-1C31) says saving sign-in credentials is optional. No supported automatic account-selection command or trustworthy active-account check has been established for Legio. A local Steam account metadata file was observed with display-name fields, but its format is not treated as a supported account-switching interface.
