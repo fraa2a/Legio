@@ -72,10 +72,46 @@ pub fn remove_game(state: State<'_, DatabaseState>, id: String) -> Result<(), St
 pub async fn launch_steam_game(
     app: AppHandle,
     game_id: String,
-) -> Result<crate::steam_launch::SteamLaunchResult, String> {
-    tauri::async_runtime::spawn_blocking(move || crate::steam_launch::launch(&app, &game_id))
+    confirm_account_switch: bool,
+) -> Result<crate::steam_switch::SteamLaunchResult, String> {
+    app.state::<crate::game_lifecycle::GameLaunchManager>()
+        .launch(app.clone(), game_id, confirm_account_switch)
+}
+
+#[tauri::command]
+pub fn list_game_launch_states(
+    state: State<'_, crate::game_lifecycle::GameLaunchManager>,
+) -> Result<Vec<crate::game_lifecycle::GameLaunchState>, String> {
+    state.list()
+}
+
+#[tauri::command]
+pub fn cancel_game_launch(
+    state: State<'_, crate::game_lifecycle::GameLaunchManager>,
+    game_id: String,
+) -> Result<(), String> {
+    state.cancel(&game_id)
+}
+
+#[tauri::command]
+pub async fn stop_game(app: AppHandle, game_id: String) -> Result<(), String> {
+    let manager = app
+        .state::<crate::game_lifecycle::GameLaunchManager>()
+        .inner()
+        .clone();
+    tauri::async_runtime::spawn_blocking(move || manager.stop(&game_id))
         .await
-        .map_err(|error| format!("Steam launch task failed: {error}"))?
+        .map_err(|error| format!("Game stop task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn inspect_steam_game_launch(
+    app: AppHandle,
+    game_id: String,
+) -> Result<crate::steam_switch::LaunchInspection, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::steam_switch::inspect(&app, &game_id))
+        .await
+        .map_err(|error| format!("Steam launch inspection task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -180,6 +216,7 @@ mod account_tests {
             accounts: vec![steam_local::SavedSteamAccount {
                 steam_id: "76561198000000001".to_owned(),
                 display_name: "Display".to_owned(),
+                account_name: None,
             }],
             diagnostics: vec![],
         };
