@@ -6,6 +6,7 @@ mod database;
 mod diagnostics;
 mod game_lifecycle;
 mod game_process;
+pub mod legio_source;
 mod network;
 mod steam_assets;
 mod steam_details;
@@ -56,6 +57,7 @@ pub fn run() -> tauri::Result<()> {
             commands::import_steam_installations,
             commands::get_network_status,
             commands::get_network_log_status,
+            commands::get_legio_source,
             commands::check_steam_connectivity,
             commands::search_catalog,
             commands::refresh_catalog,

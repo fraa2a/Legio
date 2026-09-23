@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned
+In progress
 
 ## Canonical requirements
 
@@ -55,9 +55,9 @@ Only validated manifests become current, the last valid cache survives bad refre
 
 ## Open technical decisions
 
-- Blocking before 04A: choose and document the project-controlled HTTPS source URL.
+- The project-controlled source URL is `https://source.taxphobia.top/store.json`. The file has not been published yet; refresh must report unavailability until it exists.
 - Define manifest cache age and refresh triggers before 04B.
 
 ## Update notes
 
-No implementation updates yet.
+04A validates the exact versioned source document, applies a size limit, and retrieves only the fixed HTTPS URL `https://source.taxphobia.top/store.json`. The endpoint may return an availability error until the project publishes `store.json`. Cache retention and catalog merge remain 04B work.

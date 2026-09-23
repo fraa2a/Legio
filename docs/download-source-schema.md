@@ -8,7 +8,7 @@ The parser and installer integration are Phase 04 and Phase 05 work. This docume
 
 ## Transport and cache
 
-- The manifest is retrieved only from the project-controlled Legio source URL.
+- The manifest is retrieved only from `https://source.taxphobia.top/store.json`.
 - Retrieval requires HTTPS.
 - Legio retains the last successfully validated manifest atomically.
 - If refresh fails, Legio may use the last valid cache and must show that it is stale.
@@ -40,7 +40,10 @@ The parser and installer integration are Phase 04 and Phase 05 work. This docume
 {
   "steamAppId": 400,
   "name": "Portal",
-  "release": { "version": "1.0.0", "publishedAt": "2026-09-22T00:00:00Z" },
+  "release": {
+    "version": "1.0.0",
+    "publishedAt": "2026-09-22T00:00:00Z"
+  },
   "download": {
     "url": "https://downloads.example.invalid/portal-1.0.0.zip",
     "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -55,7 +58,7 @@ The parser and installer integration are Phase 04 and Phase 05 work. This docume
 | `name` | nonempty string | Required. Release display name. |
 | `release.version` | nonempty string | Required. Source release version. Ordering rules are a later update-policy decision. |
 | `release.publishedAt` | RFC 3339 UTC string | Required. Publication timestamp. |
-| `download.url` | URL string | Required. Direct HTTP or HTTPS archive URL. |
+| `download.url` | URL string | Required. Direct HTTP or HTTPS archive URL. Redirect handling remains bounded by Legio. |
 | `download.sha256` | 64 lowercase hexadecimal characters | Required. Archive integrity hash checked before extraction. |
 | `download.sizeBytes` | positive integer | Required. Expected archive size for progress and disk-space checks. |
 
@@ -82,3 +85,28 @@ Legio must preserve the previous valid cache when a refresh is rejected and surf
 - The UI presents verified and unverified source status separately.
 - An unverified entry presents an actionable warning but may still be installed after user choice.
 - A catalog game without a valid matching entry displays `Download unavailable`.
+
+## Example
+
+```json
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-22T00:00:00Z",
+  "verified": [
+    {
+      "steamAppId": 400,
+      "name": "Portal",
+      "release": {
+        "version": "1.0.0",
+        "publishedAt": "2026-09-22T00:00:00Z"
+      },
+      "download": {
+        "url": "https://downloads.example.invalid/portal-1.0.0.zip",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "sizeBytes": 123456789
+      }
+    }
+  ],
+  "unverified": []
+}
+```
