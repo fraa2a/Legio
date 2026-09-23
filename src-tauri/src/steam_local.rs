@@ -265,6 +265,8 @@ pub struct SteamScan {
 pub struct SavedSteamAccount {
     pub steam_id: String,
     pub display_name: String,
+    #[serde(skip)]
+    pub(crate) account_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -277,78 +279,40 @@ pub struct SavedSteamAccounts {
 const MAX_SAVED_ACCOUNTS: usize = 128;
 
 fn parse_saved_accounts(bytes: &[u8]) -> Result<Vec<SavedSteamAccount>, ManifestDiagnostic> {
-    if bytes.len() > MAX_MANIFEST_BYTES {
-        return Err(ManifestDiagnostic::InputTooLarge);
-    }
-    let text = std::str::from_utf8(bytes).map_err(|_| ManifestDiagnostic::InvalidUtf8)?;
-    let mut parser = Parser {
-        text,
-        offset: usize::from(text.starts_with('\u{feff}')) * 3,
-    };
-    if !matches!(parser.next()?, Some(Token::Text(root)) if root.eq_ignore_ascii_case("users"))
-        || !matches!(parser.next()?, Some(Token::Open))
-    {
-        return Err(parser.malformed());
-    }
-    let mut accounts = Vec::new();
-    let mut ids = HashSet::new();
-    loop {
-        let steam_id = match parser.next()? {
-            Some(Token::Close) => break,
-            Some(Token::Text(value)) => value,
-            _ => return Err(parser.malformed()),
-        };
-        let valid_id = steam_id
-            .parse::<u64>()
-            .ok()
-            .filter(|id| *id > 0 && id.to_string() == steam_id)
-            .is_some();
-        if !valid_id {
-            return Err(ManifestDiagnostic::InvalidField("Steam ID"));
+    let users = crate::steam_vdf::parse_loginusers(bytes).map_err(|error| match error {
+        crate::steam_vdf::VdfError::InputTooLarge => ManifestDiagnostic::InputTooLarge,
+        crate::steam_vdf::VdfError::InvalidUtf8 => ManifestDiagnostic::InvalidUtf8,
+        crate::steam_vdf::VdfError::NestingTooDeep => ManifestDiagnostic::NestingTooDeep,
+        crate::steam_vdf::VdfError::TooManyEntries
+        | crate::steam_vdf::VdfError::TooManyAccounts => ManifestDiagnostic::TooManyRecords,
+        crate::steam_vdf::VdfError::DuplicateField("PersonaName") => {
+            ManifestDiagnostic::DuplicateField("PersonaName")
         }
-        if !ids.insert(steam_id.to_string()) {
-            return Err(ManifestDiagnostic::DuplicateField("Steam ID"));
+        crate::steam_vdf::VdfError::DuplicateField("Steam ID") => {
+            ManifestDiagnostic::DuplicateField("Steam ID")
         }
-        if !matches!(parser.next()?, Some(Token::Open)) {
-            return Err(parser.malformed());
-        }
-        let mut display_name = None;
-        loop {
-            let key = match parser.next()? {
-                Some(Token::Close) => break,
-                Some(Token::Text(key)) => key,
-                _ => return Err(parser.malformed()),
-            };
-            match parser.next()? {
-                Some(Token::Text(value)) if key.eq_ignore_ascii_case("PersonaName") => {
-                    if display_name.is_some() {
-                        return Err(ManifestDiagnostic::DuplicateField("PersonaName"));
-                    }
-                    let name = value.trim();
-                    if name.chars().count() > 200 || name.chars().any(char::is_control) {
-                        return Err(ManifestDiagnostic::InvalidField("PersonaName"));
-                    }
-                    display_name = Some(name.to_owned());
-                }
-                Some(Token::Text(_)) => {}
-                Some(Token::Open) => parser.object(3, &mut Fields::default())?,
-                _ => return Err(parser.malformed()),
-            }
-        }
-        accounts.push(SavedSteamAccount {
-            steam_id: steam_id.into_owned(),
-            display_name: display_name
+        crate::steam_vdf::VdfError::InvalidSteamId => ManifestDiagnostic::InvalidField("Steam ID"),
+        _ => ManifestDiagnostic::Malformed { offset: 0 },
+    })?;
+    users
+        .into_iter()
+        .map(|user| {
+            let display_name = user
+                .persona_name
+                .as_deref()
+                .map(str::trim)
                 .filter(|name| !name.is_empty())
-                .unwrap_or_else(|| "Steam account".to_owned()),
-        });
-        if accounts.len() > MAX_SAVED_ACCOUNTS {
-            return Err(ManifestDiagnostic::TooManyRecords);
-        }
-    }
-    if parser.next()?.is_some() {
-        return Err(parser.malformed());
-    }
-    Ok(accounts)
+                .unwrap_or("Steam account");
+            if display_name.chars().count() > 200 || display_name.chars().any(char::is_control) {
+                return Err(ManifestDiagnostic::InvalidField("PersonaName"));
+            }
+            Ok(SavedSteamAccount {
+                steam_id: user.steam_id,
+                display_name: display_name.to_owned(),
+                account_name: user.account_name,
+            })
+        })
+        .collect()
 }
 
 fn parse_library_folders(bytes: &[u8]) -> Result<Vec<PathBuf>, ManifestDiagnostic> {
@@ -644,7 +608,7 @@ fn windows_installation_roots(
 }
 
 #[cfg(windows)]
-fn default_steam_roots() -> Option<Vec<PathBuf>> {
+pub(crate) fn default_steam_roots() -> Option<Vec<PathBuf>> {
     let roots = windows_installation_roots(
         env::var_os("ProgramFiles(x86)"),
         env::var_os("ProgramFiles"),
@@ -653,7 +617,7 @@ fn default_steam_roots() -> Option<Vec<PathBuf>> {
 }
 
 #[cfg(not(windows))]
-fn default_steam_roots() -> Option<Vec<PathBuf>> {
+pub(crate) fn default_steam_roots() -> Option<Vec<PathBuf>> {
     let home = env::var_os("HOME")?;
     Some(vec![
         PathBuf::from(&home).join(".local/share/Steam"),
@@ -668,6 +632,59 @@ fn default_steam_roots() -> Option<Vec<PathBuf>> {
 const MISSING_STEAM_ROOTS: &str = "Program Files directories are unavailable";
 #[cfg(not(windows))]
 const MISSING_STEAM_ROOTS: &str = "home directory is unavailable";
+
+pub(crate) fn find_steam_root_for_game(game: &crate::database::Game) -> Result<PathBuf, String> {
+    let install_path = game
+        .steam_install_path
+        .as_deref()
+        .ok_or_else(|| "This game has no detected Steam installation".to_owned())?;
+    let install_path = fs::canonicalize(install_path)
+        .map_err(|error| format!("Could not inspect the game's Steam library: {error}"))?;
+    let roots = default_steam_roots().ok_or_else(|| MISSING_STEAM_ROOTS.to_owned())?;
+    for root in roots {
+        let root = match fs::canonicalize(root) {
+            Ok(root) => root,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("Could not inspect Steam installation: {error}")),
+        };
+        let mut libraries = vec![root.clone()];
+        let library_file = root.join("steamapps/libraryfolders.vdf");
+        if let Ok(bytes) = read_metadata(&library_file)
+            && let Ok(paths) = parse_library_folders(&bytes)
+        {
+            libraries.extend(paths);
+        }
+        if libraries.into_iter().any(|library| {
+            let common = library.join("steamapps/common");
+            fs::canonicalize(common).is_ok_and(|common| install_path.starts_with(common))
+        }) {
+            return Ok(root);
+        }
+    }
+    Err("Could not match the game's install path to a Steam installation".to_owned())
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn steam_registry_path(steam_root: &Path) -> Result<PathBuf, String> {
+    let home = env::var_os("HOME").ok_or_else(|| MISSING_STEAM_ROOTS.to_owned())?;
+    let home = PathBuf::from(home);
+    let flatpak_root = home.join(".var/app/com.valvesoftware.Steam");
+    let candidates = if steam_root.starts_with(&flatpak_root) {
+        vec![
+            flatpak_root.join(".steam/registry.vdf"),
+            home.join(".steam/registry.vdf"),
+        ]
+    } else {
+        vec![
+            home.join(".steam/registry.vdf"),
+            flatpak_root.join(".steam/registry.vdf"),
+        ]
+    };
+    candidates
+        .into_iter()
+        .find(|path| fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file()))
+        .ok_or_else(|| "Steam registry.vdf was not found".to_owned())
+}
 
 pub fn scan_default_installations() -> SteamScan {
     let Some(roots) = default_steam_roots() else {
