@@ -180,6 +180,21 @@ impl Database {
         })
     }
 
+    pub fn game(&self, id: &str) -> Result<Game, String> {
+        let id = parse_game_id(id)?;
+        self.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id FROM games WHERE id = ?1",
+                    [id],
+                    game_from_row,
+                )
+                .optional()
+                .map_err(database_error)?
+                .ok_or_else(|| "game was not found".to_owned())
+        })
+    }
+
     pub fn create_game(&self, input: CreateGameInput) -> Result<Game, String> {
         let name = required_name(input.name, "name")?;
         let game = Game {
@@ -608,6 +623,21 @@ mod tests {
             std::env::temp_dir().join(format!("legio-database-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&directory).unwrap();
         directory
+    }
+
+    #[test]
+    fn game_lookup_rejects_invalid_and_missing_ids() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        assert_eq!(database.game("invalid").unwrap_err(), "game id is invalid");
+        assert_eq!(
+            database
+                .game("9717c6f1-3d4b-49b5-903b-c07d898c333c")
+                .unwrap_err(),
+            "game was not found"
+        );
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

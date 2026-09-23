@@ -8,10 +8,16 @@ mod network;
 mod steam_assets;
 mod steam_details;
 mod steam_import;
+mod steam_launch;
 mod steam_local;
 
 pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
         .setup(|app| {
             app.manage(database::DatabaseState::new(app.path().app_data_dir()));
             let diagnostics = diagnostics::Diagnostics::new(
@@ -38,6 +44,7 @@ pub fn run() -> tauri::Result<()> {
             commands::create_game,
             commands::update_game,
             commands::remove_game,
+            commands::launch_steam_game,
             commands::list_saved_steam_accounts,
             commands::set_game_steam_account_preference,
             commands::check_game_steam_account,
