@@ -53,7 +53,7 @@ Verification: clear candidates auto-select, ambiguous candidates require choice,
 
 ### 05D: Atomic finalization
 
-Status: Not implemented.
+Status: Backend implemented. Frontend executable confirmation and manual conflict recovery remain.
 
 - Move staged content safely across filesystems.
 - Make filesystem and database finalization recoverable as one user-visible operation.
@@ -72,7 +72,7 @@ The queue is persistent and controllable, supported archives are verified and ex
 
 ## Open technical decisions
 
-- Define finalization recovery records before 05D.
+- Define frontend handling for irrecoverable finalization conflicts and stage cleanup errors.
 
 ## Update notes
 
@@ -80,6 +80,8 @@ The queue is persistent and controllable, supported archives are verified and ex
 
 The `stage_download` command takes a 05A download ID, verifies the queue-owned archive, and persists `staging` then `staged` with a deterministic staging path in schema v8. Startup removes interrupted staging content and returns that job to `downloaded` or `queued`. A hash or extraction failure records `failed`; a database write failure removes newly extracted content and leaves `staging` for startup recovery.
 
-Encrypted archives, multipart archives, self-extracting archives, links, special files, and formats outside ZIP, 7z, and RAR are unsupported. RAR variants unsupported by libarchive return an extraction error. Linux builds need libarchive development headers and a runtime library; Windows builds use a statically linked vcpkg libarchive package. 05D will connect staged content to finalization.
+Encrypted archives, multipart archives, self-extracting archives, links, special files, and formats outside ZIP, 7z, and RAR are unsupported. RAR variants unsupported by libarchive return an extraction error. Linux builds need libarchive development headers and a runtime library; Windows builds use a statically linked vcpkg libarchive package.
 
-05C backend: executable scanning ranks candidates by game name and directory location, filters common installers and helpers, and returns choices when ranking is ambiguous. Manual import validates a user-selected executable and stores its path in a local library entry. The selected path can be changed later. No selection UI or native launch path is implemented yet; 05D finalization remains.
+05C backend: executable scanning ranks candidates by game name and directory location, filters common installers and helpers, and returns choices when ranking is ambiguous. Manual import validates a user-selected executable and stores its path in a local library entry. The selected path can be changed later. No selection UI or native launch path is implemented yet.
+
+05D backend: `finalize_download` takes a staged download ID and explicit executable-relative path. Schema v10 stores the finalization intent before copying into an app-owned `installed/<download-id>` directory. The copy uses a token-marked sibling temporary directory and a no-replace atomic rename. Linux uses `renameat2` with `RENAME_NOREPLACE`; Windows uses `MoveFileW`. The selected executable must remain a regular file beneath the install root. The game entry and `installed` download state commit in one SQLite transaction. Startup resumes interrupted copies or an already-published install, then retries staged-file cleanup after commit. Conflicting existing paths are preserved with an error on the download. The frontend still needs to confirm the candidate and present recovery guidance for conflicts.
