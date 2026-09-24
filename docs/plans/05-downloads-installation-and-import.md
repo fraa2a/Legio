@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned
+In progress
 
 ## Canonical requirements
 
@@ -19,6 +19,8 @@ Persistent queue control, restart recovery, bandwidth and progress reporting, SH
 ## Milestones and principal tasks
 
 ### 05A: Persistent download queue
+
+Status: Backend implemented; frontend controls and manual restart verification remain.
 
 - Implement queue, pause, resume, retry, cancel, and waiting states.
 - Use HTTP Range when supported and restart safely when it is not.

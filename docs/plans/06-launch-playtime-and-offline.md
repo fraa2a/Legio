@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned
+In progress
 
 ## Canonical requirements
 
@@ -27,6 +27,8 @@ Shared launch lifecycle, Steam-managed launch, optional per-game Steam account s
 Verification: a controlled executable traverses every stage, termination is observed, and stage failures expose useful diagnostics.
 
 ### 06B: Steam and native Windows launch
+
+Status: Steam-managed launch and account overrides are implemented. Native executable launch remains.
 
 - Launch Steam-managed games through Steam.
 - Enumerate locally saved Steam account IDs and display names using bounded, read-only parsing of Steam-owned local metadata. Do not expose login names, passwords, tokens, or the raw source file.

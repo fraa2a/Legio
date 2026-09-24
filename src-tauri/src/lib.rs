@@ -4,6 +4,7 @@ mod catalog;
 mod commands;
 mod database;
 mod diagnostics;
+mod download_queue;
 mod game_lifecycle;
 mod game_process;
 pub mod legio_source;
@@ -21,6 +22,14 @@ pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
         .setup(|app| {
             app.manage(database::DatabaseState::new(app.path().app_data_dir()));
+            app.manage(
+                download_queue::DownloadQueueState::new(
+                    app.path().app_data_dir(),
+                    &app.package_info().version.to_string(),
+                )
+                .map_err(std::io::Error::other)?,
+            );
+            download_queue::start(app.handle().clone()).map_err(std::io::Error::other)?;
             app.manage(game_lifecycle::GameLaunchManager::new());
             let diagnostics = diagnostics::Diagnostics::new(
                 app.path().app_log_dir().map_err(|error| error.to_string()),
@@ -59,6 +68,13 @@ pub fn run() -> tauri::Result<()> {
             commands::get_network_status,
             commands::get_network_log_status,
             commands::get_legio_source,
+            download_queue::list_downloads,
+            download_queue::queue_download,
+            download_queue::pause_download,
+            download_queue::resume_download,
+            download_queue::retry_download,
+            download_queue::cancel_download,
+            download_queue::set_download_bandwidth_limit,
             commands::refresh_legio_source,
             commands::check_steam_connectivity,
             commands::search_catalog,
