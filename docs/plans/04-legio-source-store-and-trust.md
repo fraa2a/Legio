@@ -63,3 +63,5 @@ Only validated manifests become current, the last valid cache survives bad refre
 04A validates the exact versioned source document, applies a size limit, and retrieves only the fixed HTTPS URL `https://source.taxphobia.top/store.json`. The endpoint may return an availability error until the project publishes `store.json`. Cache retention and catalog merge remain 04B work.
 
 04B stores the validated manifest in a single SQLite row. A failed refresh preserves that row and returns it with a stale warning. Catalog searches report source availability by Steam App ID and keep the catalog title. A missing cache reports unknown availability; an absent ID in a valid cache reports unavailable.
+
+04C adds availability and trust states to the catalog verification UI, including stale source warnings and release details for unverified entries. Installation actions will be added with the Phase 05 download pipeline.
