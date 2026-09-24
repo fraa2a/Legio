@@ -177,7 +177,7 @@ Details include name, type, description, developers, publishers, genres, platfor
 | `resume_download` | `{ id }` | `void` |
 | `retry_download` | `{ id }` | `void` |
 | `cancel_download` | `{ id }` | `void` |
-| `set_download_bandwidth_limit` | `{ bytesPerSecond }` | `void`; zero means unlimited |
+| `set_download_bandwidth_limit` | `{ bytesPerSecond }` | `void`; zero means unlimited. The value persists across application restarts. |
 | `stage_download` | `{ id }` | staged directory path |
 | `finalize_download` | `{ id, executableRelative }` | `void`; creates installed game and library row |
 
