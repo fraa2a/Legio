@@ -20,7 +20,7 @@ Persistent queue control, restart recovery, bandwidth and progress reporting, SH
 
 ### 05A: Persistent download queue
 
-Status: Backend implemented; frontend controls and manual restart verification remain.
+Status: Queue backend implemented; bandwidth limit now persists and restores at startup. Frontend controls and manual restart verification remain.
 
 - Implement queue, pause, resume, retry, cancel, and waiting states.
 - Use HTTP Range when supported and restart safely when it is not.
@@ -85,3 +85,5 @@ Encrypted archives, multipart archives, self-extracting archives, links, special
 05C backend: executable scanning ranks candidates by game name and directory location, filters common installers and helpers, and returns choices when ranking is ambiguous. Manual import validates a user-selected executable and stores its path in a local library entry. The selected path can be changed later. No selection UI or native launch path is implemented yet.
 
 05D backend: `finalize_download` takes a staged download ID and explicit executable-relative path. Schema v10 stores the finalization intent before copying into an app-owned `installed/<download-id>` directory. The copy uses a token-marked sibling temporary directory and a no-replace atomic rename. Linux uses `renameat2` with `RENAME_NOREPLACE`; Windows uses `MoveFileW`. The selected executable must remain a regular file beneath the install root. The game entry and `installed` download state commit in one SQLite transaction. Startup resumes interrupted copies or an already-published install, then retries staged-file cleanup after commit. Conflicting existing paths are preserved with an error on the download. The frontend still needs to confirm the candidate and present recovery guidance for conflicts.
+
+05A backend follow-up (2026-09-24): `set_download_bandwidth_limit` now stores bytes per second in the existing SQLite settings table and applies the value to the live queue only after persistence succeeds. Startup reads the saved value before starting queue recovery. Zero continues to mean unlimited. Rust database coverage checks the default, persistence across reopen, clearing to unlimited, and rejection above `i64::MAX`; the local workspace used for this change does not have the Rust toolchain installed, so that test still needs to run in CI.
