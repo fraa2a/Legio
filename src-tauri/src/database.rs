@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 const THEME_KEY: &str = "theme";
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -74,6 +74,7 @@ pub struct Game {
     pub name: String,
     pub steam_install_path: Option<String>,
     pub steam_account_id: Option<String>,
+    pub executable_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -169,7 +170,7 @@ impl Database {
         self.with_connection(|connection| {
             let mut statement = connection
                 .prepare(
-                    "SELECT id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id
+                    "SELECT id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path
                      FROM games ORDER BY COALESCE(name_override, automatic_name), id",
                 )
                 .map_err(database_error)?;
@@ -185,7 +186,7 @@ impl Database {
         self.with_connection(|connection| {
             connection
                 .query_row(
-                    "SELECT id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id FROM games WHERE id = ?1",
+                    "SELECT id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path FROM games WHERE id = ?1",
                     [id],
                     game_from_row,
                 )
@@ -205,6 +206,7 @@ impl Database {
             name,
             steam_install_path: None,
             steam_account_id: None,
+            executable_path: None,
         };
 
         self.with_connection(|connection| {
@@ -238,7 +240,7 @@ impl Database {
                          steam_account_id = CASE WHEN steam_app_id IS ?2 THEN steam_account_id ELSE NULL END,
                          steam_app_id = ?2, automatic_name = ?3, name_override = ?4
                      WHERE id = ?1
-                     RETURNING id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id",
+                     RETURNING id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path",
                     params![id, input.steam_app_id, automatic_name, name_override],
                     game_from_row,
                 )
@@ -260,7 +262,7 @@ impl Database {
         self.with_connection(|connection| {
             connection.query_row(
                 "UPDATE games SET steam_account_id = ?2 WHERE id = ?1 AND (steam_app_id IS NOT NULL OR ?2 IS NULL)
-                 RETURNING id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id",
+                 RETURNING id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path",
                 params![game_id, steam_id], game_from_row,
             ).optional().map_err(database_error)?.ok_or_else(|| "game was not found or has no Steam App ID".to_owned())
         })
@@ -449,10 +451,19 @@ fn migrate(connection: &Connection) -> Result<(), String> {
              PRAGMA user_version = 8;"
         ).map_err(database_error)?;
     }
+    if version < 9 {
+        transaction
+            .execute_batch(
+                "ALTER TABLE games ADD COLUMN executable_path TEXT;
+                 CREATE UNIQUE INDEX games_executable_path_idx ON games (executable_path) WHERE executable_path IS NOT NULL;
+                 PRAGMA user_version = 9;",
+            )
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }
 
-fn game_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Game> {
+pub(crate) fn game_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Game> {
     let steam_app_id = row
         .get::<_, Option<i64>>(1)?
         .map(|value| {
@@ -474,6 +485,7 @@ fn game_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Game> {
         name,
         steam_install_path: row.get(4)?,
         steam_account_id: row.get(5)?,
+        executable_path: row.get(6)?,
     })
 }
 
@@ -590,6 +602,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn migrates_v8_staged_download_database_without_losing_games() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO games (id, name_override) VALUES ('manual', 'Manual game');
+             DROP INDEX games_executable_path_idx;
+             ALTER TABLE games DROP COLUMN executable_path;
+             PRAGMA user_version = 8;",
+            )
+            .unwrap();
+        migrate(&connection).unwrap();
+        let name: String = connection
+            .query_row(
+                "SELECT name_override FROM games WHERE id = 'manual'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let downloads_exists: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'downloads'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!((name.as_str(), downloads_exists), ("Manual game", 1));
+    }
+
+    #[test]
     fn migrates_v1_without_replacing_user_data() {
         let connection = Connection::open_in_memory().unwrap();
         connection.execute_batch("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE games (id TEXT PRIMARY KEY, steam_app_id INTEGER, automatic_name TEXT, name_override TEXT); INSERT INTO settings VALUES ('theme', 'light'); INSERT INTO games VALUES ('manual', 400, 'Portal', 'My Portal'); PRAGMA user_version = 1;").unwrap();
@@ -666,7 +708,8 @@ mod tests {
                     name_override: Some("First copy".to_owned()),
                     name: "First copy".to_owned(),
                     steam_install_path: None,
-                    steam_account_id: None
+                    steam_account_id: None,
+                    executable_path: None
                 },
                 Game {
                     id: "second".to_owned(),
@@ -675,7 +718,8 @@ mod tests {
                     name_override: Some("Second copy".to_owned()),
                     name: "Second copy".to_owned(),
                     steam_install_path: None,
-                    steam_account_id: None
+                    steam_account_id: None,
+                    executable_path: None
                 },
             ]
         );
