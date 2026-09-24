@@ -24,6 +24,8 @@
 | [08 Product UI and operations](08-product-ui-and-operations.md) | Blocked | 02, 03, 04, 05, 06, 07 | Supply the section 35 mockup, then 08A product UI |
 | [09 Updates, release, and future](09-updates-release-and-future.md) | Planned | 04, 05, 06, 07, 08 | 09A game update policies |
 
+Frontend implementation guide: [backend contracts](../frontend/backend-contracts.md). Keep it synchronized with Tauri command registration and frontend service types when implementing or changing UI flows.
+
 ## Dependency graph
 
 ```text
