@@ -56,6 +56,25 @@ fn install_root(data_dir: &Path) -> Result<PathBuf, String> {
     Ok(root)
 }
 
+fn regular_directory(path: &Path, label: &str) -> Result<(), String> {
+    if !directory_exists_regular(path, label)? {
+        return Err(format!("Could not inspect {label}: path does not exist"));
+    }
+    Ok(())
+}
+
+fn directory_exists_regular(path: &Path, label: &str) -> Result<bool, String> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(format!("Could not inspect {label}: {error}")),
+    };
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err(format!("{label} is not a regular directory"));
+    }
+    Ok(true)
+}
+
 fn regular_executable(root: &Path, relative: &Path) -> Result<(), String> {
     let metadata = fs::symlink_metadata(root)
         .map_err(|error| format!("Could not inspect executable root: {error}"))?;
@@ -87,6 +106,7 @@ fn claim(
     id: &str,
     executable: &str,
 ) -> Result<Intent, String> {
+    regular_directory(data_dir, "application data directory")?;
     let id = Uuid::parse_str(id)
         .map_err(|_| "Download ID is invalid".to_owned())?
         .to_string();
@@ -95,11 +115,7 @@ fn claim(
         return Err("Selected executable is reserved".to_owned());
     }
     let stage = data_dir.join("downloads").join(format!("{id}.stage"));
-    let download_root = fs::symlink_metadata(data_dir.join("downloads"))
-        .map_err(|error| format!("Could not inspect download directory: {error}"))?;
-    if !download_root.is_dir() || download_root.file_type().is_symlink() {
-        return Err("Download directory is not a regular directory".to_owned());
-    }
+    regular_directory(&data_dir.join("downloads"), "download directory")?;
     regular_executable(&stage, &executable)?;
     let target = install_root(data_dir)?.join(&id);
     let token = Uuid::new_v4().to_string();
@@ -122,6 +138,8 @@ fn claim(
 }
 
 fn load_intent(database: &Database, data_dir: &Path, id: &str) -> Result<Intent, String> {
+    regular_directory(data_dir, "application data directory")?;
+    regular_directory(&data_dir.join("downloads"), "download directory")?;
     let id = Uuid::parse_str(id)
         .map_err(|_| "Download ID is invalid".to_owned())?
         .to_string();
@@ -260,7 +278,7 @@ fn publish_noreplace(source: &Path, target: &Path) -> io::Result<()> {
     let error = io::Error::last_os_error();
     if matches!(
         error.raw_os_error(),
-        Some(libc::ENOSYS | libc::EINVAL | libc::EOPNOTSUPP)
+        Some(libc::ENOSYS) | Some(libc::EINVAL) | Some(libc::EOPNOTSUPP)
     ) {
         return Err(io::Error::other(
             "Atomic no-replace directory rename is unavailable on this kernel or filesystem",
@@ -342,6 +360,12 @@ fn finish(database: &Database, intent: &Intent) -> Result<(), String> {
         }
         publish_noreplace(&temporary, &intent.target)
             .map_err(|error| format!("Could not publish install: {error}"))?;
+        sync_directory(
+            intent
+                .target
+                .parent()
+                .ok_or("Install target has no parent")?,
+        )?;
     }
     regular_executable(&intent.target, &intent.executable)?;
     let executable = intent.target.join(&intent.executable);
@@ -374,6 +398,15 @@ fn save_cleanup_error(database: &Database, id: &str, error: &str) -> Result<(), 
 }
 
 fn cleanup_stage(database: &Database, id: &str, stage: &Path) -> Result<(), String> {
+    let download_root = stage.parent().ok_or("Staged path has no parent")?;
+    let data_dir = download_root
+        .parent()
+        .ok_or("Download path has no application data parent")?;
+    if !directory_exists_regular(data_dir, "application data directory")?
+        || !directory_exists_regular(download_root, "download directory")?
+    {
+        return clear_staged_path(database, id);
+    }
     match fs::symlink_metadata(stage) {
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
             fs::remove_dir_all(stage)
@@ -387,6 +420,10 @@ fn cleanup_stage(database: &Database, id: &str, stage: &Path) -> Result<(), Stri
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(format!("Could not inspect staged files: {error}")),
     }
+    clear_staged_path(database, id)
+}
+
+fn clear_staged_path(database: &Database, id: &str) -> Result<(), String> {
     database.with_connection(|connection| {
         connection.execute("UPDATE downloads SET staged_path = NULL, error = NULL, updated_at = ?2 WHERE id = ?1 AND status = 'installed'", params![id, timestamp()?]).map_err(database_error)?;
         Ok(())
@@ -669,6 +706,39 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn refuses_symlinked_application_roots() {
+        use std::os::unix::fs::symlink;
+        let (database, data_dir, id) = fixture();
+        let downloads = data_dir.join("downloads");
+        let moved_downloads = data_dir.join("moved-downloads");
+        fs::rename(&downloads, &moved_downloads).unwrap();
+        symlink(&moved_downloads, &downloads).unwrap();
+        assert!(finalize(&database, &data_dir, &id, "bin/game.exe").is_err());
+        assert_eq!(state(&database, &id).0, "staged");
+        fs::remove_file(&downloads).unwrap();
+        fs::rename(&moved_downloads, &downloads).unwrap();
+
+        let install = data_dir.join("installed");
+        fs::create_dir(&install).unwrap();
+        let moved_install = data_dir.join("moved-installed");
+        fs::rename(&install, &moved_install).unwrap();
+        symlink(&moved_install, &install).unwrap();
+        assert!(finalize(&database, &data_dir, &id, "bin/game.exe").is_err());
+        assert_eq!(state(&database, &id).0, "staged");
+        fs::remove_file(&install).unwrap();
+        fs::rename(&moved_install, &install).unwrap();
+
+        let moved_data = data_dir.with_extension("moved");
+        fs::rename(&data_dir, &moved_data).unwrap();
+        symlink(&moved_data, &data_dir).unwrap();
+        assert!(finalize(&database, &data_dir, &id, "bin/game.exe").is_err());
+        fs::remove_file(&data_dir).unwrap();
+        fs::rename(&moved_data, &data_dir).unwrap();
+        fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn retries_installed_stage_cleanup_after_conflict() {
         use std::os::unix::fs::symlink;
         let (database, data_dir, id) = fixture();
@@ -688,6 +758,38 @@ mod tests {
         recover(&database, &data_dir).unwrap();
         assert_eq!(state(&database, &id), ("installed".to_owned(), None));
         assert!(!stage.exists());
+        fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
+    fn clears_cleanup_intent_when_download_directory_is_already_gone() {
+        let (database, data_dir, id) = fixture();
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET status = 'installed' WHERE id = ?1",
+                        [&id],
+                    )
+                    .map_err(database_error)?;
+                Ok(())
+            })
+            .unwrap();
+        let stage = data_dir.join("downloads").join(format!("{id}.stage"));
+        fs::remove_dir_all(data_dir.join("downloads")).unwrap();
+        cleanup_stage(&database, &id, &stage).unwrap();
+        let staged_path: Option<String> = database
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT staged_path FROM downloads WHERE id = ?1",
+                        [&id],
+                        |row| row.get(0),
+                    )
+                    .map_err(database_error)
+            })
+            .unwrap();
+        assert_eq!(staged_path, None);
         fs::remove_dir_all(data_dir).unwrap();
     }
 
