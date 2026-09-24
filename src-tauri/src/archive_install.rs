@@ -7,6 +7,7 @@ use std::{
 
 use compress_tools::{ArchiveContents, ArchiveIteratorBuilder};
 use sha2::{Digest, Sha256};
+#[cfg(test)]
 use uuid::Uuid;
 
 #[cfg(unix)]
@@ -16,13 +17,14 @@ const MAX_ENTRIES: usize = 100_000;
 const MAX_EXPANDED_BYTES: u64 = 64 * 1024 * 1024 * 1024;
 const MAX_EXPANSION_RATIO: u64 = 200;
 
-/// Verifies a queue-owned archive and extracts ordinary files into a new staging directory.
-/// The caller owns the returned directory and passes it to finalization only after success.
-pub fn verify_and_stage(
-    archive: &Path,
-    expected_sha256: &str,
-    staging_parent: &Path,
-) -> Result<PathBuf, String> {
+/// Verifies a queue-owned archive and extracts ordinary files into an empty staging path.
+/// The caller owns the staging path and passes it to finalization only after success.
+pub fn verify_and_stage(archive: &Path, expected_sha256: &str, stage: &Path) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(archive)
+        .map_err(|error| format!("Cannot inspect download: {error}"))?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err("Download is not a regular file".into());
+    }
     let mut source =
         File::open(archive).map_err(|error| format!("Cannot open download: {error}"))?;
     let archive_bytes = source
@@ -67,13 +69,13 @@ pub fn verify_and_stage(
     source
         .seek(SeekFrom::Start(0))
         .map_err(|error| error.to_string())?;
+    let staging_parent = stage.parent().ok_or("Staging path has no parent")?;
     fs::create_dir_all(staging_parent)
         .map_err(|error| format!("Cannot create staging parent: {error}"))?;
-    let stage = staging_parent.join(format!("extract-{}", Uuid::new_v4()));
-    fs::create_dir(&stage).map_err(|error| format!("Cannot create staging directory: {error}"))?;
-    let result = extract(source, &stage, archive_bytes);
+    fs::create_dir(stage).map_err(|error| format!("Cannot create staging directory: {error}"))?;
+    let result = extract(source, stage, archive_bytes);
     if let Err(error) = result {
-        fs::remove_dir_all(&stage).map_err(|cleanup| {
+        fs::remove_dir_all(stage).map_err(|cleanup| {
             format!(
                 "{error}; staging cleanup failed at {}: {cleanup}",
                 stage.display()
@@ -81,7 +83,7 @@ pub fn verify_and_stage(
         })?;
         return Err(error);
     }
-    Ok(stage)
+    Ok(())
 }
 
 fn extract(source: File, stage: &Path, archive_bytes: u64) -> Result<(), String> {
@@ -357,7 +359,8 @@ mod tests {
     fn run_fixture(bytes: &[u8], name: &str) -> (PathBuf, PathBuf, Result<PathBuf, String>) {
         let (root, archive) = fixture(bytes, name);
         let hash = format!("{:x}", Sha256::digest(bytes));
-        let result = verify_and_stage(&archive, &hash, &root.join("staging"));
+        let stage = root.join("staging");
+        let result = verify_and_stage(&archive, &hash, &stage).map(|()| stage);
         (root, archive, result)
     }
 
@@ -491,11 +494,7 @@ mod tests {
         ] {
             let (root, _, result) = run_fixture(bytes, name);
             assert!(result.unwrap_err().contains(message), "{name}");
-            assert_eq!(
-                fs::read_dir(root.join("staging")).unwrap().count(),
-                0,
-                "{name}"
-            );
+            assert!(!root.join("staging").exists(), "{name}");
             fs::remove_dir_all(root).unwrap();
         }
     }
