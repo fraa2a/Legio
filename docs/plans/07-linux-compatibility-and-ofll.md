@@ -48,6 +48,25 @@ Verification: each supported setting changes the observable launch environment, 
 - Cover debug logs, shortcuts, icons, and supported game or fix behavior.
 - Mark unsupported or intentionally excluded behavior explicitly.
 
+#### Initial revision-specific inventory
+
+Reviewed upstream: [Online Fix Linux Launcher v2.7.1 at commit `86528986f71c3da0972a670c08feb0bb70a3dbe2`](https://github.com/ZzEdovec/onlinefix-linux/tree/86528986f71c3da0972a670c08feb0bb70a3dbe2). This review used its [README](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/README.md), [launch and runtime handling](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/modules/FilesWorker.php), and [per-game controls](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/forms/gameSettings.php). The upstream describes Proton/GE-Proton management, prefixes, Steam Runtime, overlay and graphics toggles, game fixes, debug logs, icons, desktop shortcuts, and optional game downloads. This is an inventory, not a parity claim.
+
+| Responsibility in the reviewed upstream | Legio ownership and evidence | State |
+| --- | --- | --- |
+| Discover and choose Proton, GE-Proton, or Wine | `runner_discovery.rs` validates and lists local runners. Global and per-game runner values are persisted; configured launch uses the first discovered runner when no selection exists. Runner downloads and version management are absent. | Partial |
+| Create and choose per-game prefixes | `game_lifecycle.rs` creates isolated per-game compatibility data and validates custom prefix roots or exact paths. Prefix cleanup and relocation controls are absent. | Backend implemented |
+| Set environment variables, DLL overrides, launch arguments, and working directory | `database.rs` persists defaults and nullable per-game overrides. `game_lifecycle.rs` merges, validates, and applies them before launch. | Backend implemented |
+| Select Steam Runtime, Steam overlay, graphics, WineD3D, or native Wayland options | Arbitrary environment values can express some Proton variables, but Legio has no typed settings or verified runtime integration for these options. | Missing |
+| Detect Steam and launch through it | `steam_local.rs`, `steam_switch.rs`, and the shared `game_lifecycle.rs` path support Steam-managed games. This does not provide OFLL's OnlineFix/Epic launch flow. | Partial |
+| Monitor and terminate game processes | `game_process.rs` and `game_lifecycle.rs` identify supported game processes, expose lifecycle state, stop games, and report stage failures. Manual Wine/Proton launches use a launch token plus executable matching. | Implemented for current launch paths |
+| Apply OnlineFix, FreeTP, Photon, EOS, or other game-specific patches | Legio does not apply these patches or install their game-specific files. | Missing; product scope decision required |
+| Produce per-game Wine/Proton diagnostics and export logs | Legio has application diagnostics and launch errors, but no per-game Wine/Proton log collection or export flow. | Partial |
+| Extract or select game icons and create desktop or application-menu shortcuts | Steam assets are cached for Steam-linked games. Manual-game icon extraction, custom icon persistence, and shortcuts are absent. | Partial |
+| Download OFLL-compatible games and fixes | Legio's queue downloads entries from its own SHA256-verified source manifest and installs supported archives. It does not download OnlineFix/FreeTP releases or use OFLL/Hydra fix feeds. | Missing; source and product scope decision required |
+
+Rows marked Missing or Partial remain open. No exclusion is approved by this inventory. The supported rows need exercised scenarios, including a real Linux game launch.
+
 Verification: every required upstream responsibility has a Rust implementation and an exercised scenario, or an approved documented exclusion.
 
 ## Dependencies
