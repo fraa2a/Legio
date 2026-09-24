@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 const THEME_KEY: &str = "theme";
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -424,11 +424,39 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         ).map_err(database_error)?;
     }
     if version < 8 {
+        transaction.execute_batch(
+            "ALTER TABLE downloads ADD COLUMN staged_path TEXT;
+             CREATE TABLE downloads_v8 (
+                id TEXT PRIMARY KEY NOT NULL,
+                steam_app_id INTEGER NOT NULL CHECK (steam_app_id BETWEEN 1 AND 4294967295),
+                name TEXT NOT NULL,
+                release_version TEXT NOT NULL,
+                url TEXT NOT NULL,
+                sha256 TEXT NOT NULL,
+                etag TEXT,
+                size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
+                downloaded_bytes INTEGER NOT NULL DEFAULT 0 CHECK (downloaded_bytes >= 0 AND downloaded_bytes <= size_bytes),
+                speed_bps INTEGER NOT NULL DEFAULT 0,
+                eta_seconds INTEGER,
+                status TEXT NOT NULL CHECK (status IN ('queued', 'downloading', 'paused', 'waiting', 'failed', 'downloaded', 'staging', 'staged', 'cancelled')),
+                error TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                staged_path TEXT
+             );
+             INSERT INTO downloads_v8 SELECT * FROM downloads;
+             DROP TABLE downloads;
+             ALTER TABLE downloads_v8 RENAME TO downloads;
+             CREATE INDEX downloads_status_idx ON downloads (status, created_at);
+             PRAGMA user_version = 8;"
+        ).map_err(database_error)?;
+    }
+    if version < 9 {
         transaction
             .execute_batch(
                 "ALTER TABLE games ADD COLUMN executable_path TEXT;
                  CREATE UNIQUE INDEX games_executable_path_idx ON games (executable_path) WHERE executable_path IS NOT NULL;
-                 PRAGMA user_version = 8;",
+                 PRAGMA user_version = 9;",
             )
             .map_err(database_error)?;
     }
@@ -574,7 +602,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn migrates_v7_download_database_without_losing_games() {
+    fn migrates_v8_staged_download_database_without_losing_games() {
         let connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
         connection
@@ -582,7 +610,7 @@ mod tests {
                 "INSERT INTO games (id, name_override) VALUES ('manual', 'Manual game');
              DROP INDEX games_executable_path_idx;
              ALTER TABLE games DROP COLUMN executable_path;
-             PRAGMA user_version = 7;",
+             PRAGMA user_version = 8;",
             )
             .unwrap();
         migrate(&connection).unwrap();
