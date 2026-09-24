@@ -177,7 +177,7 @@ fn extract(source: File, stage: &Path, archive_bytes: u64) -> Result<(), String>
     Ok(())
 }
 
-fn safe_relative_path(name: &str) -> Result<PathBuf, String> {
+pub(crate) fn safe_relative_path(name: &str) -> Result<PathBuf, String> {
     if name.is_empty() || name.contains('\\') || name.contains(':') || name.contains('\0') {
         return Err(format!("Archive has an unsafe path: {name:?}"));
     }

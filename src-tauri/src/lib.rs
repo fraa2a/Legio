@@ -6,6 +6,7 @@ mod commands;
 mod database;
 mod diagnostics;
 mod download_queue;
+mod finalize_install;
 mod game_lifecycle;
 mod game_process;
 pub mod legio_source;
@@ -76,6 +77,7 @@ pub fn run() -> tauri::Result<()> {
             commands::get_legio_source,
             download_queue::list_downloads,
             download_queue::stage_download,
+            finalize_install::finalize_download,
             download_queue::queue_download,
             download_queue::pause_download,
             download_queue::resume_download,

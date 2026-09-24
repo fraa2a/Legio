@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 const THEME_KEY: &str = "theme";
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -460,6 +460,39 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             )
             .map_err(database_error)?;
     }
+    if version < 10 {
+        transaction.execute_batch(
+            "ALTER TABLE downloads ADD COLUMN final_path TEXT;
+             ALTER TABLE downloads ADD COLUMN executable_relative TEXT;
+             ALTER TABLE downloads ADD COLUMN install_token TEXT;
+             CREATE TABLE downloads_v10 (
+                id TEXT PRIMARY KEY NOT NULL,
+                steam_app_id INTEGER NOT NULL CHECK (steam_app_id BETWEEN 1 AND 4294967295),
+                name TEXT NOT NULL,
+                release_version TEXT NOT NULL,
+                url TEXT NOT NULL,
+                sha256 TEXT NOT NULL,
+                etag TEXT,
+                size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
+                downloaded_bytes INTEGER NOT NULL DEFAULT 0 CHECK (downloaded_bytes >= 0 AND downloaded_bytes <= size_bytes),
+                speed_bps INTEGER NOT NULL DEFAULT 0,
+                eta_seconds INTEGER,
+                status TEXT NOT NULL CHECK (status IN ('queued', 'downloading', 'paused', 'waiting', 'failed', 'downloaded', 'staging', 'staged', 'finalizing', 'installed', 'cancelled')),
+                error TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                staged_path TEXT,
+                final_path TEXT,
+                executable_relative TEXT,
+                install_token TEXT
+             );
+             INSERT INTO downloads_v10 SELECT * FROM downloads;
+             DROP TABLE downloads;
+             ALTER TABLE downloads_v10 RENAME TO downloads;
+             CREATE INDEX downloads_status_idx ON downloads (status, created_at);
+             PRAGMA user_version = 10;"
+        ).map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }
 
@@ -602,12 +635,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn migrates_v9_staged_download_for_finalization() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        connection.execute_batch("INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at, staged_path) VALUES ('job', 42, 'Game', '1', 'https://example.test', 'hash', 4, 'staged', 1, 1, '/stage'); ALTER TABLE downloads DROP COLUMN install_token; ALTER TABLE downloads DROP COLUMN executable_relative; ALTER TABLE downloads DROP COLUMN final_path; PRAGMA user_version = 9;").unwrap();
+        migrate(&connection).unwrap();
+        let row: (String, String, Option<String>) = connection
+            .query_row(
+                "SELECT status, staged_path, final_path FROM downloads WHERE id = 'job'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(row, ("staged".to_owned(), "/stage".to_owned(), None));
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 10);
+    }
+
+    #[test]
     fn migrates_v8_staged_download_database_without_losing_games() {
         let connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
         connection
             .execute_batch(
                 "INSERT INTO games (id, name_override) VALUES ('manual', 'Manual game');
+             ALTER TABLE downloads DROP COLUMN install_token;
+             ALTER TABLE downloads DROP COLUMN executable_relative;
+             ALTER TABLE downloads DROP COLUMN final_path;
              DROP INDEX games_executable_path_idx;
              ALTER TABLE games DROP COLUMN executable_path;
              PRAGMA user_version = 8;",

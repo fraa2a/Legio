@@ -24,6 +24,10 @@ tauri = { version = "2", features = [] }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "sync", "time"] }
 uuid = { version = "1", features = ["v4"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 compress-tools = { version = "0.16", features = ["static"] }
 winreg = "0.55.0"
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }

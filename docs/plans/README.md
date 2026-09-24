@@ -17,10 +17,10 @@
 | [01 Foundation and application shell](01-foundation-and-application-shell.md) | Completed | None | 02A SQLite initialization and migrations |
 | [02 Local state, settings, and library](02-local-state-settings-and-library.md) | Completed | 01 | 04A source manifest validation |
 | [03 Steam integration and catalog](03-steam-integration-and-catalog.md) | Completed | 02 | 04A source manifest validation |
-| [04 Legio source, Store, and trust](04-legio-source-store-and-trust.md) | Planned | 03 | Resolve the source URL, then 04A manifest validation |
-| [05 Downloads, installation, and import](05-downloads-installation-and-import.md) | Planned | 04 | 05A persistent download queue |
-| [06 Launch, playtime, and offline](06-launch-playtime-and-offline.md) | Planned | 05 | 06A shared launch lifecycle |
-| [07 Linux compatibility and OFLL](07-linux-compatibility-and-ofll.md) | Planned | 06 | 07A compatibility runner discovery |
+| [04 Legio source, Store, and trust](04-legio-source-store-and-trust.md) | Completed | 03 | 05A queue controls and restart verification |
+| [05 Downloads, installation, and import](05-downloads-installation-and-import.md) | In progress | 04 | 05A queue controls and restart verification |
+| [06 Launch, playtime, and offline](06-launch-playtime-and-offline.md) | In progress | 05 | 06A manager end-to-end verification |
+| [07 Linux compatibility and OFLL](07-linux-compatibility-and-ofll.md) | In progress | 06 | 07A launch via selected runner |
 | [08 Product UI and operations](08-product-ui-and-operations.md) | Blocked | 02, 03, 04, 05, 06, 07 | Supply the section 35 mockup, then 08A product UI |
 | [09 Updates, release, and future](09-updates-release-and-future.md) | Planned | 04, 05, 06, 07, 08 | 09A game update policies |
 
