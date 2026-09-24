@@ -65,6 +65,13 @@ struct SessionTracking {
     last_heartbeat: Instant,
 }
 
+#[derive(Default)]
+struct LaunchContext {
+    steam_app_id: Option<u32>,
+    steam_log_path: Option<PathBuf>,
+    session_app: Option<AppHandle>,
+}
+
 impl SessionTracking {
     fn start(app: AppHandle, game_id: &str) -> Result<Self, String> {
         app.state::<DatabaseState>()
@@ -169,10 +176,12 @@ impl GameLaunchManager {
                 manager.run_launch(
                     worker_id,
                     process_target,
-                    Some(app_id),
-                    Some(steam_log_path),
                     cancel,
-                    Some(session_app),
+                    LaunchContext {
+                        steam_app_id: Some(app_id),
+                        steam_log_path: Some(steam_log_path),
+                        session_app: Some(session_app),
+                    },
                     move |cancel| {
                         steam_switch::launch(&app, &launch_game_id, confirm_account_switch, cancel)
                             .map(|_| None)
@@ -325,10 +334,11 @@ impl GameLaunchManager {
                 manager.run_launch(
                     worker_id,
                     process_target,
-                    None,
-                    None,
                     cancel,
-                    Some(session_app),
+                    LaunchContext {
+                        session_app: Some(session_app),
+                        ..LaunchContext::default()
+                    },
                     move |_| {
                         command.spawn().map(Some).map_err(|error| {
                             format!("Could not start compatibility runner: {error}")
@@ -390,12 +400,15 @@ impl GameLaunchManager {
         &self,
         game_id: String,
         mut process_target: game_process::ProcessTarget,
-        steam_app_id: Option<u32>,
-        steam_log_path: Option<PathBuf>,
         cancel: Arc<AtomicBool>,
-        session_app: Option<AppHandle>,
+        context: LaunchContext,
         launch: impl FnOnce(&AtomicBool) -> Result<Option<Child>, String>,
     ) {
+        let LaunchContext {
+            steam_app_id,
+            steam_log_path,
+            session_app,
+        } = context;
         let mut steam_log = steam_log_path.map(SteamLaunchLog::new);
         if cancel.load(Ordering::Acquire) {
             self.set_state(&game_id, GameStatus::Idle, None);
@@ -1152,10 +1165,8 @@ mod tests {
             worker_manager.run_launch(
                 "runner".to_owned(),
                 target,
-                None,
-                None,
                 cancel,
-                None,
+                LaunchContext::default(),
                 move |_| Ok(Some(runner_stub(&executable_name, &token))),
             );
         });
@@ -1180,10 +1191,8 @@ mod tests {
         manager.run_launch(
             "runner".to_owned(),
             target,
-            None,
-            None,
             cancel,
-            None,
+            LaunchContext::default(),
             |_| Err("Could not start compatibility runner: no such file".to_owned()),
         );
         let state = &manager.list().unwrap()[0];
@@ -1208,10 +1217,8 @@ mod tests {
         manager.run_launch(
             "runner".to_owned(),
             target,
-            None,
-            None,
             cancel,
-            None,
+            LaunchContext::default(),
             |_| {
                 std::process::Command::new("/bin/bash")
                     .args(["-c", "exit 7"])
@@ -1249,10 +1256,8 @@ mod tests {
             worker_manager.run_launch(
                 "runner".to_owned(),
                 target,
-                None,
-                None,
                 cancel,
-                None,
+                LaunchContext::default(),
                 move |_| {
                     std::process::Command::new("/bin/bash")
                         .args([
@@ -1317,10 +1322,11 @@ mod tests {
                     app_id: APP_ID,
                     install_path: worker_install_path,
                 },
-                Some(APP_ID),
-                None,
                 cancel,
-                None,
+                LaunchContext {
+                    steam_app_id: Some(APP_ID),
+                    ..LaunchContext::default()
+                },
                 move |_| {
                     let child = std::process::Command::new("sleep")
                         .arg("30")
@@ -1379,10 +1385,11 @@ mod tests {
                 app_id: 42,
                 install_path: base.join("game"),
             },
-            Some(42),
-            None,
             cancel,
-            None,
+            LaunchContext {
+                steam_app_id: Some(42),
+                ..LaunchContext::default()
+            },
             move |_| {
                 std::process::Command::new(missing_executable)
                     .spawn()
