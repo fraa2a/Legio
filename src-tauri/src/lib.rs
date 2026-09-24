@@ -11,6 +11,7 @@ mod game_process;
 pub mod legio_source;
 mod legio_source_cache;
 mod network;
+mod runner_discovery;
 mod steam_assets;
 mod steam_details;
 mod steam_import;
@@ -83,6 +84,7 @@ pub fn run() -> tauri::Result<()> {
             commands::refresh_catalog,
             commands::get_steam_details,
             commands::get_steam_asset,
+            runner_discovery::list_compatibility_runners,
         ])
         .run(tauri::generate_context!())
 }
