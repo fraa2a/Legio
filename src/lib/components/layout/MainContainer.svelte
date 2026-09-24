@@ -1,0 +1,1 @@
+<main class="min-w-0 flex-1 rounded-2xl bg-zinc-900"></main>

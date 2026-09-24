@@ -1,1 +1,73 @@
 @import "tailwindcss";
+
+@theme {
+  --font-sans: "Motiva Sans", ui-sans-serif, system-ui, sans-serif;
+}
+
+@font-face {
+  font-family: "Motiva Sans";
+  src: url("./assets/fonts/MotivaSans-Thin.ttf") format("truetype");
+  font-weight: 200;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Motiva Sans";
+  src: url("./assets/fonts/MotivaSans-Light.ttf") format("truetype");
+  font-weight: 300;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Motiva Sans";
+  src: url("./assets/fonts/MotivaSans-LightItalic.ttf") format("truetype");
+  font-weight: 300;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "Motiva Sans";
+  src: url("./assets/fonts/MotivaSans-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Motiva Sans";
+  src: url("./assets/fonts/MotivaSans-RegularItalic.ttf") format("truetype");
+  font-weight: 400;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "Motiva Sans";
+  src: url("./assets/fonts/MotivaSans-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Motiva Sans";
+  src: url("./assets/fonts/MotivaSans-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Motiva Sans";
+  src: url("./assets/fonts/MotivaSans-BoldItalic.ttf") format("truetype");
+  font-weight: 700;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "Motiva Sans";
+  src: url("./assets/fonts/MotivaSans-Black.ttf") format("truetype");
+  font-weight: 900;
+  font-style: normal;
+}
+
+body {
+  background-color: #000;
+  font-family: "Motiva Sans", system-ui, sans-serif;
+}
