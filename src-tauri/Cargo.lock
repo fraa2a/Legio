@@ -1870,6 +1870,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "compress-tools",
+ "libc",
  "reqwest",
  "rusqlite",
  "serde",
@@ -1879,6 +1880,7 @@ dependencies = [
  "tauri-build",
  "tokio",
  "uuid",
+ "windows-sys 0.61.2",
  "winreg",
 ]
 

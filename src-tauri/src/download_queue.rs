@@ -17,7 +17,7 @@ use uuid::Uuid;
 use crate::{
     archive_install,
     database::{Database, DatabaseState},
-    legio_source_cache,
+    finalize_install, legio_source_cache,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -829,6 +829,11 @@ pub fn start(app: AppHandle) -> Result<(), String> {
     let database = database.database()?;
     clean_cancelled(&app.state::<DownloadQueueState>(), database)?;
     recover_staging(&app.state::<DownloadQueueState>(), database)?;
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Could not locate app data: {error}"))?;
+    finalize_install::recover(database, &data_dir)?;
     recover(database)?;
     kick(app);
     Ok(())
@@ -950,7 +955,10 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute_batch(
-                        "ALTER TABLE downloads DROP COLUMN staged_path;
+                        "ALTER TABLE downloads DROP COLUMN install_token;
+                         ALTER TABLE downloads DROP COLUMN executable_relative;
+                         ALTER TABLE downloads DROP COLUMN final_path;
+                         ALTER TABLE downloads DROP COLUMN staged_path;
                          DROP INDEX games_executable_path_idx;
                          ALTER TABLE games DROP COLUMN executable_path;
                          PRAGMA user_version = 7;",
