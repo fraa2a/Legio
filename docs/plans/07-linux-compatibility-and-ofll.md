@@ -20,6 +20,8 @@ Runner discovery and management, prefixes and runtime configuration, launch opti
 
 ### 07A: Runner discovery and basic launch
 
+Status: Proton, GE-Proton, and Wine inventory is implemented; launching a game through the selected runner remains.
+
 - Discover Proton, GE-Proton, and Wine installations.
 - Validate runner paths and versions.
 - Launch one supported Windows game through the Phase 06 lifecycle.

@@ -10,6 +10,7 @@ mod game_lifecycle;
 mod game_process;
 pub mod legio_source;
 mod legio_source_cache;
+mod manual_import;
 mod network;
 mod runner_discovery;
 mod steam_assets;
@@ -67,6 +68,9 @@ pub fn run() -> tauri::Result<()> {
             commands::check_game_steam_account,
             commands::scan_steam_installations,
             commands::import_steam_installations,
+            commands::scan_game_executables,
+            commands::import_manual_game,
+            commands::set_game_executable,
             commands::get_network_status,
             commands::get_network_log_status,
             commands::get_legio_source,
