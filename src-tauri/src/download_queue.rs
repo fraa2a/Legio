@@ -15,6 +15,7 @@ use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 use crate::{
+    archive_install,
     database::{Database, DatabaseState},
     legio_source_cache,
 };
@@ -285,6 +286,120 @@ fn recover(database: &Database) -> Result<(), String> {
         ).map_err(db_error)?;
         Ok(())
     })
+}
+
+fn remove_stage(path: &Path) -> Result<(), String> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+            fs::remove_dir_all(path)
+                .map_err(|error| format!("Could not remove staging directory: {error}"))
+        }
+        Ok(_) => Err(format!(
+            "Staging path is not a regular directory: {}",
+            path.display()
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("Could not inspect staging directory: {error}")),
+    }
+}
+
+fn stage_one(queue: &DownloadQueueState, database: &Database, id: &str) -> Result<PathBuf, String> {
+    let id = Uuid::parse_str(id)
+        .map_err(|_| "Download ID is invalid".to_owned())?
+        .to_string();
+    let archive = queue.path(&id, "archive")?;
+    let stage = queue.path(&id, "stage")?;
+    let hash = database.with_connection(|connection| {
+        let row: Option<(String, String)> = connection
+            .query_row(
+                "SELECT sha256, status FROM downloads WHERE id = ?1",
+                [&id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(db_error)?;
+        let Some((hash, status)) = row else {
+            return Err("Download was not found".into());
+        };
+        if status != "downloaded" {
+            return Err(format!("Cannot stage a {status} download"));
+        }
+        connection.execute(
+            "UPDATE downloads SET status = 'staging', error = NULL, updated_at = ?2 WHERE id = ?1",
+            params![id, now()?],
+        ).map_err(db_error)?;
+        Ok(hash)
+    })?;
+
+    let outcome = remove_stage(&stage)
+        .and_then(|()| archive_install::verify_and_stage(&archive, &hash, &stage));
+    match outcome {
+        Ok(()) => {
+            let persisted = database.with_connection(|connection| {
+                connection.execute(
+                    "UPDATE downloads SET status = 'staged', staged_path = ?2, updated_at = ?3 WHERE id = ?1 AND status = 'staging'",
+                    params![id, stage.to_string_lossy(), now()?],
+                ).map_err(db_error)?;
+                Ok(())
+            });
+            if let Err(error) = persisted {
+                return match remove_stage(&stage) {
+                    Ok(()) => Err(format!(
+                        "Could not save staged download: {error}. Retry staging"
+                    )),
+                    Err(cleanup) => Err(format!(
+                        "Could not save staged download: {error}; {cleanup}"
+                    )),
+                };
+            }
+            Ok(stage)
+        }
+        Err(error) => {
+            database.with_connection(|connection| {
+                connection.execute(
+                    "UPDATE downloads SET status = 'failed', error = ?2, staged_path = NULL, updated_at = ?3 WHERE id = ?1 AND status = 'staging'",
+                    params![id, error, now()?],
+                ).map_err(db_error)?;
+                Ok(())
+            }).map_err(|db| format!("{error}; could not save failure: {db}"))?;
+            Err(error)
+        }
+    }
+}
+
+fn recover_staging(queue: &DownloadQueueState, database: &Database) -> Result<(), String> {
+    let ids: Vec<String> = database.with_connection(|connection| {
+        let mut statement = connection
+            .prepare("SELECT id FROM downloads WHERE status = 'staging'")
+            .map_err(db_error)?;
+        statement
+            .query_map([], |row| row.get(0))
+            .map_err(db_error)?
+            .collect::<Result<_, _>>()
+            .map_err(db_error)
+    })?;
+    for id in ids {
+        let stage = queue.path(&id, "stage")?;
+        let archive = queue.path(&id, "archive")?;
+        let cleanup = remove_stage(&stage);
+        let next = if cleanup.is_ok() {
+            if archive.is_file() {
+                "downloaded"
+            } else {
+                "queued"
+            }
+        } else {
+            "failed"
+        };
+        database.with_connection(|connection| {
+            connection.execute(
+                "UPDATE downloads SET status = ?2, error = ?3, staged_path = NULL, updated_at = ?4 WHERE id = ?1 AND status = 'staging'",
+                params![id, next, cleanup.err(), now()?],
+            ).map_err(db_error)?;
+            Ok(())
+        })?;
+    }
+    Ok(())
 }
 
 fn remove_partial(path: &Path) -> std::io::Result<()> {
@@ -591,6 +706,20 @@ pub async fn list_downloads(app: AppHandle) -> Result<Vec<DownloadJob>, String> 
 }
 
 #[tauri::command]
+pub async fn stage_download(app: AppHandle, id: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let stage = stage_one(
+            &app.state::<DownloadQueueState>(),
+            app.state::<DatabaseState>().database()?,
+            &id,
+        )?;
+        Ok(stage.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|error| format!("Staging task failed: {error}"))?
+}
+
+#[tauri::command]
 pub async fn queue_download(
     app: AppHandle,
     steam_app_id: u32,
@@ -699,6 +828,7 @@ pub fn start(app: AppHandle) -> Result<(), String> {
     let database = app.state::<DatabaseState>();
     let database = database.database()?;
     clean_cancelled(&app.state::<DownloadQueueState>(), database)?;
+    recover_staging(&app.state::<DownloadQueueState>(), database)?;
     recover(database)?;
     kick(app);
     Ok(())
@@ -707,6 +837,7 @@ pub fn start(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::{Digest, Sha256};
     use std::{
         io::{Read, Write},
         net::TcpListener,
@@ -723,6 +854,125 @@ mod tests {
             Ok(())
         }).unwrap();
         (database, directory)
+    }
+
+    fn downloaded_fixture() -> (Database, DownloadQueueState, DownloadJob, PathBuf) {
+        let (database, directory) = database_with_source();
+        let job = enqueue(&database, 400, false).unwrap();
+        let bytes = include_bytes!("../test-fixtures/archive/safe.zip");
+        let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
+        fs::write(queue.path(&job.id, "archive").unwrap(), bytes).unwrap();
+        let hash = format!("{:x}", Sha256::digest(bytes));
+        database.with_connection(|connection| {
+            connection.execute(
+                "UPDATE downloads SET status = 'downloaded', sha256 = ?2, size_bytes = ?3, downloaded_bytes = ?3 WHERE id = ?1",
+                params![job.id, hash, bytes.len() as i64],
+            ).map_err(db_error)?;
+            Ok(())
+        }).unwrap();
+        (database, queue, job, directory)
+    }
+
+    #[test]
+    fn stage_command_persists_verified_path_for_recovery() {
+        let (database, queue, job, directory) = downloaded_fixture();
+        let stage = stage_one(&queue, &database, &job.id).unwrap();
+        assert_eq!(fs::read(stage.join("Game/data.bin")).unwrap(), b"hello");
+        assert_eq!(list(&database).unwrap()[0].status, "staged");
+        let stored: String = database
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT staged_path FROM downloads WHERE id = ?1",
+                        [&job.id],
+                        |row| row.get(0),
+                    )
+                    .map_err(db_error)
+            })
+            .unwrap();
+        assert_eq!(stored, stage.to_string_lossy());
+        drop(database);
+        let reopened = Database::open(&directory).unwrap();
+        assert_eq!(list(&reopened).unwrap()[0].status, "staged");
+        drop(reopened);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn staging_hash_failure_removes_archive_and_records_failure() {
+        let (database, queue, job, directory) = downloaded_fixture();
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET sha256 = ?2 WHERE id = ?1",
+                        params![job.id, "0".repeat(64)],
+                    )
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(
+            stage_one(&queue, &database, &job.id)
+                .unwrap_err()
+                .contains("hash differs")
+        );
+        assert!(!queue.path(&job.id, "archive").unwrap().exists());
+        assert!(!queue.path(&job.id, "stage").unwrap().exists());
+        assert_eq!(list(&database).unwrap()[0].status, "failed");
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn database_failure_removes_stage_and_restart_recovers() {
+        let (database, queue, job, directory) = downloaded_fixture();
+        database.with_connection(|connection| {
+            connection.execute_batch("CREATE TRIGGER reject_staged BEFORE UPDATE ON downloads WHEN NEW.status = 'staged' BEGIN SELECT RAISE(FAIL, 'db failure'); END;").map_err(db_error)
+        }).unwrap();
+        assert!(
+            stage_one(&queue, &database, &job.id)
+                .unwrap_err()
+                .contains("Could not save staged download")
+        );
+        assert!(!queue.path(&job.id, "stage").unwrap().exists());
+        assert_eq!(list(&database).unwrap()[0].status, "staging");
+        recover_staging(&queue, &database).unwrap();
+        assert_eq!(list(&database).unwrap()[0].status, "downloaded");
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn schema_v8_preserves_existing_downloads() {
+        let (database, _, job, directory) = downloaded_fixture();
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute_batch(
+                        "ALTER TABLE downloads DROP COLUMN staged_path; PRAGMA user_version = 7;",
+                    )
+                    .map_err(db_error)
+            })
+            .unwrap();
+        drop(database);
+        let reopened = Database::open(&directory).unwrap();
+        assert_eq!(list(&reopened).unwrap()[0].id, job.id);
+        assert_eq!(list(&reopened).unwrap()[0].status, "downloaded");
+        let staged_path: Option<String> = reopened
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT staged_path FROM downloads WHERE id = ?1",
+                        [&job.id],
+                        |row| row.get(0),
+                    )
+                    .map_err(db_error)
+            })
+            .unwrap();
+        assert_eq!(staged_path, None);
+        drop(reopened);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
