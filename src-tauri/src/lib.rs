@@ -60,6 +60,7 @@ pub fn run() -> tauri::Result<()> {
             commands::update_game,
             commands::remove_game,
             commands::launch_steam_game,
+            commands::launch_game_with_runner,
             commands::list_game_launch_states,
             commands::cancel_game_launch,
             commands::stop_game,

@@ -38,6 +38,33 @@ pub struct RunnerDiscovery {
     pub diagnostics: Vec<String>,
 }
 
+#[cfg(target_os = "linux")]
+pub(crate) fn resolve_runner(path: &str) -> Result<InstalledRunner, String> {
+    let requested = fs::canonicalize(path)
+        .map_err(|error| format!("Could not resolve selected compatibility runner: {error}"))?;
+    discover()
+        .runners
+        .into_iter()
+        .find(|runner| Path::new(&runner.path) == requested)
+        .ok_or_else(|| "Selected compatibility runner is no longer available".to_owned())
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn launch_command(runner: &InstalledRunner, executable: &Path) -> Command {
+    match runner.kind {
+        RunnerKind::Proton | RunnerKind::GeProton => {
+            let mut command = Command::new(Path::new(&runner.path).join("proton"));
+            command.arg("run").arg(executable);
+            command
+        }
+        RunnerKind::Wine => {
+            let mut command = Command::new(&runner.path);
+            command.arg(executable);
+            command
+        }
+    }
+}
+
 pub fn discover() -> RunnerDiscovery {
     #[cfg(target_os = "linux")]
     {

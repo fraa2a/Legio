@@ -79,6 +79,23 @@ pub async fn launch_steam_game(
 }
 
 #[tauri::command]
+pub async fn launch_game_with_runner(
+    app: AppHandle,
+    game_id: String,
+    runner_path: String,
+) -> Result<(), String> {
+    let manager = app
+        .state::<crate::game_lifecycle::GameLaunchManager>()
+        .inner()
+        .clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        manager.launch_with_runner(app, game_id, runner_path)
+    })
+    .await
+    .map_err(|error| format!("Compatibility runner launch task failed: {error}"))?
+}
+
+#[tauri::command]
 pub fn list_game_launch_states(
     state: State<'_, crate::game_lifecycle::GameLaunchManager>,
 ) -> Result<Vec<crate::game_lifecycle::GameLaunchState>, String> {

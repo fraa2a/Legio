@@ -63,4 +63,12 @@ Runner discovery and configuration are reliable, supported Windows games launch 
 
 ## Update notes
 
-Runner inventory is available through the `list_compatibility_runners` Tauri command on Linux. It reports validated Proton, GE-Proton, and Wine paths with version metadata. Basic game launch through the selected runner remains open.
+Runner inventory is available through the `list_compatibility_runners` Tauri command on Linux. It reports validated Proton, GE-Proton, and Wine paths with version metadata.
+
+The backend now has a Linux-only command for launching manually imported Windows `.exe` games with an explicitly selected runner. It revalidates the canonical runner path against current discovery immediately before launch. Steam-managed games continue to use the Steam launch path.
+
+Runner launches use the existing lifecycle and a per-launch token plus executable-name match to identify the game process. The prefix is created in `<app_data_dir>/compatdata/<game UUID>`. Proton additionally requires a discovered local Steam client root; Wine uses the same per-game directory as `WINEPREFIX` and can run without Steam. Runner selection is passed to the backend command and is not persisted.
+
+Linux stub tests cover runner process detection, transition from Launching to Running and Idle on stop, spawn failure, wrapper failure, and cancellation before the game process appears. The full library test command was attempted; 15 existing loopback HTTP tests fail in this sandbox with `PermissionDenied` while binding sockets. The runner tests pass independently.
+
+07A remains in progress pending a smoke test with a supported Windows game and installed runner that proves the real game executable is detected and stopped. Proton startup can depend on its Steam Runtime and game-specific setup, so the stub tests do not establish real Proton compatibility. Runner persistence and user-facing configuration remain in 07B.
