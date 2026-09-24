@@ -93,8 +93,7 @@ impl SessionTracking {
 impl Drop for SessionTracking {
     fn drop(&mut self) {
         if let Ok(database) = self.app.state::<DatabaseState>().database() {
-            let _ = database
-                .end_game_session(&self.game_id, crate::database::now_milliseconds());
+            let _ = database.end_game_session(&self.game_id, crate::database::now_milliseconds());
         }
     }
 }
@@ -1150,9 +1149,15 @@ mod tests {
         assert_eq!(manager.list().unwrap()[0].status, GameStatus::Launching);
         let worker_manager = manager.clone();
         let worker = thread::spawn(move || {
-            worker_manager.run_launch("runner".to_owned(), target, None, None, cancel, None, move |_| {
-                Ok(Some(runner_stub(&executable_name, &token)))
-            });
+            worker_manager.run_launch(
+                "runner".to_owned(),
+                target,
+                None,
+                None,
+                cancel,
+                None,
+                move |_| Ok(Some(runner_stub(&executable_name, &token))),
+            );
         });
         wait_for_status(&manager, "runner", GameStatus::Running);
         manager.stop("runner").unwrap();
@@ -1172,9 +1177,15 @@ mod tests {
         let cancel = manager
             .reserve_launch("runner", None, target.clone())
             .unwrap();
-        manager.run_launch("runner".to_owned(), target, None, None, cancel, None, |_| {
-            Err("Could not start compatibility runner: no such file".to_owned())
-        });
+        manager.run_launch(
+            "runner".to_owned(),
+            target,
+            None,
+            None,
+            cancel,
+            None,
+            |_| Err("Could not start compatibility runner: no such file".to_owned()),
+        );
         let state = &manager.list().unwrap()[0];
         assert_eq!(state.status, GameStatus::Idle);
         assert_eq!(
@@ -1194,13 +1205,21 @@ mod tests {
         let cancel = manager
             .reserve_launch("runner", None, target.clone())
             .unwrap();
-        manager.run_launch("runner".to_owned(), target, None, None, cancel, None, |_| {
-            std::process::Command::new("/bin/bash")
-                .args(["-c", "exit 7"])
-                .spawn()
-                .map(Some)
-                .map_err(|error| error.to_string())
-        });
+        manager.run_launch(
+            "runner".to_owned(),
+            target,
+            None,
+            None,
+            cancel,
+            None,
+            |_| {
+                std::process::Command::new("/bin/bash")
+                    .args(["-c", "exit 7"])
+                    .spawn()
+                    .map(Some)
+                    .map_err(|error| error.to_string())
+            },
+        );
         let state = &manager.list().unwrap()[0];
         assert_eq!(state.status, GameStatus::Idle);
         assert!(
@@ -1227,19 +1246,27 @@ mod tests {
         let worker_manager = manager.clone();
         let ready_path = ready.to_string_lossy().into_owned();
         let worker = thread::spawn(move || {
-            worker_manager.run_launch("runner".to_owned(), target, None, None, cancel, None, move |_| {
-                std::process::Command::new("/bin/bash")
-                    .args([
-                        "-c",
-                        "touch \"$1\"; exec sleep 60",
-                        "legio-stub",
-                        &ready_path,
-                    ])
-                    .env(game_process::LAUNCH_TOKEN_ENV, token)
-                    .spawn()
-                    .map(Some)
-                    .map_err(|error| error.to_string())
-            });
+            worker_manager.run_launch(
+                "runner".to_owned(),
+                target,
+                None,
+                None,
+                cancel,
+                None,
+                move |_| {
+                    std::process::Command::new("/bin/bash")
+                        .args([
+                            "-c",
+                            "touch \"$1\"; exec sleep 60",
+                            "legio-stub",
+                            &ready_path,
+                        ])
+                        .env(game_process::LAUNCH_TOKEN_ENV, token)
+                        .spawn()
+                        .map(Some)
+                        .map_err(|error| error.to_string())
+                },
+            );
         });
         let started = Instant::now();
         while !ready.exists() {
