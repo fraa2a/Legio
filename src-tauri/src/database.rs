@@ -1261,9 +1261,11 @@ mod tests {
 
         database.save_download_bandwidth_limit(1_500_000).unwrap();
         assert_eq!(database.download_bandwidth_limit().unwrap(), 1_500_000);
-        assert!(database
-            .save_download_bandwidth_limit(i64::MAX as u64 + 1)
-            .is_err());
+        assert!(
+            database
+                .save_download_bandwidth_limit(i64::MAX as u64 + 1)
+                .is_err()
+        );
 
         drop(database);
         let reopened = Database::open(&directory).unwrap();
