@@ -185,24 +185,29 @@ fn is_false_positive(path: &Path) -> bool {
         .and_then(|name| name.to_str())
         .unwrap_or_default()
         .to_ascii_lowercase();
+    let normalized: String = name
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .collect();
     let blocked = [
         "unins",
         "uninstall",
         "setup",
         "install",
         "vcredist",
-        "vc_redist",
         "dxsetup",
         "directx",
-        "crash",
+        "crashreport",
+        "crashhandler",
+        "crashpad",
         "anticheat",
         "easyanticheat",
-        "eac",
         "webhelper",
         "helper",
         "redist",
     ];
-    blocked.iter().any(|part| name.contains(part))
+    normalized == "eac"
+        || blocked.iter().any(|part| normalized.contains(part))
         || path.components().any(|part| {
             let part = part.as_os_str().to_string_lossy().to_ascii_lowercase();
             [
@@ -291,6 +296,13 @@ mod tests {
         let scan = scan_directory(root.to_str().unwrap(), None).unwrap();
         assert_eq!(scan.candidates.len(), 1);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn game_names_with_helper_substrings_are_not_filtered() {
+        assert!(!is_false_positive(Path::new("Peace.exe")));
+        assert!(!is_false_positive(Path::new("Peach.exe")));
+        assert!(!is_false_positive(Path::new("Crash Bandicoot.exe")));
     }
 
     #[test]
