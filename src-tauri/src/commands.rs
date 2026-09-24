@@ -43,6 +43,40 @@ pub fn save_settings(
 }
 
 #[tauri::command]
+pub fn get_compatibility_defaults(
+    state: State<'_, DatabaseState>,
+) -> Result<database::CompatibilityDefaults, String> {
+    state.database()?.compatibility_defaults()
+}
+
+#[tauri::command]
+pub fn save_compatibility_defaults(
+    state: State<'_, DatabaseState>,
+    defaults: database::CompatibilityDefaults,
+) -> Result<database::CompatibilityDefaults, String> {
+    state.database()?.save_compatibility_defaults(defaults)
+}
+
+#[tauri::command]
+pub fn get_game_compatibility_overrides(
+    state: State<'_, DatabaseState>,
+    game_id: String,
+) -> Result<database::GameCompatibilityOverrides, String> {
+    state.database()?.game_compatibility_overrides(&game_id)
+}
+
+#[tauri::command]
+pub fn save_game_compatibility_overrides(
+    state: State<'_, DatabaseState>,
+    game_id: String,
+    overrides: database::GameCompatibilityOverrides,
+) -> Result<database::GameCompatibilityOverrides, String> {
+    state
+        .database()?
+        .save_game_compatibility_overrides(&game_id, overrides)
+}
+
+#[tauri::command]
 pub fn list_games(state: State<'_, DatabaseState>) -> Result<Vec<Game>, String> {
     database::list_games(&state)
 }
@@ -93,6 +127,20 @@ pub async fn launch_game_with_runner(
     })
     .await
     .map_err(|error| format!("Compatibility runner launch task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn launch_configured_game_with_runner(
+    app: AppHandle,
+    game_id: String,
+) -> Result<(), String> {
+    let manager = app
+        .state::<crate::game_lifecycle::GameLaunchManager>()
+        .inner()
+        .clone();
+    tauri::async_runtime::spawn_blocking(move || manager.launch_configured(app, game_id))
+        .await
+        .map_err(|error| format!("Compatibility runner launch task failed: {error}"))?
 }
 
 #[tauri::command]
