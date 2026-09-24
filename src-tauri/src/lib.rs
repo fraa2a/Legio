@@ -1,5 +1,6 @@
 use tauri::Manager;
 
+pub mod archive_install;
 mod catalog;
 mod commands;
 mod database;

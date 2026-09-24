@@ -70,4 +70,6 @@ The queue is persistent and controllable, supported archives are verified and ex
 
 ## Update notes
 
-No implementation updates yet.
+05B backend: `archive_install::verify_and_stage` verifies SHA256 before creating staging content. A mismatched queue-owned download is deleted. ZIP, 7z, and RAR are read through libarchive. The extractor accepts only regular files and directories, streams data under entry-count and expanded-byte limits, and removes incomplete staging directories after errors. Disk exhaustion returns retry guidance. The caller receives the staging path only after extraction succeeds.
+
+Encrypted archives, multipart archives, self-extracting archives, links, special files, and formats outside ZIP, 7z, and RAR are unsupported. RAR variants unsupported by libarchive return an extraction error. Linux builds need libarchive development headers and a runtime library; Windows builds use a statically linked vcpkg libarchive package. 05A and 05D will connect the queue and finalization lifecycle to this backend.
