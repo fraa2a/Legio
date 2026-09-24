@@ -74,6 +74,11 @@ impl DownloadQueueState {
         let path = self.directory.as_ref().map_err(Clone::clone)?;
         fs::create_dir_all(path)
             .map_err(|error| format!("Could not create download directory: {error}"))?;
+        let metadata = fs::symlink_metadata(path)
+            .map_err(|error| format!("Could not inspect download directory: {error}"))?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err("Download directory is not a regular directory".to_owned());
+        }
         Ok(path)
     }
 
@@ -290,6 +295,39 @@ fn remove_partial(path: &Path) -> std::io::Result<()> {
     }
 }
 
+fn cancellation_error(database: &Database, id: &str, error: &str) -> Result<(), String> {
+    database.with_connection(|connection| {
+        connection.execute(
+            "UPDATE downloads SET error = ?2, updated_at = ?3 WHERE id = ?1 AND status = 'cancelled'",
+            params![id, error, now()?],
+        ).map_err(db_error)?;
+        Ok(())
+    })
+}
+
+fn clean_cancelled(queue: &DownloadQueueState, database: &Database) -> Result<(), String> {
+    let ids: Vec<String> = database.with_connection(|connection| {
+        let mut statement = connection
+            .prepare("SELECT id FROM downloads WHERE status = 'cancelled'")
+            .map_err(db_error)?;
+        statement
+            .query_map([], |row| row.get(0))
+            .map_err(db_error)?
+            .collect::<Result<_, _>>()
+            .map_err(db_error)
+    })?;
+    for id in ids {
+        if let Err(error) = remove_partial(&queue.path(&id, "part")?) {
+            cancellation_error(
+                database,
+                &id,
+                &format!("Could not remove partial download: {error}"),
+            )?;
+        }
+    }
+    Ok(())
+}
+
 fn has_queued(database: &Database) -> Result<bool, String> {
     database.with_connection(|connection| {
         connection
@@ -331,85 +369,63 @@ fn kick(app: AppHandle) {
         return;
     }
     tauri::async_runtime::spawn(async move {
-        loop {
-            let database_state = app.state::<DatabaseState>();
-            let result = database_state.database().and_then(claim);
-            let job = match result {
-                Ok(Some(job)) => job,
-                Ok(None) => {
-                    if !app
-                        .state::<DatabaseState>()
-                        .database()
-                        .and_then(has_waiting)
-                        .unwrap_or(false)
-                    {
-                        break;
-                    }
-                    let queue = app.state::<DownloadQueueState>();
-                    tokio::select! {
-                        () = tokio::time::sleep(Duration::from_secs(30)) => {},
-                        () = queue.wake.notified() => {},
-                    }
-                    if app
-                        .state::<DatabaseState>()
-                        .database()
-                        .and_then(wake_waiting)
-                        .unwrap_or(false)
-                    {
-                        continue;
-                    }
-                    break;
-                }
-                Err(error) => {
-                    eprintln!("Download queue stopped: {error}");
-                    break;
-                }
-            };
-            let outcome = match app.state::<DatabaseState>().database() {
-                Ok(database) => transfer(&app.state::<DownloadQueueState>(), database, &job).await,
-                Err(error) => Err(error),
-            };
-            if let Ok(database) = app.state::<DatabaseState>().database() {
-                match outcome {
-                    Ok(()) => {
-                        let _ = finish(database, &job.id, "downloaded", None);
-                    }
-                    Err(error) => {
-                        let current = status(database, &job.id);
-                        if current.as_deref() == Ok("downloading") {
-                            let waiting =
-                                error.starts_with("Network:") || error.starts_with("HTTP 5");
-                            let _ = finish(
-                                database,
-                                &job.id,
-                                if waiting { "waiting" } else { "failed" },
-                                Some(error),
-                            );
-                        }
-                    }
-                }
-                if status(database, &job.id).as_deref() == Ok("cancelled") {
-                    if let Ok(path) = app.state::<DownloadQueueState>().path(&job.id, "part") {
-                        if let Err(error) = remove_partial(&path) {
-                            eprintln!("Download cancellation cleanup failed: {error}");
-                        }
-                    }
-                }
-            }
+        if let Err(error) = run_queue(&app).await {
+            eprintln!("Download queue stopped: {error}");
         }
         app.state::<DownloadQueueState>()
             .running
             .store(false, Ordering::Release);
         // A command may enqueue after the last claim and before the flag is cleared.
-        if app
-            .state::<DatabaseState>()
-            .database()
-            .and_then(has_queued)
-            .unwrap_or(false)
-        {
-            kick(app);
+        match app.state::<DatabaseState>().database().and_then(has_queued) {
+            Ok(true) => kick(app),
+            Ok(false) => {}
+            Err(error) => eprintln!("Could not restart download queue: {error}"),
         }
     });
+}
+
+async fn run_queue(app: &AppHandle) -> Result<(), String> {
+    loop {
+        let database = app.state::<DatabaseState>();
+        let database = database.database()?;
+        let Some(job) = claim(database)? else {
+            if !has_waiting(database)? {
+                break;
+            }
+            let queue = app.state::<DownloadQueueState>();
+            tokio::select! {
+                () = tokio::time::sleep(Duration::from_secs(30)) => {},
+                () = queue.wake.notified() => {},
+            }
+            if wake_waiting(database)? {
+                continue;
+            }
+            break;
+        };
+        let outcome = transfer(&app.state::<DownloadQueueState>(), database, &job).await;
+        match outcome {
+            Ok(()) => finish(database, &job.id, "downloaded", None)?,
+            Err(error) => {
+                if status(database, &job.id)? == "downloading" {
+                    let waiting = error.starts_with("Network:") || error.starts_with("HTTP 5");
+                    finish(
+                        database,
+                        &job.id,
+                        if waiting { "waiting" } else { "failed" },
+                        Some(error),
+                    )?;
+                }
+            }
+        }
+        if status(database, &job.id)? == "cancelled" {
+            let path = app.state::<DownloadQueueState>().path(&job.id, "part")?;
+            if let Err(error) = remove_partial(&path) {
+                let message = format!("Could not remove partial download: {error}");
+                cancellation_error(database, &job.id, &message)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn content_range_matches(value: &str, start: u64, size: u64) -> bool {
@@ -437,16 +453,18 @@ async fn transfer(
     use tokio::io::AsyncWriteExt;
     let partial = queue.path(&job.id, "part")?;
     let archive = queue.path(&job.id, "archive")?;
-    if tokio::fs::metadata(&archive)
+    if tokio::fs::symlink_metadata(&archive)
         .await
-        .is_ok_and(|metadata| metadata.len() == job.size)
+        .is_ok_and(|metadata| metadata.is_file() && metadata.len() == job.size)
     {
         return Ok(());
     }
-    let mut offset = tokio::fs::metadata(&partial)
-        .await
-        .map(|metadata| metadata.len())
-        .unwrap_or(0);
+    let mut offset = match tokio::fs::symlink_metadata(&partial).await {
+        Ok(metadata) if metadata.is_file() => metadata.len(),
+        Ok(_) => return Err("Partial download is not a regular file".to_owned()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(error) => return Err(format!("Could not inspect partial download: {error}")),
+    };
     if offset >= job.size || (offset > 0 && job.etag.is_none()) {
         offset = 0;
     }
@@ -653,10 +671,12 @@ pub async fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
             &["queued", "downloading", "paused", "waiting", "failed"],
             "cancelled",
         )?;
-        if let Err(error) = remove_partial(&queue.path(&id, "part")?) {
-            if error.kind() != std::io::ErrorKind::PermissionDenied || !was_downloading {
-                return Err(format!("Could not remove partial download: {error}"));
-            }
+        if let Err(error) = remove_partial(&queue.path(&id, "part")?)
+            && (error.kind() != std::io::ErrorKind::PermissionDenied || !was_downloading)
+        {
+            let message = format!("Could not remove partial download: {error}");
+            cancellation_error(database.database()?, &id, &message)?;
+            return Err(message);
         }
         Ok(())
     })
@@ -676,7 +696,10 @@ pub fn set_download_bandwidth_limit(app: AppHandle, bytes_per_second: u64) -> Re
 }
 
 pub fn start(app: AppHandle) -> Result<(), String> {
-    recover(app.state::<DatabaseState>().database()?)?;
+    let database = app.state::<DatabaseState>();
+    let database = database.database()?;
+    clean_cancelled(&app.state::<DownloadQueueState>(), database)?;
+    recover(database)?;
     kick(app);
     Ok(())
 }
