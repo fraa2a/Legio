@@ -961,6 +961,8 @@ mod tests {
                          ALTER TABLE downloads DROP COLUMN staged_path;
                          DROP INDEX games_executable_path_idx;
                          ALTER TABLE games DROP COLUMN executable_path;
+                         DROP TABLE game_compatibility_overrides;
+                         DROP TABLE compatibility_defaults;
                          PRAGMA user_version = 7;",
                     )
                     .map_err(db_error)

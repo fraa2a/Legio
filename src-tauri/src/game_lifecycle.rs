@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
+#[cfg(target_os = "linux")]
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::Child;
 #[cfg(target_os = "linux")]
 use std::process::Stdio;
@@ -16,6 +18,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
 use crate::database::DatabaseState;
+#[cfg(target_os = "linux")]
+use crate::database::EffectiveCompatibilityConfig;
 use crate::{game_process, runner_discovery, steam_local, steam_switch};
 
 const START_TIMEOUT: Duration = Duration::from_secs(120);
@@ -150,6 +154,47 @@ impl GameLaunchManager {
         game_id: String,
         runner_path: String,
     ) -> Result<(), String> {
+        let config = EffectiveCompatibilityConfig {
+            runner_path: Some(runner_path),
+            ..EffectiveCompatibilityConfig::default()
+        };
+        self.launch_with_compatibility_config(app, game_id, config)
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn launch_configured(&self, app: AppHandle, game_id: String) -> Result<(), String> {
+        let config = app
+            .state::<DatabaseState>()
+            .database()?
+            .effective_compatibility_config(&game_id)?;
+        let config = if config
+            .runner_path
+            .as_deref()
+            .is_some_and(|path| !path.is_empty())
+        {
+            config
+        } else {
+            let runner_path = runner_discovery::discover()
+                .runners
+                .into_iter()
+                .next()
+                .map(|runner| runner.path)
+                .ok_or_else(|| "No compatible Proton or Wine runner is installed".to_owned())?;
+            EffectiveCompatibilityConfig {
+                runner_path: Some(runner_path),
+                ..config
+            }
+        };
+        self.launch_with_compatibility_config(app, game_id, config)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn launch_with_compatibility_config(
+        &self,
+        app: AppHandle,
+        game_id: String,
+        config: EffectiveCompatibilityConfig,
+    ) -> Result<(), String> {
         let game = app.state::<DatabaseState>().database()?.game(&game_id)?;
         if game.steam_app_id.is_some() || game.steam_install_path.is_some() {
             return Err("Compatibility runners can only launch manually imported games".to_owned());
@@ -167,22 +212,52 @@ impl GameLaunchManager {
         {
             return Err("Selected file is not a Windows executable".to_owned());
         }
-        let runner = runner_discovery::resolve_runner(&runner_path)?;
+        let runner_path = config
+            .runner_path
+            .as_deref()
+            .filter(|path| !path.is_empty())
+            .ok_or_else(|| "No compatibility runner is selected".to_owned())?;
+        let runner = runner_discovery::resolve_runner(runner_path)?;
         let data_dir = app
             .path()
             .app_data_dir()
             .map_err(|error| format!("Could not resolve application data directory: {error}"))?;
-        let compat_data_path = game_compatdata_path(&data_dir, &game.id)?;
-        let mut command = runner_discovery::launch_command(&runner, &executable_path);
+        validate_launch_arguments(&config.arguments_before)?;
+        validate_launch_arguments(&config.arguments_after)?;
+        validate_launch_environment(&config.environment)?;
+        validate_dll_overrides(&config.dll_overrides)?;
+        let working_directory = game_working_directory(
+            config.working_directory.as_deref(),
+            executable_path
+                .parent()
+                .ok_or_else(|| "Game executable has no parent directory".to_owned())?,
+        )?;
+        let compat_data_path = game_compatdata_path(
+            &data_dir,
+            &game.id,
+            config.prefix_root.as_deref(),
+            config.prefix_path.as_deref(),
+        )?;
+        let mut command = runner_discovery::launch_command(
+            &runner,
+            &executable_path,
+            &config.arguments_before,
+            &config.arguments_after,
+        );
         command
-            .current_dir(
-                executable_path
-                    .parent()
-                    .ok_or_else(|| "Game executable has no parent directory".to_owned())?,
-            )
+            .current_dir(working_directory)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        for (key, value) in &config.environment {
+            command.env(key, value);
+        }
+        if !config.dll_overrides.is_empty() {
+            command.env(
+                "WINEDLLOVERRIDES",
+                format_dll_overrides(&config.dll_overrides),
+            );
+        }
         if matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton) {
             command
                 .env("STEAM_COMPAT_DATA_PATH", &compat_data_path)
@@ -216,6 +291,15 @@ impl GameLaunchManager {
             return Err(format!("Could not start game launch task: {error}"));
         }
         Ok(())
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub(crate) fn launch_configured(
+        &self,
+        _app: AppHandle,
+        _game_id: String,
+    ) -> Result<(), String> {
+        Err("Compatibility runner launches are supported on Linux only".to_owned())
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -521,28 +605,133 @@ impl GameLaunchManager {
     }
 }
 
-fn game_compatdata_path(data_dir: &Path, game_id: &str) -> Result<PathBuf, String> {
-    fs::create_dir_all(data_dir)
-        .map_err(|error| format!("Could not create application data directory: {error}"))?;
-    let data_root = fs::canonicalize(data_dir)
-        .map_err(|error| format!("Could not resolve application data directory: {error}"))?;
-    let compat_root = data_root.join("compatdata");
-    fs::create_dir_all(&compat_root)
-        .map_err(|error| format!("Could not create compatibility data directory: {error}"))?;
-    let compat_root = fs::canonicalize(&compat_root)
-        .map_err(|error| format!("Could not resolve compatibility data directory: {error}"))?;
-    if !compat_root.starts_with(&data_root) {
-        return Err("Compatibility data directory escapes application data".to_owned());
+#[cfg(target_os = "linux")]
+fn game_compatdata_path(
+    data_dir: &Path,
+    game_id: &str,
+    prefix_root: Option<&str>,
+    prefix_path: Option<&str>,
+) -> Result<PathBuf, String> {
+    if let Some(prefix_path) = prefix_path.filter(|path| !path.is_empty()) {
+        return create_prefix_directory(Path::new(prefix_path), None);
     }
-    let prefix = compat_root.join(game_id);
+
+    let root = match prefix_root.filter(|path| !path.is_empty()) {
+        Some(path) => PathBuf::from(path),
+        None => data_dir.join("compatdata"),
+    };
+    create_prefix_directory(&root, Some(game_id))
+}
+
+#[cfg(target_os = "linux")]
+fn create_prefix_directory(root: &Path, game_id: Option<&str>) -> Result<PathBuf, String> {
+    if !root.is_absolute() || root.to_string_lossy().chars().any(char::is_control) {
+        return Err(
+            "Compatibility prefix paths must be absolute and contain no control characters"
+                .to_owned(),
+        );
+    }
+    fs::create_dir_all(root)
+        .map_err(|error| format!("Could not create compatibility prefix directory: {error}"))?;
+    let root = fs::canonicalize(root)
+        .map_err(|error| format!("Could not resolve compatibility prefix directory: {error}"))?;
+    let Some(game_id) = game_id else {
+        if !root.is_dir() {
+            return Err("Compatibility prefix path is not a directory".to_owned());
+        }
+        return Ok(root);
+    };
+    let prefix = root.join(game_id);
     fs::create_dir_all(&prefix)
         .map_err(|error| format!("Could not create game compatibility prefix: {error}"))?;
     let prefix = fs::canonicalize(&prefix)
         .map_err(|error| format!("Could not resolve game compatibility prefix: {error}"))?;
-    if !prefix.starts_with(&compat_root) {
-        return Err("Game compatibility prefix escapes application data".to_owned());
+    if !prefix.starts_with(&root) {
+        return Err("Game compatibility prefix escapes its configured root".to_owned());
     }
     Ok(prefix)
+}
+
+#[cfg(target_os = "linux")]
+fn game_working_directory(path: Option<&str>, game_directory: &Path) -> Result<PathBuf, String> {
+    let Some(path) = path.filter(|path| !path.is_empty()) else {
+        return Ok(game_directory.to_path_buf());
+    };
+    let path = Path::new(path);
+    if !path.is_absolute() || path.to_string_lossy().chars().any(char::is_control) {
+        return Err(
+            "Working directory must be an absolute path without control characters".to_owned(),
+        );
+    }
+    let path = fs::canonicalize(path)
+        .map_err(|error| format!("Could not resolve working directory: {error}"))?;
+    if !path.is_dir() {
+        return Err("Working directory is not a directory".to_owned());
+    }
+    Ok(path)
+}
+
+#[cfg(target_os = "linux")]
+fn validate_launch_arguments(arguments: &[String]) -> Result<(), String> {
+    if arguments.iter().any(|argument| argument.contains('\0')) {
+        return Err("Launch arguments cannot contain null characters".to_owned());
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn validate_launch_environment(
+    environment: &std::collections::BTreeMap<String, String>,
+) -> Result<(), String> {
+    for (key, value) in environment {
+        if key.is_empty() || key.contains('=') || key.contains('\0') || value.contains('\0') {
+            return Err("Compatibility environment contains an invalid variable".to_owned());
+        }
+        if [
+            "WINEPREFIX",
+            "STEAM_COMPAT_DATA_PATH",
+            "STEAM_COMPAT_CLIENT_INSTALL_PATH",
+            "WINEDLLOVERRIDES",
+            game_process::LAUNCH_TOKEN_ENV,
+        ]
+        .iter()
+        .any(|reserved| key.eq_ignore_ascii_case(reserved))
+        {
+            return Err(format!(
+                "Compatibility environment variable {key} is managed by Legio"
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn validate_dll_overrides(
+    overrides: &std::collections::BTreeMap<String, String>,
+) -> Result<(), String> {
+    for (name, value) in overrides {
+        if name.is_empty()
+            || !name.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b'*')
+            })
+            || value.is_empty()
+            || !value
+                .split(',')
+                .all(|part| matches!(part, "native" | "builtin" | "n" | "b"))
+        {
+            return Err("Compatibility DLL override is invalid".to_owned());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn format_dll_overrides(overrides: &std::collections::BTreeMap<String, String>) -> String {
+    overrides
+        .iter()
+        .map(|(name, value)| format!("{name}={value}"))
+        .collect::<Vec<_>>()
+        .join(";")
 }
 
 #[cfg(target_os = "linux")]
@@ -780,6 +969,74 @@ mod tests {
             );
             thread::sleep(Duration::from_millis(20));
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn compatibility_launch_config_validates_arguments_environment_and_dll_overrides() {
+        assert!(validate_launch_arguments(&["-safe".to_owned()]).is_ok());
+        assert!(validate_launch_arguments(&["bad\0arg".to_owned()]).is_err());
+
+        let mut environment = std::collections::BTreeMap::new();
+        environment.insert("WINEDEBUG".to_owned(), "-all".to_owned());
+        assert!(validate_launch_environment(&environment).is_ok());
+        environment.insert("WINEPREFIX".to_owned(), "/tmp/override".to_owned());
+        assert!(validate_launch_environment(&environment).is_err());
+
+        let mut overrides = std::collections::BTreeMap::new();
+        overrides.insert("d3d11".to_owned(), "native,builtin".to_owned());
+        overrides.insert("dxgi".to_owned(), "n".to_owned());
+        assert!(validate_dll_overrides(&overrides).is_ok());
+        assert_eq!(
+            format_dll_overrides(&overrides),
+            "d3d11=native,builtin;dxgi=n"
+        );
+        overrides.insert(
+            "dxgi".to_owned(),
+            "anything;STEAM_COMPAT_DATA_PATH=/tmp".to_owned(),
+        );
+        assert!(validate_dll_overrides(&overrides).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn compatibility_prefix_and_working_directory_resolve_configured_paths() {
+        let base = test_dir("compat-paths");
+        let app_data = base.join("app-data");
+        let prefix_root = base.join("prefixes");
+        let game_id = "00000000-0000-0000-0000-000000000001";
+        let generated = game_compatdata_path(
+            &app_data,
+            game_id,
+            Some(prefix_root.to_str().unwrap()),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            generated,
+            fs::canonicalize(&prefix_root).unwrap().join(game_id)
+        );
+
+        let custom_prefix = base.join("custom-prefix");
+        assert_eq!(
+            game_compatdata_path(
+                &app_data,
+                game_id,
+                Some(prefix_root.to_str().unwrap()),
+                Some(custom_prefix.to_str().unwrap()),
+            )
+            .unwrap(),
+            fs::canonicalize(custom_prefix).unwrap()
+        );
+
+        let game_directory = base.join("game");
+        fs::create_dir_all(&game_directory).unwrap();
+        assert_eq!(
+            game_working_directory(None, &game_directory).unwrap(),
+            game_directory
+        );
+        assert!(game_working_directory(Some("relative"), &game_directory).is_err());
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[cfg(target_os = "linux")]
