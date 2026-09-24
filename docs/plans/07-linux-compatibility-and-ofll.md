@@ -43,6 +43,8 @@ Verification: each supported setting changes the observable launch environment, 
 
 ### 07C: OFLL parity matrix
 
+Status: the initial responsibility inventory is recorded for the upstream v2.7.1 commit below. Full parity remains open; unsupported behavior has not been approved for exclusion.
+
 - Record the exact upstream Online Fix Linux Launcher revision under review.
 - Map each required behavior to Legio ownership and evidence.
 - Cover debug logs, shortcuts, icons, and supported game or fix behavior.
@@ -79,8 +81,9 @@ Runner discovery and configuration are reliable, supported Windows games launch 
 
 ## Open technical decisions
 
-- Record the exact upstream OFLL revision before claiming parity.
-- Establish which Steam Runtime, overlay, graphics, WineD3D, and Wayland combinations are supportable with real games before claiming 07B complete.
+- Define product scope and supported sources for game-specific fixes and external game downloads; no behavior is excluded yet.
+- Verify typed Steam Runtime, overlay, graphics, WineD3D, and Wayland behavior with supported Linux games.
+- Run a real supported Windows game through Proton or Wine to close 07A.
 
 ## Update notes
 
