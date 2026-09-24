@@ -1,6 +1,8 @@
-# Frontend and backend contracts
+# Frontend developer guide and backend contracts
 
 This is the implementation guide for wiring the Legio UI to the Rust/Tauri backend. Keep it aligned with the registered commands in [`src-tauri/src/lib.rs`](../../src-tauri/src/lib.rs), their request and response types, and the frontend service modules under [`src/lib/services`](../../src/lib/services).
+
+The current UI redesign is PR #36 (`feat/ui-upgrade`). It adds the Svelte 5/Tailwind shell, window controls, and reusable primitives, but the main content is empty and the sidebar state does not select a page. Feature, store, type, and utility directories are placeholders. Implement the product flows in `src/lib/features/{home,library,store,downloads,settings}`, with shared state in `src/lib/stores`; keep all Tauri calls inside typed service modules. See [`TODO.md`](TODO.md) for the feature-by-feature completion checklist.
 
 The UI should call Tauri only from a feature service module. Components should consume typed service functions and own presentation state, not duplicate backend rules. Rust is the source of truth for library records, installation state, queue state, compatibility settings, and process state.
 
@@ -57,6 +59,8 @@ interface Game {
 
 The frontend's `Game` type must include `executablePath`; it is easy to miss because it was added to the backend after the initial service type. Import preview is read-only. Import is a separate action that updates the persistent library. After import, call `list_games` again. The backend preserves manual rows and user naming when it refreshes Steam-managed rows.
 
+For user-visible Steam redetection, call `scan_steam_installations` to show detected games and diagnostics, then call `import_steam_installations` only after the user chooses to import/update. The import command performs its own scan and reconciliation; the preview is not a transaction token and can differ if Steam changes between calls. Reload `list_games` after import. The serialized scan response does not expose excluded non-games such as compatibility tools.
+
 ### Manual executable import
 
 | Command | Arguments | Result |
@@ -66,6 +70,8 @@ The frontend's `Game` type must include `executablePath`; it is easy to miss bec
 | `set_game_executable` | `{ gameId, executablePath }` | updated `Game` |
 
 Present all candidates when `selectedPath` is null. `selectedPath` is a suggestion, not a substitute for a user's explicit choice when the scan is ambiguous. A successful import adds a manual game with a null `steamAppId` and a populated `executablePath`.
+
+The UI needs a native file/folder chooser before calling these commands. The current frontend dependencies do not include a Tauri dialog plugin and there is no browse command. Add a supported dialog plugin and its narrowly scoped permissions, wrap it in a service, and pass the selected absolute path to the backend. Do not enumerate user directories from a Svelte component.
 
 ### Per-game Steam account override
 
@@ -81,7 +87,7 @@ Before launching an overridden Steam game, call `inspect_steam_game_launch({ gam
 
 ### Compatibility settings for Linux manual games
 
-These commands are in PR #35 and become available with that backend change. Do not wire them against `main` until the PR is merged.
+These commands are available on `main` after PR #35.
 
 | Command | Arguments | Result |
 | --- | --- | --- |
@@ -116,7 +122,26 @@ interface CatalogSearch {
 }
 ```
 
-Search the cache as the immediate response, debounce user input, and use `refresh_catalog` for network refresh. A failed refresh rejects; keep the cached results visible and show the error. Catalog errors have `kind` values `invalid_query`, `invalid_response`, `timeout`, `network`, `http`, `too_large`, `database`, or `internal`. Catalog results are not automatically added to the library. To add an entry, either create a Steam-linked game or download a Legio source entry and finalize its install.
+Search the cache first, debounce user input, and use `refresh_catalog` for network refresh. A failed refresh rejects; keep the cached results visible and show the error. Catalog errors have `kind` values `invalid_query`, `invalid_response`, `timeout`, `network`, `http`, `too_large`, `database`, or `internal`. Catalog results are not automatically added to the library. To add an entry, either create a Steam-linked game or download a Legio source entry and finalize its install.
+
+`refresh_catalog` is the only frontend entry point for online catalogue search. Rust sends `POST https://hydra-api-us-east-1.losbroxas.org/catalogue/search` with `{ title: query, take: 50, skip: 0 }`, accepts only Steam shop results, validates the response, and caches it. There is no pagination command. Queries are trimmed, must be nonempty, are limited to 200 UTF-8 bytes, and cannot contain control characters. The backend caps local results at 100 and marks cached catalog data stale after 24 hours. A refresh failure is an error, not a fallback response, so call `search_catalog` first and keep those results while refresh is in flight or failed.
+
+Suggested page flow:
+
+```ts
+const local = await searchCatalog(query);
+results = local.games;
+catalogState = local.stale ? "stale" : "ready";
+
+try {
+  const refreshed = await refreshCatalog(query);
+  if (requestId === latestRequestId) results = refreshed.games;
+} catch (error) {
+  if (requestId === latestRequestId) refreshError = messageFor(error);
+}
+```
+
+Debounce the input and keep a monotonically increasing request ID to ignore stale responses. Update the existing catalog service type to include `availability`, `sourceCachedAt`, and `sourceStale` before using those fields in the UI.
 
 Availability is joined by Steam App ID from the Legio manifest. `verified` and `unverified` indicate source trust, `unavailable` means no downloadable Legio release exists, and `unknown` means source status could not be established.
 
@@ -128,6 +153,8 @@ Availability is joined by Steam App ID from the Legio manifest. `verified` and `
 | `refresh_legio_source` | none | same shape |
 
 Manifest v1 fields are `schemaVersion`, `generatedAt`, `verified[]`, and `unverified[]`. Each entry contains `steamAppId`, `name`, `release: { version, publishedAt }`, and `download: { url, sha256, sizeBytes }`. Use source entries only through `queue_download`; do not download directly from a URL in the frontend. If refresh fails but a valid cache exists, the backend returns the stale cache and a warning.
+
+The source manifest URL is `https://source.taxphobia.top/store.json`. Hydra and this source are separate: Hydra provides searchable Steam identities and names; the Legio source describes releases and trust status. Join by `steamAppId`, keep the Hydra title as the catalog identity, and display the source release/version separately. The manifest may be unavailable or not yet published, so empty and unavailable states are normal.
 
 ### Steam metadata and image assets
 
@@ -172,6 +199,8 @@ interface DownloadJob {
 Current statuses are `queued`, `downloading`, `waiting`, `paused`, `failed`, `downloaded`, `staging`, `staged`, `finalizing`, `installed`, and `cancelled`. Treat status as an open string for forward compatibility. Typical actions: pause only `queued`/`downloading`/`waiting`; resume `paused`/`waiting`; retry `failed`; cancel active or queued states. The backend enforces valid transitions and reports invalid actions as rejected invokes.
 
 `queue_download` requires `acceptUnverified: true` before an unverified source can be queued. Poll `list_downloads` while the queue screen is visible because there is no progress event yet. Refresh the library after a successful `finalize_download`. For install selection, stage the verified archive, scan the staged directory, let the user select the executable, then pass its path relative to the staged root as `executableRelative`. Never use an executable outside the staged directory. If the UI cannot safely derive this relative path on every platform, add a backend command returning relative candidates before shipping the finalization flow.
+
+For unverified releases, show the trust warning before queueing and send `acceptUnverified: true` only after explicit confirmation. Never infer trust from a Steam catalog result. The install sequence is enqueue, poll, stage, select executable, finalize, and reload queue plus library. `stage_download` returns the staged directory path while `scan_game_executables` returns absolute candidate paths. Verify containment against the staged root before deriving `executableRelative`, including on Windows where separators and drive prefixes differ. Treat unknown job status values as unrecognized instead of failing the page.
 
 ## Launch lifecycle
 
