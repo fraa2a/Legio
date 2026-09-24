@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 14004)
-Total output lines: 1532
-
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
@@ -631,7 +628,239 @@ impl GameLaunchManager {
         }
         if app_id.is_some_and(|app_id| {
             entries.values().any(|entry| {
-                ent…2004 tokens truncated…),
+                entry.app_id == Some(app_id)
+                    && matches!(entry.status, GameStatus::Launching | GameStatus::Running)
+            })
+        }) {
+            return Err("This Steam App ID is already launching or running".to_owned());
+        }
+        entries.insert(
+            game_id.to_owned(),
+            Entry {
+                app_id,
+                process_target,
+                status: GameStatus::Launching,
+                error: None,
+                cancel: Arc::clone(&cancel),
+            },
+        );
+        Ok(cancel)
+    }
+
+    fn set_process_target(
+        &self,
+        game_id: &str,
+        process_target: game_process::ProcessTarget,
+    ) -> Result<(), String> {
+        let mut entries = self.lock()?;
+        let entry = entries
+            .get_mut(game_id)
+            .ok_or_else(|| "Game launch state disappeared".to_owned())?;
+        entry.process_target = process_target;
+        Ok(())
+    }
+
+    fn set_state(&self, game_id: &str, status: GameStatus, error: Option<String>) {
+        if let Ok(mut entries) = self.entries.lock()
+            && let Some(entry) = entries.get_mut(game_id)
+        {
+            entry.status = status;
+            entry.error = error;
+        }
+    }
+
+    fn lock(&self) -> Result<std::sync::MutexGuard<'_, HashMap<String, Entry>>, String> {
+        self.entries
+            .lock()
+            .map_err(|_| "Game launch state is unavailable after an earlier task failed".to_owned())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn game_compatdata_path(
+    data_dir: &Path,
+    game_id: &str,
+    prefix_root: Option<&str>,
+    prefix_path: Option<&str>,
+) -> Result<PathBuf, String> {
+    if let Some(prefix_path) = prefix_path.filter(|path| !path.is_empty()) {
+        return create_prefix_directory(Path::new(prefix_path), None);
+    }
+
+    let root = match prefix_root.filter(|path| !path.is_empty()) {
+        Some(path) => PathBuf::from(path),
+        None => data_dir.join("compatdata"),
+    };
+    create_prefix_directory(&root, Some(game_id))
+}
+
+#[cfg(target_os = "linux")]
+fn create_prefix_directory(root: &Path, game_id: Option<&str>) -> Result<PathBuf, String> {
+    if !root.is_absolute() || root.to_string_lossy().chars().any(char::is_control) {
+        return Err(
+            "Compatibility prefix paths must be absolute and contain no control characters"
+                .to_owned(),
+        );
+    }
+    fs::create_dir_all(root)
+        .map_err(|error| format!("Could not create compatibility prefix directory: {error}"))?;
+    let root = fs::canonicalize(root)
+        .map_err(|error| format!("Could not resolve compatibility prefix directory: {error}"))?;
+    let Some(game_id) = game_id else {
+        if !root.is_dir() {
+            return Err("Compatibility prefix path is not a directory".to_owned());
+        }
+        return Ok(root);
+    };
+    let prefix = root.join(game_id);
+    fs::create_dir_all(&prefix)
+        .map_err(|error| format!("Could not create game compatibility prefix: {error}"))?;
+    let prefix = fs::canonicalize(&prefix)
+        .map_err(|error| format!("Could not resolve game compatibility prefix: {error}"))?;
+    if !prefix.starts_with(&root) {
+        return Err("Game compatibility prefix escapes its configured root".to_owned());
+    }
+    Ok(prefix)
+}
+
+#[cfg(target_os = "linux")]
+fn game_working_directory(path: Option<&str>, game_directory: &Path) -> Result<PathBuf, String> {
+    let Some(path) = path.filter(|path| !path.is_empty()) else {
+        return Ok(game_directory.to_path_buf());
+    };
+    let path = Path::new(path);
+    if !path.is_absolute() || path.to_string_lossy().chars().any(char::is_control) {
+        return Err(
+            "Working directory must be an absolute path without control characters".to_owned(),
+        );
+    }
+    let path = fs::canonicalize(path)
+        .map_err(|error| format!("Could not resolve working directory: {error}"))?;
+    if !path.is_dir() {
+        return Err("Working directory is not a directory".to_owned());
+    }
+    Ok(path)
+}
+
+#[cfg(target_os = "linux")]
+fn validate_launch_arguments(arguments: &[String]) -> Result<(), String> {
+    if arguments.iter().any(|argument| argument.contains('\0')) {
+        return Err("Launch arguments cannot contain null characters".to_owned());
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn validate_launch_environment(
+    environment: &std::collections::BTreeMap<String, String>,
+) -> Result<(), String> {
+    for (key, value) in environment {
+        if key.is_empty() || key.contains('=') || key.contains('\0') || value.contains('\0') {
+            return Err("Compatibility environment contains an invalid variable".to_owned());
+        }
+        if [
+            "WINEPREFIX",
+            "STEAM_COMPAT_DATA_PATH",
+            "STEAM_COMPAT_CLIENT_INSTALL_PATH",
+            "WINEDLLOVERRIDES",
+            game_process::LAUNCH_TOKEN_ENV,
+        ]
+        .iter()
+        .any(|reserved| key.eq_ignore_ascii_case(reserved))
+        {
+            return Err(format!(
+                "Compatibility environment variable {key} is managed by Legio"
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn validate_dll_overrides(
+    overrides: &std::collections::BTreeMap<String, String>,
+) -> Result<(), String> {
+    for (name, value) in overrides {
+        if name.is_empty()
+            || !name.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b'*')
+            })
+            || value.is_empty()
+            || !value
+                .split(',')
+                .all(|part| matches!(part, "native" | "builtin" | "n" | "b"))
+        {
+            return Err("Compatibility DLL override is invalid".to_owned());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn format_dll_overrides(overrides: &std::collections::BTreeMap<String, String>) -> String {
+    overrides
+        .iter()
+        .map(|(name, value)| format!("{name}={value}"))
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+#[cfg(target_os = "linux")]
+fn steam_client_root() -> Result<PathBuf, String> {
+    steam_local::default_steam_roots()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|root| fs::canonicalize(root).ok())
+        .find(|root| {
+            root.join("steamapps").is_dir()
+                && (root.join("steam.sh").is_file() || root.join("steam").is_dir())
+        })
+        .ok_or_else(|| "Proton requires an available local Steam client installation".to_owned())
+}
+
+fn terminate_child(child: &mut Option<Child>) -> Result<(), String> {
+    let Some(process) = child.as_mut() else {
+        return Ok(());
+    };
+    match process.try_wait() {
+        Ok(Some(_)) => {
+            child.take();
+            return Ok(());
+        }
+        Ok(None) => {}
+        Err(error) => {
+            let kill_error = process.kill().err();
+            let wait_error = process.wait().err();
+            if wait_error.is_none() {
+                child.take();
+            }
+            return Err(format!(
+                "Could not inspect runner process: {error}{}{}",
+                kill_error
+                    .map(|error| format!("; could not stop runner process: {error}"))
+                    .unwrap_or_default(),
+                wait_error
+                    .map(|error| format!("; could not wait for runner process: {error}"))
+                    .unwrap_or_default()
+            ));
+        }
+    }
+    let kill_error = process.kill().err();
+    let wait_error = process.wait().err();
+    if wait_error.is_none() {
+        child.take();
+    }
+    match (kill_error, wait_error) {
+        (None, None) => Ok(()),
+        (kill_error, wait_error) => Err(format!(
+            "{}{}",
+            kill_error
+                .map(|error| format!("Could not stop runner process: {error}"))
+                .unwrap_or_default(),
+            wait_error
+                .map(|error| format!("; could not wait for runner process: {error}"))
+                .unwrap_or_default()
+        )),
     }
 }
 
