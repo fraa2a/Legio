@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 const THEME_KEY: &str = "theme";
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -397,6 +397,29 @@ fn migrate(connection: &Connection) -> Result<(), String> {
                 PRAGMA user_version = 6;",
             )
             .map_err(database_error)?;
+    }
+    if version < 7 {
+        transaction.execute_batch(
+            "CREATE TABLE downloads (
+                id TEXT PRIMARY KEY NOT NULL,
+                steam_app_id INTEGER NOT NULL CHECK (steam_app_id BETWEEN 1 AND 4294967295),
+                name TEXT NOT NULL,
+                release_version TEXT NOT NULL,
+                url TEXT NOT NULL,
+                sha256 TEXT NOT NULL,
+                etag TEXT,
+                size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
+                downloaded_bytes INTEGER NOT NULL DEFAULT 0 CHECK (downloaded_bytes >= 0 AND downloaded_bytes <= size_bytes),
+                speed_bps INTEGER NOT NULL DEFAULT 0,
+                eta_seconds INTEGER,
+                status TEXT NOT NULL CHECK (status IN ('queued', 'downloading', 'paused', 'waiting', 'failed', 'downloaded', 'cancelled')),
+                error TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+             );
+             CREATE INDEX downloads_status_idx ON downloads (status, created_at);
+             PRAGMA user_version = 7;"
+        ).map_err(database_error)?;
     }
     transaction.commit().map_err(database_error)
 }
