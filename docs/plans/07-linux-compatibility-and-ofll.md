@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned
+In Progress
 
 ## Canonical requirements
 
@@ -23,6 +23,8 @@ Runner discovery and management, prefixes and runtime configuration, launch opti
 - Discover Proton, GE-Proton, and Wine installations.
 - Validate runner paths and versions.
 - Launch one supported Windows game through the Phase 06 lifecycle.
+
+Runner inventory is backend-only at this point. Linux scanning checks each canonical Steam root in the existing default-root order, then its custom `compatibilitytools.d` directory, followed by the `steamapps/common` directory for that root and its configured libraries. Repeated roots and runner paths are deduplicated. Proton candidates need a Proton-named directory and an executable `proton` entrypoint. Wine discovery checks `wine`, then `wine64`, in PATH order and accepts only a successful version response. Discovery is separate from game catalog scanning.
 
 Verification: available runners are detected without false success and a basic Windows-game launch reaches the actual game process on Linux.
 
@@ -55,9 +57,8 @@ Runner discovery and configuration are reliable, supported Windows games launch 
 ## Open technical decisions
 
 - Record the exact upstream OFLL revision before claiming parity.
-- Define supported runner search locations and precedence before 07A.
 - Confirm which graphics and overlay combinations are supportable before 07B.
 
 ## Update notes
 
-No implementation updates yet.
+Runner inventory is available through the `list_compatibility_runners` Tauri command on Linux. It reports validated Proton, GE-Proton, and Wine paths with version metadata. Basic game launch through the selected runner remains open.

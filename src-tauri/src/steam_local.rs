@@ -315,7 +315,7 @@ fn parse_saved_accounts(bytes: &[u8]) -> Result<Vec<SavedSteamAccount>, Manifest
         .collect()
 }
 
-fn parse_library_folders(bytes: &[u8]) -> Result<Vec<PathBuf>, ManifestDiagnostic> {
+pub(crate) fn parse_library_folders(bytes: &[u8]) -> Result<Vec<PathBuf>, ManifestDiagnostic> {
     if bytes.len() > MAX_MANIFEST_BYTES {
         return Err(ManifestDiagnostic::InputTooLarge);
     }
@@ -373,6 +373,34 @@ fn parse_library_folders(bytes: &[u8]) -> Result<Vec<PathBuf>, ManifestDiagnosti
         return Err(parser.malformed());
     }
     Ok(paths)
+}
+
+pub(crate) fn default_steam_library_paths() -> Vec<PathBuf> {
+    let Some(roots) = default_steam_roots() else {
+        return Vec::new();
+    };
+    let mut libraries = Vec::new();
+    let mut seen = HashSet::new();
+    for root in roots {
+        let Ok(root) = fs::canonicalize(root) else {
+            continue;
+        };
+        if !seen.insert(root.clone()) {
+            continue;
+        }
+        libraries.push(root.clone());
+        if let Ok(bytes) = read_metadata(&root.join("steamapps/libraryfolders.vdf"))
+            && let Ok(paths) = parse_library_folders(&bytes)
+        {
+            libraries.extend(paths);
+        }
+    }
+    let mut seen = HashSet::new();
+    libraries
+        .into_iter()
+        .filter_map(|library| fs::canonicalize(library).ok())
+        .filter(|library| seen.insert(library.clone()))
+        .collect()
 }
 
 impl<'a> Parser<'a> {
