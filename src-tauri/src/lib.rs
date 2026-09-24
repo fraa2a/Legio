@@ -65,6 +65,7 @@ pub fn run() -> tauri::Result<()> {
             commands::get_game_compatibility_overrides,
             commands::save_game_compatibility_overrides,
             commands::list_games,
+            commands::get_playtime_summaries,
             commands::create_game,
             commands::update_game,
             commands::remove_game,

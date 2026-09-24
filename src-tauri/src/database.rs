@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 17867)
+Total output lines: 1843
+
 use std::{collections::BTreeMap, fs, path::Path, sync::Mutex};
 
 use rusqlite::{Connection, OptionalExtension, params};
@@ -6,7 +9,7 @@ use uuid::Uuid;
 
 const THEME_KEY: &str = "theme";
 const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_second";
-const SCHEMA_VERSION: i64 = 11;
+const SCHEMA_VERSION: i64 = 12;
 
 /// Persisted defaults for Linux compatibility launches.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -125,6 +128,14 @@ pub struct Game {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaytimeSummary {
+    pub game_id: String,
+    pub total_milliseconds: i64,
+    pub active_sessions: u32,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AccountCheckStatus {
     NotRequired,
@@ -176,10 +187,11 @@ impl Database {
             .execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
             .map_err(|error| format!("could not configure the local database: {error}"))?;
         migrate(&connection)?;
-
-        Ok(Self {
+        let database = Self {
             connection: Mutex::new(connection),
-        })
+        };
+        database.recover_open_game_sessions(now_milliseconds())?;
+        Ok(database)
     }
 
     pub fn settings(&self) -> Result<Settings, String> {
@@ -500,6 +512,89 @@ impl Database {
         })
     }
 
+    pub(crate) fn start_game_session(&self, game_id: &str, now: i64) -> Result<(), String> {
+        let game_id = parse_game_id(game_id)?;
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "INSERT INTO game_sessions (game_id, started_at, last_seen_at)
+                     VALUES (?1, ?2, ?2)",
+                    params![game_id, now],
+                )
+                .map_err(database_error)?;
+            Ok(())
+        })
+    }
+
+    pub(crate) fn heartbeat_game_session(&self, game_id: &str, now: i64) -> Result<(), String> {
+        let game_id = parse_game_id(game_id)?;
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "UPDATE game_sessions SET last_seen_at = ?2
+                     WHERE game_id = ?1 AND ended_at IS NULL",
+                    params![game_id, now],
+                )
+                .map_err(database_error)?;
+            Ok(())
+        })
+    }
+
+    pub(crate) fn end_game_session(&self, game_id: &str, now: i64) -> Result<(), String> {
+        let game_id = parse_game_id(game_id)?;
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "UPDATE game_sessions SET ended_at = ?2, last_seen_at = ?2,
+                         end_reason = 'finished'
+                     WHERE game_id = ?1 AND ended_at IS NULL",
+                    params![game_id, now],
+                )
+                .map_err(database_error)?;
+            Ok(())
+        })
+    }
+
+    pub(crate) fn playtime_summaries(&self, now: i64) -> Result<Vec<PlaytimeSummary>, String> {
+        self.with_connection(|connection| {
+            let mut statement = connection
+                .prepare(
+                    "SELECT g.id,
+                         COALESCE(SUM(CASE WHEN s.ended_at IS NULL
+                             THEN MAX(0, ?1 - s.started_at)
+                             ELSE MAX(0, s.ended_at - s.started_at) END), 0),
+                         SUM(CASE WHEN s.ended_at IS NULL THEN 1 ELSE 0 END)
+                     FROM games g LEFT JOIN game_sessions s ON s.game_id = g.id
+                     GROUP BY g.id ORDER BY g.id",
+                )
+                .map_err(database_error)?;
+            let rows = statement
+                .query_map([now], |row| {
+                    Ok(PlaytimeSummary {
+                        game_id: row.get(0)?,
+                        total_milliseconds: row.get(1)?,
+                        active_sessions: row.get::<_, Option<u32>>(2)?.unwrap_or(0),
+                    })
+                })
+                .map_err(database_error)?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(database_error)
+        })
+    }
+
+    fn recover_open_game_sessions(&self, now: i64) -> Result<(), String> {
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "UPDATE game_sessions SET ended_at = last_seen_at,
+                         end_reason = 'interrupted'
+                     WHERE ended_at IS NULL AND last_seen_at <= ?1",
+                    [now],
+                )
+                .map_err(database_error)?;
+            Ok(())
+        })
+    }
+
     pub(crate) fn with_connection<T>(
         &self,
         operation: impl FnOnce(&Connection) -> Result<T, String>,
@@ -533,579 +628,7 @@ fn migrate(connection: &Connection) -> Result<(), String> {
                  CREATE TABLE games (
                    id TEXT PRIMARY KEY NOT NULL,
                    steam_app_id INTEGER,
-                   automatic_name TEXT,
-                   name_override TEXT,
-                   CHECK (steam_app_id IS NULL OR steam_app_id > 0)
-                 );
-                 CREATE INDEX games_steam_app_id_idx ON games (steam_app_id);
-                 PRAGMA user_version = 1;",
-            )
-            .map_err(database_error)?;
-    }
-    if version < 2 {
-        transaction
-            .execute_batch(
-                "CREATE TABLE catalog_games (
-                steam_app_id INTEGER PRIMARY KEY CHECK (steam_app_id BETWEEN 1 AND 4294967295),
-                name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 512),
-                search_name TEXT NOT NULL,
-                fetched_at INTEGER NOT NULL
-             );
-             CREATE TABLE catalog_cache (
-                provider TEXT PRIMARY KEY CHECK (provider = 'hydra'),
-                query TEXT NOT NULL,
-                fetched_at INTEGER NOT NULL,
-                remote_count INTEGER NOT NULL CHECK (remote_count >= 0)
-             );
-             PRAGMA user_version = 2;",
-            )
-            .map_err(database_error)?;
-    }
-    if version < 3 {
-        transaction
-            .execute_batch(
-                "ALTER TABLE games ADD COLUMN steam_install_path TEXT;
-                 PRAGMA user_version = 3;",
-            )
-            .map_err(database_error)?;
-    }
-    if version < 4 {
-        transaction
-            .execute_batch(
-                "CREATE TABLE steam_details_cache (
-                steam_app_id INTEGER PRIMARY KEY CHECK (steam_app_id BETWEEN 1 AND 4294967295),
-                details TEXT NOT NULL CHECK (length(CAST(details AS BLOB)) BETWEEN 1 AND 65536),
-                fetched_at INTEGER NOT NULL CHECK (fetched_at >= 0)
-            );
-            PRAGMA user_version = 4;",
-            )
-            .map_err(database_error)?;
-    }
-    if version < 5 {
-        transaction
-            .execute_batch(
-                "ALTER TABLE games ADD COLUMN steam_account_id TEXT;
-             PRAGMA user_version = 5;",
-            )
-            .map_err(database_error)?;
-    }
-    if version < 6 {
-        transaction
-            .execute_batch(
-                "CREATE TABLE IF NOT EXISTS legio_source_cache (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    manifest BLOB NOT NULL CHECK (length(manifest) BETWEEN 1 AND 2097152),
-                    fetched_at INTEGER NOT NULL CHECK (fetched_at >= 0)
-                );
-                PRAGMA user_version = 6;",
-            )
-            .map_err(database_error)?;
-    }
-    if version < 7 {
-        transaction.execute_batch(
-            "CREATE TABLE downloads (
-                id TEXT PRIMARY KEY NOT NULL,
-                steam_app_id INTEGER NOT NULL CHECK (steam_app_id BETWEEN 1 AND 4294967295),
-                name TEXT NOT NULL,
-                release_version TEXT NOT NULL,
-                url TEXT NOT NULL,
-                sha256 TEXT NOT NULL,
-                etag TEXT,
-                size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
-                downloaded_bytes INTEGER NOT NULL DEFAULT 0 CHECK (downloaded_bytes >= 0 AND downloaded_bytes <= size_bytes),
-                speed_bps INTEGER NOT NULL DEFAULT 0,
-                eta_seconds INTEGER,
-                status TEXT NOT NULL CHECK (status IN ('queued', 'downloading', 'paused', 'waiting', 'failed', 'downloaded', 'cancelled')),
-                error TEXT,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL
-             );
-             CREATE INDEX downloads_status_idx ON downloads (status, created_at);
-             PRAGMA user_version = 7;"
-        ).map_err(database_error)?;
-    }
-    if version < 8 {
-        transaction.execute_batch(
-            "ALTER TABLE downloads ADD COLUMN staged_path TEXT;
-             CREATE TABLE downloads_v8 (
-                id TEXT PRIMARY KEY NOT NULL,
-                steam_app_id INTEGER NOT NULL CHECK (steam_app_id BETWEEN 1 AND 4294967295),
-                name TEXT NOT NULL,
-                release_version TEXT NOT NULL,
-                url TEXT NOT NULL,
-                sha256 TEXT NOT NULL,
-                etag TEXT,
-                size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
-                downloaded_bytes INTEGER NOT NULL DEFAULT 0 CHECK (downloaded_bytes >= 0 AND downloaded_bytes <= size_bytes),
-                speed_bps INTEGER NOT NULL DEFAULT 0,
-                eta_seconds INTEGER,
-                status TEXT NOT NULL CHECK (status IN ('queued', 'downloading', 'paused', 'waiting', 'failed', 'downloaded', 'staging', 'staged', 'cancelled')),
-                error TEXT,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL,
-                staged_path TEXT
-             );
-             INSERT INTO downloads_v8 SELECT * FROM downloads;
-             DROP TABLE downloads;
-             ALTER TABLE downloads_v8 RENAME TO downloads;
-             CREATE INDEX downloads_status_idx ON downloads (status, created_at);
-             PRAGMA user_version = 8;"
-        ).map_err(database_error)?;
-    }
-    if version < 9 {
-        transaction
-            .execute_batch(
-                "ALTER TABLE games ADD COLUMN executable_path TEXT;
-                 CREATE UNIQUE INDEX games_executable_path_idx ON games (executable_path) WHERE executable_path IS NOT NULL;
-                 PRAGMA user_version = 9;",
-            )
-            .map_err(database_error)?;
-    }
-    if version < 10 {
-        transaction.execute_batch(
-            "ALTER TABLE downloads ADD COLUMN final_path TEXT;
-             ALTER TABLE downloads ADD COLUMN executable_relative TEXT;
-             ALTER TABLE downloads ADD COLUMN install_token TEXT;
-             CREATE TABLE downloads_v10 (
-                id TEXT PRIMARY KEY NOT NULL,
-                steam_app_id INTEGER NOT NULL CHECK (steam_app_id BETWEEN 1 AND 4294967295),
-                name TEXT NOT NULL,
-                release_version TEXT NOT NULL,
-                url TEXT NOT NULL,
-                sha256 TEXT NOT NULL,
-                etag TEXT,
-                size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
-                downloaded_bytes INTEGER NOT NULL DEFAULT 0 CHECK (downloaded_bytes >= 0 AND downloaded_bytes <= size_bytes),
-                speed_bps INTEGER NOT NULL DEFAULT 0,
-                eta_seconds INTEGER,
-                status TEXT NOT NULL CHECK (status IN ('queued', 'downloading', 'paused', 'waiting', 'failed', 'downloaded', 'staging', 'staged', 'finalizing', 'installed', 'cancelled')),
-                error TEXT,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL,
-                staged_path TEXT,
-                final_path TEXT,
-                executable_relative TEXT,
-                install_token TEXT
-             );
-             INSERT INTO downloads_v10 SELECT * FROM downloads;
-             DROP TABLE downloads;
-             ALTER TABLE downloads_v10 RENAME TO downloads;
-             CREATE INDEX downloads_status_idx ON downloads (status, created_at);
-             PRAGMA user_version = 10;"
-        ).map_err(database_error)?;
-    }
-    if version < 11 {
-        transaction
-            .execute_batch(
-                "CREATE TABLE compatibility_defaults (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    runner_path TEXT,
-                    prefix_root TEXT,
-                    arguments_before TEXT NOT NULL,
-                    arguments_after TEXT NOT NULL,
-                    working_directory TEXT,
-                    environment TEXT NOT NULL,
-                    dll_overrides TEXT NOT NULL
-                 );
-                 INSERT INTO compatibility_defaults
-                    (id, arguments_before, arguments_after, environment, dll_overrides)
-                 VALUES (1, '[]', '[]', '{}', '{}');
-                 CREATE TABLE game_compatibility_overrides (
-                    game_id TEXT PRIMARY KEY NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-                    runner_path TEXT,
-                    prefix_path TEXT,
-                    arguments_before TEXT,
-                    arguments_after TEXT,
-                    working_directory TEXT,
-                    environment TEXT,
-                    dll_overrides TEXT
-                 );
-                 PRAGMA user_version = 11;",
-            )
-            .map_err(database_error)?;
-    }
-    transaction.commit().map_err(database_error)
-}
-
-fn load_compatibility_defaults(connection: &Connection) -> Result<CompatibilityDefaults, String> {
-    let (
-        runner_path,
-        prefix_root,
-        arguments_before,
-        arguments_after,
-        working_directory,
-        environment,
-        dll_overrides,
-    ) = connection
-        .query_row(
-            "SELECT runner_path, prefix_root, arguments_before,
-                    arguments_after, working_directory, environment, dll_overrides
-             FROM compatibility_defaults WHERE id = 1",
-            [],
-            |row| {
-                Ok((
-                    row.get::<_, Option<String>>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, String>(5)?,
-                    row.get::<_, String>(6)?,
-                ))
-            },
-        )
-        .map_err(database_error)?;
-    Ok(CompatibilityDefaults {
-        runner_path,
-        prefix_root,
-        arguments_before: decode_json(&arguments_before)?,
-        arguments_after: decode_json(&arguments_after)?,
-        working_directory,
-        environment: decode_json(&environment)?,
-        dll_overrides: decode_json(&dll_overrides)?,
-    })
-}
-
-fn load_game_compatibility_overrides(
-    connection: &Connection,
-    game_id: &str,
-) -> Result<GameCompatibilityOverrides, String> {
-    let stored = connection
-        .query_row(
-            "SELECT o.runner_path, o.prefix_path, o.arguments_before,
-                    o.arguments_after, o.working_directory, o.environment, o.dll_overrides
-             FROM games AS g
-             LEFT JOIN game_compatibility_overrides AS o ON o.game_id = g.id
-             WHERE g.id = ?1",
-            [game_id],
-            |row| {
-                Ok((
-                    row.get::<_, Option<String>>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, Option<String>>(5)?,
-                    row.get::<_, Option<String>>(6)?,
-                ))
-            },
-        )
-        .optional()
-        .map_err(database_error)?;
-    let Some((
-        runner_path,
-        prefix_path,
-        arguments_before,
-        arguments_after,
-        working_directory,
-        environment,
-        dll_overrides,
-    )) = stored
-    else {
-        return Err("game was not found".to_owned());
-    };
-    Ok(GameCompatibilityOverrides {
-        runner_path,
-        prefix_path,
-        arguments_before: decode_optional_json(arguments_before)?,
-        arguments_after: decode_optional_json(arguments_after)?,
-        working_directory,
-        environment: decode_optional_json(environment)?,
-        dll_overrides: decode_optional_json(dll_overrides)?,
-    })
-}
-
-fn merge_compatibility_config(
-    defaults: CompatibilityDefaults,
-    overrides: GameCompatibilityOverrides,
-) -> EffectiveCompatibilityConfig {
-    let mut environment = defaults.environment;
-    if let Some(override_values) = overrides.environment {
-        if override_values.is_empty() {
-            environment.clear();
-        } else {
-            environment.extend(override_values);
-        }
-    }
-
-    let mut dll_overrides = defaults.dll_overrides;
-    if let Some(override_values) = overrides.dll_overrides {
-        if override_values.is_empty() {
-            dll_overrides.clear();
-        } else {
-            dll_overrides.extend(override_values);
-        }
-    }
-
-    EffectiveCompatibilityConfig {
-        runner_path: overrides
-            .runner_path
-            .or(defaults.runner_path)
-            .filter(|value| !value.is_empty()),
-        prefix_root: defaults.prefix_root.filter(|value| !value.is_empty()),
-        prefix_path: overrides.prefix_path.filter(|value| !value.is_empty()),
-        arguments_before: overrides
-            .arguments_before
-            .unwrap_or(defaults.arguments_before),
-        arguments_after: overrides
-            .arguments_after
-            .unwrap_or(defaults.arguments_after),
-        working_directory: overrides
-            .working_directory
-            .or(defaults.working_directory)
-            .filter(|value| !value.is_empty()),
-        environment,
-        dll_overrides,
-    }
-}
-
-fn encode_json<T: Serialize>(value: &T) -> Result<String, String> {
-    serde_json::to_string(value)
-        .map_err(|error| format!("could not encode compatibility setting: {error}"))
-}
-
-fn decode_json<T: for<'de> Deserialize<'de>>(value: &str) -> Result<T, String> {
-    serde_json::from_str(value)
-        .map_err(|error| format!("stored compatibility setting is invalid: {error}"))
-}
-
-fn encode_optional_json<T: Serialize>(value: &Option<T>) -> Result<Option<String>, String> {
-    value.as_ref().map(encode_json).transpose()
-}
-
-fn decode_optional_json<T: for<'de> Deserialize<'de>>(
-    value: Option<String>,
-) -> Result<Option<T>, String> {
-    value.map(|value| decode_json(&value)).transpose()
-}
-
-pub(crate) fn game_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Game> {
-    let steam_app_id = row
-        .get::<_, Option<i64>>(1)?
-        .map(|value| {
-            u32::try_from(value).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(1, value))
-        })
-        .transpose()?;
-    let automatic_name: Option<String> = row.get(2)?;
-    let name_override: Option<String> = row.get(3)?;
-    let name = name_override
-        .clone()
-        .or_else(|| automatic_name.clone())
-        .ok_or(rusqlite::Error::InvalidQuery)?;
-
-    Ok(Game {
-        id: row.get(0)?,
-        steam_app_id,
-        automatic_name,
-        name_override,
-        name,
-        steam_install_path: row.get(4)?,
-        steam_account_id: row.get(5)?,
-        executable_path: row.get(6)?,
-    })
-}
-
-pub(crate) fn required_name(value: String, field: &str) -> Result<String, String> {
-    optional_name(Some(value), field)?.ok_or_else(|| format!("{field} is required"))
-}
-
-fn optional_name(value: Option<String>, field: &str) -> Result<Option<String>, String> {
-    value
-        .map(|value| {
-            let value = value.trim().to_owned();
-            if value.is_empty() {
-                return Err(format!("{field} cannot be blank"));
-            }
-            if value.chars().count() > 200 {
-                return Err(format!("{field} cannot exceed 200 characters"));
-            }
-            Ok(value)
-        })
-        .transpose()
-}
-
-fn effective_name(
-    automatic_name: &Option<String>,
-    name_override: &Option<String>,
-) -> Result<String, String> {
-    name_override
-        .clone()
-        .or_else(|| automatic_name.clone())
-        .ok_or_else(|| "a game needs an automatic name or a name override".to_owned())
-}
-
-fn parse_game_id(value: &str) -> Result<String, String> {
-    Uuid::parse_str(value)
-        .map(|id| id.to_string())
-        .map_err(|_| "game id is invalid".to_owned())
-}
-
-fn parse_steam_id(value: &str) -> Result<u64, String> {
-    value
-        .parse::<u64>()
-        .ok()
-        .filter(|id| *id > 0 && id.to_string() == value)
-        .ok_or_else(|| "Steam ID is invalid".to_owned())
-}
-
-pub(crate) fn account_preflight(
-    selected_steam_id: Option<String>,
-    active_steam_id: Option<&str>,
-) -> AccountCheck {
-    let (status, message) = match (selected_steam_id.as_deref(), active_steam_id) {
-        (None, _) => (AccountCheckStatus::NotRequired, None),
-        (Some(selected), Some(active)) if selected == active => (AccountCheckStatus::Match, None),
-        (Some(_), Some(_)) => (
-            AccountCheckStatus::Mismatch,
-            Some("Steam is signed into a different account. Change accounts in Steam and retry."),
-        ),
-        (Some(_), None) => (
-            AccountCheckStatus::Unknown,
-            Some(
-                "Legio cannot verify which Steam account is active. Account-specific launch is unavailable.",
-            ),
-        ),
-    };
-    AccountCheck {
-        account_requirement_met: matches!(
-            status,
-            AccountCheckStatus::NotRequired | AccountCheckStatus::Match
-        ),
-        selected_steam_id,
-        status,
-        message,
-    }
-}
-
-pub(crate) fn database_error(error: rusqlite::Error) -> String {
-    format!("local database error: {error}")
-}
-
-pub fn get_settings(state: &DatabaseState) -> Result<Settings, String> {
-    state.database()?.settings()
-}
-pub fn save_settings(state: &DatabaseState, settings: Settings) -> Result<Settings, String> {
-    state.database()?.save_settings(settings)
-}
-pub fn list_games(state: &DatabaseState) -> Result<Vec<Game>, String> {
-    state.database()?.games()
-}
-pub fn create_game(state: &DatabaseState, input: CreateGameInput) -> Result<Game, String> {
-    state.database()?.create_game(input)
-}
-pub fn update_game(state: &DatabaseState, input: UpdateGameInput) -> Result<Game, String> {
-    state.database()?.update_game(input)
-}
-pub fn remove_game(state: &DatabaseState, id: &str) -> Result<(), String> {
-    state.database()?.remove_game(id)
-}
-pub fn set_game_steam_account(
-    state: &DatabaseState,
-    game_id: &str,
-    steam_id: Option<&str>,
-) -> Result<Game, String> {
-    state.database()?.set_game_steam_account(game_id, steam_id)
-}
-pub fn check_game_steam_account(
-    state: &DatabaseState,
-    game_id: &str,
-) -> Result<AccountCheck, String> {
-    state.database()?.check_game_steam_account(game_id)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn migrates_v9_staged_download_for_finalization() {
-        let connection = Connection::open_in_memory().unwrap();
-        migrate(&connection).unwrap();
-        connection.execute_batch("INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at, staged_path) VALUES ('job', 42, 'Game', '1', 'https://example.test', 'hash', 4, 'staged', 1, 1, '/stage'); ALTER TABLE downloads DROP COLUMN install_token; ALTER TABLE downloads DROP COLUMN executable_relative; ALTER TABLE downloads DROP COLUMN final_path; DROP TABLE game_compatibility_overrides; DROP TABLE compatibility_defaults; PRAGMA user_version = 9;").unwrap();
-        migrate(&connection).unwrap();
-        let row: (String, String, Option<String>) = connection
-            .query_row(
-                "SELECT status, staged_path, final_path FROM downloads WHERE id = 'job'",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .unwrap();
-        assert_eq!(row, ("staged".to_owned(), "/stage".to_owned(), None));
-        let version: i64 = connection
-            .query_row("PRAGMA user_version", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(version, 11);
-    }
-
-    #[test]
-    fn migration_11_adds_compatibility_storage_without_changing_existing_games() {
-        let connection = Connection::open_in_memory().unwrap();
-        migrate(&connection).unwrap();
-        connection
-            .execute_batch(
-                "DROP TABLE game_compatibility_overrides;
-                 DROP TABLE compatibility_defaults;
-                 INSERT INTO games (id, name_override) VALUES ('00000000-0000-0000-0000-000000000001', 'Existing');
-                 PRAGMA user_version = 10;",
-            )
-            .unwrap();
-        migrate(&connection).unwrap();
-        let game_name: String = connection
-            .query_row(
-                "SELECT name_override FROM games WHERE id = '00000000-0000-0000-0000-000000000001'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        let version: i64 = connection
-            .query_row("PRAGMA user_version", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(game_name, "Existing");
-        assert_eq!(version, 11);
-    }
-
-    #[test]
-    fn migrates_v8_staged_download_database_without_losing_games() {
-        let connection = Connection::open_in_memory().unwrap();
-        migrate(&connection).unwrap();
-        connection
-            .execute_batch(
-                "INSERT INTO games (id, name_override) VALUES ('manual', 'Manual game');
-             ALTER TABLE downloads DROP COLUMN install_token;
-             ALTER TABLE downloads DROP COLUMN executable_relative;
-             ALTER TABLE downloads DROP COLUMN final_path;
-             DROP TABLE game_compatibility_overrides;
-             DROP TABLE compatibility_defaults;
-             DROP INDEX games_executable_path_idx;
-             ALTER TABLE games DROP COLUMN executable_path;
-             PRAGMA user_version = 8;",
-            )
-            .unwrap();
-        migrate(&connection).unwrap();
-        let name: String = connection
-            .query_row(
-                "SELECT name_override FROM games WHERE id = 'manual'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        let downloads_exists: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'downloads'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!((name.as_str(), downloads_exists), ("Manual game", 1));
-    }
-
-    #[test]
-    fn migrates_v1_without_replacing_user_data() {
-        let connection = Connection::open_in_memory().unwrap();
-        connection.execute_batch("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE games (id TEXT PRIMARY KEY, steam_app_id INTEGER, automatic_name TEXT, name_override TEXT); INSERT INTO settings VALUES ('theme', 'light'); INSERT INTO games VALUES ('manual', 400, 'Portal', 'My Portal'); PRAGMA user_version = 1;").unwrap();
-        migrate(&connection).unwrap();
-        migrate(&connection).unwrap();
-        let name: String = connection
+   …5867 tokens truncated…= connection
             .query_row(
                 "SELECT name_override FROM games WHERE id = 'manual'",
                 [],
@@ -1272,6 +795,81 @@ mod tests {
         assert_eq!(reopened.download_bandwidth_limit().unwrap(), 1_500_000);
         reopened.save_download_bandwidth_limit(0).unwrap();
         assert_eq!(reopened.download_bandwidth_limit().unwrap(), 0);
+        drop(reopened);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn playtime_summaries_include_active_and_finished_sessions_per_game() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let first = database
+            .create_game(CreateGameInput {
+                name: "First game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        let second = database
+            .create_game(CreateGameInput {
+                name: "Second game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+
+        database.start_game_session(&first.id, 1_000).unwrap();
+        database.heartbeat_game_session(&first.id, 2_000).unwrap();
+        database.end_game_session(&first.id, 3_000).unwrap();
+        database.start_game_session(&first.id, 4_000).unwrap();
+        database.start_game_session(&second.id, 4_500).unwrap();
+
+        let summaries = database.playtime_summaries(10_000).unwrap();
+        let first_summary = summaries
+            .iter()
+            .find(|item| item.game_id == first.id)
+            .unwrap();
+        let second_summary = summaries
+            .iter()
+            .find(|item| item.game_id == second.id)
+            .unwrap();
+        assert_eq!(first_summary.total_milliseconds, 8_000);
+        assert_eq!(first_summary.active_sessions, 1);
+        assert_eq!(second_summary.total_milliseconds, 5_500);
+        assert_eq!(second_summary.active_sessions, 1);
+
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn reopening_recovers_open_sessions_at_the_last_heartbeat() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let game = database
+            .create_game(CreateGameInput {
+                name: "Interrupted game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        database.start_game_session(&game.id, 1_000).unwrap();
+        database.heartbeat_game_session(&game.id, 2_500).unwrap();
+        drop(database);
+
+        let reopened = Database::open(&directory).unwrap();
+        let summaries = reopened.playtime_summaries(10_000).unwrap();
+        assert_eq!(summaries[0].total_milliseconds, 1_500);
+        assert_eq!(summaries[0].active_sessions, 0);
+        let reason: String = reopened
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT end_reason FROM game_sessions WHERE game_id = ?1",
+                        [&game.id],
+                        |row| row.get(0),
+                    )
+                    .map_err(database_error)
+            })
+            .unwrap();
+        assert_eq!(reason, "interrupted");
         drop(reopened);
         fs::remove_dir_all(directory).unwrap();
     }
