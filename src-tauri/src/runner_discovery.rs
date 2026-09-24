@@ -5,7 +5,9 @@ use std::fs;
 #[cfg(target_os = "linux")]
 use std::path::Path;
 #[cfg(target_os = "linux")]
-use std::process::Command;
+use std::process::{Command, Stdio};
+#[cfg(target_os = "linux")]
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
@@ -53,12 +55,11 @@ pub fn discover() -> RunnerDiscovery {
 #[cfg(target_os = "linux")]
 fn discover_linux() -> RunnerDiscovery {
     let mut runners = discover_proton();
-    let mut diagnostics = Vec::new();
-    match discover_wine() {
-        Ok(Some(runner)) => runners.push(runner),
-        Ok(None) => {}
-        Err(error) => diagnostics.push(error),
-    }
+    let (wine, diagnostics) = discover_wine_from(
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
+        WINE_PROBE_TIMEOUT,
+    );
+    runners.extend(wine);
     RunnerDiscovery {
         runners,
         diagnostics,
@@ -146,41 +147,92 @@ fn read_proton_version(path: &Path, name: &str) -> String {
 }
 
 #[cfg(target_os = "linux")]
-fn discover_wine() -> Result<Option<InstalledRunner>, String> {
-    for directory in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
+const WINE_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+
+#[cfg(target_os = "linux")]
+fn discover_wine_from(
+    directories: impl IntoIterator<Item = std::path::PathBuf>,
+    timeout: Duration,
+) -> (Option<InstalledRunner>, Vec<String>) {
+    let mut diagnostics = Vec::new();
+    for directory in directories {
         for binary in ["wine", "wine64"] {
             let path = directory.join(binary);
             if !is_executable_file(&path) {
                 continue;
             }
-            let canonical = fs::canonicalize(&path)
-                .map_err(|error| format!("Could not resolve Wine executable: {error}"))?;
-            let output = Command::new(&canonical)
-                .arg("--version")
-                .output()
-                .map_err(|error| format!("Could not read Wine version: {error}"))?;
-            let version_output = format!(
-                "{}\n{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-            let version = version_output
-                .lines()
-                .map(str::trim)
-                .find(|line| is_wine_version(line))
-                .map(str::to_owned);
-            let Some(version) = version.filter(|_| output.status.success()) else {
-                continue;
+            let canonical = match fs::canonicalize(&path) {
+                Ok(canonical) => canonical,
+                Err(_) => {
+                    diagnostics.push(format!(
+                        "Skipped Wine candidate {binary}: could not resolve path"
+                    ));
+                    continue;
+                }
             };
-            return Ok(Some(InstalledRunner {
-                kind: RunnerKind::Wine,
-                name: "Wine".to_owned(),
-                version,
-                path: canonical.to_string_lossy().into_owned(),
-            }));
+            match wine_version(&canonical, timeout) {
+                Ok(version) => {
+                    return (
+                        Some(InstalledRunner {
+                            kind: RunnerKind::Wine,
+                            name: "Wine".to_owned(),
+                            version,
+                            path: canonical.to_string_lossy().into_owned(),
+                        }),
+                        diagnostics,
+                    );
+                }
+                Err(reason) => {
+                    diagnostics.push(format!("Skipped Wine candidate {binary}: {reason}"))
+                }
+            }
         }
     }
-    Ok(None)
+    (None, diagnostics)
+}
+
+#[cfg(target_os = "linux")]
+fn wine_version(path: &Path, timeout: Duration) -> Result<String, &'static str> {
+    let mut child = Command::new(path)
+        .arg("--version")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| "could not start executable")?;
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("version check timed out");
+            }
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("could not wait for executable");
+            }
+        }
+    };
+    let output = child
+        .wait_with_output()
+        .map_err(|_| "could not read version output")?;
+    if !status.success() {
+        return Err("version check exited unsuccessfully");
+    }
+    let version_output = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    version_output
+        .lines()
+        .map(str::trim)
+        .find(|line| is_wine_version(line))
+        .map(str::to_owned)
+        .ok_or("version output was not recognized")
 }
 
 #[cfg(target_os = "linux")]
@@ -230,6 +282,13 @@ mod tests {
         path
     }
 
+    fn make_executable(parent: &Path, name: &str, contents: &str) -> PathBuf {
+        let path = parent.join(name);
+        fs::write(&path, contents).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
     #[test]
     fn recognizes_only_named_proton_layouts_with_executable_entrypoint() {
         let root = temp_dir();
@@ -275,5 +334,39 @@ mod tests {
         assert!(is_wine_version("wine-9.0"));
         assert!(is_wine_version("Wine version 8.0"));
         assert!(!is_wine_version("not wine"));
+    }
+
+    #[test]
+    fn timed_out_and_failed_wine_candidates_do_not_hide_later_runner() {
+        let root = temp_dir();
+        let slow = root.join("first");
+        let invalid = root.join("second");
+        fs::create_dir_all(&slow).unwrap();
+        fs::create_dir_all(&invalid).unwrap();
+        make_executable(&slow, "wine", "#!/bin/sh\nexec /bin/sleep 5\n");
+        make_executable(&invalid, "wine", "#!/bin/sh\nexit 2\n");
+        let valid = make_executable(&invalid, "wine64", "#!/bin/sh\nprintf 'wine-9.0\\n'\n");
+
+        let started = Instant::now();
+        let (runner, diagnostics) = discover_wine_from([slow, invalid], Duration::from_millis(50));
+
+        let runner = runner.expect("later valid Wine binary should be found");
+        assert_eq!(runner.version, "wine-9.0");
+        assert_eq!(
+            runner.path,
+            fs::canonicalize(valid).unwrap().to_string_lossy()
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|message| message.contains("timed out"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|message| message.contains("unsuccessfully"))
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+        fs::remove_dir_all(root).unwrap();
     }
 }
