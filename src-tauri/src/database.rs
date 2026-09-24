@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 const THEME_KEY: &str = "theme";
+const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_second";
 const SCHEMA_VERSION: i64 = 11;
 
 /// Persisted defaults for Linux compatibility launches.
@@ -209,6 +210,47 @@ impl Database {
                 )
                 .map_err(database_error)?;
             Ok(settings)
+        })
+    }
+
+    /// Loads the persistent download bandwidth limit. Zero means unlimited.
+    pub fn download_bandwidth_limit(&self) -> Result<u64, String> {
+        self.with_connection(|connection| {
+            let value: Option<String> = connection
+                .query_row(
+                    "SELECT value FROM settings WHERE key = ?1",
+                    [DOWNLOAD_BANDWIDTH_LIMIT_KEY],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(database_error)?;
+            let Some(value) = value else {
+                return Ok(0);
+            };
+            let parsed = value
+                .parse::<u64>()
+                .map_err(|_| "stored download bandwidth limit is invalid".to_owned())?;
+            if parsed > i64::MAX as u64 {
+                return Err("stored download bandwidth limit is too large".to_owned());
+            }
+            Ok(parsed)
+        })
+    }
+
+    /// Stores the global download bandwidth limit. Zero means unlimited.
+    pub fn save_download_bandwidth_limit(&self, bytes_per_second: u64) -> Result<(), String> {
+        if bytes_per_second > i64::MAX as u64 {
+            return Err("Bandwidth limit is too large".to_owned());
+        }
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    params![DOWNLOAD_BANDWIDTH_LIMIT_KEY, bytes_per_second.to_string()],
+                )
+                .map_err(database_error)?;
+            Ok(())
         })
     }
 
@@ -1208,6 +1250,27 @@ mod tests {
             }
         );
         assert_eq!(reopened.games().unwrap(), vec![enriched]);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn download_bandwidth_limit_defaults_to_unlimited_and_survives_reopen() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        assert_eq!(database.download_bandwidth_limit().unwrap(), 0);
+
+        database.save_download_bandwidth_limit(1_500_000).unwrap();
+        assert_eq!(database.download_bandwidth_limit().unwrap(), 1_500_000);
+        assert!(database
+            .save_download_bandwidth_limit(i64::MAX as u64 + 1)
+            .is_err());
+
+        drop(database);
+        let reopened = Database::open(&directory).unwrap();
+        assert_eq!(reopened.download_bandwidth_limit().unwrap(), 1_500_000);
+        reopened.save_download_bandwidth_limit(0).unwrap();
+        assert_eq!(reopened.download_bandwidth_limit().unwrap(), 0);
+        drop(reopened);
         fs::remove_dir_all(directory).unwrap();
     }
 

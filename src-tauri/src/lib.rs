@@ -25,14 +25,19 @@ mod steam_vdf;
 pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
         .setup(|app| {
-            app.manage(database::DatabaseState::new(app.path().app_data_dir()));
-            app.manage(
-                download_queue::DownloadQueueState::new(
-                    app.path().app_data_dir(),
-                    &app.package_info().version.to_string(),
-                )
-                .map_err(std::io::Error::other)?,
-            );
+            let database = database::DatabaseState::new(app.path().app_data_dir());
+            let bandwidth_limit = database
+                .database()
+                .and_then(database::Database::download_bandwidth_limit)
+                .map_err(std::io::Error::other)?;
+            app.manage(database);
+            let download_queue = download_queue::DownloadQueueState::new(
+                app.path().app_data_dir(),
+                &app.package_info().version.to_string(),
+            )
+            .map_err(std::io::Error::other)?;
+            download_queue.set_bandwidth_limit(bandwidth_limit);
+            app.manage(download_queue);
             download_queue::start(app.handle().clone()).map_err(std::io::Error::other)?;
             app.manage(game_lifecycle::GameLaunchManager::new());
             let diagnostics = diagnostics::Diagnostics::new(
