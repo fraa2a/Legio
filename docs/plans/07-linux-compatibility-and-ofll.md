@@ -32,9 +32,11 @@ Verification: available runners are detected without false success and a basic W
 
 ### 07B: Compatibility configuration
 
-- Manage runners, defaults, game overrides, prefixes, and custom paths.
-- Support Steam Runtime, environment variables, DLL overrides, arguments, and working directory.
-- Support Steam startup, overlay, graphics, WineD3D, and Wayland options where canonical requirements allow.
+Status: persistent global defaults, per-game overrides, effective-value merging, validation, and launch integration are implemented in the Rust backend. Platform behavior and dedicated runtime, overlay, and graphics options remain open.
+
+- Persist runner selection, global defaults, per-game overrides, prefix roots and paths, environment variables, DLL overrides, arguments, and working directories.
+- Validate and apply the effective configuration immediately before launching a manually imported Windows game.
+- Define and support Steam Runtime behavior, overlay integration, and dedicated graphics, WineD3D, and Wayland options where canonical requirements allow.
 - Preserve process handling and actionable diagnostics.
 
 Verification: each supported setting changes the observable launch environment, invalid combinations fail before launch, and diagnostics identify the applied configuration.
@@ -59,7 +61,7 @@ Runner discovery and configuration are reliable, supported Windows games launch 
 ## Open technical decisions
 
 - Record the exact upstream OFLL revision before claiming parity.
-- Confirm which graphics and overlay combinations are supportable before 07B.
+- Establish which Steam Runtime, overlay, graphics, WineD3D, and Wayland combinations are supportable with real games before claiming 07B complete.
 
 ## Update notes
 
@@ -69,4 +71,4 @@ PR #34 adds the Linux-only `launch_game_with_runner` command for manually import
 
 Tests cover process identification, launch and stop state transitions, spawn and wrapper failures, and cancellation before the game process appears. GitHub CI passes on Linux and Windows. 07A remains open until a supported Windows game is smoke-tested with an installed Proton or Wine runner.
 
-07B backend work is in progress: persist global defaults and nullable per-game overrides, then validate and resolve effective runner, prefix, arguments, environment, DLL overrides, and working directory before launch. UI and runner configuration controls remain deferred until the product mockup is available.
+07B backend support now persists global defaults and nullable per-game overrides, merges them into effective runner, prefix, arguments, environment, DLL overrides, and working directory values, validates the result, and applies it before launch. A game-specific runner can inherit the global choice; if none is configured, launch uses the first discovered runner. Environment values can express Proton options such as WineD3D, but Legio has no dedicated graphics, Steam Runtime, overlay, or Wayland controls yet. These runtime integrations require Linux game verification; the UI controls remain outside this backend handoff.
