@@ -19,7 +19,7 @@ const EXIT_GRACE: Duration = Duration::from_secs(3);
 const LOG_READ_LIMIT: u64 = 128 * 1024;
 const LOG_LINE_LIMIT: usize = 8 * 1024;
 
-#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum GameStatus {
     Idle,
@@ -48,6 +48,22 @@ struct LaunchTarget {
     app_id: u32,
     install_path: PathBuf,
     steam_root: PathBuf,
+}
+
+impl LaunchTarget {
+    fn prepare(app_id: u32, install_path: PathBuf, steam_root: PathBuf) -> Result<Self, String> {
+        if app_id == 0 {
+            return Err("This game has no valid Steam App ID".to_owned());
+        }
+        if !install_path.is_dir() {
+            return Err("This game has no available Steam installation".to_owned());
+        }
+        Ok(Self {
+            app_id,
+            install_path,
+            steam_root,
+        })
+    }
 }
 
 #[derive(Default, Clone)]
@@ -81,15 +97,14 @@ impl GameLaunchManager {
         let game = app.state::<DatabaseState>().database()?.game(&game_id)?;
         let app_id = game
             .steam_app_id
-            .filter(|id| *id > 0)
             .ok_or_else(|| "This game has no valid Steam App ID".to_owned())?;
         let install_path = game
             .steam_install_path
             .as_deref()
             .map(PathBuf::from)
-            .filter(|path| path.is_dir())
             .ok_or_else(|| "This game has no available Steam installation".to_owned())?;
         let steam_root = steam_local::find_steam_root_for_game(&game)?;
+        let target = LaunchTarget::prepare(app_id, install_path, steam_root)?;
         let cancel = Arc::new(AtomicBool::new(false));
         {
             let mut entries = self.lock()?;
@@ -108,7 +123,7 @@ impl GameLaunchManager {
                 game_id.clone(),
                 Entry {
                     app_id,
-                    install_path: install_path.clone(),
+                    install_path: target.install_path.clone(),
                     status: GameStatus::Launching,
                     error: None,
                     cancel: Arc::clone(&cancel),
@@ -117,16 +132,15 @@ impl GameLaunchManager {
         }
 
         let worker_id = game_id.clone();
-        let target = LaunchTarget {
-            app_id,
-            install_path,
-            steam_root,
-        };
         let manager = self.clone();
+        let launch_game_id = worker_id.clone();
         if let Err(error) = thread::Builder::new()
             .name(format!("legio-game-{app_id}"))
             .spawn(move || {
-                manager.run_launch(app, worker_id, target, confirm_account_switch, cancel);
+                manager.run_launch(worker_id, target, cancel, move |cancel| {
+                    steam_switch::launch(&app, &launch_game_id, confirm_account_switch, cancel)
+                        .map(|_| ())
+                });
             })
         {
             self.set_state(&game_id, GameStatus::Idle, Some(error.to_string()));
@@ -164,11 +178,10 @@ impl GameLaunchManager {
 
     fn run_launch(
         &self,
-        app: AppHandle,
         game_id: String,
         target: LaunchTarget,
-        confirm_account_switch: bool,
         cancel: Arc<AtomicBool>,
+        launch: impl FnOnce(&AtomicBool) -> Result<(), String>,
     ) {
         let LaunchTarget {
             app_id,
@@ -176,9 +189,9 @@ impl GameLaunchManager {
             steam_root,
         } = target;
         let mut steam_log = SteamLaunchLog::new(steam_root.join("logs/console_log.txt"));
-        if let Err(error) = steam_switch::launch(&app, &game_id, confirm_account_switch, &cancel) {
-            let error =
-                (!cancel.load(Ordering::Acquire) || error != "Launch cancelled").then_some(error);
+        if let Err(error) = launch(&cancel) {
+            let error = (!cancel.load(Ordering::Acquire) || error != "Launch cancelled")
+                .then(|| format!("Launch stage failed: {error}"));
             self.set_state(&game_id, GameStatus::Idle, error);
             return;
         }
@@ -189,21 +202,28 @@ impl GameLaunchManager {
             match game_process::matching_pids(app_id, &install_path) {
                 Ok(pids) if !pids.is_empty() => {
                     if cancel.load(Ordering::Acquire) {
-                        let result = game_process::stop(app_id, &install_path);
-                        self.set_state(&game_id, GameStatus::Idle, result.err());
+                        let error = game_process::stop(app_id, &install_path)
+                            .err()
+                            .map(|error| format!("Terminate stage failed: {error}"));
+                        self.set_state(&game_id, GameStatus::Idle, error);
                         return;
                     }
                     break;
                 }
                 Ok(_) => {}
                 Err(error) => {
-                    self.set_state(&game_id, GameStatus::Idle, Some(error));
+                    self.set_state(
+                        &game_id,
+                        GameStatus::Idle,
+                        Some(format!("Monitor stage failed: {error}")),
+                    );
                     return;
                 }
             }
             while let Some(event) = steam_log.launch_event(app_id) {
                 if let Some(error) = steam_progress.observe(event) {
-                    let error = (!cancel.load(Ordering::Acquire)).then_some(error);
+                    let error = (!cancel.load(Ordering::Acquire))
+                        .then(|| format!("Launch stage failed: {error}"));
                     self.set_state(&game_id, GameStatus::Idle, error);
                     return;
                 }
@@ -223,12 +243,12 @@ impl GameLaunchManager {
             if started.elapsed() >= START_TIMEOUT {
                 let error = if cancel.load(Ordering::Acquire) {
                     (steam_progress.active_processes > 0).then_some(
-                        "Steam did not confirm that the game launch stopped within two minutes"
+                        "Monitor stage failed: Steam did not confirm that the game launch stopped within two minutes"
                             .to_owned(),
                     )
                 } else {
                     Some(
-                        "Steam did not start a detectable game process within two minutes"
+                        "Monitor stage failed: Steam did not start a detectable game process within two minutes"
                             .to_owned(),
                     )
                 };
@@ -250,7 +270,11 @@ impl GameLaunchManager {
                 }
                 Ok(_) => missing_since = None,
                 Err(error) => {
-                    self.set_state(&game_id, GameStatus::Idle, Some(error));
+                    self.set_state(
+                        &game_id,
+                        GameStatus::Idle,
+                        Some(format!("Monitor stage failed: {error}")),
+                    );
                     return;
                 }
             }
@@ -402,6 +426,126 @@ fn parse_launch_event(line: &str, app_id: u32) -> Option<SteamLaunchEvent> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[cfg(target_os = "linux")]
+    struct ChildGuard(std::process::Child);
+
+    #[cfg(target_os = "linux")]
+    impl Drop for ChildGuard {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    fn test_dir(label: &str) -> PathBuf {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "legio-{label}-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn controlled_process_runs_through_prepare_launch_monitor_and_terminate() {
+        const APP_ID: u32 = 4_294_967_293;
+        let base = test_dir("lifecycle-process");
+        let install_path = base.join("game");
+        let steam_root = base.join("steam");
+        fs::create_dir(&install_path).unwrap();
+        fs::create_dir(&steam_root).unwrap();
+        let target = LaunchTarget::prepare(APP_ID, install_path.clone(), steam_root).unwrap();
+
+        let manager = GameLaunchManager::new();
+        let cancel = Arc::new(AtomicBool::new(false));
+        manager.entries.lock().unwrap().insert(
+            "controlled".to_owned(),
+            Entry {
+                app_id: APP_ID,
+                install_path,
+                status: GameStatus::Launching,
+                error: None,
+                cancel: Arc::clone(&cancel),
+            },
+        );
+
+        let (child_sender, child_receiver) = std::sync::mpsc::channel();
+        let worker_manager = manager.clone();
+        let worker = thread::spawn(move || {
+            worker_manager.run_launch("controlled".to_owned(), target, cancel, move |_| {
+                let child = std::process::Command::new("sleep")
+                    .arg("30")
+                    .env("SteamAppId", APP_ID.to_string())
+                    .spawn()
+                    .map_err(|_| "Could not start controlled test executable".to_owned())?;
+                child_sender
+                    .send(ChildGuard(child))
+                    .map_err(|_| "Could not retain controlled test process".to_owned())?;
+                Ok(())
+            });
+        });
+        let _child = child_receiver
+            .recv_timeout(Duration::from_secs(3))
+            .expect("controlled process did not start");
+
+        let started = Instant::now();
+        while manager.list().unwrap()[0].status != GameStatus::Running {
+            assert!(
+                started.elapsed() < Duration::from_secs(3),
+                "controlled process was not detected"
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+        manager.stop("controlled").unwrap();
+        worker.join().unwrap();
+
+        let state = &manager.list().unwrap()[0];
+        assert_eq!(state.status, GameStatus::Idle);
+        assert_eq!(state.error, None);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn missing_launch_executable_is_reported_with_its_stage() {
+        let base = test_dir("lifecycle-missing-executable");
+        let install_path = base.join("game");
+        let steam_root = base.join("steam");
+        fs::create_dir(&install_path).unwrap();
+        fs::create_dir(&steam_root).unwrap();
+        let target = LaunchTarget::prepare(42, install_path.clone(), steam_root).unwrap();
+        let manager = GameLaunchManager::new();
+        let cancel = Arc::new(AtomicBool::new(false));
+        manager.entries.lock().unwrap().insert(
+            "missing".to_owned(),
+            Entry {
+                app_id: 42,
+                install_path,
+                status: GameStatus::Launching,
+                error: None,
+                cancel: Arc::clone(&cancel),
+            },
+        );
+
+        let missing_executable = base.join("missing-game");
+        manager.run_launch("missing".to_owned(), target, cancel, move |_| {
+            std::process::Command::new(missing_executable)
+                .spawn()
+                .map(|_| ())
+                .map_err(|_| "Executable was not found".to_owned())
+        });
+
+        let state = &manager.list().unwrap()[0];
+        assert_eq!(state.status, GameStatus::Idle);
+        assert_eq!(
+            state.error.as_deref(),
+            Some("Launch stage failed: Executable was not found")
+        );
+        fs::remove_dir_all(base).unwrap();
+    }
 
     #[test]
     fn reads_only_new_failures_for_the_requested_app() {
