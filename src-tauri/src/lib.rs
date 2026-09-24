@@ -1,5 +1,6 @@
 use tauri::Manager;
 
+pub mod archive_install;
 mod catalog;
 mod commands;
 mod database;
@@ -69,6 +70,7 @@ pub fn run() -> tauri::Result<()> {
             commands::get_network_log_status,
             commands::get_legio_source,
             download_queue::list_downloads,
+            download_queue::stage_download,
             download_queue::queue_download,
             download_queue::pause_download,
             download_queue::resume_download,

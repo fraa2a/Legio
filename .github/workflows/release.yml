@@ -162,6 +162,8 @@ jobs:
             artifact: legio-windows
 
     runs-on: ${{ matrix.os }}
+    env:
+      VCPKGRS_TRIPLET: x64-windows-static
 
     steps:
       - name: Check out repository
@@ -176,6 +178,7 @@ jobs:
             curl \
             file \
             libayatana-appindicator3-dev \
+            libarchive-dev \
             librsvg2-dev \
             libssl-dev \
             libwebkit2gtk-4.1-dev \
@@ -188,6 +191,13 @@ jobs:
         run: |
           rustup toolchain install 1.98.1 --profile minimal
           rustup default 1.98.1
+
+      - name: Install Windows archive library
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
+          vcpkg install libarchive:x64-windows-static
 
       - name: Set up Node
         uses: actions/setup-node@v7
