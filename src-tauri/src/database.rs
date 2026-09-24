@@ -1140,7 +1140,7 @@ mod tests {
     fn migrates_v9_staged_download_for_finalization() {
         let connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
-        connection.execute_batch("INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at, staged_path) VALUES ('job', 42, 'Game', '1', 'https://example.test', 'hash', 4, 'staged', 1, 1, '/stage'); ALTER TABLE downloads DROP COLUMN install_token; ALTER TABLE downloads DROP COLUMN executable_relative; ALTER TABLE downloads DROP COLUMN final_path; DROP TABLE game_compatibility_overrides; DROP TABLE compatibility_defaults; PRAGMA user_version = 9;").unwrap();
+        connection.execute_batch("INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at, staged_path) VALUES ('job', 42, 'Game', '1', 'https://example.test', 'hash', 4, 'staged', 1, 1, '/stage'); ALTER TABLE downloads DROP COLUMN install_token; ALTER TABLE downloads DROP COLUMN executable_relative; ALTER TABLE downloads DROP COLUMN final_path; DROP TABLE game_sessions; DROP TABLE game_compatibility_overrides; DROP TABLE compatibility_defaults; PRAGMA user_version = 9;").unwrap();
         migrate(&connection).unwrap();
         let row: (String, String, Option<String>) = connection
             .query_row(
@@ -1163,6 +1163,7 @@ mod tests {
         connection
             .execute_batch(
                 "DROP TABLE game_compatibility_overrides;
+                 DROP TABLE game_sessions;
                  DROP TABLE compatibility_defaults;
                  INSERT INTO games (id, name_override) VALUES ('00000000-0000-0000-0000-000000000001', 'Existing');
                  PRAGMA user_version = 10;",
@@ -1194,6 +1195,7 @@ mod tests {
              ALTER TABLE downloads DROP COLUMN executable_relative;
              ALTER TABLE downloads DROP COLUMN final_path;
              DROP TABLE game_compatibility_overrides;
+             DROP TABLE game_sessions;
              DROP TABLE compatibility_defaults;
              DROP INDEX games_executable_path_idx;
              ALTER TABLE games DROP COLUMN executable_path;
