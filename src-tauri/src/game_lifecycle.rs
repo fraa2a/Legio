@@ -91,13 +91,10 @@ impl SessionTracking {
         self.last_heartbeat = Instant::now();
         Ok(())
     }
-}
 
-impl Drop for SessionTracking {
-    fn drop(&mut self) {
-        let _ = self
-            .database
-            .end_game_session(&self.game_id, crate::database::now_milliseconds());
+    fn finish(self) -> Result<(), String> {
+        self.database
+            .end_game_session(&self.game_id, crate::database::now_milliseconds())
     }
 }
 
@@ -584,11 +581,14 @@ impl GameLaunchManager {
                 .as_mut()
                 .and_then(|session| session.heartbeat_if_due().err());
             if let Some(error) = heartbeat_error {
-                session.take();
+                let end_error = finish_session(&mut session);
                 self.set_state(
                     &game_id,
                     GameStatus::Running,
-                    Some(format!("Session tracking failed: {error}")),
+                    Some(append_cleanup_error(
+                        format!("Session tracking failed: {error}"),
+                        end_error,
+                    )),
                 );
             }
             match game_process::matching_pids(&process_target) {
@@ -596,15 +596,10 @@ impl GameLaunchManager {
                     let since = missing_since.get_or_insert_with(Instant::now);
                     if since.elapsed() >= EXIT_GRACE {
                         let cleanup_error = terminate_child(&mut child).err();
-                        if let Some(error) = cleanup_error {
-                            self.set_state(
-                                &game_id,
-                                GameStatus::Idle,
-                                Some(format!("Stop stage failed: {error}")),
-                            );
-                            return;
-                        }
-                        self.set_state(&game_id, GameStatus::Idle, None);
+                        let error =
+                            cleanup_error.map(|error| format!("Stop stage failed: {error}"));
+                        let error = combine_errors(error, finish_session(&mut session));
+                        self.set_state(&game_id, GameStatus::Idle, error);
                         return;
                     }
                 }
@@ -615,6 +610,7 @@ impl GameLaunchManager {
                         format!("Monitor stage failed: {error}"),
                         cleanup_error,
                     );
+                    let error = append_cleanup_error(error, finish_session(&mut session));
                     self.set_state(&game_id, GameStatus::Idle, Some(error));
                     return;
                 }
@@ -879,6 +875,20 @@ fn append_cleanup_error(error: String, cleanup_error: Option<String>) -> String 
         Some(cleanup_error) => format!("{error}; {cleanup_error}"),
         None => error,
     }
+}
+
+fn combine_errors(primary: Option<String>, secondary: Option<String>) -> Option<String> {
+    match primary {
+        Some(error) => Some(append_cleanup_error(error, secondary)),
+        None => secondary,
+    }
+}
+
+fn finish_session(session: &mut Option<SessionTracking>) -> Option<String> {
+    session
+        .take()
+        .and_then(|session| session.finish().err())
+        .map(|error| format!("Session tracking failed: {error}"))
 }
 
 struct SteamLaunchLog {

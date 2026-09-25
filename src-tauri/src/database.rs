@@ -564,7 +564,7 @@ impl Database {
                          COALESCE(SUM(CASE WHEN s.ended_at IS NULL
                              THEN MAX(0, ?1 - s.started_at)
                              ELSE MAX(0, s.ended_at - s.started_at) END), 0),
-                         SUM(CASE WHEN s.ended_at IS NULL THEN 1 ELSE 0 END)
+                         SUM(CASE WHEN s.id IS NOT NULL AND s.ended_at IS NULL THEN 1 ELSE 0 END)
                      FROM games g LEFT JOIN game_sessions s ON s.game_id = g.id
                      GROUP BY g.id ORDER BY g.id",
                 )
@@ -1417,6 +1417,12 @@ mod tests {
                 steam_app_id: None,
             })
             .unwrap();
+        let untouched = database
+            .create_game(CreateGameInput {
+                name: "Untouched game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
 
         database.start_game_session(&first.id, 1_000).unwrap();
         database.heartbeat_game_session(&first.id, 2_000).unwrap();
@@ -1433,10 +1439,16 @@ mod tests {
             .iter()
             .find(|item| item.game_id == second.id)
             .unwrap();
+        let untouched_summary = summaries
+            .iter()
+            .find(|item| item.game_id == untouched.id)
+            .unwrap();
         assert_eq!(first_summary.total_milliseconds, 8_000);
         assert_eq!(first_summary.active_sessions, 1);
         assert_eq!(second_summary.total_milliseconds, 5_500);
         assert_eq!(second_summary.active_sessions, 1);
+        assert_eq!(untouched_summary.total_milliseconds, 0);
+        assert_eq!(untouched_summary.active_sessions, 0);
 
         drop(database);
         fs::remove_dir_all(directory).unwrap();
