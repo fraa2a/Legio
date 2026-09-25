@@ -1,6 +1,6 @@
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 use rusqlite::{OptionalExtension, params};
@@ -144,10 +144,7 @@ pub(crate) fn scan_staged_directory(
             let relative = path
                 .strip_prefix(&root)
                 .map_err(|_| "scanned executable is outside the staged game directory")?;
-            let relative_path = relative
-                .to_str()
-                .ok_or("executable path is not valid UTF-8")?
-                .to_owned();
+            let relative_path = portable_relative_path(relative)?;
             Ok(StagedExecutableCandidate {
                 relative_path,
                 score: candidate.score,
@@ -158,18 +155,33 @@ pub(crate) fn scan_staged_directory(
     let selected_relative_path = scan
         .selected_path
         .map(|selected| {
-            Path::new(&selected)
+            let relative = Path::new(&selected)
                 .strip_prefix(&root)
-                .map_err(|_| "selected executable is outside the staged game directory")?
-                .to_str()
-                .map(str::to_owned)
-                .ok_or_else(|| "executable path is not valid UTF-8".to_owned())
+                .map_err(|_| "selected executable is outside the staged game directory")?;
+            portable_relative_path(relative)
         })
         .transpose()?;
     Ok(StagedExecutableScan {
         candidates,
         selected_relative_path,
     })
+}
+
+fn portable_relative_path(path: &Path) -> Result<String, String> {
+    let components = path
+        .components()
+        .map(|component| match component {
+            Component::Normal(value) => value
+                .to_str()
+                .filter(|value| !value.contains('\\'))
+                .ok_or_else(|| "executable path is not valid UTF-8 or portable".to_owned()),
+            _ => Err("executable path contains an invalid component".to_owned()),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if components.is_empty() {
+        return Err("executable path is empty".to_owned());
+    }
+    Ok(components.join("/"))
 }
 
 pub fn import(state: &DatabaseState, input: ManualImportInput) -> Result<Game, String> {
