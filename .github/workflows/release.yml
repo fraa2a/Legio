@@ -253,13 +253,25 @@ jobs:
             exit 1
           fi
 
+          mkdir release-publish
+          for asset in "${assets[@]}"; do
+            name="${asset##*/}"
+            target="release-publish/$name"
+            if [[ -e "$target" ]]; then
+              echo "Duplicate release asset name: $name"
+              exit 1
+            fi
+            cp -- "$asset" "$target"
+          done
+
           (
-            cd release-assets
-            find . -type f ! -name SHA256SUMS.txt -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+            cd release-publish
+            mapfile -d '' files < <(find . -maxdepth 1 -type f -print0 | LC_ALL=C sort -z)
+            sha256sum -- "${files[@]}" > SHA256SUMS.txt
             sha256sum --check SHA256SUMS.txt
           )
 
-          mapfile -d '' files < <(find release-assets -type f -print0 | LC_ALL=C sort -z)
+          mapfile -d '' files < <(find release-publish -type f -print0 | LC_ALL=C sort -z)
 
           args=(
             release
