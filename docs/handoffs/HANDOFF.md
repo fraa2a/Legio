@@ -9,6 +9,7 @@ Updated: 2026-09-25
 - PR #36, `feat: overhaul UI with custom window chrome and component system`, is still open and must not be merged without the user's direction. It currently provides the UI shell and primitives, not functional product pages. Its branch also contains copies of the frontend docs.
 - PR #34 delivered Linux runner discovery and basic launch. A real game launch/stop smoke test is still outstanding.
 - PR #39, `feat: persist play sessions and playtime summaries`, was squash-merged to `main` as `cc3f42e`. It adds schema v12, process-backed sessions, a 30-second heartbeat, crash recovery, and `get_playtime_summaries`. Its final Rust, frontend, Linux, and Windows checks passed. The Windows test-loader failure was resolved by keeping session tracking independent of the Tauri app handle.
+- PR #43, `feat: launch native Windows games with per-game configuration`, was squash-merged to `main` as `444fb10`. It adds schema v13 native arguments and working directory, process ancestry tracking, and Windows launch/stop commands. Frontend, Rust, Linux, and Windows CI passed. A real Windows game launch and stop remains to be observed.
 - The current local checkout is `feat/steam-catalog` and dirty. It contains pre-existing changes and untracked files, including local copies under `docs/frontend/` and a modified `docs/plans/README.md`. Inspect `git status` before editing; do not reset, clean, or overwrite unrelated work. Prefer a fresh worktree from current `main` for new backend work.
 
 ## Product work remaining
@@ -16,7 +17,7 @@ Updated: 2026-09-25
 ### Backend and verification
 
 - **05A to 05D:** queue, safe archive extraction, executable selection, and staged installation/finalization are implemented. Remaining work is end-to-end restart/recovery and cross-platform verification, plus exposing the flows in the UI. One integration gap to assess: `scan_game_executables` returns absolute paths, while `finalize_download` takes an executable path relative to the staging root. Add a backend staged-candidate API if the UI cannot derive and validate containment safely on every platform.
-- **06B:** native Windows game launching and helper-to-game process tracking are implemented on a separate branch. Windows CI and a real launch/stop scenario remain to verify before completion.
+- **06B:** native Windows game launching and helper-to-game process tracking are in `main`. CI passed; a real launch/stop scenario remains to verify before completion.
 - **06C:** connect the persisted playtime summaries to Home/Library and finish offline behavior. Session persistence is in `main`.
 - **07A:** run a supported Windows game through an installed Proton or Wine runner and record observable launch and stop results.
 - **07C:** compare OFLL behavior against an exact revision and record a capability matrix, supported behavior, and explicit exclusions.
@@ -36,7 +37,7 @@ Updated: 2026-09-25
 
 ## Suggested next session workflow
 
-1. Check `git status`, current branch, and the latest GitHub PR/CI state using the GitHub connector. Verify the native Windows launch PR and its Windows CI before merging. Do not assume this checkout is clean or that PR #36 has merged.
+1. Check `git status`, current branch, and the latest GitHub PR/CI state using the GitHub connector. Do not assume this checkout is clean or that PR #36 has merged.
 2. Read `AGENTS.md`, `PLAN.md`, this handoff, the relevant `docs/plans/06-launch-playtime-and-offline.md` and `docs/plans/07-linux-compatibility-and-ofll.md`, then the frontend guide if changing command contracts.
 3. Start backend work in a fresh worktree from current `main`. Keep Rust as owner of processes, files, downloads, installation, validation, and persistent state. Keep Tauri commands thin and Svelte out of backend decisions.
 4. Pick one bounded milestone. After the native Windows launch PR, prioritize Phase 05 end-to-end restart/recovery checks and Phase 07A real-game runner verification. Keep platform smoke tests visibly open until recorded.
