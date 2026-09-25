@@ -1262,8 +1262,16 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn runner_launch_tracks_game_then_stop_returns_to_idle() {
+    fn runner_launch_persists_session_until_stop() {
         let base = test_dir("runner-lifecycle");
+        let database_dir = base.join("database");
+        let database = Arc::new(Database::open(&database_dir).unwrap());
+        let game = database
+            .create_game(crate::database::CreateGameInput {
+                name: "Controlled game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
         let token = uuid::Uuid::new_v4().to_string();
         let target = runner_test_target(&base, &token);
         let executable_name = match &target {
@@ -1278,24 +1286,42 @@ mod tests {
         };
         let manager = GameLaunchManager::new();
         let cancel = manager
-            .reserve_launch("runner", None, target.clone())
+            .reserve_launch(&game.id, None, target.clone())
             .unwrap();
         assert_eq!(manager.list().unwrap()[0].status, GameStatus::Launching);
         let worker_manager = manager.clone();
+        let game_id = game.id.clone();
+        let session_database = Arc::clone(&database);
         let worker = thread::spawn(move || {
             worker_manager.run_launch(
-                "runner".to_owned(),
+                game_id,
                 target,
                 cancel,
-                LaunchContext::default(),
+                LaunchContext {
+                    session_database: Some(session_database),
+                    ..LaunchContext::default()
+                },
                 move |_| Ok(Some(runner_stub(&executable_name, &token))),
             );
         });
-        wait_for_status(&manager, "runner", GameStatus::Running);
-        manager.stop("runner").unwrap();
+        wait_for_status(&manager, &game.id, GameStatus::Running);
+        thread::sleep(Duration::from_millis(100));
+        manager.stop(&game.id).unwrap();
         worker.join().unwrap();
         assert_eq!(manager.list().unwrap()[0].status, GameStatus::Idle);
         assert_eq!(manager.list().unwrap()[0].error, None);
+
+        drop(database);
+        let reopened = Database::open(&database_dir).unwrap();
+        let summaries = reopened
+            .playtime_summaries(crate::database::now_milliseconds())
+            .unwrap();
+        let summary = summaries
+            .iter()
+            .find(|summary| summary.game_id == game.id)
+            .unwrap();
+        assert!(summary.total_milliseconds > 0);
+        assert_eq!(summary.active_sessions, 0);
         fs::remove_dir_all(base).unwrap();
     }
 

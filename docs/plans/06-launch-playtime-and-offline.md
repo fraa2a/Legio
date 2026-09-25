@@ -92,3 +92,5 @@ Some Linux `loginusers.vdf` files omit `MostRecent` for every saved account. A u
 Phase 05C stores manually selected executable paths separately from Steam installations. Steam-managed launch and account selection work for Steam-owned games; native executable launch, Home and Library integration for persisted sessions, and the full offline surfaces remain Phase 06 work.
 
 The backend now stores a session when the monitor detects a Steam-managed or compatibility-runner game process, updates its heartbeat while it runs, closes it when monitoring ends, and recovers open sessions after restart at the last heartbeat. `get_playtime_summaries` returns per-game milliseconds and active-session counts. Home and Library presentation is intentionally outstanding because the UI is excluded from this work.
+
+A Linux controlled-process test now exercises the join between lifecycle monitoring and SQLite sessions: the session begins after process detection, closes after Stop, and remains closed in the summary after reopening the database.
