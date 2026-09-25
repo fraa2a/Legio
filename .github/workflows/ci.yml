@@ -146,7 +146,7 @@ jobs:
       - name: Test Windows game process control
         if: runner.os == 'Windows'
         shell: bash
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked game_process::tests::
+        run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked game_process::tests::'
 
       - name: Build Tauri application
         shell: bash
