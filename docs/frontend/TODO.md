@@ -37,8 +37,8 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 - [ ] Show per-job status, progress, rate, ETA, release version, and error. Treat `status` as an open string and preserve unrecognized future values.
 - [ ] Wire pause, resume, retry, and cancel only for valid states. Refresh the queue after every action and show backend rejection messages.
 - [ ] Enqueue with `queue_download({ steamAppId, acceptUnverified })`; never fetch manifest download URLs directly from the frontend.
-- [ ] After a job reaches `downloaded`, call `stage_download`, show extraction/validation failures, and allow selection of the game executable from staged files.
-- [ ] Finalization needs `executableRelative`, relative to the staged root. `scan_game_executables` returns absolute paths, so derive a safe relative path only after verifying containment, or add a backend command that returns relative staged candidates. Do not pass paths outside the staging directory.
+- [ ] After a job reaches `downloaded`, call `stage_download`, show extraction/validation failures, then call `scan_staged_executables` to list its relative executable candidates.
+- [ ] Require explicit executable selection when `selectedRelativePath` is null and pass the selected `relativePath` as `executableRelative`. The backend revalidates containment and file type during finalization.
 - [ ] Call `finalize_download` with the selected relative executable. On success reload both queue and library. Present conflicts/recovery errors without hiding staged evidence.
 - [ ] Add a bandwidth limit control using `set_download_bandwidth_limit`; zero means unlimited. Decide whether the control belongs in Settings or Downloads.
 
@@ -73,6 +73,5 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 ## Backend gaps to track instead of guessing in the UI
 
 - [ ] Decide whether to add a native picker API/plugin for manual directory and executable selection.
-- [ ] Consider a staged-executable scan that returns safe relative paths for `finalize_download`.
 - [ ] Add progress events for downloads and process lifecycle only if polling proves inadequate; there are no such events in the current contract.
 - [ ] Add persistent play sessions/playtime before designing Home or Library around those values.

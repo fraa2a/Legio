@@ -93,6 +93,7 @@ pub fn run() -> tauri::Result<()> {
             download_queue::list_downloads,
             download_queue::stage_download,
             finalize_install::finalize_download,
+            finalize_install::scan_staged_executables,
             download_queue::queue_download,
             download_queue::pause_download,
             download_queue::resume_download,
