@@ -43,7 +43,7 @@ Verification: Steam ownership remains intact and helper-exit scenarios do not pr
 
 ### 06C: Sessions, product surfaces, and offline behavior
 
-- Persist sessions and derive playtime aggregates.
+- Persist detected game sessions and derive per-game playtime aggregates. Backend storage, crash recovery, and summaries are implemented; connecting them to Home and Library remains UI work.
 - Populate Home and local Library from stored data.
 - Expose launch configuration, errors, and real Retry behavior.
 - Keep network tasks waiting rather than retrying in a loop.
@@ -64,7 +64,13 @@ Supported games launch through the correct owner, actual game lifetime drives se
 
 - Define helper-to-game process association rules before 06B.
 - Linux exposes no verified runtime account identity in this integration. The account override therefore uses the persisted login selection as its startup signal; it must not be described as proof of successful authentication.
-- Define session crash recovery and overlap rules before 06C.
+
+## Accepted session policy
+
+- A session begins when the lifecycle monitor first detects the game's process, and ends after the process has exited and the existing three-second exit grace period completes.
+- Multiple games may have active sessions at once. Playtime is summed independently for each game, so time across different games can overlap.
+- The backend writes a heartbeat every 30 seconds. On next startup, any still-open session is recovered as interrupted and ends at its last heartbeat. This can undercount by up to one heartbeat interval, but does not add time after the last observed game process.
+- Stored timestamps and aggregate playtime use milliseconds. Session persistence errors are exposed in the launch state while process monitoring continues.
 
 ## Update notes
 
@@ -82,4 +88,6 @@ Local Steam `config.vdf` can contain literal newlines in quoted values. The VDF 
 
 Some Linux `loginusers.vdf` files omit `MostRecent` for every saved account. A unique `AutoLogin=1` is accepted as the persisted account selection in that case, avoiding an unnecessary Steam restart when it matches the game's override. Conflicting or ambiguous flags leave the selection unknown. This still does not independently verify the authenticated runtime account.
 
-Phase 05C stores manually selected executable paths separately from Steam installations. Steam-managed launch and account selection work for Steam-owned games; native executable launch, persistent sessions, and the full offline Home and Library surfaces remain Phase 06 work.
+Phase 05C stores manually selected executable paths separately from Steam installations. Steam-managed launch and account selection work for Steam-owned games; native executable launch, Home and Library integration for persisted sessions, and the full offline surfaces remain Phase 06 work.
+
+The backend now stores a session when the monitor detects a Steam-managed or compatibility-runner game process, updates its heartbeat while it runs, closes it when monitoring ends, and recovers open sessions after restart at the last heartbeat. `get_playtime_summaries` returns per-game milliseconds and active-session counts. Home and Library presentation is intentionally outstanding because the UI is excluded from this work.

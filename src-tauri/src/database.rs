@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 const THEME_KEY: &str = "theme";
 const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_second";
-const SCHEMA_VERSION: i64 = 11;
+const SCHEMA_VERSION: i64 = 12;
 
 /// Persisted defaults for Linux compatibility launches.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -125,6 +125,14 @@ pub struct Game {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaytimeSummary {
+    pub game_id: String,
+    pub total_milliseconds: i64,
+    pub active_sessions: u32,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AccountCheckStatus {
     NotRequired,
@@ -144,20 +152,24 @@ pub struct AccountCheck {
 }
 
 pub struct DatabaseState {
-    database: Result<Database, String>,
+    database: Result<std::sync::Arc<Database>, String>,
 }
 
 impl DatabaseState {
     pub fn new(data_dir: Result<std::path::PathBuf, tauri::Error>) -> Self {
         let database = data_dir
             .map_err(|error| format!("could not resolve the application data directory: {error}"))
-            .and_then(|data_dir| Database::open(&data_dir));
+            .and_then(|data_dir| Database::open(&data_dir).map(std::sync::Arc::new));
 
         Self { database }
     }
 
     pub(crate) fn database(&self) -> Result<&Database, String> {
-        self.database.as_ref().map_err(Clone::clone)
+        self.database.as_deref().map_err(Clone::clone)
+    }
+
+    pub(crate) fn shared_database(&self) -> Result<std::sync::Arc<Database>, String> {
+        self.database.as_ref().cloned().map_err(Clone::clone)
     }
 }
 
@@ -176,10 +188,11 @@ impl Database {
             .execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
             .map_err(|error| format!("could not configure the local database: {error}"))?;
         migrate(&connection)?;
-
-        Ok(Self {
+        let database = Self {
             connection: Mutex::new(connection),
-        })
+        };
+        database.recover_open_game_sessions(now_milliseconds())?;
+        Ok(database)
     }
 
     pub fn settings(&self) -> Result<Settings, String> {
@@ -500,6 +513,89 @@ impl Database {
         })
     }
 
+    pub(crate) fn start_game_session(&self, game_id: &str, now: i64) -> Result<(), String> {
+        let game_id = parse_game_id(game_id)?;
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "INSERT INTO game_sessions (game_id, started_at, last_seen_at)
+                     VALUES (?1, ?2, ?2)",
+                    params![game_id, now],
+                )
+                .map_err(database_error)?;
+            Ok(())
+        })
+    }
+
+    pub(crate) fn heartbeat_game_session(&self, game_id: &str, now: i64) -> Result<(), String> {
+        let game_id = parse_game_id(game_id)?;
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "UPDATE game_sessions SET last_seen_at = ?2
+                     WHERE game_id = ?1 AND ended_at IS NULL",
+                    params![game_id, now],
+                )
+                .map_err(database_error)?;
+            Ok(())
+        })
+    }
+
+    pub(crate) fn end_game_session(&self, game_id: &str, now: i64) -> Result<(), String> {
+        let game_id = parse_game_id(game_id)?;
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "UPDATE game_sessions SET ended_at = ?2, last_seen_at = ?2,
+                         end_reason = 'finished'
+                     WHERE game_id = ?1 AND ended_at IS NULL",
+                    params![game_id, now],
+                )
+                .map_err(database_error)?;
+            Ok(())
+        })
+    }
+
+    pub(crate) fn playtime_summaries(&self, now: i64) -> Result<Vec<PlaytimeSummary>, String> {
+        self.with_connection(|connection| {
+            let mut statement = connection
+                .prepare(
+                    "SELECT g.id,
+                         COALESCE(SUM(CASE WHEN s.ended_at IS NULL
+                             THEN MAX(0, ?1 - s.started_at)
+                             ELSE MAX(0, s.ended_at - s.started_at) END), 0),
+                         SUM(CASE WHEN s.id IS NOT NULL AND s.ended_at IS NULL THEN 1 ELSE 0 END)
+                     FROM games g LEFT JOIN game_sessions s ON s.game_id = g.id
+                     GROUP BY g.id ORDER BY g.id",
+                )
+                .map_err(database_error)?;
+            let rows = statement
+                .query_map([now], |row| {
+                    Ok(PlaytimeSummary {
+                        game_id: row.get(0)?,
+                        total_milliseconds: row.get(1)?,
+                        active_sessions: row.get::<_, Option<u32>>(2)?.unwrap_or(0),
+                    })
+                })
+                .map_err(database_error)?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(database_error)
+        })
+    }
+
+    fn recover_open_game_sessions(&self, now: i64) -> Result<(), String> {
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "UPDATE game_sessions SET ended_at = last_seen_at,
+                         end_reason = 'interrupted'
+                     WHERE ended_at IS NULL AND last_seen_at <= ?1",
+                    [now],
+                )
+                .map_err(database_error)?;
+            Ok(())
+        })
+    }
+
     pub(crate) fn with_connection<T>(
         &self,
         operation: impl FnOnce(&Connection) -> Result<T, String>,
@@ -724,7 +820,34 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             )
             .map_err(database_error)?;
     }
+    if version < 12 {
+        transaction
+            .execute_batch(
+                "CREATE TABLE game_sessions (
+                    id INTEGER PRIMARY KEY,
+                    game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                    started_at INTEGER NOT NULL,
+                    last_seen_at INTEGER NOT NULL,
+                    ended_at INTEGER,
+                    end_reason TEXT CHECK (end_reason IN ('finished', 'interrupted')),
+                    CHECK (last_seen_at >= started_at),
+                    CHECK (ended_at IS NULL OR ended_at >= started_at)
+                 );
+                 CREATE INDEX game_sessions_game_id_started_at_idx
+                    ON game_sessions (game_id, started_at);
+                 PRAGMA user_version = 12;",
+            )
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
+}
+
+pub(crate) fn now_milliseconds() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(i64::MAX as u128) as i64
 }
 
 fn load_compatibility_defaults(connection: &Connection) -> Result<CompatibilityDefaults, String> {
@@ -1021,7 +1144,7 @@ mod tests {
     fn migrates_v9_staged_download_for_finalization() {
         let connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
-        connection.execute_batch("INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at, staged_path) VALUES ('job', 42, 'Game', '1', 'https://example.test', 'hash', 4, 'staged', 1, 1, '/stage'); ALTER TABLE downloads DROP COLUMN install_token; ALTER TABLE downloads DROP COLUMN executable_relative; ALTER TABLE downloads DROP COLUMN final_path; DROP TABLE game_compatibility_overrides; DROP TABLE compatibility_defaults; PRAGMA user_version = 9;").unwrap();
+        connection.execute_batch("INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at, staged_path) VALUES ('job', 42, 'Game', '1', 'https://example.test', 'hash', 4, 'staged', 1, 1, '/stage'); ALTER TABLE downloads DROP COLUMN install_token; ALTER TABLE downloads DROP COLUMN executable_relative; ALTER TABLE downloads DROP COLUMN final_path; DROP TABLE game_sessions; DROP TABLE game_compatibility_overrides; DROP TABLE compatibility_defaults; PRAGMA user_version = 9;").unwrap();
         migrate(&connection).unwrap();
         let row: (String, String, Option<String>) = connection
             .query_row(
@@ -1034,7 +1157,7 @@ mod tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 11);
+        assert_eq!(version, 12);
     }
 
     #[test]
@@ -1044,6 +1167,7 @@ mod tests {
         connection
             .execute_batch(
                 "DROP TABLE game_compatibility_overrides;
+                 DROP TABLE game_sessions;
                  DROP TABLE compatibility_defaults;
                  INSERT INTO games (id, name_override) VALUES ('00000000-0000-0000-0000-000000000001', 'Existing');
                  PRAGMA user_version = 10;",
@@ -1061,7 +1185,7 @@ mod tests {
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
         assert_eq!(game_name, "Existing");
-        assert_eq!(version, 11);
+        assert_eq!(version, 12);
     }
 
     #[test]
@@ -1075,6 +1199,7 @@ mod tests {
              ALTER TABLE downloads DROP COLUMN executable_relative;
              ALTER TABLE downloads DROP COLUMN final_path;
              DROP TABLE game_compatibility_overrides;
+             DROP TABLE game_sessions;
              DROP TABLE compatibility_defaults;
              DROP INDEX games_executable_path_idx;
              ALTER TABLE games DROP COLUMN executable_path;
@@ -1272,6 +1397,93 @@ mod tests {
         assert_eq!(reopened.download_bandwidth_limit().unwrap(), 1_500_000);
         reopened.save_download_bandwidth_limit(0).unwrap();
         assert_eq!(reopened.download_bandwidth_limit().unwrap(), 0);
+        drop(reopened);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn playtime_summaries_include_active_and_finished_sessions_per_game() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let first = database
+            .create_game(CreateGameInput {
+                name: "First game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        let second = database
+            .create_game(CreateGameInput {
+                name: "Second game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        let untouched = database
+            .create_game(CreateGameInput {
+                name: "Untouched game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+
+        database.start_game_session(&first.id, 1_000).unwrap();
+        database.heartbeat_game_session(&first.id, 2_000).unwrap();
+        database.end_game_session(&first.id, 3_000).unwrap();
+        database.start_game_session(&first.id, 4_000).unwrap();
+        database.start_game_session(&second.id, 4_500).unwrap();
+
+        let summaries = database.playtime_summaries(10_000).unwrap();
+        let first_summary = summaries
+            .iter()
+            .find(|item| item.game_id == first.id)
+            .unwrap();
+        let second_summary = summaries
+            .iter()
+            .find(|item| item.game_id == second.id)
+            .unwrap();
+        let untouched_summary = summaries
+            .iter()
+            .find(|item| item.game_id == untouched.id)
+            .unwrap();
+        assert_eq!(first_summary.total_milliseconds, 8_000);
+        assert_eq!(first_summary.active_sessions, 1);
+        assert_eq!(second_summary.total_milliseconds, 5_500);
+        assert_eq!(second_summary.active_sessions, 1);
+        assert_eq!(untouched_summary.total_milliseconds, 0);
+        assert_eq!(untouched_summary.active_sessions, 0);
+
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn reopening_recovers_open_sessions_at_the_last_heartbeat() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let game = database
+            .create_game(CreateGameInput {
+                name: "Interrupted game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        database.start_game_session(&game.id, 1_000).unwrap();
+        database.heartbeat_game_session(&game.id, 2_500).unwrap();
+        drop(database);
+
+        let reopened = Database::open(&directory).unwrap();
+        let summaries = reopened.playtime_summaries(10_000).unwrap();
+        assert_eq!(summaries[0].total_milliseconds, 1_500);
+        assert_eq!(summaries[0].active_sessions, 0);
+        let reason: String = reopened
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT end_reason FROM game_sessions WHERE game_id = ?1",
+                        [&game.id],
+                        |row| row.get(0),
+                    )
+                    .map_err(database_error)
+            })
+            .unwrap();
+        assert_eq!(reason, "interrupted");
         drop(reopened);
         fs::remove_dir_all(directory).unwrap();
     }

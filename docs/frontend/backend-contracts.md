@@ -97,6 +97,9 @@ These commands are available on `main` after PR #35.
 | `save_game_compatibility_overrides` | `{ gameId, overrides }` | saved overrides |
 | `list_compatibility_runners` | none | `{ runners, diagnostics }` |
 | `launch_configured_game_with_runner` | `{ gameId }` | starts configured manual game |
+| `get_playtime_summaries` | none | per-game session totals in milliseconds |
+
+`get_playtime_summaries` returns `{ gameId, totalMilliseconds, activeSessions }` for each local game. Active totals are calculated through the request time. The backend starts a session after detecting the game process, closes it after the lifecycle monitor observes exit, and recovers sessions left open by a crash at their last heartbeat. Different games may have overlapping session time.
 
 Defaults have `runnerPath`, `prefixRoot`, `argumentsBefore`, `argumentsAfter`, `workingDirectory`, `environment`, and `dllOverrides`. Per-game overrides have those settings plus `prefixPath`. For scalar/list values, `null` inherits; an empty string/list clears an inherited value. Environment and DLL maps merge by key; an empty map clears all inherited entries. Saving settings persists them, but the UI should not imply that settings were applied until the save command succeeds.
 
