@@ -66,6 +66,25 @@ pub fn get_game_compatibility_overrides(
 }
 
 #[tauri::command]
+pub fn get_native_launch_config(
+    state: State<'_, DatabaseState>,
+    game_id: String,
+) -> Result<database::NativeLaunchConfig, String> {
+    state.database()?.native_launch_config(&game_id)
+}
+
+#[tauri::command]
+pub fn save_native_launch_config(
+    state: State<'_, DatabaseState>,
+    game_id: String,
+    config: database::NativeLaunchConfig,
+) -> Result<database::NativeLaunchConfig, String> {
+    state
+        .database()?
+        .save_native_launch_config(&game_id, config)
+}
+
+#[tauri::command]
 pub fn save_game_compatibility_overrides(
     state: State<'_, DatabaseState>,
     game_id: String,
@@ -150,6 +169,17 @@ pub async fn launch_configured_game_with_runner(
     tauri::async_runtime::spawn_blocking(move || manager.launch_configured(app, game_id))
         .await
         .map_err(|error| format!("Compatibility runner launch task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn launch_native_game(app: AppHandle, game_id: String) -> Result<(), String> {
+    let manager = app
+        .state::<crate::game_lifecycle::GameLaunchManager>()
+        .inner()
+        .clone();
+    tauri::async_runtime::spawn_blocking(move || manager.launch_native(app, game_id))
+        .await
+        .map_err(|error| format!("Native game launch task failed: {error}"))?
 }
 
 #[tauri::command]

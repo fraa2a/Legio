@@ -6,7 +6,14 @@ use uuid::Uuid;
 
 const THEME_KEY: &str = "theme";
 const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_second";
-const SCHEMA_VERSION: i64 = 12;
+const SCHEMA_VERSION: i64 = 13;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeLaunchConfig {
+    pub arguments: Vec<String>,
+    pub working_directory: Option<String>,
+}
 
 /// Persisted defaults for Linux compatibility launches.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -178,6 +185,64 @@ pub struct Database {
 }
 
 impl Database {
+    pub fn native_launch_config(&self, game_id: &str) -> Result<NativeLaunchConfig, String> {
+        let game_id = parse_game_id(game_id)?;
+        self.with_connection(|connection| {
+            let exists: bool = connection
+                .query_row("SELECT EXISTS(SELECT 1 FROM games WHERE id = ?1)", [&game_id], |row| row.get(0))
+                .map_err(database_error)?;
+            if !exists {
+                return Err("game was not found".to_owned());
+            }
+            let config: Option<(String, Option<String>)> = connection
+                .query_row(
+                    "SELECT arguments, working_directory FROM game_native_launch_config WHERE game_id = ?1",
+                    [&game_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()
+                .map_err(database_error)?;
+            config.map_or_else(
+                || Ok(NativeLaunchConfig::default()),
+                |(arguments, working_directory)| {
+                    let arguments = serde_json::from_str(&arguments)
+                        .map_err(|error| format!("stored native launch arguments are invalid: {error}"))?;
+                    Ok(NativeLaunchConfig { arguments, working_directory })
+                },
+            )
+        })
+    }
+
+    pub fn save_native_launch_config(
+        &self,
+        game_id: &str,
+        config: NativeLaunchConfig,
+    ) -> Result<NativeLaunchConfig, String> {
+        let game_id = parse_game_id(game_id)?;
+        if config
+            .arguments
+            .iter()
+            .any(|argument| argument.contains('\0'))
+            || config
+                .working_directory
+                .as_deref()
+                .is_some_and(|path| path.contains('\0'))
+        {
+            return Err("Native launch settings cannot contain null characters".to_owned());
+        }
+        let arguments = encode_json(&config.arguments)?;
+        self.with_connection(|connection| {
+            let changed = connection.execute(
+                "INSERT INTO game_native_launch_config (game_id, arguments, working_directory)
+                 SELECT ?1, ?2, ?3 WHERE EXISTS (SELECT 1 FROM games WHERE id = ?1)
+                 ON CONFLICT(game_id) DO UPDATE SET arguments = excluded.arguments, working_directory = excluded.working_directory",
+                params![game_id, arguments, config.working_directory],
+            ).map_err(database_error)?;
+            if changed == 0 { return Err("game was not found".to_owned()); }
+            Ok(config)
+        })
+    }
+
     pub(crate) fn open(data_dir: &Path) -> Result<Self, String> {
         fs::create_dir_all(data_dir)
             .map_err(|error| format!("could not create application data directory: {error}"))?;
@@ -839,6 +904,18 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             )
             .map_err(database_error)?;
     }
+    if version < 13 {
+        transaction
+            .execute_batch(
+                "CREATE TABLE game_native_launch_config (
+                game_id TEXT PRIMARY KEY NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                arguments TEXT NOT NULL DEFAULT '[]',
+                working_directory TEXT
+             );
+             PRAGMA user_version = 13;",
+            )
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }
 
@@ -1144,7 +1221,7 @@ mod tests {
     fn migrates_v9_staged_download_for_finalization() {
         let connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
-        connection.execute_batch("INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at, staged_path) VALUES ('job', 42, 'Game', '1', 'https://example.test', 'hash', 4, 'staged', 1, 1, '/stage'); ALTER TABLE downloads DROP COLUMN install_token; ALTER TABLE downloads DROP COLUMN executable_relative; ALTER TABLE downloads DROP COLUMN final_path; DROP TABLE game_sessions; DROP TABLE game_compatibility_overrides; DROP TABLE compatibility_defaults; PRAGMA user_version = 9;").unwrap();
+        connection.execute_batch("INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at, staged_path) VALUES ('job', 42, 'Game', '1', 'https://example.test', 'hash', 4, 'staged', 1, 1, '/stage'); ALTER TABLE downloads DROP COLUMN install_token; ALTER TABLE downloads DROP COLUMN executable_relative; ALTER TABLE downloads DROP COLUMN final_path; DROP TABLE game_native_launch_config; DROP TABLE game_sessions; DROP TABLE game_compatibility_overrides; DROP TABLE compatibility_defaults; PRAGMA user_version = 9;").unwrap();
         migrate(&connection).unwrap();
         let row: (String, String, Option<String>) = connection
             .query_row(
@@ -1157,7 +1234,7 @@ mod tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 12);
+        assert_eq!(version, SCHEMA_VERSION);
     }
 
     #[test]
@@ -1167,7 +1244,7 @@ mod tests {
         connection
             .execute_batch(
                 "DROP TABLE game_compatibility_overrides;
-                 DROP TABLE game_sessions;
+                 DROP TABLE game_native_launch_config; DROP TABLE game_sessions;
                  DROP TABLE compatibility_defaults;
                  INSERT INTO games (id, name_override) VALUES ('00000000-0000-0000-0000-000000000001', 'Existing');
                  PRAGMA user_version = 10;",
@@ -1185,7 +1262,7 @@ mod tests {
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
         assert_eq!(game_name, "Existing");
-        assert_eq!(version, 12);
+        assert_eq!(version, SCHEMA_VERSION);
     }
 
     #[test]
@@ -1199,7 +1276,7 @@ mod tests {
              ALTER TABLE downloads DROP COLUMN executable_relative;
              ALTER TABLE downloads DROP COLUMN final_path;
              DROP TABLE game_compatibility_overrides;
-             DROP TABLE game_sessions;
+             DROP TABLE game_native_launch_config; DROP TABLE game_sessions;
              DROP TABLE compatibility_defaults;
              DROP INDEX games_executable_path_idx;
              ALTER TABLE games DROP COLUMN executable_path;
@@ -1323,6 +1400,51 @@ mod tests {
             std::env::temp_dir().join(format!("legio-database-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&directory).unwrap();
         directory
+    }
+
+    #[test]
+    fn native_launch_config_persists_and_rejects_null_arguments() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        assert_eq!(
+            database
+                .native_launch_config(&Uuid::new_v4().to_string())
+                .unwrap_err(),
+            "game was not found"
+        );
+        let game = database
+            .create_game(CreateGameInput {
+                name: "Native test".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        assert_eq!(
+            database.native_launch_config(&game.id).unwrap(),
+            NativeLaunchConfig::default()
+        );
+        let config = NativeLaunchConfig {
+            arguments: vec!["--profile".to_owned(), "Player One".to_owned()],
+            working_directory: Some("C:\\Games\\Test".to_owned()),
+        };
+        database
+            .save_native_launch_config(&game.id, config.clone())
+            .unwrap();
+        assert!(
+            database
+                .save_native_launch_config(
+                    &game.id,
+                    NativeLaunchConfig {
+                        arguments: vec!["bad\0argument".to_owned()],
+                        working_directory: None,
+                    }
+                )
+                .is_err()
+        );
+        drop(database);
+        let database = Database::open(&directory).unwrap();
+        assert_eq!(database.native_launch_config(&game.id).unwrap(), config);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
