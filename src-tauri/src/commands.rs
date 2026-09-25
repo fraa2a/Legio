@@ -82,6 +82,15 @@ pub fn list_games(state: State<'_, DatabaseState>) -> Result<Vec<Game>, String> 
 }
 
 #[tauri::command]
+pub fn get_playtime_summaries(
+    state: State<'_, DatabaseState>,
+) -> Result<Vec<database::PlaytimeSummary>, String> {
+    state
+        .database()?
+        .playtime_summaries(database::now_milliseconds())
+}
+
+#[tauri::command]
 pub fn create_game(
     state: State<'_, DatabaseState>,
     input: CreateGameInput,

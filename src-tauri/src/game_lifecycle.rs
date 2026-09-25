@@ -17,14 +17,15 @@ use crate::runner_discovery::RunnerKind;
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
-use crate::database::DatabaseState;
 #[cfg(target_os = "linux")]
 use crate::database::EffectiveCompatibilityConfig;
+use crate::database::{Database, DatabaseState};
 use crate::{game_process, runner_discovery, steam_local, steam_switch};
 
 const START_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const EXIT_GRACE: Duration = Duration::from_secs(3);
+const SESSION_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 const LOG_READ_LIMIT: u64 = 128 * 1024;
 const LOG_LINE_LIMIT: usize = 8 * 1024;
 
@@ -56,6 +57,45 @@ struct Entry {
 struct LaunchTarget {
     install_path: PathBuf,
     steam_root: PathBuf,
+}
+
+struct SessionTracking {
+    database: Arc<Database>,
+    game_id: String,
+    last_heartbeat: Instant,
+}
+
+#[derive(Default)]
+struct LaunchContext {
+    steam_app_id: Option<u32>,
+    steam_log_path: Option<PathBuf>,
+    session_database: Option<Arc<Database>>,
+}
+
+impl SessionTracking {
+    fn start(database: Arc<Database>, game_id: &str) -> Result<Self, String> {
+        database.start_game_session(game_id, crate::database::now_milliseconds())?;
+        Ok(Self {
+            database,
+            game_id: game_id.to_owned(),
+            last_heartbeat: Instant::now(),
+        })
+    }
+
+    fn heartbeat_if_due(&mut self) -> Result<(), String> {
+        if self.last_heartbeat.elapsed() < SESSION_HEARTBEAT_INTERVAL {
+            return Ok(());
+        }
+        self.database
+            .heartbeat_game_session(&self.game_id, crate::database::now_milliseconds())?;
+        self.last_heartbeat = Instant::now();
+        Ok(())
+    }
+
+    fn finish(self) -> Result<(), String> {
+        self.database
+            .end_game_session(&self.game_id, crate::database::now_milliseconds())
+    }
 }
 
 impl LaunchTarget {
@@ -121,6 +161,7 @@ impl GameLaunchManager {
         let worker_id = game_id.clone();
         let manager = self.clone();
         let launch_game_id = worker_id.clone();
+        let session_database = app.state::<DatabaseState>().shared_database()?;
         let steam_log_path = target.steam_root.join("logs/console_log.txt");
         if let Err(error) = thread::Builder::new()
             .name(format!("legio-game-{app_id}"))
@@ -128,9 +169,12 @@ impl GameLaunchManager {
                 manager.run_launch(
                     worker_id,
                     process_target,
-                    Some(app_id),
-                    Some(steam_log_path),
                     cancel,
+                    LaunchContext {
+                        steam_app_id: Some(app_id),
+                        steam_log_path: Some(steam_log_path),
+                        session_database: Some(session_database),
+                    },
                     move |cancel| {
                         steam_switch::launch(&app, &launch_game_id, confirm_account_switch, cancel)
                             .map(|_| None)
@@ -276,15 +320,24 @@ impl GameLaunchManager {
         let cancel = self.reserve_launch(&game_id, None, process_target.clone())?;
         let manager = self.clone();
         let worker_id = game_id.clone();
+        let session_database = app.state::<DatabaseState>().shared_database()?;
         if let Err(error) = thread::Builder::new()
             .name(format!("legio-game-runner-{}", game.id))
             .spawn(move || {
-                manager.run_launch(worker_id, process_target, None, None, cancel, move |_| {
-                    command
-                        .spawn()
-                        .map(Some)
-                        .map_err(|error| format!("Could not start compatibility runner: {error}"))
-                });
+                manager.run_launch(
+                    worker_id,
+                    process_target,
+                    cancel,
+                    LaunchContext {
+                        session_database: Some(session_database),
+                        ..LaunchContext::default()
+                    },
+                    move |_| {
+                        command.spawn().map(Some).map_err(|error| {
+                            format!("Could not start compatibility runner: {error}")
+                        })
+                    },
+                );
             })
         {
             self.set_state(&game_id, GameStatus::Idle, Some(error.to_string()));
@@ -340,11 +393,15 @@ impl GameLaunchManager {
         &self,
         game_id: String,
         mut process_target: game_process::ProcessTarget,
-        steam_app_id: Option<u32>,
-        steam_log_path: Option<PathBuf>,
         cancel: Arc<AtomicBool>,
+        context: LaunchContext,
         launch: impl FnOnce(&AtomicBool) -> Result<Option<Child>, String>,
     ) {
+        let LaunchContext {
+            steam_app_id,
+            steam_log_path,
+            session_database,
+        } = context;
         let mut steam_log = steam_log_path.map(SteamLaunchLog::new);
         if cancel.load(Ordering::Acquire) {
             self.set_state(&game_id, GameStatus::Idle, None);
@@ -507,23 +564,42 @@ impl GameLaunchManager {
             }
             thread::sleep(POLL_INTERVAL);
         }
-        self.set_state(&game_id, GameStatus::Running, None);
+        let mut session_error = None;
+        let mut session = session_database.and_then(|database| {
+            match SessionTracking::start(database, &game_id) {
+                Ok(session) => Some(session),
+                Err(error) => {
+                    session_error = Some(format!("Session tracking failed: {error}"));
+                    None
+                }
+            }
+        });
+        self.set_state(&game_id, GameStatus::Running, session_error);
         let mut missing_since = None;
         loop {
+            let heartbeat_error = session
+                .as_mut()
+                .and_then(|session| session.heartbeat_if_due().err());
+            if let Some(error) = heartbeat_error {
+                let end_error = finish_session(&mut session);
+                self.set_state(
+                    &game_id,
+                    GameStatus::Running,
+                    Some(append_cleanup_error(
+                        format!("Session tracking failed: {error}"),
+                        end_error,
+                    )),
+                );
+            }
             match game_process::matching_pids(&process_target) {
                 Ok(pids) if pids.is_empty() => {
                     let since = missing_since.get_or_insert_with(Instant::now);
                     if since.elapsed() >= EXIT_GRACE {
                         let cleanup_error = terminate_child(&mut child).err();
-                        if let Some(error) = cleanup_error {
-                            self.set_state(
-                                &game_id,
-                                GameStatus::Idle,
-                                Some(format!("Stop stage failed: {error}")),
-                            );
-                            return;
-                        }
-                        self.set_state(&game_id, GameStatus::Idle, None);
+                        let error =
+                            cleanup_error.map(|error| format!("Stop stage failed: {error}"));
+                        let error = combine_errors(error, finish_session(&mut session));
+                        self.set_state(&game_id, GameStatus::Idle, error);
                         return;
                     }
                 }
@@ -534,6 +610,7 @@ impl GameLaunchManager {
                         format!("Monitor stage failed: {error}"),
                         cleanup_error,
                     );
+                    let error = append_cleanup_error(error, finish_session(&mut session));
                     self.set_state(&game_id, GameStatus::Idle, Some(error));
                     return;
                 }
@@ -798,6 +875,20 @@ fn append_cleanup_error(error: String, cleanup_error: Option<String>) -> String 
         Some(cleanup_error) => format!("{error}; {cleanup_error}"),
         None => error,
     }
+}
+
+fn combine_errors(primary: Option<String>, secondary: Option<String>) -> Option<String> {
+    match primary {
+        Some(error) => Some(append_cleanup_error(error, secondary)),
+        None => secondary,
+    }
+}
+
+fn finish_session(session: &mut Option<SessionTracking>) -> Option<String> {
+    session
+        .take()
+        .and_then(|session| session.finish().err())
+        .map(|error| format!("Session tracking failed: {error}"))
 }
 
 struct SteamLaunchLog {
@@ -1079,9 +1170,13 @@ mod tests {
         assert_eq!(manager.list().unwrap()[0].status, GameStatus::Launching);
         let worker_manager = manager.clone();
         let worker = thread::spawn(move || {
-            worker_manager.run_launch("runner".to_owned(), target, None, None, cancel, move |_| {
-                Ok(Some(runner_stub(&executable_name, &token)))
-            });
+            worker_manager.run_launch(
+                "runner".to_owned(),
+                target,
+                cancel,
+                LaunchContext::default(),
+                move |_| Ok(Some(runner_stub(&executable_name, &token))),
+            );
         });
         wait_for_status(&manager, "runner", GameStatus::Running);
         manager.stop("runner").unwrap();
@@ -1101,9 +1196,13 @@ mod tests {
         let cancel = manager
             .reserve_launch("runner", None, target.clone())
             .unwrap();
-        manager.run_launch("runner".to_owned(), target, None, None, cancel, |_| {
-            Err("Could not start compatibility runner: no such file".to_owned())
-        });
+        manager.run_launch(
+            "runner".to_owned(),
+            target,
+            cancel,
+            LaunchContext::default(),
+            |_| Err("Could not start compatibility runner: no such file".to_owned()),
+        );
         let state = &manager.list().unwrap()[0];
         assert_eq!(state.status, GameStatus::Idle);
         assert_eq!(
@@ -1123,13 +1222,19 @@ mod tests {
         let cancel = manager
             .reserve_launch("runner", None, target.clone())
             .unwrap();
-        manager.run_launch("runner".to_owned(), target, None, None, cancel, |_| {
-            std::process::Command::new("/bin/bash")
-                .args(["-c", "exit 7"])
-                .spawn()
-                .map(Some)
-                .map_err(|error| error.to_string())
-        });
+        manager.run_launch(
+            "runner".to_owned(),
+            target,
+            cancel,
+            LaunchContext::default(),
+            |_| {
+                std::process::Command::new("/bin/bash")
+                    .args(["-c", "exit 7"])
+                    .spawn()
+                    .map(Some)
+                    .map_err(|error| error.to_string())
+            },
+        );
         let state = &manager.list().unwrap()[0];
         assert_eq!(state.status, GameStatus::Idle);
         assert!(
@@ -1156,19 +1261,25 @@ mod tests {
         let worker_manager = manager.clone();
         let ready_path = ready.to_string_lossy().into_owned();
         let worker = thread::spawn(move || {
-            worker_manager.run_launch("runner".to_owned(), target, None, None, cancel, move |_| {
-                std::process::Command::new("/bin/bash")
-                    .args([
-                        "-c",
-                        "touch \"$1\"; exec sleep 60",
-                        "legio-stub",
-                        &ready_path,
-                    ])
-                    .env(game_process::LAUNCH_TOKEN_ENV, token)
-                    .spawn()
-                    .map(Some)
-                    .map_err(|error| error.to_string())
-            });
+            worker_manager.run_launch(
+                "runner".to_owned(),
+                target,
+                cancel,
+                LaunchContext::default(),
+                move |_| {
+                    std::process::Command::new("/bin/bash")
+                        .args([
+                            "-c",
+                            "touch \"$1\"; exec sleep 60",
+                            "legio-stub",
+                            &ready_path,
+                        ])
+                        .env(game_process::LAUNCH_TOKEN_ENV, token)
+                        .spawn()
+                        .map(Some)
+                        .map_err(|error| error.to_string())
+                },
+            );
         });
         let started = Instant::now();
         while !ready.exists() {
@@ -1219,9 +1330,11 @@ mod tests {
                     app_id: APP_ID,
                     install_path: worker_install_path,
                 },
-                Some(APP_ID),
-                None,
                 cancel,
+                LaunchContext {
+                    steam_app_id: Some(APP_ID),
+                    ..LaunchContext::default()
+                },
                 move |_| {
                     let child = std::process::Command::new("sleep")
                         .arg("30")
@@ -1280,9 +1393,11 @@ mod tests {
                 app_id: 42,
                 install_path: base.join("game"),
             },
-            Some(42),
-            None,
             cancel,
+            LaunchContext {
+                steam_app_id: Some(42),
+                ..LaunchContext::default()
+            },
             move |_| {
                 std::process::Command::new(missing_executable)
                     .spawn()
