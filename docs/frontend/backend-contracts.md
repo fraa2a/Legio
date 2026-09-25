@@ -192,6 +192,7 @@ Details include name, type, description, developers, publishers, genres, platfor
 | `cancel_download` | `{ id }` | `void` |
 | `set_download_bandwidth_limit` | `{ bytesPerSecond }` | `void`; zero means unlimited. The value persists across application restarts. |
 | `stage_download` | `{ id }` | staged directory path |
+| `scan_staged_executables` | `{ id, gameName? }` | `{ candidates: [{ relativePath, score, signals }], selectedRelativePath }` |
 | `finalize_download` | `{ id, executableRelative }` | `void`; creates installed game and library row |
 
 ```ts
@@ -211,9 +212,9 @@ interface DownloadJob {
 
 Current statuses are `queued`, `downloading`, `waiting`, `paused`, `failed`, `downloaded`, `staging`, `staged`, `finalizing`, `installed`, and `cancelled`. Treat status as an open string for forward compatibility. Typical actions: pause only `queued`/`downloading`/`waiting`; resume `paused`/`waiting`; retry `failed`; cancel active or queued states. The backend enforces valid transitions and reports invalid actions as rejected invokes.
 
-`queue_download` requires `acceptUnverified: true` before an unverified source can be queued. Poll `list_downloads` while the queue screen is visible because there is no progress event yet. Refresh the library after a successful `finalize_download`. For install selection, stage the verified archive, scan the staged directory, let the user select the executable, then pass its path relative to the staged root as `executableRelative`. Never use an executable outside the staged directory. If the UI cannot safely derive this relative path on every platform, add a backend command returning relative candidates before shipping the finalization flow.
+`queue_download` requires `acceptUnverified: true` before an unverified source can be queued. Poll `list_downloads` while the queue screen is visible because there is no progress event yet. Refresh the library after a successful `finalize_download`. For install selection, stage the verified archive, call `scan_staged_executables({ id, gameName? })`, let the user select a candidate by `relativePath`, then pass it as `executableRelative`. The command only scans a download whose stored status is `staged` and whose stage path matches the app-owned path. Finalization revalidates the path, containment, and executable file before installing. `stage_download` still returns a path for diagnostics; the UI does not need to inspect it or convert absolute paths.
 
-For unverified releases, show the trust warning before queueing and send `acceptUnverified: true` only after explicit confirmation. Never infer trust from a Steam catalog result. The install sequence is enqueue, poll, stage, select executable, finalize, and reload queue plus library. `stage_download` returns the staged directory path while `scan_game_executables` returns absolute candidate paths. Verify containment against the staged root before deriving `executableRelative`, including on Windows where separators and drive prefixes differ. Treat unknown job status values as unrecognized instead of failing the page.
+For unverified releases, show the trust warning before queueing and send `acceptUnverified: true` only after explicit confirmation. Never infer trust from a Steam catalog result. The install sequence is enqueue, poll, stage, scan staged candidates, select an executable, finalize, and reload queue plus library. Treat unknown job status values as unrecognized instead of failing the page.
 
 ## Launch lifecycle
 
