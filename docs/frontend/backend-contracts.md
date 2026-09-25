@@ -105,6 +105,16 @@ Defaults have `runnerPath`, `prefixRoot`, `argumentsBefore`, `argumentsAfter`, `
 
 `launch_game_with_runner({ gameId, runnerPath })` is an explicit-runner testing command. Production UI should use `launch_configured_game_with_runner` after selecting settings. Runner discovery and configured launch are Linux-only; on other platforms discovery returns no runners and a diagnostic.
 
+### Native Windows manual games
+
+| Command | Arguments | Result |
+| --- | --- | --- |
+| `get_native_launch_config` | `{ gameId }` | `{ arguments: string[], workingDirectory: string | null }` |
+| `save_native_launch_config` | `{ gameId, config }` | saved config |
+| `launch_native_game` | `{ gameId }` | `void`, accepted launch request |
+
+Use these commands for manually imported Windows executables on Windows. Arguments are an array of exact process arguments, not a shell command. An empty or null working directory uses the executable's directory. The backend checks the executable and working directory again at launch. It tracks the launched process and descendants started within the executable's directory, then uses the shared Play, Cancel, Stop and session lifecycle. `launch_native_game` returns an unsupported-platform error elsewhere.
+
 ## Search and store metadata
 
 ### Search
@@ -212,6 +222,7 @@ For unverified releases, show the trust warning before queueing and send `accept
 | `launch_steam_game` | `{ gameId, confirmAccountSwitch }` | `{ gameId, steamAppId }` accepted launch request |
 | `launch_game_with_runner` | `{ gameId, runnerPath }` | `void`, testing path |
 | `launch_configured_game_with_runner` | `{ gameId }` | `void`, configured manual game launch |
+| `launch_native_game` | `{ gameId }` | `void`, Windows manual game launch |
 | `list_game_launch_states` | none | `[{ gameId, status, error? }]` |
 | `cancel_game_launch` | `{ gameId }` | `void` |
 | `stop_game` | `{ gameId }` | `void` |

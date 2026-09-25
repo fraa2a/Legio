@@ -58,6 +58,7 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 - [ ] Add Linux compatibility runner discovery and global defaults using `list_compatibility_runners`, `get_compatibility_defaults`, and `save_compatibility_defaults`.
 - [ ] Add per-game compatibility overrides using `get_game_compatibility_overrides` and `save_game_compatibility_overrides`. Expose inheritance/reset semantics for runner, prefix, arguments, working directory, environment, and DLL overrides.
 - [ ] Launch manually imported Windows games with `launch_configured_game_with_runner`; keep `launch_game_with_runner` as an explicit testing command. Explain unsupported-platform behavior returned by the backend.
+- [ ] On Windows, expose per-game native arguments and working directory through `get_native_launch_config` and `save_native_launch_config`, then launch a manual executable with `launch_native_game`.
 - [ ] Show source/network staleness and cached-data warnings without blocking locally available library actions.
 
 ## P1: Home, polish, and verification

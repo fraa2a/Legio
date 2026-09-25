@@ -143,6 +143,11 @@ jobs:
         shell: bash
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked steam_local::tests::windows_default_roots
 
+      - name: Test Windows game process control
+        if: runner.os == 'Windows'
+        shell: bash
+        run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked game_process::tests::'
+
       - name: Build Tauri application
         shell: bash
         run: corepack pnpm tauri build --debug --no-bundle
