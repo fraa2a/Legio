@@ -143,6 +143,26 @@ jobs:
         shell: bash
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked steam_local::tests::windows_default_roots
 
+      - name: Compare Windows test imports with main
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $testExe = Get-ChildItem src-tauri/target/debug/deps/legio_lib-*.exe | Select-Object -First 1
+          Copy-Item $testExe.FullName "$env:RUNNER_TEMP/legio-pr-test.exe"
+          $vsPath = vswhere.exe -latest -products '*' -property installationPath
+          $vcPath = Get-ChildItem "$vsPath/VC/Tools/MSVC" -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          $dumpbin = "$($vcPath.FullName)/bin/Hostx64/x64/dumpbin.exe"
+          & $dumpbin /imports "$env:RUNNER_TEMP/legio-pr-test.exe" > "$env:RUNNER_TEMP/legio-pr-imports.txt"
+          git fetch origin main --depth=1
+          $mainPath = "$env:RUNNER_TEMP/legio-main"
+          git worktree add --detach $mainPath origin/main
+          $env:CARGO_TARGET_DIR = "$env:GITHUB_WORKSPACE/src-tauri/target"
+          cargo test --manifest-path "$mainPath/src-tauri/Cargo.toml" --locked steam_local::tests::windows_default_roots
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $mainExe = Get-ChildItem "$env:CARGO_TARGET_DIR/debug/deps/legio_lib-*.exe" | Select-Object -First 1
+          & $dumpbin /imports $mainExe.FullName > "$env:RUNNER_TEMP/legio-main-imports.txt"
+          Compare-Object (Get-Content "$env:RUNNER_TEMP/legio-main-imports.txt") (Get-Content "$env:RUNNER_TEMP/legio-pr-imports.txt")
+
       - name: Build Tauri application
         shell: bash
         run: corepack pnpm tauri build --debug --no-bundle
