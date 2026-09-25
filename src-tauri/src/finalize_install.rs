@@ -12,6 +12,7 @@ use uuid::Uuid;
 use crate::{
     archive_install::safe_relative_path,
     database::{Database, DatabaseState, database_error},
+    manual_import,
 };
 
 const MARKER: &str = ".legio-install-intent";
@@ -481,6 +482,40 @@ pub(crate) fn recover(database: &Database, data_dir: &Path) -> Result<(), String
     Ok(())
 }
 
+fn staged_download_directory(
+    database: &Database,
+    data_dir: &Path,
+    id: &str,
+) -> Result<(PathBuf, String), String> {
+    regular_directory(data_dir, "application data directory")?;
+    regular_directory(&data_dir.join("downloads"), "download directory")?;
+    let id = Uuid::parse_str(id)
+        .map_err(|_| "Download ID is invalid".to_owned())?
+        .to_string();
+    let row: Option<(String, Option<String>, String)> = database.with_connection(|connection| {
+        connection
+            .query_row(
+                "SELECT name, staged_path, status FROM downloads WHERE id = ?1",
+                [&id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()
+            .map_err(database_error)
+    })?;
+    let Some((name, staged_path, status)) = row else {
+        return Err("Download was not found".to_owned());
+    };
+    if status != "staged" {
+        return Err(format!("Cannot scan a {status} download"));
+    }
+    let expected_stage = data_dir.join("downloads").join(format!("{id}.stage"));
+    if staged_path.as_deref() != Some(expected_stage.to_string_lossy().as_ref()) {
+        return Err("Stored stage path does not match the app-owned path".to_owned());
+    }
+    regular_directory(&expected_stage, "staged game directory")?;
+    Ok((expected_stage, name))
+}
+
 fn recover_cleanup(database: &Database, data_dir: &Path) -> Result<(), String> {
     let ids: Vec<String> = database.with_connection(|connection| {
         let mut statement = connection
@@ -529,6 +564,25 @@ pub async fn finalize_download(
     .map_err(|error| format!("Finalization task failed: {error}"))?
 }
 
+#[tauri::command]
+pub async fn scan_staged_executables(
+    app: AppHandle,
+    id: String,
+    game_name: Option<String>,
+) -> Result<manual_import::StagedExecutableScan, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let data_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|error| format!("Could not locate app data: {error}"))?;
+        let (stage, name) =
+            staged_download_directory(app.state::<DatabaseState>().database()?, &data_dir, &id)?;
+        manual_import::scan_staged_directory(&stage, game_name.as_deref().or(Some(name.as_str())))
+    })
+    .await
+    .map_err(|error| format!("Staged executable scan task failed: {error}"))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -563,6 +617,28 @@ mod tests {
                     .map_err(database_error)
             })
             .unwrap()
+    }
+
+    #[test]
+    fn staged_scan_is_limited_to_a_matching_staged_download() {
+        let (database, data_dir, id) = fixture();
+        let (stage, name) = staged_download_directory(&database, &data_dir, &id).unwrap();
+        let scan = manual_import::scan_staged_directory(&stage, Some(&name)).unwrap();
+        assert_eq!(scan.selected_relative_path.as_deref(), Some("bin/game.exe"));
+
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET status = 'downloaded' WHERE id = ?1",
+                        [&id],
+                    )
+                    .map_err(database_error)?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(staged_download_directory(&database, &data_dir, &id).is_err());
+        fs::remove_dir_all(data_dir).unwrap();
     }
 
     #[test]

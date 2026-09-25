@@ -16,7 +16,7 @@ Updated: 2026-09-25
 
 ### Backend and verification
 
-- **05A to 05D:** queue, safe archive extraction, executable selection, and staged installation/finalization are implemented. Remaining work is end-to-end restart/recovery and cross-platform verification, plus exposing the flows in the UI. One integration gap to assess: `scan_game_executables` returns absolute paths, while `finalize_download` takes an executable path relative to the staging root. Add a backend staged-candidate API if the UI cannot derive and validate containment safely on every platform.
+- **05A to 05D:** queue, safe archive extraction, executable selection, and staged installation/finalization are implemented. `scan_staged_executables` returns download-bound relative candidates for finalization. Remaining work is end-to-end restart/recovery and cross-platform verification, plus exposing the flows in the UI.
 - **06B:** native Windows game launching and helper-to-game process tracking are in `main`. CI passed; a real launch/stop scenario remains to verify before completion.
 - **06C:** connect the persisted playtime summaries to Home/Library and finish offline behavior. Session persistence is in `main`.
 - **07A:** run a supported Windows game through an installed Proton or Wine runner and record observable launch and stop results.
