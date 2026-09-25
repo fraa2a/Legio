@@ -17,9 +17,9 @@ use crate::runner_discovery::RunnerKind;
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
-use crate::database::DatabaseState;
 #[cfg(target_os = "linux")]
 use crate::database::EffectiveCompatibilityConfig;
+use crate::database::{Database, DatabaseState};
 use crate::{game_process, runner_discovery, steam_local, steam_switch};
 
 const START_TIMEOUT: Duration = Duration::from_secs(120);
@@ -60,7 +60,7 @@ struct LaunchTarget {
 }
 
 struct SessionTracking {
-    app: AppHandle,
+    database: Arc<Database>,
     game_id: String,
     last_heartbeat: Instant,
 }
@@ -69,16 +69,14 @@ struct SessionTracking {
 struct LaunchContext {
     steam_app_id: Option<u32>,
     steam_log_path: Option<PathBuf>,
-    session_app: Option<AppHandle>,
+    session_database: Option<Arc<Database>>,
 }
 
 impl SessionTracking {
-    fn start(app: AppHandle, game_id: &str) -> Result<Self, String> {
-        app.state::<DatabaseState>()
-            .database()?
-            .start_game_session(game_id, crate::database::now_milliseconds())?;
+    fn start(database: Arc<Database>, game_id: &str) -> Result<Self, String> {
+        database.start_game_session(game_id, crate::database::now_milliseconds())?;
         Ok(Self {
-            app,
+            database,
             game_id: game_id.to_owned(),
             last_heartbeat: Instant::now(),
         })
@@ -88,9 +86,7 @@ impl SessionTracking {
         if self.last_heartbeat.elapsed() < SESSION_HEARTBEAT_INTERVAL {
             return Ok(());
         }
-        self.app
-            .state::<DatabaseState>()
-            .database()?
+        self.database
             .heartbeat_game_session(&self.game_id, crate::database::now_milliseconds())?;
         self.last_heartbeat = Instant::now();
         Ok(())
@@ -99,9 +95,9 @@ impl SessionTracking {
 
 impl Drop for SessionTracking {
     fn drop(&mut self) {
-        if let Ok(database) = self.app.state::<DatabaseState>().database() {
-            let _ = database.end_game_session(&self.game_id, crate::database::now_milliseconds());
-        }
+        let _ = self
+            .database
+            .end_game_session(&self.game_id, crate::database::now_milliseconds());
     }
 }
 
@@ -168,7 +164,7 @@ impl GameLaunchManager {
         let worker_id = game_id.clone();
         let manager = self.clone();
         let launch_game_id = worker_id.clone();
-        let session_app = app.clone();
+        let session_database = app.state::<DatabaseState>().shared_database()?;
         let steam_log_path = target.steam_root.join("logs/console_log.txt");
         if let Err(error) = thread::Builder::new()
             .name(format!("legio-game-{app_id}"))
@@ -180,7 +176,7 @@ impl GameLaunchManager {
                     LaunchContext {
                         steam_app_id: Some(app_id),
                         steam_log_path: Some(steam_log_path),
-                        session_app: Some(session_app),
+                        session_database: Some(session_database),
                     },
                     move |cancel| {
                         steam_switch::launch(&app, &launch_game_id, confirm_account_switch, cancel)
@@ -327,7 +323,7 @@ impl GameLaunchManager {
         let cancel = self.reserve_launch(&game_id, None, process_target.clone())?;
         let manager = self.clone();
         let worker_id = game_id.clone();
-        let session_app = app.clone();
+        let session_database = app.state::<DatabaseState>().shared_database()?;
         if let Err(error) = thread::Builder::new()
             .name(format!("legio-game-runner-{}", game.id))
             .spawn(move || {
@@ -336,7 +332,7 @@ impl GameLaunchManager {
                     process_target,
                     cancel,
                     LaunchContext {
-                        session_app: Some(session_app),
+                        session_database: Some(session_database),
                         ..LaunchContext::default()
                     },
                     move |_| {
@@ -407,7 +403,7 @@ impl GameLaunchManager {
         let LaunchContext {
             steam_app_id,
             steam_log_path,
-            session_app,
+            session_database,
         } = context;
         let mut steam_log = steam_log_path.map(SteamLaunchLog::new);
         if cancel.load(Ordering::Acquire) {
@@ -572,11 +568,13 @@ impl GameLaunchManager {
             thread::sleep(POLL_INTERVAL);
         }
         let mut session_error = None;
-        let mut session = session_app.and_then(|app| match SessionTracking::start(app, &game_id) {
-            Ok(session) => Some(session),
-            Err(error) => {
-                session_error = Some(format!("Session tracking failed: {error}"));
-                None
+        let mut session = session_database.and_then(|database| {
+            match SessionTracking::start(database, &game_id) {
+                Ok(session) => Some(session),
+                Err(error) => {
+                    session_error = Some(format!("Session tracking failed: {error}"));
+                    None
+                }
             }
         });
         self.set_state(&game_id, GameStatus::Running, session_error);

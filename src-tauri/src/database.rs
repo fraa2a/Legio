@@ -152,20 +152,24 @@ pub struct AccountCheck {
 }
 
 pub struct DatabaseState {
-    database: Result<Database, String>,
+    database: Result<std::sync::Arc<Database>, String>,
 }
 
 impl DatabaseState {
     pub fn new(data_dir: Result<std::path::PathBuf, tauri::Error>) -> Self {
         let database = data_dir
             .map_err(|error| format!("could not resolve the application data directory: {error}"))
-            .and_then(|data_dir| Database::open(&data_dir));
+            .and_then(|data_dir| Database::open(&data_dir).map(std::sync::Arc::new));
 
         Self { database }
     }
 
     pub(crate) fn database(&self) -> Result<&Database, String> {
-        self.database.as_ref().map_err(Clone::clone)
+        self.database.as_deref().map_err(Clone::clone)
+    }
+
+    pub(crate) fn shared_database(&self) -> Result<std::sync::Arc<Database>, String> {
+        self.database.as_ref().cloned().map_err(Clone::clone)
     }
 }
 
