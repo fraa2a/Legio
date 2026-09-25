@@ -246,12 +246,20 @@ jobs:
           TARGET_SHA: ${{ github.sha }}
         shell: bash
         run: |
-          mapfile -d '' files < <(find release-assets -type f -print0)
+          mapfile -d '' assets < <(find release-assets -type f -print0)
 
-          if [[ ${#files[@]} -eq 0 ]]; then
+          if [[ ${#assets[@]} -eq 0 ]]; then
             echo "No release assets were produced."
             exit 1
           fi
+
+          (
+            cd release-assets
+            find . -type f ! -name SHA256SUMS.txt -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+            sha256sum --check SHA256SUMS.txt
+          )
+
+          mapfile -d '' files < <(find release-assets -type f -print0 | LC_ALL=C sort -z)
 
           args=(
             release
