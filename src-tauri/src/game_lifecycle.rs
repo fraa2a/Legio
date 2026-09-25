@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Child;
 #[cfg(target_os = "linux")]
 use std::process::Stdio;
+#[cfg(windows)]
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -189,6 +191,80 @@ impl GameLaunchManager {
             game_id,
             steam_app_id: app_id,
         })
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn launch_native(&self, app: AppHandle, game_id: String) -> Result<(), String> {
+        let database = app.state::<DatabaseState>().shared_database()?;
+        let game = database.game(&game_id)?;
+        if game.steam_install_path.is_some() {
+            return Err("Steam-managed games must launch through Steam".to_owned());
+        }
+        let executable = game
+            .executable_path
+            .as_deref()
+            .ok_or_else(|| "This game has no selected executable".to_owned())?;
+        let executable = fs::canonicalize(executable)
+            .map_err(|error| format!("Could not inspect game executable: {error}"))?;
+        if !executable.is_file()
+            || !executable
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+        {
+            return Err("Selected file is not a Windows executable".to_owned());
+        }
+        let game_directory = executable
+            .parent()
+            .ok_or_else(|| "Game executable has no parent directory".to_owned())?;
+        let config = database.native_launch_config(&game_id)?;
+        validate_launch_arguments(&config.arguments)?;
+        let working_directory =
+            game_working_directory(config.working_directory.as_deref(), game_directory)?;
+        let mut command = Command::new(&executable);
+        command
+            .args(&config.arguments)
+            .current_dir(working_directory)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let process_target = game_process::ProcessTarget::Native {
+            game_directory: game_directory.to_path_buf(),
+            started_after_ms: crate::database::now_milliseconds(),
+            launcher_pid: None,
+            known_pids: Arc::default(),
+        };
+        let cancel = self.reserve_launch(&game_id, None, process_target.clone())?;
+        let manager = self.clone();
+        let worker_id = game_id.clone();
+        if let Err(error) = thread::Builder::new()
+            .name(format!("legio-native-{game_id}"))
+            .spawn(move || {
+                manager.run_launch(
+                    worker_id,
+                    process_target,
+                    cancel,
+                    LaunchContext {
+                        session_database: Some(database),
+                        ..LaunchContext::default()
+                    },
+                    move |_| {
+                        command
+                            .spawn()
+                            .map(Some)
+                            .map_err(|error| format!("Could not start native game: {error}"))
+                    },
+                );
+            })
+        {
+            self.set_state(&game_id, GameStatus::Idle, Some(error.to_string()));
+            return Err(format!("Could not start game launch task: {error}"));
+        }
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    pub(crate) fn launch_native(&self, _app: AppHandle, _game_id: String) -> Result<(), String> {
+        Err("Native executable launch is supported on Windows only".to_owned())
     }
 
     #[cfg(target_os = "linux")]
@@ -433,7 +509,27 @@ impl GameLaunchManager {
                 return;
             }
         }
+        #[cfg(windows)]
+        if let game_process::ProcessTarget::Native { launcher_pid, .. } = &mut process_target
+            && let Some(pid) = child.as_ref().map(Child::id)
+        {
+            *launcher_pid = Some(pid);
+            if let Err(error) = self.set_process_target(&game_id, process_target.clone()) {
+                let cleanup_error = terminate_child(&mut child).err();
+                self.set_state(
+                    &game_id,
+                    GameStatus::Idle,
+                    Some(append_cleanup_error(error, cleanup_error)),
+                );
+                return;
+            }
+        }
         let started = Instant::now();
+        #[cfg(windows)]
+        let native_launch = matches!(process_target, game_process::ProcessTarget::Native { .. });
+        #[cfg(not(windows))]
+        let native_launch = false;
+        let mut native_helper_exited_at = None;
         let mut steam_progress = SteamLaunchProgress::default();
         let mut cancelled_without_process_since = None;
         loop {
@@ -491,12 +587,20 @@ impl GameLaunchManager {
                     Ok(Some(status)) => {
                         child.take();
                         if !status.success() && !cancel.load(Ordering::Acquire) {
+                            let kind = if native_launch {
+                                "native launcher"
+                            } else {
+                                "runner"
+                            };
                             self.set_state(
                                 &game_id,
                                 GameStatus::Idle,
-                                Some(format!("Launch stage failed: runner exited before the game started ({status})")),
+                                Some(format!("Launch stage failed: {kind} exited before the game started ({status})")),
                             );
                             return;
+                        }
+                        if native_launch {
+                            native_helper_exited_at = Some(Instant::now());
                         }
                     }
                     Ok(None) => {}
@@ -526,6 +630,15 @@ impl GameLaunchManager {
                     })
                     .or_else(|| cleanup_error.map(|error| format!("Cancel stage failed: {error}")));
                 self.set_state(&game_id, GameStatus::Idle, error);
+                return;
+            }
+            if native_helper_exited_at.is_some_and(|exited: Instant| exited.elapsed() >= EXIT_GRACE)
+            {
+                self.set_state(
+                    &game_id,
+                    GameStatus::Idle,
+                    Some("Launch stage failed: native launcher exited without starting a detectable game process".to_owned()),
+                );
                 return;
             }
             if cancel.load(Ordering::Acquire)
@@ -729,7 +842,7 @@ fn create_prefix_directory(root: &Path, game_id: Option<&str>) -> Result<PathBuf
     Ok(prefix)
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 fn game_working_directory(path: Option<&str>, game_directory: &Path) -> Result<PathBuf, String> {
     let Some(path) = path.filter(|path| !path.is_empty()) else {
         return Ok(game_directory.to_path_buf());
@@ -748,7 +861,7 @@ fn game_working_directory(path: Option<&str>, game_directory: &Path) -> Result<P
     Ok(path)
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 fn validate_launch_arguments(arguments: &[String]) -> Result<(), String> {
     if arguments.iter().any(|argument| argument.contains('\0')) {
         return Err("Launch arguments cannot contain null characters".to_owned());

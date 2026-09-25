@@ -28,7 +28,7 @@ Verification: a controlled executable traverses every stage, termination is obse
 
 ### 06B: Steam and native Windows launch
 
-Status: Steam-managed launch and account overrides are implemented. Native executable launch remains.
+Status: Steam-managed launch, account overrides, and a native Windows launch backend are implemented. Windows runtime verification remains.
 
 - Launch Steam-managed games through Steam.
 - Enumerate locally saved Steam account IDs and display names using bounded, read-only parsing of Steam-owned local metadata. Do not expose login names, passwords, tokens, or the raw source file.
@@ -63,6 +63,7 @@ Supported games launch through the correct owner, actual game lifetime drives se
 ## Open technical decisions
 
 - Define helper-to-game process association rules before 06B.
+- Native Windows process association requires ancestry from the launched process, executable paths beneath its directory, and creation time after the launch request. This prevents Stop from targeting unrelated processes started in the same directory. If the launcher exits before a child appears, Legio waits three seconds for the handoff and then reports a launch error. The running-state exit grace also covers gaps up to three seconds. Verify longer helper chains on a real Windows game before closing 06B.
 - Linux exposes no verified runtime account identity in this integration. The account override therefore uses the persisted login selection as its startup signal; it must not be described as proof of successful authentication.
 
 ## Accepted session policy
