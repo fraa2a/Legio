@@ -76,4 +76,4 @@ Game and launcher updates are verified and recoverable, Windows and Linux releas
 
 ## Update notes
 
-No implementation updates yet.
+09C release automation follow-up (2026-09-25): the publish job now creates a deterministic `SHA256SUMS.txt` for Linux and Windows bundle files, verifies the manifest before publication, and attaches it to the GitHub release. Package signing and clean-platform installation acceptance remain open.
