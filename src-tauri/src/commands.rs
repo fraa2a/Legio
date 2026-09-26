@@ -12,10 +12,12 @@ use crate::{
 };
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppInfo {
     name: String,
     version: String,
     platform: String,
+    desktop_environment: Option<String>,
 }
 
 #[tauri::command]
@@ -26,7 +28,29 @@ pub fn get_app_info(app: AppHandle) -> AppInfo {
         name: package_info.name.clone(),
         version: package_info.version.to_string(),
         platform: std::env::consts::OS.to_owned(),
+        desktop_environment: desktop_environment(),
     }
+}
+
+fn desktop_environment() -> Option<String> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    normalize_desktop_environment(
+        std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some(),
+        std::env::var("XDG_CURRENT_DESKTOP").ok().as_deref(),
+    )
+}
+
+fn normalize_desktop_environment(hyprland: bool, current_desktop: Option<&str>) -> Option<String> {
+    if hyprland {
+        return Some("hyprland".to_owned());
+    }
+    let primary = current_desktop?.split(':').next()?.trim().to_lowercase();
+    if primary.is_empty() {
+        return None;
+    }
+    Some(primary)
 }
 
 #[tauri::command]
@@ -285,6 +309,37 @@ fn check_saved_account_presence(
         );
     }
     check
+}
+
+#[cfg(test)]
+mod desktop_environment_tests {
+    use super::normalize_desktop_environment;
+
+    #[test]
+    fn hyprland_signature_wins_over_current_desktop() {
+        assert_eq!(
+            normalize_desktop_environment(true, Some("KDE")),
+            Some("hyprland".to_owned())
+        );
+    }
+
+    #[test]
+    fn current_desktop_uses_the_first_entry() {
+        assert_eq!(
+            normalize_desktop_environment(false, Some("ubuntu:GNOME")),
+            Some("ubuntu".to_owned())
+        );
+        assert_eq!(
+            normalize_desktop_environment(false, Some("KDE")),
+            Some("kde".to_owned())
+        );
+    }
+
+    #[test]
+    fn missing_or_empty_current_desktop_is_unknown() {
+        assert_eq!(normalize_desktop_environment(false, None), None);
+        assert_eq!(normalize_desktop_environment(false, Some("  ")), None);
+    }
 }
 
 #[cfg(test)]

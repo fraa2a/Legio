@@ -53,7 +53,7 @@ export function launchSteamGame(gameId: string, confirmAccountSwitch: boolean): 
 export interface GameLaunchState {
   gameId: string;
   status: "idle" | "launching" | "running";
-  error?: string | null;
+  error?: string;
 }
 
 export function listGameLaunchStates(): Promise<GameLaunchState[]> {
