@@ -698,7 +698,7 @@ mod tests {
     }
 
     #[test]
-    fn recovers_after_database_commit_fails() {
+    fn recovers_after_database_commit_fails_and_database_reopens() {
         let (database, data_dir, id) = fixture();
         database.with_connection(|connection| {
             connection.execute_batch("CREATE TRIGGER deny_install BEFORE UPDATE OF status ON downloads WHEN NEW.status = 'installed' BEGIN SELECT RAISE(FAIL, 'blocked'); END;")
@@ -721,10 +721,23 @@ mod tests {
                     .map_err(database_error)
             })
             .unwrap();
+        drop(database);
+        let database = Database::open(&data_dir).unwrap();
         recover(&database, &data_dir).unwrap();
         recover(&database, &data_dir).unwrap();
         assert_eq!(state(&database, &id).0, "installed");
         assert_eq!(database.games().unwrap().len(), 1);
+        assert_eq!(
+            fs::read(data_dir.join("installed").join(&id).join("bin/game.exe")).unwrap(),
+            b"game"
+        );
+        assert!(
+            !data_dir
+                .join("downloads")
+                .join(format!("{id}.stage"))
+                .exists()
+        );
+        drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
 
