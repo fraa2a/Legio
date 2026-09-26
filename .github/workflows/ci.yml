@@ -141,21 +141,29 @@ jobs:
       - name: Test Windows Steam discovery
         if: runner.os == 'Windows'
         shell: bash
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked steam_local::tests::windows_default_roots
+        env:
+          LEGIO_WINDOWS_TESTS: "1"
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib steam_local::tests::windows_default_roots
 
       - name: Test Windows game process control
         if: runner.os == 'Windows'
         shell: bash
-        run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked game_process::tests::'
+        env:
+          LEGIO_WINDOWS_TESTS: "1"
+        run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_process::tests::'
 
       - name: Test Windows staged executable finalization
         if: runner.os == 'Windows'
         shell: bash
+        env:
+          LEGIO_WINDOWS_TESTS: "1"
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib finalize_install::tests::finalizes_with_a_candidate_from_the_staged_scan
 
       - name: Test Windows finalization recovery after database reopen
         if: runner.os == 'Windows'
         shell: bash
+        env:
+          LEGIO_WINDOWS_TESTS: "1"
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib finalize_install::tests::recovers_after_database_commit_fails_and_database_reopens
 
       - name: Build Tauri application
