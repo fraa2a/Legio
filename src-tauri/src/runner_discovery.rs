@@ -3,7 +3,7 @@ use std::collections::HashSet;
 #[cfg(target_os = "linux")]
 use std::fs;
 #[cfg(target_os = "linux")]
-use std::path::Path;
+use std::path::{Path, PathBuf};
 #[cfg(target_os = "linux")]
 use std::process::{Command, Stdio};
 #[cfg(target_os = "linux")]
@@ -55,26 +55,143 @@ pub(crate) fn launch_command(
     executable: &Path,
     arguments_before: &[String],
     arguments_after: &[String],
+    steam_runtime: Option<&Path>,
 ) -> Command {
+    let program = match runner.kind {
+        RunnerKind::Proton | RunnerKind::GeProton => Path::new(&runner.path).join("proton"),
+        RunnerKind::Wine => Path::new(&runner.path).to_path_buf(),
+    };
+    let mut command = if let Some(runtime) = steam_runtime {
+        let mut command = Command::new(runtime);
+        command.arg("--").arg(program);
+        command
+    } else {
+        Command::new(program)
+    };
     match runner.kind {
         RunnerKind::Proton | RunnerKind::GeProton => {
-            let mut command = Command::new(Path::new(&runner.path).join("proton"));
             command
                 .arg("run")
                 .args(arguments_before)
                 .arg(executable)
                 .args(arguments_after);
-            command
         }
         RunnerKind::Wine => {
-            let mut command = Command::new(&runner.path);
             command
                 .args(arguments_before)
                 .arg(executable)
                 .args(arguments_after);
-            command
         }
     }
+    command
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn steam_runtime_path(runner: &InstalledRunner) -> Result<PathBuf, String> {
+    let (runtime_dir, runtime_name) = steam_runtime_name(runner, std::env::consts::ARCH)?;
+    find_steam_runtime(
+        runner,
+        steam_local::default_steam_library_paths(),
+        runtime_dir,
+        runtime_name,
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn steam_runtime_name(
+    runner: &InstalledRunner,
+    arch: &str,
+) -> Result<(&'static str, &'static str), String> {
+    if !matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton) {
+        return Err("Steam Linux Runtime can only wrap Proton runners".to_owned());
+    }
+    let (major, minor) = proton_version(runner).ok_or_else(|| {
+        format!(
+            "Could not determine the Proton version for {} ({})",
+            runner.name, runner.version
+        )
+    })?;
+    match (major, minor, arch) {
+        (11.., _, "aarch64") => Ok(("SteamLinuxRuntime_4-arm64", "Steam Linux Runtime 4.0")),
+        (11.., _, "x86_64") => Ok(("SteamLinuxRuntime_4", "Steam Linux Runtime 4.0")),
+        (11.., _, _) => Err(format!(
+            "Steam Linux Runtime 4.0 is unavailable for Proton {} on {arch}",
+            runner.version
+        )),
+        (8..=10, _, "x86_64") => Ok((
+            "SteamLinuxRuntime_sniper",
+            "Steam Linux Runtime 3.0 (sniper)",
+        )),
+        (8..=10, _, _) => Err(format!(
+            "Steam Linux Runtime 3.0 is unavailable for Proton {} on {arch}",
+            runner.version
+        )),
+        (5, 13.., "x86_64") | (6..=7, _, "x86_64") => Ok((
+            "SteamLinuxRuntime_soldier",
+            "Steam Linux Runtime 2.0 (soldier)",
+        )),
+        (5, 13.., _) | (6..=7, _, _) => Err(format!(
+            "Steam Linux Runtime 2.0 is unavailable for Proton {} on {arch}",
+            runner.version
+        )),
+        _ => Err(format!(
+            "No Steam Linux Runtime mapping is available for Proton {}",
+            runner.version
+        )),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn proton_version(runner: &InstalledRunner) -> Option<(u32, u32)> {
+    [runner.version.as_str(), runner.name.as_str()]
+        .into_iter()
+        .find_map(|value| {
+            let lower = value.to_ascii_lowercase();
+            let marker = lower.find("proton")? + "proton".len();
+            let suffix = value[marker..].trim_start_matches(|ch: char| !ch.is_ascii_digit());
+            let (major, remainder) = take_number(suffix)?;
+            let minor = remainder
+                .strip_prefix('.')
+                .and_then(|value| take_number(value))
+                .map_or(0, |(number, _)| number);
+            Some((major, minor))
+        })
+}
+
+#[cfg(target_os = "linux")]
+fn take_number(value: &str) -> Option<(u32, &str)> {
+    let digits = value.bytes().take_while(u8::is_ascii_digit).count();
+    if digits == 0 {
+        return None;
+    }
+    Some((value[..digits].parse().ok()?, &value[digits..]))
+}
+
+#[cfg(target_os = "linux")]
+fn find_steam_runtime(
+    runner: &InstalledRunner,
+    libraries: impl IntoIterator<Item = PathBuf>,
+    runtime_dir: &str,
+    runtime_name: &str,
+) -> Result<PathBuf, String> {
+    for library in libraries {
+        let candidate = library
+            .join("steamapps/common")
+            .join(runtime_dir)
+            .join("run");
+        if is_executable_file(&candidate) {
+            return fs::canonicalize(candidate).map_err(|error| {
+                format!(
+                    "Could not resolve {runtime_name} for {}: {error}",
+                    runner.name
+                )
+            });
+        }
+    }
+    Err(format!(
+        "{runtime_name} is not installed for {}. Install it in a Steam library and retry",
+        runner.name
+    ))
 }
 
 pub fn discover() -> RunnerDiscovery {
@@ -338,7 +455,7 @@ mod tests {
         };
         let before = vec!["-windowed".to_owned()];
         let after = vec!["-safe".to_owned(), "two words".to_owned()];
-        let command = launch_command(&runner, Path::new("/games/game.exe"), &before, &after);
+        let command = launch_command(&runner, Path::new("/games/game.exe"), &before, &after, None);
         let arguments = command
             .get_args()
             .map(|argument| argument.to_string_lossy().into_owned())
@@ -348,6 +465,94 @@ mod tests {
             arguments,
             ["-windowed", "/games/game.exe", "-safe", "two words"]
         );
+    }
+
+    #[test]
+    fn launch_command_places_proton_inside_the_selected_runtime() {
+        let runner = InstalledRunner {
+            kind: RunnerKind::Proton,
+            name: "Proton 11.0".to_owned(),
+            version: "proton-11.0".to_owned(),
+            path: "/Steam Library/steamapps/common/Proton 11.0".to_owned(),
+        };
+        let command = launch_command(
+            &runner,
+            Path::new("/games/Windows Game/game.exe"),
+            &["before".to_owned()],
+            &["after".to_owned()],
+            Some(Path::new(
+                "/Steam Library/steamapps/common/SteamLinuxRuntime_4/run",
+            )),
+        );
+        let arguments = command
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            command.get_program(),
+            "/Steam Library/steamapps/common/SteamLinuxRuntime_4/run"
+        );
+        assert_eq!(
+            arguments,
+            [
+                "--",
+                "/Steam Library/steamapps/common/Proton 11.0/proton",
+                "run",
+                "before",
+                "/games/Windows Game/game.exe",
+                "after"
+            ]
+        );
+    }
+
+    #[test]
+    fn chooses_steam_runtime_from_proton_version_and_architecture() {
+        let runner = InstalledRunner {
+            kind: RunnerKind::GeProton,
+            name: "GE-Proton10-33".to_owned(),
+            version: "1776473842 GE-Proton10-33-rtsp23-4-1".to_owned(),
+            path: "/unused".to_owned(),
+        };
+        assert_eq!(
+            steam_runtime_name(&runner, "x86_64"),
+            Ok((
+                "SteamLinuxRuntime_sniper",
+                "Steam Linux Runtime 3.0 (sniper)"
+            ))
+        );
+        let proton_11 = InstalledRunner {
+            name: "Proton 11.0".to_owned(),
+            version: "1788504981 proton-11.0-2c-x86_64".to_owned(),
+            kind: RunnerKind::Proton,
+            path: "/unused".to_owned(),
+        };
+        assert_eq!(
+            steam_runtime_name(&proton_11, "x86_64"),
+            Ok(("SteamLinuxRuntime_4", "Steam Linux Runtime 4.0"))
+        );
+        assert_eq!(
+            steam_runtime_name(&proton_11, "aarch64"),
+            Ok(("SteamLinuxRuntime_4-arm64", "Steam Linux Runtime 4.0"))
+        );
+    }
+
+    #[test]
+    fn runtime_discovery_reports_a_missing_local_runtime() {
+        let runner = InstalledRunner {
+            kind: RunnerKind::Proton,
+            name: "Proton 11.0".to_owned(),
+            version: "proton-11.0".to_owned(),
+            path: "/unused".to_owned(),
+        };
+        let error = find_steam_runtime(
+            &runner,
+            [],
+            "SteamLinuxRuntime_4",
+            "Steam Linux Runtime 4.0",
+        )
+        .unwrap_err();
+        assert!(error.contains("is not installed"));
     }
 
     #[test]

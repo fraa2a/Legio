@@ -101,7 +101,9 @@ These commands are available on `main` after PR #35.
 
 `get_playtime_summaries` returns `{ gameId, totalMilliseconds, activeSessions }` for each local game. Active totals are calculated through the request time. The backend starts a session after detecting the game process, closes it after the lifecycle monitor observes exit, and recovers sessions left open by a crash at their last heartbeat. Different games may have overlapping session time.
 
-Defaults have `runnerPath`, `prefixRoot`, `argumentsBefore`, `argumentsAfter`, `workingDirectory`, `environment`, and `dllOverrides`. Per-game overrides have those settings plus `prefixPath`. For scalar/list values, `null` inherits; an empty string/list clears an inherited value. Environment and DLL maps merge by key; an empty map clears all inherited entries. Saving settings persists them, but the UI should not imply that settings were applied until the save command succeeds.
+Defaults have `runnerPath`, `prefixRoot`, `argumentsBefore`, `argumentsAfter`, `workingDirectory`, `environment`, `dllOverrides`, `steamRuntime`, `steamOverlay`, `graphicsRenderer`, and `wayland`. Per-game overrides have those settings plus `prefixPath`; each typed option is nullable and inherits when null. Enum values are `steamRuntime: "runner_default" | "steam_linux_runtime"`, `steamOverlay: "runner_default" | "enabled" | "disabled"`, `graphicsRenderer: "runner_default" | "wine_d3d"`, and `wayland: "runner_default" | "disabled" | "native"`. For scalar/list values, `null` inherits; an empty string/list clears an inherited value. Environment and DLL maps merge by key; an empty map clears all inherited entries. Saving settings persists them, but the UI should not imply that settings were applied until the save command succeeds.
+
+The backend wraps Proton in a locally installed Steam Linux Runtime only when `steamRuntime` is `steam_linux_runtime`; it does not download runtimes. WineD3D and Wayland set Proton environment options. Native Wayland is accepted only with GE-Proton. Steam overlay enablement requires the two Steam overlay renderer libraries in the detected Steam installation; the backend validates them before launch. Do not expose arbitrary environment overrides for variables managed by these typed settings.
 
 `launch_game_with_runner({ gameId, runnerPath })` is an explicit-runner testing command. Production UI should use `launch_configured_game_with_runner` after selecting settings. Runner discovery and configured launch are Linux-only; on other platforms discovery returns no runners and a diagnostic.
 
@@ -224,11 +226,29 @@ For unverified releases, show the trust warning before queueing and send `accept
 | `launch_game_with_runner` | `{ gameId, runnerPath }` | `void`, testing path |
 | `launch_configured_game_with_runner` | `{ gameId }` | `void`, configured manual game launch |
 | `launch_native_game` | `{ gameId }` | `void`, Windows manual game launch |
-| `list_game_launch_states` | none | `[{ gameId, status, error? }]` |
+| `list_game_launch_states` | none | `GameLaunchState[]` |
 | `cancel_game_launch` | `{ gameId }` | `void` |
 | `stop_game` | `{ gameId }` | `void` |
 
 Launch state status is currently `idle`, `launching`, or `running`. The launch command returning successfully means launch was requested, not that the game process is running. Poll state while a game is launching or running. Show `cancel` while `launching`, call `cancel_game_launch`, then reconcile to idle/error from the state list. Show `stop` only when running and call `stop_game`. Surface the state's `error` and rejected command errors. There is no `cancelling` backend state in this contract, so if the UI displays one, treat it as transient local presentation until the next backend state confirms the outcome.
+
+For configured Linux compatibility launches, `compatibilityOptions` reports the selected runner name and version plus the typed options accepted for that launch. It is omitted for launch paths without compatibility options.
+
+```ts
+interface GameLaunchState {
+  gameId: string;
+  status: "idle" | "launching" | "running";
+  error?: string;
+  compatibilityOptions?: {
+    runner: string;
+    version: string;
+    steamRuntime: "runner_default" | "steam_linux_runtime";
+    steamOverlay: "runner_default" | "enabled" | "disabled";
+    graphicsRenderer: "runner_default" | "wine_d3d";
+    wayland: "runner_default" | "disabled" | "native";
+  };
+}
+```
 
 ## Frontend organization and change checklist
 

@@ -14,14 +14,15 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::database::AppliedCompatibilityOptions;
+#[cfg(target_os = "linux")]
+use crate::database::EffectiveCompatibilityConfig;
+use crate::database::{Database, DatabaseState};
 #[cfg(target_os = "linux")]
 use crate::runner_discovery::RunnerKind;
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
-#[cfg(target_os = "linux")]
-use crate::database::EffectiveCompatibilityConfig;
-use crate::database::{Database, DatabaseState};
 use crate::{game_process, runner_discovery, steam_local, steam_switch};
 
 const START_TIMEOUT: Duration = Duration::from_secs(120);
@@ -46,6 +47,8 @@ pub(crate) struct GameLaunchState {
     pub status: GameStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compatibility_options: Option<AppliedCompatibilityOptions>,
 }
 
 struct Entry {
@@ -53,6 +56,7 @@ struct Entry {
     process_target: game_process::ProcessTarget,
     status: GameStatus,
     error: Option<String>,
+    compatibility_options: Option<AppliedCompatibilityOptions>,
     cancel: Arc<AtomicBool>,
 }
 
@@ -133,6 +137,7 @@ impl GameLaunchManager {
                 game_id: game_id.clone(),
                 status: entry.status,
                 error: entry.error.clone(),
+                compatibility_options: entry.compatibility_options.clone(),
             })
             .collect())
     }
@@ -158,7 +163,7 @@ impl GameLaunchManager {
             app_id,
             install_path: target.install_path.clone(),
         };
-        let cancel = self.reserve_launch(&game_id, Some(app_id), process_target.clone())?;
+        let cancel = self.reserve_launch(&game_id, Some(app_id), process_target.clone(), None)?;
 
         let worker_id = game_id.clone();
         let manager = self.clone();
@@ -233,7 +238,7 @@ impl GameLaunchManager {
             launcher_pid: None,
             known_pids: Arc::default(),
         };
-        let cancel = self.reserve_launch(&game_id, None, process_target.clone())?;
+        let cancel = self.reserve_launch(&game_id, None, process_target.clone(), None)?;
         let manager = self.clone();
         let worker_id = game_id.clone();
         if let Err(error) = thread::Builder::new()
@@ -358,20 +363,29 @@ impl GameLaunchManager {
             config.prefix_root.as_deref(),
             config.prefix_path.as_deref(),
         )?;
+        let steam_root = if matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton) {
+            Some(steam_client_root()?)
+        } else {
+            None
+        };
+        let options = crate::compatibility_options::PreparedOptions::prepare(
+            &config,
+            &runner,
+            steam_root.as_deref(),
+        )?;
         let mut command = runner_discovery::launch_command(
             &runner,
             &executable_path,
             &config.arguments_before,
             &config.arguments_after,
+            options.runtime_path(),
         );
         command
             .current_dir(working_directory)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        for (key, value) in &config.environment {
-            command.env(key, value);
-        }
+        options.apply(&mut command, &config)?;
         if !config.dll_overrides.is_empty() {
             command.env(
                 "WINEDLLOVERRIDES",
@@ -379,9 +393,12 @@ impl GameLaunchManager {
             );
         }
         if matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton) {
+            let steam_root = steam_root
+                .as_ref()
+                .ok_or_else(|| "Steam installation was not resolved for Proton".to_owned())?;
             command
                 .env("STEAM_COMPAT_DATA_PATH", &compat_data_path)
-                .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_client_root()?);
+                .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
         } else {
             command.env("WINEPREFIX", &compat_data_path);
         }
@@ -393,7 +410,14 @@ impl GameLaunchManager {
             executable_path,
             launcher_pid: None,
         };
-        let cancel = self.reserve_launch(&game_id, None, process_target.clone())?;
+        let cancel = self.reserve_launch(
+            &game_id,
+            None,
+            process_target.clone(),
+            Some(crate::compatibility_options::PreparedOptions::diagnostic(
+                &runner, &config,
+            )),
+        )?;
         let manager = self.clone();
         let worker_id = game_id.clone();
         let session_database = app.state::<DatabaseState>().shared_database()?;
@@ -737,6 +761,7 @@ impl GameLaunchManager {
         game_id: &str,
         app_id: Option<u32>,
         process_target: game_process::ProcessTarget,
+        compatibility_options: Option<AppliedCompatibilityOptions>,
     ) -> Result<Arc<AtomicBool>, String> {
         let cancel = Arc::new(AtomicBool::new(false));
         let mut entries = self.lock()?;
@@ -760,6 +785,7 @@ impl GameLaunchManager {
                 process_target,
                 status: GameStatus::Launching,
                 error: None,
+                compatibility_options,
                 cancel: Arc::clone(&cancel),
             },
         );
@@ -1156,6 +1182,49 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
+    #[test]
+    fn launch_state_serializes_applied_compatibility_options() {
+        let base = test_dir("compatibility-diagnostics");
+        let manager = GameLaunchManager::new();
+        let target = runner_test_target(&base, "diagnostic-token");
+        manager
+            .reserve_launch(
+                "manual-game",
+                None,
+                target,
+                Some(AppliedCompatibilityOptions {
+                    runner: "GE-Proton10-33".to_owned(),
+                    version: "GE-Proton10-33".to_owned(),
+                    steam_runtime: crate::database::SteamRuntimeMode::SteamLinuxRuntime,
+                    steam_overlay: crate::database::SteamOverlayMode::Enabled,
+                    graphics_renderer: crate::database::GraphicsRenderer::WineD3d,
+                    wayland: crate::database::WaylandMode::Native,
+                }),
+            )
+            .unwrap();
+        let state = manager.list().unwrap().pop().unwrap();
+        let serialized = serde_json::to_value(state).unwrap();
+        assert_eq!(
+            serialized["compatibilityOptions"]["runner"],
+            "GE-Proton10-33"
+        );
+        assert_eq!(
+            serialized["compatibilityOptions"]["steamRuntime"],
+            "steam_linux_runtime"
+        );
+        assert_eq!(
+            serialized["compatibilityOptions"]["steamOverlay"],
+            "enabled"
+        );
+        assert_eq!(
+            serialized["compatibilityOptions"]["graphicsRenderer"],
+            "wine_d3d"
+        );
+        assert_eq!(serialized["compatibilityOptions"]["wayland"], "native");
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
     fn wait_for_status(manager: &GameLaunchManager, game_id: &str, status: GameStatus) {
         let started = Instant::now();
         while manager
@@ -1286,7 +1355,7 @@ mod tests {
         };
         let manager = GameLaunchManager::new();
         let cancel = manager
-            .reserve_launch(&game.id, None, target.clone())
+            .reserve_launch(&game.id, None, target.clone(), None)
             .unwrap();
         assert_eq!(manager.list().unwrap()[0].status, GameStatus::Launching);
         let worker_manager = manager.clone();
@@ -1333,7 +1402,7 @@ mod tests {
         let token = uuid::Uuid::new_v4().to_string();
         let target = runner_test_target(&base, &token);
         let cancel = manager
-            .reserve_launch("runner", None, target.clone())
+            .reserve_launch("runner", None, target.clone(), None)
             .unwrap();
         manager.run_launch(
             "runner".to_owned(),
@@ -1359,7 +1428,7 @@ mod tests {
         let token = uuid::Uuid::new_v4().to_string();
         let target = runner_test_target(&base, &token);
         let cancel = manager
-            .reserve_launch("runner", None, target.clone())
+            .reserve_launch("runner", None, target.clone(), None)
             .unwrap();
         manager.run_launch(
             "runner".to_owned(),
@@ -1395,7 +1464,7 @@ mod tests {
         let token = uuid::Uuid::new_v4().to_string();
         let target = runner_test_target(&base, &token);
         let cancel = manager
-            .reserve_launch("runner", None, target.clone())
+            .reserve_launch("runner", None, target.clone(), None)
             .unwrap();
         let worker_manager = manager.clone();
         let ready_path = ready.to_string_lossy().into_owned();
@@ -1456,6 +1525,7 @@ mod tests {
                 },
                 status: GameStatus::Launching,
                 error: None,
+                compatibility_options: None,
                 cancel: Arc::clone(&cancel),
             },
         );
@@ -1521,6 +1591,7 @@ mod tests {
                 },
                 status: GameStatus::Launching,
                 error: None,
+                compatibility_options: None,
                 cancel: Arc::clone(&cancel),
             },
         );
