@@ -31,7 +31,7 @@
 <dialog
   bind:this={dialog}
   aria-labelledby={titleId}
-  class="{widthClass} max-w-[calc(100vw-2rem)] rounded-2xl bg-zinc-900 text-zinc-100 backdrop:bg-black/70 open:flex light:bg-zinc-50 light:text-zinc-900"
+  class="m-auto {widthClass} max-h-[calc(100dvh-3rem)] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl bg-zinc-900 text-zinc-100 backdrop:bg-black/70 light:bg-zinc-50 light:text-zinc-900"
   oncancel={(event) => {
     event.preventDefault();
     onClose();
@@ -40,7 +40,7 @@
     if (event.target === dialog) onClose();
   }}
 >
-  <div class="flex max-h-[70dvh] flex-col gap-5 overflow-y-auto p-6">
+  <div class="flex flex-col gap-5 p-6">
     <h2 id={titleId} class="text-lg font-semibold">{title}</h2>
     {@render children()}
   </div>

@@ -28,15 +28,15 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 - [x] Build Store search with a debounced query, local results first, refresh state, empty state, and retryable errors. Use `search_catalog` for cached/local results and `refresh_catalog` to query Hydra through Rust. Do not call Hydra directly from Svelte.
 - [x] Handle out-of-order query responses so a slow response for an old query cannot replace current results. Refresh errors must leave cached results visible.
 - [x] Load the Legio source separately with `get_legio_source` and `refresh_legio_source`. Merge source availability by `steamAppId`; show cache freshness and warning state. Treat a missing or unpublished source manifest as an expected empty/unavailable state.
-- [ ] Show source status clearly: `verified`, `unverified`, `unavailable`, or `unknown`. Require explicit confirmation before queuing an unverified release.
-- [ ] Add a game detail view with Steam metadata, artwork, release version, size, and download availability. Search results do not add games to the library by themselves.
+- [x] Show source status clearly: `verified`, `unverified`, `unavailable`, or `unknown`. Require explicit confirmation before queuing an unverified release.
+- [x] Add a game detail view with Steam metadata, artwork, release version, size, and download availability. Search results do not add games to the library by themselves.
 
 ## P0: Downloads and installation
 
 - [x] Build a Downloads screen and a queue entry point in the shell. Poll `list_downloads` while relevant views are active; there is no download progress event today.
 - [x] Show per-job status, progress, rate, ETA, release version, and error. Treat `status` as an open string and preserve unrecognized future values.
 - [x] Wire pause, resume, retry, and cancel only for valid states. Refresh the queue after every action and show backend rejection messages.
-- [ ] Enqueue with `queue_download({ steamAppId, acceptUnverified })`; never fetch manifest download URLs directly from the frontend.
+- [x] Enqueue with `queue_download({ steamAppId, acceptUnverified })`; never fetch manifest download URLs directly from the frontend.
 - [ ] After a job reaches `downloaded`, call `stage_download`, show extraction/validation failures, and allow selection of the game executable from staged files.
 - [ ] Finalization needs `executableRelative`, relative to the staged root. `scan_game_executables` returns absolute paths, so derive a safe relative path only after verifying containment, or add a backend command that returns relative staged candidates. Do not pass paths outside the staging directory.
 - [ ] Call `finalize_download` with the selected relative executable. On success reload both queue and library. Present conflicts/recovery errors without hiding staged evidence.

@@ -1,10 +1,13 @@
-import { writable } from "svelte/store";
-import { getSteamDetails, type SteamDetails } from "../services/steam-details";
+import { get, writable } from "svelte/store";
+import {
+  getSteamDetails,
+  type SteamDetails,
+  type SteamDetailsResult,
+} from "../services/steam-details";
 import { toMessage } from "../utils/errors";
 import type { LoadStatus } from "./resource";
 
-interface SteamDetailsState {
-  appId: number | null;
+export interface SteamDetailsState {
   status: LoadStatus;
   details: SteamDetails | null;
   cachedAt: number | null;
@@ -12,8 +15,7 @@ interface SteamDetailsState {
   error: string | null;
 }
 
-const initial: SteamDetailsState = {
-  appId: null,
+const idle: SteamDetailsState = {
   status: "idle",
   details: null,
   cachedAt: null,
@@ -21,35 +23,46 @@ const initial: SteamDetailsState = {
   error: null,
 };
 
-export const steamDetails = writable<SteamDetailsState>(initial);
+export const steamDetails = writable<Record<number, SteamDetailsState>>({});
 
-let requestId = 0;
+const inflight = new Map<number, Promise<SteamDetailsResult>>();
 
-export async function loadSteamDetails(appId: number, refresh: boolean): Promise<void> {
-  const request = ++requestId;
-  steamDetails.update((state) => ({ ...state, appId, status: "loading", error: null }));
-  try {
-    const result = await getSteamDetails(appId, refresh);
-    if (request !== requestId) return;
-    steamDetails.set({
-      appId,
-      status: result.details === null ? "empty" : "ready",
-      details: result.details,
-      cachedAt: result.cachedAt,
-      stale: result.stale,
-      error: null,
-    });
-  } catch (error) {
-    if (request !== requestId) return;
-    steamDetails.update((state) => ({
-      ...state,
-      status: "error",
-      error: toMessage(error),
-    }));
-  }
+function patch(steamAppId: number, values: Partial<SteamDetailsState>): void {
+  steamDetails.update((all) => ({ ...all, [steamAppId]: { ...(all[steamAppId] ?? idle), ...values } }));
 }
 
-export function clearSteamDetails(): void {
-  requestId += 1;
-  steamDetails.set(initial);
+export function loadSteamDetails(
+  steamAppId: number,
+  refresh: boolean,
+): Promise<SteamDetailsResult> {
+  if (!refresh) {
+    const pending = inflight.get(steamAppId);
+    if (pending !== undefined) return pending;
+  }
+  const request = (async () => {
+    patch(steamAppId, { status: "loading", error: null });
+    try {
+      const result = await getSteamDetails(steamAppId, refresh);
+      patch(steamAppId, {
+        status: result.details === null ? "empty" : "ready",
+        details: result.details,
+        cachedAt: result.cachedAt,
+        stale: result.stale,
+        error: null,
+      });
+      return result;
+    } catch (error) {
+      patch(steamAppId, { status: "error", error: toMessage(error) });
+      throw error;
+    } finally {
+      inflight.delete(steamAppId);
+    }
+  })();
+  if (!refresh) inflight.set(steamAppId, request);
+  return request;
+}
+
+export function ensureSteamDetails(steamAppId: number): void {
+  if (get(steamDetails)[steamAppId] !== undefined) return;
+  void loadSteamDetails(steamAppId, false).catch(() => undefined);
 }

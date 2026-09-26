@@ -1,44 +1,48 @@
 <script lang="ts">
   import { loadSteamDetails, steamDetails } from "../../stores/steam-details";
-  import Button from "../../components/ui/Button.svelte";
   import Badge from "../../components/ui/Badge.svelte";
+  import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
+  import Panel from "../../components/ui/Panel.svelte";
+  import ArtworkViewer from "./ArtworkViewer.svelte";
   import SteamArtwork from "./SteamArtwork.svelte";
 
   let { steamAppId }: { steamAppId: number } = $props();
 
-  let refreshKey = $state(0);
+  const detailsState = $derived($steamDetails[steamAppId] ?? null);
+  const details = $derived(detailsState?.details ?? null);
+  const cachedAt = $derived(detailsState?.cachedAt ?? null);
+  const screenshots = $derived(details?.assets.screenshots.slice(0, 6) ?? []);
 
-  const details = $derived($steamDetails.appId === steamAppId ? $steamDetails.details : null);
-  const detailsState = $derived($steamDetails.appId === steamAppId ? $steamDetails : null);
-  const screenshots = $derived(details?.assets.screenshots.slice(0, 3) ?? []);
+  let openShot = $state<number | null>(null);
+  const openIndex = $derived(openShot !== null && openShot < screenshots.length ? openShot : null);
 
-  async function refresh(): Promise<void> {
-    refreshKey += 1;
-    await loadSteamDetails(steamAppId, true);
+  function refresh(): void {
+    void loadSteamDetails(steamAppId, true).catch(() => undefined);
   }
 </script>
 
-<section class="flex flex-col gap-3">
-  <div class="flex flex-wrap items-center justify-between gap-2">
-    <h3 class="text-sm font-semibold text-zinc-200 light:text-zinc-800">Dettagli Steam</h3>
+<Panel title="Dettagli Steam" class="flex-1">
+  {#snippet actions()}
     <div class="flex items-center gap-2">
       {#if detailsState?.stale}
         <Badge tone="warning" title="Cache scaduta" />
       {/if}
-      <Button label="Aggiorna" variant="secondary" onClick={() => void refresh()} />
+      <Button
+        label="Aggiorna"
+        variant="secondary"
+        disabled={detailsState?.status === "loading"}
+        onClick={refresh}
+      />
     </div>
-  </div>
+  {/snippet}
 
   {#if detailsState !== null && detailsState.status === "loading"}
     <p class="text-sm text-zinc-400 light:text-zinc-600" role="status">Caricamento dettagli...</p>
   {/if}
 
   {#if detailsState !== null && detailsState.status === "error" && detailsState.error !== null}
-    <ErrorBanner
-      message={detailsState.error}
-      onRetry={() => void loadSteamDetails(steamAppId, true)}
-    />
+    <ErrorBanner message={detailsState.error} onRetry={refresh} />
   {/if}
 
   {#if details === null}
@@ -46,35 +50,10 @@
       Nessun dato Steam disponibile per questo titolo.
     </p>
   {:else}
-    <SteamArtwork
-      {steamAppId}
-      asset="header"
-      {refreshKey}
-      alt=""
-      class="h-28 w-full rounded-lg object-cover"
-    />
-
-    <div class="flex flex-col gap-1">
-      <p class="font-medium text-zinc-50 light:text-zinc-900">{details.name}</p>
-      <p class="text-xs text-zinc-500">
-        {details.appType}
-        {#if details.releaseDate !== null}
-          · {details.releaseDate.comingSoon ? "In arrivo" : details.releaseDate.date}
-        {/if}
-        {#if details.platforms !== null}
-          · {[
-            details.platforms.windows ? "Windows" : null,
-            details.platforms.mac ? "macOS" : null,
-            details.platforms.linux ? "Linux" : null,
-          ]
-            .filter((entry) => entry !== null)
-            .join(", ")}
-        {/if}
-      </p>
-    </div>
-
     {#if details.shortDescription !== null}
-      <p class="text-sm text-zinc-300 light:text-zinc-700">{details.shortDescription}</p>
+      <p class="text-sm leading-relaxed text-zinc-200 light:text-zinc-800">
+        {details.shortDescription}
+      </p>
     {/if}
 
     {#if details.genres.length > 0}
@@ -87,36 +66,60 @@
       </ul>
     {/if}
 
-    <dl class="grid gap-1 text-xs text-zinc-400 light:text-zinc-600">
+    <dl class="grid gap-3 text-sm">
       {#if details.developers.length > 0}
-        <div class="flex gap-2">
-          <dt class="w-24 shrink-0">Sviluppatori</dt>
-          <dd class="min-w-0 break-words">{details.developers.join(", ")}</dd>
+        <div class="flex flex-wrap gap-x-3">
+          <dt class="w-24 shrink-0 text-zinc-400 light:text-zinc-600">Sviluppatori</dt>
+          <dd class="min-w-0 flex-1 text-zinc-100 light:text-zinc-900">
+            {details.developers.join(", ")}
+          </dd>
         </div>
       {/if}
       {#if details.publishers.length > 0}
-        <div class="flex gap-2">
-          <dt class="w-24 shrink-0">Editori</dt>
-          <dd class="min-w-0 break-words">{details.publishers.join(", ")}</dd>
+        <div class="flex flex-wrap gap-x-3">
+          <dt class="w-24 shrink-0 text-zinc-400 light:text-zinc-600">Editori</dt>
+          <dd class="min-w-0 flex-1 text-zinc-100 light:text-zinc-900">
+            {details.publishers.join(", ")}
+          </dd>
         </div>
       {/if}
     </dl>
 
     {#if screenshots.length > 0}
-      <ul class="grid gap-2 sm:grid-cols-3">
+      <ul class="grid min-h-32 flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {#each screenshots as screenshot, position (screenshot.thumbnail ?? screenshot.full)}
           <li>
-            <SteamArtwork
-              {steamAppId}
-              asset="screenshot"
-              index={position}
-              {refreshKey}
-              alt=""
-              class="aspect-video w-full rounded-lg object-cover"
-            />
+            <button
+              type="button"
+              class="relative block size-full cursor-zoom-in"
+              aria-label="Ingrandisci immagine {position + 1} di {screenshots.length}"
+              onclick={() => (openShot = position)}
+            >
+              <SteamArtwork
+                {steamAppId}
+                asset="screenshot"
+                index={position}
+                version={cachedAt}
+                alt=""
+                class="absolute inset-0 size-full rounded-lg bg-white/5 object-cover light:bg-zinc-200"
+              />
+            </button>
           </li>
         {/each}
       </ul>
     {/if}
   {/if}
-</section>
+</Panel>
+
+{#if openIndex !== null}
+  <ArtworkViewer
+    {steamAppId}
+    asset="screenshot"
+    index={openIndex}
+    count={screenshots.length}
+    version={cachedAt}
+    alt="Schermata {openIndex + 1} di {screenshots.length}"
+    onSelect={(next) => (openShot = next)}
+    onClose={() => (openShot = null)}
+  />
+{/if}

@@ -80,10 +80,12 @@ html[data-theme="light"] body {
 
 @layer base {
   :root {
+    color-scheme: dark;
     --legio-focus: #fafafa;
   }
 
   :root[data-theme="light"] {
+    color-scheme: light;
     --legio-focus: #18181b;
   }
 

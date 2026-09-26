@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { getSteamDetails } from "../../services/steam-details";
   import { toMessage } from "../../utils/errors";
   import { addGame } from "../../stores/games";
   import { importScannedGame, manualImport, resetManualImport } from "../../stores/manual-import";
+  import { loadSteamDetails } from "../../stores/steam-details";
   import Button from "../../components/ui/Button.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
@@ -36,7 +36,7 @@
     actionError = null;
     pending = true;
     try {
-      const result = await getSteamDetails(parsedAppId, false);
+      const result = await loadSteamDetails(parsedAppId, false);
       if (result.details === null) {
         steamHint = "Nessun dato Steam disponibile per questo App ID: inserisci il nome a mano.";
         return;

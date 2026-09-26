@@ -61,6 +61,10 @@ export function listDownloads(): Promise<DownloadJob[]> {
   return invoke<DownloadJob[]>("list_downloads");
 }
 
+export function queueDownload(steamAppId: number, acceptUnverified: boolean): Promise<DownloadJob> {
+  return invoke<DownloadJob>("queue_download", { steamAppId, acceptUnverified });
+}
+
 export function pauseDownload(id: string): Promise<void> {
   return invoke<void>("pause_download", { id });
 }

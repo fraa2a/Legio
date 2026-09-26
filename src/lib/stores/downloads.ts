@@ -4,6 +4,7 @@ import {
   isActiveDownloadStatus,
   listDownloads,
   pauseDownload,
+  queueDownload,
   resumeDownload,
   retryDownload,
   type DownloadJob,
@@ -16,6 +17,11 @@ export const activeDownloadCount = derived(
   downloads,
   (state) => state.data.filter((job) => isActiveDownloadStatus(job.status)).length,
 );
+
+export async function queueJob(steamAppId: number, acceptUnverified: boolean): Promise<void> {
+  await queueDownload(steamAppId, acceptUnverified);
+  await downloads.load();
+}
 
 export async function pauseJob(id: string): Promise<void> {
   await pauseDownload(id);
