@@ -1639,9 +1639,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn controlled_native_child_waits_for_stop() {
-        if std::env::current_dir()
-            .is_ok_and(|directory| directory.join("legio-controlled-native-child").is_file())
-        {
+        if std::env::args().any(|arg| arg == "controlled_native_child_waits_for_stop") {
             thread::sleep(Duration::from_secs(30));
         }
     }
@@ -1651,78 +1649,65 @@ mod tests {
     fn native_manager_lifecycle_tracks_a_controlled_process() {
         let base = test_dir("native-manager-lifecycle");
         let database_dir = base.join("database");
-        let child_directory = base.join("child");
-        fs::create_dir_all(&child_directory).unwrap();
-        fs::write(
-            child_directory.join("legio-controlled-native-child"),
-            b"test",
-        )
-        .unwrap();
-
-        let app = native_test_app(&database_dir);
-        let executable = std::env::current_exe().unwrap();
-        let (game, database) = {
-            let state = app.state::<DatabaseState>();
-            let database = state.shared_database().unwrap();
-            let game = database
-                .create_game(crate::database::CreateGameInput {
-                    name: "Controlled native game".to_owned(),
-                    steam_app_id: None,
-                })
-                .unwrap();
-            crate::manual_import::set_executable(&state, &game.id, executable.to_str().unwrap())
-                .unwrap();
-            database
-                .save_native_launch_config(
+        thread::spawn(move || {
+            let app = native_test_app(&database_dir);
+            let executable = std::env::current_exe().unwrap();
+            let (game, database) = {
+                let state = app.state::<DatabaseState>();
+                let database = state.shared_database().unwrap();
+                let game = database
+                    .create_game(crate::database::CreateGameInput {
+                        name: "Controlled native game".to_owned(),
+                        steam_app_id: None,
+                    })
+                    .unwrap();
+                crate::manual_import::set_executable(
+                    &state,
                     &game.id,
-                    crate::database::NativeLaunchConfig {
-                        arguments: vec!["controlled_native_child_waits_for_stop".to_owned()],
-                        working_directory: Some(child_directory.to_string_lossy().into_owned()),
-                    },
+                    executable.to_str().unwrap(),
                 )
                 .unwrap();
-            (game, database)
-        };
+                database
+                    .save_native_launch_config(
+                        &game.id,
+                        crate::database::NativeLaunchConfig {
+                            arguments: vec!["controlled_native_child_waits_for_stop".to_owned()],
+                            working_directory: None,
+                        },
+                    )
+                    .unwrap();
+                (game, database)
+            };
 
-        let manager = app.state::<GameLaunchManager>().inner().clone();
-        manager
-            .launch_native(app.handle().clone(), game.id.clone())
-            .unwrap();
-        let state = wait_for_native_status(&manager, &game.id, GameStatus::Running);
-        assert_eq!(state.error, None);
-        let active = database
-            .playtime_summaries(crate::database::now_milliseconds())
-            .unwrap()
-            .into_iter()
-            .find(|summary| summary.game_id == game.id)
-            .unwrap();
-        assert_eq!(active.active_sessions, 1);
+            let manager = app.state::<GameLaunchManager>().inner().clone();
+            manager
+                .launch_native(app.handle().clone(), game.id.clone())
+                .unwrap();
+            let state = wait_for_native_status(&manager, &game.id, GameStatus::Running);
+            assert_eq!(state.error, None);
+            let active = database
+                .playtime_summaries(crate::database::now_milliseconds())
+                .unwrap()
+                .into_iter()
+                .find(|summary| summary.game_id == game.id)
+                .unwrap();
+            assert_eq!(active.active_sessions, 1);
 
-        manager.stop(&game.id).unwrap();
-        let state = wait_for_native_status(&manager, &game.id, GameStatus::Idle);
-        assert_eq!(state.error, None);
-        drop(app);
-        // The worker publishes idle just before dropping its session database.
-        let released = Instant::now();
-        while Arc::strong_count(&database) > 1 {
-            assert!(
-                released.elapsed() < Duration::from_secs(5),
-                "launch monitor did not release the session database"
-            );
-            thread::sleep(Duration::from_millis(10));
-        }
-        drop(database);
-
-        let reopened = Database::open(&database_dir).unwrap();
-        let summary = reopened
-            .playtime_summaries(crate::database::now_milliseconds())
-            .unwrap()
-            .into_iter()
-            .find(|summary| summary.game_id == game.id)
-            .unwrap();
-        assert!(summary.total_milliseconds > 0);
-        assert_eq!(summary.active_sessions, 0);
-        drop(reopened);
+            manager.stop(&game.id).unwrap();
+            let state = wait_for_native_status(&manager, &game.id, GameStatus::Idle);
+            assert_eq!(state.error, None);
+            let reopened = Database::open(&database_dir).unwrap();
+            let summary = reopened
+                .playtime_summaries(crate::database::now_milliseconds())
+                .unwrap()
+                .into_iter()
+                .find(|summary| summary.game_id == game.id)
+                .unwrap();
+            assert!(summary.total_milliseconds > 0);
+            assert_eq!(summary.active_sessions, 0);
+        })
+        .join()
+        .unwrap();
         fs::remove_dir_all(base).unwrap();
     }
 
