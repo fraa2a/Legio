@@ -284,7 +284,11 @@ impl GameLaunchManager {
     }
 
     #[cfg(windows)]
-    pub(crate) fn launch_native(&self, app: AppHandle, game_id: String) -> Result<(), String> {
+    pub(crate) fn launch_native<R: Runtime>(
+        &self,
+        app: AppHandle<R>,
+        game_id: String,
+    ) -> Result<(), String> {
         let database = app.state::<DatabaseState>().shared_database()?;
         let game = database.game(&game_id)?;
         if game.steam_install_path.is_some() {
@@ -353,7 +357,11 @@ impl GameLaunchManager {
     }
 
     #[cfg(not(windows))]
-    pub(crate) fn launch_native(&self, _app: AppHandle, _game_id: String) -> Result<(), String> {
+    pub(crate) fn launch_native<R: Runtime>(
+        &self,
+        _app: AppHandle<R>,
+        _game_id: String,
+    ) -> Result<(), String> {
         Err("Native executable launch is supported on Windows only".to_owned())
     }
 
@@ -1478,6 +1486,17 @@ mod tests {
             .unwrap()
     }
 
+    #[cfg(windows)]
+    fn native_test_app(database_dir: &Path) -> tauri::App<tauri::test::MockRuntime> {
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().identifier = format!("org.legio.test.{}", uuid::Uuid::new_v4());
+        tauri::test::mock_builder()
+            .manage(DatabaseState::new(Ok(database_dir.to_path_buf())))
+            .manage(GameLaunchManager::new())
+            .build(context)
+            .unwrap()
+    }
+
     #[cfg(target_os = "linux")]
     fn create_manual_game(state: &DatabaseState, executable_path: &Path) -> crate::database::Game {
         let game = state
@@ -1585,6 +1604,117 @@ mod tests {
             );
             thread::sleep(Duration::from_millis(20));
         }
+    }
+
+    #[cfg(windows)]
+    fn wait_for_native_status(
+        manager: &GameLaunchManager,
+        game_id: &str,
+        status: GameStatus,
+    ) -> GameLaunchState {
+        let started = Instant::now();
+        loop {
+            let state = manager
+                .list()
+                .unwrap()
+                .into_iter()
+                .find(|entry| entry.game_id == game_id)
+                .unwrap();
+            if state.status == status {
+                return state;
+            }
+            if status == GameStatus::Running && state.status == GameStatus::Idle {
+                panic!("game returned to idle before running: {:?}", state.error);
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(45),
+                "game did not reach {status:?}; last state was {:?}: {:?}",
+                state.status,
+                state.error
+            );
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn controlled_native_child_waits_for_stop() {
+        if std::env::current_dir()
+            .is_ok_and(|directory| directory.join("legio-controlled-native-child").is_file())
+        {
+            thread::sleep(Duration::from_secs(30));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_manager_lifecycle_tracks_a_controlled_process() {
+        let base = test_dir("native-manager-lifecycle");
+        let database_dir = base.join("database");
+        let child_directory = base.join("child");
+        fs::create_dir_all(&child_directory).unwrap();
+        fs::write(
+            child_directory.join("legio-controlled-native-child"),
+            b"test",
+        )
+        .unwrap();
+
+        let app = native_test_app(&database_dir);
+        let executable = std::env::current_exe().unwrap();
+        let (game, database) = {
+            let state = app.state::<DatabaseState>();
+            let database = state.shared_database().unwrap();
+            let game = database
+                .create_game(crate::database::CreateGameInput {
+                    name: "Controlled native game".to_owned(),
+                    steam_app_id: None,
+                })
+                .unwrap();
+            crate::manual_import::set_executable(&state, &game.id, executable.to_str().unwrap())
+                .unwrap();
+            database
+                .save_native_launch_config(
+                    &game.id,
+                    crate::database::NativeLaunchConfig {
+                        arguments: vec!["controlled_native_child_waits_for_stop".to_owned()],
+                        working_directory: Some(child_directory.to_string_lossy().into_owned()),
+                    },
+                )
+                .unwrap();
+            (game, database)
+        };
+
+        let manager = app.state::<GameLaunchManager>().inner().clone();
+        manager
+            .launch_native(app.handle().clone(), game.id.clone())
+            .unwrap();
+        let state = wait_for_native_status(&manager, &game.id, GameStatus::Running);
+        assert_eq!(state.error, None);
+        let active = database
+            .playtime_summaries(crate::database::now_milliseconds())
+            .unwrap()
+            .into_iter()
+            .find(|summary| summary.game_id == game.id)
+            .unwrap();
+        assert_eq!(active.active_sessions, 1);
+
+        manager.stop(&game.id).unwrap();
+        let state = wait_for_native_status(&manager, &game.id, GameStatus::Idle);
+        assert_eq!(state.error, None);
+        drop(app);
+        drop(database);
+
+        let reopened = Database::open(&database_dir).unwrap();
+        let summary = reopened
+            .playtime_summaries(crate::database::now_milliseconds())
+            .unwrap()
+            .into_iter()
+            .find(|summary| summary.game_id == game.id)
+            .unwrap();
+        assert!(summary.total_milliseconds > 0);
+        assert_eq!(summary.active_sessions, 0);
+        drop(reopened);
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[cfg(target_os = "linux")]

@@ -12,6 +12,8 @@ Owns `PLAN.md` sections 23, 24, and 27, plus Home and local Library behavior fro
 
 Provide one reliable launch lifecycle across ownership types, persist actual play sessions, and preserve local product behavior without network access.
 
+**Platform scope:** Windows and Linux. macOS is outside project support and is not a Phase 06 requirement or blocker.
+
 ## Scope
 
 Shared launch lifecycle, Steam-managed launch, optional per-game Steam account selection, native Windows process tracking, session storage and aggregation, Home, local Library, launch configuration and errors, Retry, and offline waiting semantics.
@@ -31,11 +33,11 @@ Verification: a controlled executable traverses every stage, termination is obse
 - **Platform:** Linux.
 - **Command or scenario:** `cargo test --manifest-path src-tauri/Cargo.toml --locked manager_ -- --nocapture`.
 - **Observable result:** `GameLaunchManager` prepares a database-backed manual game, starts a controlled Wine-kind runner stub, observes `Launching` and `Running`, stops the detected child process, returns to `Idle`, and preserves a closed session after reopening SQLite. Preparation and runner-exit failures return stage-specific errors.
-- **Remaining blockers:** Real Steam behavior, native Windows process tracking, and launching a real game remain unverified under 06B.
+- **Remaining blockers:** Real Steam behavior, native Windows process tracking, and launching a real game remain unverified under 06B. A controlled native Windows manager lifecycle check is added to CI in this change; its result is pending.
 
 ### 06B: Steam and native Windows launch
 
-Status: Steam-managed launch, account overrides, and a native Windows launch backend are implemented. Targeted Windows CI checks pass; full Windows lifecycle verification remains.
+Status: Steam-managed launch, account overrides, and a native Windows launch backend are implemented. Existing targeted Windows checks pass; this change adds an end-to-end controlled native manager test, with CI evidence pending. Real Steam and real-game verification remain.
 
 - Launch Steam-managed games through Steam.
 - Enumerate locally saved Steam account IDs and display names using bounded, read-only parsing of Steam-owned local metadata. Do not expose login names, passwords, tokens, or the raw source file.
@@ -51,11 +53,11 @@ Verification: Steam ownership remains intact and helper-exit scenarios do not pr
 - **Platform:** Windows Server 2025 on GitHub Actions.
 - **Command or scenario:** CI run [36265763292](https://github.com/fraa2a/Legio/actions/runs/36265763292) ran Windows Steam-root discovery, process-control, staged-finalization, and database-reopen recovery tests, then built the Tauri application.
 - **Observable result:** All four targeted Windows test commands and the Tauri build passed.
-- **Remaining blockers:** These checks do not start the Steam client or a real game and do not verify the complete native Windows manager lifecycle against a game process.
+- **Remaining blockers:** These checks do not start the Steam client or a real game. Steam account selection and Steam-managed process tracking still lack an end-to-end run against the real Steam client.
 
 ### 06C: Sessions, product surfaces, and offline behavior
 
-Status: In progress. Session persistence and download waiting/resume backend paths are implemented; product surfaces and broader offline behavior remain.
+Status: In progress. Session persistence and download waiting, connectivity resume, and explicit retry backend paths are implemented; product surfaces and broader offline behavior remain.
 
 - Persist detected game sessions and derive per-game playtime aggregates. Backend storage, crash recovery, and summaries are implemented; connecting them to Home and Library remains UI work.
 - Populate Home and local Library from stored data.
@@ -69,7 +71,12 @@ Verification: session totals survive restart, local surfaces remain useful offli
 - **Platform:** Linux with a controlled local HTTP server.
 - **Command or scenario:** `cargo test --manifest-path src-tauri/Cargo.toml --locked waiting_download_waits_for_connectivity_retry -- --nocapture`.
 - **Observable result:** A waiting download makes no request while the queue is idle. The resume hook used after a successful connectivity check requeues it, and the controlled download completes.
-- **Remaining blockers:** Home and Library integration, launch configuration and Retry presentation, and offline launch verification remain open. Download waiting/resume is verified only for the controlled network case above; Store, source refresh, other download failure cases, and update checks remain unverified offline.
+- **Remaining blockers:** Home and Library integration, launch configuration and Retry presentation, and offline launch verification remain open. Store, source refresh, and update checks remain unverified offline.
+
+- **Platform:** Linux with a controlled local HTTP server.
+- **Command or scenario:** `cargo test --manifest-path src-tauri/Cargo.toml --locked remote_download_waits_then_retries_after_connectivity -- --nocapture`.
+- **Observable result:** A controlled HTTP 503 moves the queued download to waiting. It makes no further request across 60 seconds. Calling the queue's resume hook retries it once; an HTTP 404 becomes failed; explicit retry completes after the server returns HTTP 200.
+- **Remaining blockers:** This verifies download retry paths only. Other remote operations still need offline and recovery scenarios.
 
 ## Dependencies
 
