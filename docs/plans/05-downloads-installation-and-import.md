@@ -20,7 +20,7 @@ Persistent queue control, restart recovery, bandwidth and progress reporting, SH
 
 ### 05A: Persistent download queue
 
-Status: Backend implemented; frontend controls and manual restart verification remain.
+Status: Queue backend implemented; bandwidth limit now persists and restores at startup. Frontend controls and manual restart verification remain.
 
 - Implement queue, pause, resume, retry, cancel, and waiting states.
 - Use HTTP Range when supported and restart safely when it is not.
@@ -53,7 +53,7 @@ Verification: clear candidates auto-select, ambiguous candidates require choice,
 
 ### 05D: Atomic finalization
 
-Status: Backend implemented. Frontend executable confirmation and manual conflict recovery remain.
+Status: Backend implementation, including a staged executable scan returning relative candidate paths, is in place. Frontend executable confirmation and manual conflict recovery remain.
 
 - Move staged content safely across filesystems.
 - Make filesystem and database finalization recoverable as one user-visible operation.
@@ -82,6 +82,10 @@ The `stage_download` command takes a 05A download ID, verifies the queue-owned a
 
 Encrypted archives, multipart archives, self-extracting archives, links, special files, and formats outside ZIP, 7z, and RAR are unsupported. RAR variants unsupported by libarchive return an extraction error. Linux builds need libarchive development headers and a runtime library; Windows builds use a statically linked vcpkg libarchive package.
 
-05C backend: executable scanning ranks candidates by game name and directory location, filters common installers and helpers, and returns choices when ranking is ambiguous. Manual import validates a user-selected executable and stores its path in a local library entry. The selected path can be changed later. No selection UI or native launch path is implemented yet.
+05C backend: executable scanning ranks candidates by game name and directory location, filters common installers and helpers, and returns choices when ranking is ambiguous. Manual import validates a user-selected executable and stores its path in a local library entry. The selected path can be changed later. Manual import UI remains open; native Windows launch is tracked in Phase 06B.
 
-05D backend: `finalize_download` takes a staged download ID and explicit executable-relative path. Schema v10 stores the finalization intent before copying into an app-owned `installed/<download-id>` directory. The copy uses a token-marked sibling temporary directory and a no-replace atomic rename. Linux uses `renameat2` with `RENAME_NOREPLACE`; Windows uses `MoveFileW`. The selected executable must remain a regular file beneath the install root. The game entry and `installed` download state commit in one SQLite transaction. Startup resumes interrupted copies or an already-published install, then retries staged-file cleanup after commit. Conflicting existing paths are preserved with an error on the download. The frontend still needs to confirm the candidate and present recovery guidance for conflicts.
+05D backend: `scan_staged_executables` accepts a download ID, checks that its status is `staged` and its stored path matches the app-owned staging directory, then returns relative executable candidates. `finalize_download` accepts one selected relative path and repeats containment, file-type, and symlink checks before installation. Schema v10 stores the finalization intent before copying into an app-owned `installed/<download-id>` directory. The copy uses a token-marked sibling temporary directory and a no-replace atomic rename. Linux uses `renameat2` with `RENAME_NOREPLACE`; Windows uses `MoveFileW`. The game entry and `installed` download state commit in one SQLite transaction. Startup resumes interrupted copies or an already-published install, then retries staged-file cleanup after commit. Conflicting existing paths are preserved with an error on the download. The frontend still needs to confirm the candidate and present recovery guidance for conflicts.
+
+05D path contract: staged executable candidates use forward slashes on every platform, matching the finalizer's portable relative-path validation. A regression test scans a staged fixture and finalizes using the returned candidate without frontend path conversion.
+
+05A backend follow-up (2026-09-24): `set_download_bandwidth_limit` now stores bytes per second in the existing SQLite settings table and applies the value to the live queue only after persistence succeeds. Startup reads the saved value before starting queue recovery. Zero continues to mean unlimited. Rust database coverage checks the default, persistence across reopen, clearing to unlimited, and rejection above `i64::MAX`; the local workspace used for this change does not have the Rust toolchain installed, so that test still needs to run in CI.

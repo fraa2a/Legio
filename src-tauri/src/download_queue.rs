@@ -83,6 +83,11 @@ impl DownloadQueueState {
         Ok(path)
     }
 
+    pub(crate) fn set_bandwidth_limit(&self, bytes_per_second: u64) {
+        self.bandwidth_limit
+            .store(bytes_per_second, Ordering::Relaxed);
+    }
+
     fn path(&self, id: &str, extension: &str) -> Result<PathBuf, String> {
         let id = Uuid::parse_str(id).map_err(|_| "Download ID is invalid".to_owned())?;
         Ok(self.directory()?.join(format!("{id}.{extension}")))
@@ -815,12 +820,11 @@ pub async fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn set_download_bandwidth_limit(app: AppHandle, bytes_per_second: u64) -> Result<(), String> {
-    if bytes_per_second > i64::MAX as u64 {
-        return Err("Bandwidth limit is too large".to_owned());
-    }
+    app.state::<DatabaseState>()
+        .database()?
+        .save_download_bandwidth_limit(bytes_per_second)?;
     app.state::<DownloadQueueState>()
-        .bandwidth_limit
-        .store(bytes_per_second, Ordering::Relaxed);
+        .set_bandwidth_limit(bytes_per_second);
     Ok(())
 }
 
@@ -961,6 +965,9 @@ mod tests {
                          ALTER TABLE downloads DROP COLUMN staged_path;
                          DROP INDEX games_executable_path_idx;
                          ALTER TABLE games DROP COLUMN executable_path;
+                         DROP TABLE game_native_launch_config; DROP TABLE game_sessions;
+                         DROP TABLE game_compatibility_overrides;
+                         DROP TABLE compatibility_defaults;
                          PRAGMA user_version = 7;",
                     )
                     .map_err(db_error)
