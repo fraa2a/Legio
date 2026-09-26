@@ -1,11 +1,65 @@
-use std::{fs, path::Path, sync::Mutex};
+use std::{collections::BTreeMap, fs, path::Path, sync::Mutex};
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 const THEME_KEY: &str = "theme";
-const SCHEMA_VERSION: i64 = 10;
+const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_second";
+const SCHEMA_VERSION: i64 = 13;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeLaunchConfig {
+    pub arguments: Vec<String>,
+    pub working_directory: Option<String>,
+}
+
+/// Persisted defaults for Linux compatibility launches.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CompatibilityDefaults {
+    pub runner_path: Option<String>,
+    /// Root directory where generated per-game prefixes are stored.
+    pub prefix_root: Option<String>,
+    pub arguments_before: Vec<String>,
+    pub arguments_after: Vec<String>,
+    pub working_directory: Option<String>,
+    pub environment: BTreeMap<String, String>,
+    pub dll_overrides: BTreeMap<String, String>,
+}
+
+/// Per-game compatibility values. `None` inherits the global default; an empty
+/// string or argument list clears an inherited scalar or list. Nonempty
+/// environment and DLL maps replace matching keys and retain other default
+/// keys; an empty map clears the full inherited map.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct GameCompatibilityOverrides {
+    pub runner_path: Option<String>,
+    /// Exact prefix directory for this game, overriding the global prefix root.
+    pub prefix_path: Option<String>,
+    pub arguments_before: Option<Vec<String>>,
+    pub arguments_after: Option<Vec<String>>,
+    pub working_directory: Option<String>,
+    pub environment: Option<BTreeMap<String, String>>,
+    pub dll_overrides: Option<BTreeMap<String, String>>,
+}
+
+/// Compatibility values after applying a game's overrides to global defaults.
+/// Prefixes use the global root unless `prefix_path` names a game-specific path.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectiveCompatibilityConfig {
+    pub runner_path: Option<String>,
+    pub prefix_root: Option<String>,
+    pub prefix_path: Option<String>,
+    pub arguments_before: Vec<String>,
+    pub arguments_after: Vec<String>,
+    pub working_directory: Option<String>,
+    pub environment: BTreeMap<String, String>,
+    pub dll_overrides: BTreeMap<String, String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -78,6 +132,14 @@ pub struct Game {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaytimeSummary {
+    pub game_id: String,
+    pub total_milliseconds: i64,
+    pub active_sessions: u32,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AccountCheckStatus {
     NotRequired,
@@ -97,20 +159,24 @@ pub struct AccountCheck {
 }
 
 pub struct DatabaseState {
-    database: Result<Database, String>,
+    database: Result<std::sync::Arc<Database>, String>,
 }
 
 impl DatabaseState {
     pub fn new(data_dir: Result<std::path::PathBuf, tauri::Error>) -> Self {
         let database = data_dir
             .map_err(|error| format!("could not resolve the application data directory: {error}"))
-            .and_then(|data_dir| Database::open(&data_dir));
+            .and_then(|data_dir| Database::open(&data_dir).map(std::sync::Arc::new));
 
         Self { database }
     }
 
     pub(crate) fn database(&self) -> Result<&Database, String> {
-        self.database.as_ref().map_err(Clone::clone)
+        self.database.as_deref().map_err(Clone::clone)
+    }
+
+    pub(crate) fn shared_database(&self) -> Result<std::sync::Arc<Database>, String> {
+        self.database.as_ref().cloned().map_err(Clone::clone)
     }
 }
 
@@ -119,6 +185,64 @@ pub struct Database {
 }
 
 impl Database {
+    pub fn native_launch_config(&self, game_id: &str) -> Result<NativeLaunchConfig, String> {
+        let game_id = parse_game_id(game_id)?;
+        self.with_connection(|connection| {
+            let exists: bool = connection
+                .query_row("SELECT EXISTS(SELECT 1 FROM games WHERE id = ?1)", [&game_id], |row| row.get(0))
+                .map_err(database_error)?;
+            if !exists {
+                return Err("game was not found".to_owned());
+            }
+            let config: Option<(String, Option<String>)> = connection
+                .query_row(
+                    "SELECT arguments, working_directory FROM game_native_launch_config WHERE game_id = ?1",
+                    [&game_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()
+                .map_err(database_error)?;
+            config.map_or_else(
+                || Ok(NativeLaunchConfig::default()),
+                |(arguments, working_directory)| {
+                    let arguments = serde_json::from_str(&arguments)
+                        .map_err(|error| format!("stored native launch arguments are invalid: {error}"))?;
+                    Ok(NativeLaunchConfig { arguments, working_directory })
+                },
+            )
+        })
+    }
+
+    pub fn save_native_launch_config(
+        &self,
+        game_id: &str,
+        config: NativeLaunchConfig,
+    ) -> Result<NativeLaunchConfig, String> {
+        let game_id = parse_game_id(game_id)?;
+        if config
+            .arguments
+            .iter()
+            .any(|argument| argument.contains('\0'))
+            || config
+                .working_directory
+                .as_deref()
+                .is_some_and(|path| path.contains('\0'))
+        {
+            return Err("Native launch settings cannot contain null characters".to_owned());
+        }
+        let arguments = encode_json(&config.arguments)?;
+        self.with_connection(|connection| {
+            let changed = connection.execute(
+                "INSERT INTO game_native_launch_config (game_id, arguments, working_directory)
+                 SELECT ?1, ?2, ?3 WHERE EXISTS (SELECT 1 FROM games WHERE id = ?1)
+                 ON CONFLICT(game_id) DO UPDATE SET arguments = excluded.arguments, working_directory = excluded.working_directory",
+                params![game_id, arguments, config.working_directory],
+            ).map_err(database_error)?;
+            if changed == 0 { return Err("game was not found".to_owned()); }
+            Ok(config)
+        })
+    }
+
     pub(crate) fn open(data_dir: &Path) -> Result<Self, String> {
         fs::create_dir_all(data_dir)
             .map_err(|error| format!("could not create application data directory: {error}"))?;
@@ -129,10 +253,11 @@ impl Database {
             .execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
             .map_err(|error| format!("could not configure the local database: {error}"))?;
         migrate(&connection)?;
-
-        Ok(Self {
+        let database = Self {
             connection: Mutex::new(connection),
-        })
+        };
+        database.recover_open_game_sessions(now_milliseconds())?;
+        Ok(database)
     }
 
     pub fn settings(&self) -> Result<Settings, String> {
@@ -163,6 +288,160 @@ impl Database {
                 )
                 .map_err(database_error)?;
             Ok(settings)
+        })
+    }
+
+    /// Loads the persistent download bandwidth limit. Zero means unlimited.
+    pub fn download_bandwidth_limit(&self) -> Result<u64, String> {
+        self.with_connection(|connection| {
+            let value: Option<String> = connection
+                .query_row(
+                    "SELECT value FROM settings WHERE key = ?1",
+                    [DOWNLOAD_BANDWIDTH_LIMIT_KEY],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(database_error)?;
+            let Some(value) = value else {
+                return Ok(0);
+            };
+            let parsed = value
+                .parse::<u64>()
+                .map_err(|_| "stored download bandwidth limit is invalid".to_owned())?;
+            if parsed > i64::MAX as u64 {
+                return Err("stored download bandwidth limit is too large".to_owned());
+            }
+            Ok(parsed)
+        })
+    }
+
+    /// Stores the global download bandwidth limit. Zero means unlimited.
+    pub fn save_download_bandwidth_limit(&self, bytes_per_second: u64) -> Result<(), String> {
+        if bytes_per_second > i64::MAX as u64 {
+            return Err("Bandwidth limit is too large".to_owned());
+        }
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    params![DOWNLOAD_BANDWIDTH_LIMIT_KEY, bytes_per_second.to_string()],
+                )
+                .map_err(database_error)?;
+            Ok(())
+        })
+    }
+
+    /// Loads the global compatibility defaults, or their empty defaults on a new database.
+    pub fn compatibility_defaults(&self) -> Result<CompatibilityDefaults, String> {
+        self.with_connection(load_compatibility_defaults)
+    }
+
+    /// Resolves global defaults and per-game overrides in one database read.
+    pub fn effective_compatibility_config(
+        &self,
+        game_id: &str,
+    ) -> Result<EffectiveCompatibilityConfig, String> {
+        let game_id = parse_game_id(game_id)?;
+        self.with_connection(|connection| {
+            let defaults = load_compatibility_defaults(connection)?;
+            let overrides = load_game_compatibility_overrides(connection, &game_id)?;
+            Ok(merge_compatibility_config(defaults, overrides))
+        })
+    }
+
+    /// Saves the global compatibility defaults.
+    pub fn save_compatibility_defaults(
+        &self,
+        defaults: CompatibilityDefaults,
+    ) -> Result<CompatibilityDefaults, String> {
+        let arguments_before = encode_json(&defaults.arguments_before)?;
+        let arguments_after = encode_json(&defaults.arguments_after)?;
+        let environment = encode_json(&defaults.environment)?;
+        let dll_overrides = encode_json(&defaults.dll_overrides)?;
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "INSERT INTO compatibility_defaults
+                        (id, runner_path, prefix_root, arguments_before,
+                         arguments_after, working_directory, environment, dll_overrides)
+                     VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                     ON CONFLICT(id) DO UPDATE SET
+                        runner_path = excluded.runner_path,
+                        prefix_root = excluded.prefix_root,
+                        arguments_before = excluded.arguments_before,
+                        arguments_after = excluded.arguments_after,
+                        working_directory = excluded.working_directory,
+                        environment = excluded.environment,
+                        dll_overrides = excluded.dll_overrides",
+                    params![
+                        defaults.runner_path,
+                        defaults.prefix_root,
+                        arguments_before,
+                        arguments_after,
+                        defaults.working_directory,
+                        environment,
+                        dll_overrides
+                    ],
+                )
+                .map_err(database_error)?;
+            Ok(defaults)
+        })
+    }
+
+    /// Loads a game's compatibility overrides. Missing fields inherit global defaults.
+    pub fn game_compatibility_overrides(
+        &self,
+        game_id: &str,
+    ) -> Result<GameCompatibilityOverrides, String> {
+        let game_id = parse_game_id(game_id)?;
+        self.with_connection(|connection| load_game_compatibility_overrides(connection, &game_id))
+    }
+
+    /// Replaces a game's compatibility overrides. `None` fields inherit defaults;
+    /// empty collections are retained and explicitly clear inherited collections.
+    pub fn save_game_compatibility_overrides(
+        &self,
+        game_id: &str,
+        overrides: GameCompatibilityOverrides,
+    ) -> Result<GameCompatibilityOverrides, String> {
+        let game_id = parse_game_id(game_id)?;
+        let arguments_before = encode_optional_json(&overrides.arguments_before)?;
+        let arguments_after = encode_optional_json(&overrides.arguments_after)?;
+        let environment = encode_optional_json(&overrides.environment)?;
+        let dll_overrides = encode_optional_json(&overrides.dll_overrides)?;
+        self.with_connection(|connection| {
+            let changed = connection
+                .execute(
+                    "INSERT INTO game_compatibility_overrides
+                        (game_id, runner_path, prefix_path, arguments_before,
+                         arguments_after, working_directory, environment, dll_overrides)
+                     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+                     WHERE EXISTS (SELECT 1 FROM games WHERE id = ?1)
+                     ON CONFLICT(game_id) DO UPDATE SET
+                        runner_path = excluded.runner_path,
+                        prefix_path = excluded.prefix_path,
+                        arguments_before = excluded.arguments_before,
+                        arguments_after = excluded.arguments_after,
+                        working_directory = excluded.working_directory,
+                        environment = excluded.environment,
+                        dll_overrides = excluded.dll_overrides",
+                    params![
+                        game_id,
+                        overrides.runner_path,
+                        overrides.prefix_path,
+                        arguments_before,
+                        arguments_after,
+                        overrides.working_directory,
+                        environment,
+                        dll_overrides
+                    ],
+                )
+                .map_err(database_error)?;
+            if changed == 0 {
+                return Err("game was not found".to_owned());
+            }
+            Ok(overrides)
         })
     }
 
@@ -295,6 +574,89 @@ impl Database {
             if changed == 0 {
                 return Err("game was not found".to_owned());
             }
+            Ok(())
+        })
+    }
+
+    pub(crate) fn start_game_session(&self, game_id: &str, now: i64) -> Result<(), String> {
+        let game_id = parse_game_id(game_id)?;
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "INSERT INTO game_sessions (game_id, started_at, last_seen_at)
+                     VALUES (?1, ?2, ?2)",
+                    params![game_id, now],
+                )
+                .map_err(database_error)?;
+            Ok(())
+        })
+    }
+
+    pub(crate) fn heartbeat_game_session(&self, game_id: &str, now: i64) -> Result<(), String> {
+        let game_id = parse_game_id(game_id)?;
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "UPDATE game_sessions SET last_seen_at = ?2
+                     WHERE game_id = ?1 AND ended_at IS NULL",
+                    params![game_id, now],
+                )
+                .map_err(database_error)?;
+            Ok(())
+        })
+    }
+
+    pub(crate) fn end_game_session(&self, game_id: &str, now: i64) -> Result<(), String> {
+        let game_id = parse_game_id(game_id)?;
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "UPDATE game_sessions SET ended_at = ?2, last_seen_at = ?2,
+                         end_reason = 'finished'
+                     WHERE game_id = ?1 AND ended_at IS NULL",
+                    params![game_id, now],
+                )
+                .map_err(database_error)?;
+            Ok(())
+        })
+    }
+
+    pub(crate) fn playtime_summaries(&self, now: i64) -> Result<Vec<PlaytimeSummary>, String> {
+        self.with_connection(|connection| {
+            let mut statement = connection
+                .prepare(
+                    "SELECT g.id,
+                         COALESCE(SUM(CASE WHEN s.ended_at IS NULL
+                             THEN MAX(0, ?1 - s.started_at)
+                             ELSE MAX(0, s.ended_at - s.started_at) END), 0),
+                         SUM(CASE WHEN s.id IS NOT NULL AND s.ended_at IS NULL THEN 1 ELSE 0 END)
+                     FROM games g LEFT JOIN game_sessions s ON s.game_id = g.id
+                     GROUP BY g.id ORDER BY g.id",
+                )
+                .map_err(database_error)?;
+            let rows = statement
+                .query_map([now], |row| {
+                    Ok(PlaytimeSummary {
+                        game_id: row.get(0)?,
+                        total_milliseconds: row.get(1)?,
+                        active_sessions: row.get::<_, Option<u32>>(2)?.unwrap_or(0),
+                    })
+                })
+                .map_err(database_error)?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(database_error)
+        })
+    }
+
+    fn recover_open_game_sessions(&self, now: i64) -> Result<(), String> {
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "UPDATE game_sessions SET ended_at = last_seen_at,
+                         end_reason = 'interrupted'
+                     WHERE ended_at IS NULL AND last_seen_at <= ?1",
+                    [now],
+                )
+                .map_err(database_error)?;
             Ok(())
         })
     }
@@ -493,7 +855,228 @@ fn migrate(connection: &Connection) -> Result<(), String> {
              PRAGMA user_version = 10;"
         ).map_err(database_error)?;
     }
+    if version < 11 {
+        transaction
+            .execute_batch(
+                "CREATE TABLE compatibility_defaults (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    runner_path TEXT,
+                    prefix_root TEXT,
+                    arguments_before TEXT NOT NULL,
+                    arguments_after TEXT NOT NULL,
+                    working_directory TEXT,
+                    environment TEXT NOT NULL,
+                    dll_overrides TEXT NOT NULL
+                 );
+                 INSERT INTO compatibility_defaults
+                    (id, arguments_before, arguments_after, environment, dll_overrides)
+                 VALUES (1, '[]', '[]', '{}', '{}');
+                 CREATE TABLE game_compatibility_overrides (
+                    game_id TEXT PRIMARY KEY NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                    runner_path TEXT,
+                    prefix_path TEXT,
+                    arguments_before TEXT,
+                    arguments_after TEXT,
+                    working_directory TEXT,
+                    environment TEXT,
+                    dll_overrides TEXT
+                 );
+                 PRAGMA user_version = 11;",
+            )
+            .map_err(database_error)?;
+    }
+    if version < 12 {
+        transaction
+            .execute_batch(
+                "CREATE TABLE game_sessions (
+                    id INTEGER PRIMARY KEY,
+                    game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                    started_at INTEGER NOT NULL,
+                    last_seen_at INTEGER NOT NULL,
+                    ended_at INTEGER,
+                    end_reason TEXT CHECK (end_reason IN ('finished', 'interrupted')),
+                    CHECK (last_seen_at >= started_at),
+                    CHECK (ended_at IS NULL OR ended_at >= started_at)
+                 );
+                 CREATE INDEX game_sessions_game_id_started_at_idx
+                    ON game_sessions (game_id, started_at);
+                 PRAGMA user_version = 12;",
+            )
+            .map_err(database_error)?;
+    }
+    if version < 13 {
+        transaction
+            .execute_batch(
+                "CREATE TABLE game_native_launch_config (
+                game_id TEXT PRIMARY KEY NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                arguments TEXT NOT NULL DEFAULT '[]',
+                working_directory TEXT
+             );
+             PRAGMA user_version = 13;",
+            )
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
+}
+
+pub(crate) fn now_milliseconds() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(i64::MAX as u128) as i64
+}
+
+fn load_compatibility_defaults(connection: &Connection) -> Result<CompatibilityDefaults, String> {
+    let (
+        runner_path,
+        prefix_root,
+        arguments_before,
+        arguments_after,
+        working_directory,
+        environment,
+        dll_overrides,
+    ) = connection
+        .query_row(
+            "SELECT runner_path, prefix_root, arguments_before,
+                    arguments_after, working_directory, environment, dll_overrides
+             FROM compatibility_defaults WHERE id = 1",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                ))
+            },
+        )
+        .map_err(database_error)?;
+    Ok(CompatibilityDefaults {
+        runner_path,
+        prefix_root,
+        arguments_before: decode_json(&arguments_before)?,
+        arguments_after: decode_json(&arguments_after)?,
+        working_directory,
+        environment: decode_json(&environment)?,
+        dll_overrides: decode_json(&dll_overrides)?,
+    })
+}
+
+fn load_game_compatibility_overrides(
+    connection: &Connection,
+    game_id: &str,
+) -> Result<GameCompatibilityOverrides, String> {
+    let stored = connection
+        .query_row(
+            "SELECT o.runner_path, o.prefix_path, o.arguments_before,
+                    o.arguments_after, o.working_directory, o.environment, o.dll_overrides
+             FROM games AS g
+             LEFT JOIN game_compatibility_overrides AS o ON o.game_id = g.id
+             WHERE g.id = ?1",
+            [game_id],
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(database_error)?;
+    let Some((
+        runner_path,
+        prefix_path,
+        arguments_before,
+        arguments_after,
+        working_directory,
+        environment,
+        dll_overrides,
+    )) = stored
+    else {
+        return Err("game was not found".to_owned());
+    };
+    Ok(GameCompatibilityOverrides {
+        runner_path,
+        prefix_path,
+        arguments_before: decode_optional_json(arguments_before)?,
+        arguments_after: decode_optional_json(arguments_after)?,
+        working_directory,
+        environment: decode_optional_json(environment)?,
+        dll_overrides: decode_optional_json(dll_overrides)?,
+    })
+}
+
+fn merge_compatibility_config(
+    defaults: CompatibilityDefaults,
+    overrides: GameCompatibilityOverrides,
+) -> EffectiveCompatibilityConfig {
+    let mut environment = defaults.environment;
+    if let Some(override_values) = overrides.environment {
+        if override_values.is_empty() {
+            environment.clear();
+        } else {
+            environment.extend(override_values);
+        }
+    }
+
+    let mut dll_overrides = defaults.dll_overrides;
+    if let Some(override_values) = overrides.dll_overrides {
+        if override_values.is_empty() {
+            dll_overrides.clear();
+        } else {
+            dll_overrides.extend(override_values);
+        }
+    }
+
+    EffectiveCompatibilityConfig {
+        runner_path: overrides
+            .runner_path
+            .or(defaults.runner_path)
+            .filter(|value| !value.is_empty()),
+        prefix_root: defaults.prefix_root.filter(|value| !value.is_empty()),
+        prefix_path: overrides.prefix_path.filter(|value| !value.is_empty()),
+        arguments_before: overrides
+            .arguments_before
+            .unwrap_or(defaults.arguments_before),
+        arguments_after: overrides
+            .arguments_after
+            .unwrap_or(defaults.arguments_after),
+        working_directory: overrides
+            .working_directory
+            .or(defaults.working_directory)
+            .filter(|value| !value.is_empty()),
+        environment,
+        dll_overrides,
+    }
+}
+
+fn encode_json<T: Serialize>(value: &T) -> Result<String, String> {
+    serde_json::to_string(value)
+        .map_err(|error| format!("could not encode compatibility setting: {error}"))
+}
+
+fn decode_json<T: for<'de> Deserialize<'de>>(value: &str) -> Result<T, String> {
+    serde_json::from_str(value)
+        .map_err(|error| format!("stored compatibility setting is invalid: {error}"))
+}
+
+fn encode_optional_json<T: Serialize>(value: &Option<T>) -> Result<Option<String>, String> {
+    value.as_ref().map(encode_json).transpose()
+}
+
+fn decode_optional_json<T: for<'de> Deserialize<'de>>(
+    value: Option<String>,
+) -> Result<Option<T>, String> {
+    value.map(|value| decode_json(&value)).transpose()
 }
 
 pub(crate) fn game_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Game> {
@@ -638,7 +1221,7 @@ mod tests {
     fn migrates_v9_staged_download_for_finalization() {
         let connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
-        connection.execute_batch("INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at, staged_path) VALUES ('job', 42, 'Game', '1', 'https://example.test', 'hash', 4, 'staged', 1, 1, '/stage'); ALTER TABLE downloads DROP COLUMN install_token; ALTER TABLE downloads DROP COLUMN executable_relative; ALTER TABLE downloads DROP COLUMN final_path; PRAGMA user_version = 9;").unwrap();
+        connection.execute_batch("INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at, staged_path) VALUES ('job', 42, 'Game', '1', 'https://example.test', 'hash', 4, 'staged', 1, 1, '/stage'); ALTER TABLE downloads DROP COLUMN install_token; ALTER TABLE downloads DROP COLUMN executable_relative; ALTER TABLE downloads DROP COLUMN final_path; DROP TABLE game_native_launch_config; DROP TABLE game_sessions; DROP TABLE game_compatibility_overrides; DROP TABLE compatibility_defaults; PRAGMA user_version = 9;").unwrap();
         migrate(&connection).unwrap();
         let row: (String, String, Option<String>) = connection
             .query_row(
@@ -651,7 +1234,35 @@ mod tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 10);
+        assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn migration_11_adds_compatibility_storage_without_changing_existing_games() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        connection
+            .execute_batch(
+                "DROP TABLE game_compatibility_overrides;
+                 DROP TABLE game_native_launch_config; DROP TABLE game_sessions;
+                 DROP TABLE compatibility_defaults;
+                 INSERT INTO games (id, name_override) VALUES ('00000000-0000-0000-0000-000000000001', 'Existing');
+                 PRAGMA user_version = 10;",
+            )
+            .unwrap();
+        migrate(&connection).unwrap();
+        let game_name: String = connection
+            .query_row(
+                "SELECT name_override FROM games WHERE id = '00000000-0000-0000-0000-000000000001'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(game_name, "Existing");
+        assert_eq!(version, SCHEMA_VERSION);
     }
 
     #[test]
@@ -664,6 +1275,9 @@ mod tests {
              ALTER TABLE downloads DROP COLUMN install_token;
              ALTER TABLE downloads DROP COLUMN executable_relative;
              ALTER TABLE downloads DROP COLUMN final_path;
+             DROP TABLE game_compatibility_overrides;
+             DROP TABLE game_native_launch_config; DROP TABLE game_sessions;
+             DROP TABLE compatibility_defaults;
              DROP INDEX games_executable_path_idx;
              ALTER TABLE games DROP COLUMN executable_path;
              PRAGMA user_version = 8;",
@@ -789,6 +1403,51 @@ mod tests {
     }
 
     #[test]
+    fn native_launch_config_persists_and_rejects_null_arguments() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        assert_eq!(
+            database
+                .native_launch_config(&Uuid::new_v4().to_string())
+                .unwrap_err(),
+            "game was not found"
+        );
+        let game = database
+            .create_game(CreateGameInput {
+                name: "Native test".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        assert_eq!(
+            database.native_launch_config(&game.id).unwrap(),
+            NativeLaunchConfig::default()
+        );
+        let config = NativeLaunchConfig {
+            arguments: vec!["--profile".to_owned(), "Player One".to_owned()],
+            working_directory: Some("C:\\Games\\Test".to_owned()),
+        };
+        database
+            .save_native_launch_config(&game.id, config.clone())
+            .unwrap();
+        assert!(
+            database
+                .save_native_launch_config(
+                    &game.id,
+                    NativeLaunchConfig {
+                        arguments: vec!["bad\0argument".to_owned()],
+                        working_directory: None,
+                    }
+                )
+                .is_err()
+        );
+        drop(database);
+        let database = Database::open(&directory).unwrap();
+        assert_eq!(database.native_launch_config(&game.id).unwrap(), config);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn game_lookup_rejects_invalid_and_missing_ids() {
         let directory = temporary_directory();
         let database = Database::open(&directory).unwrap();
@@ -838,6 +1497,323 @@ mod tests {
             }
         );
         assert_eq!(reopened.games().unwrap(), vec![enriched]);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn download_bandwidth_limit_defaults_to_unlimited_and_survives_reopen() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        assert_eq!(database.download_bandwidth_limit().unwrap(), 0);
+
+        database.save_download_bandwidth_limit(1_500_000).unwrap();
+        assert_eq!(database.download_bandwidth_limit().unwrap(), 1_500_000);
+        assert!(
+            database
+                .save_download_bandwidth_limit(i64::MAX as u64 + 1)
+                .is_err()
+        );
+
+        drop(database);
+        let reopened = Database::open(&directory).unwrap();
+        assert_eq!(reopened.download_bandwidth_limit().unwrap(), 1_500_000);
+        reopened.save_download_bandwidth_limit(0).unwrap();
+        assert_eq!(reopened.download_bandwidth_limit().unwrap(), 0);
+        drop(reopened);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn playtime_summaries_include_active_and_finished_sessions_per_game() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let first = database
+            .create_game(CreateGameInput {
+                name: "First game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        let second = database
+            .create_game(CreateGameInput {
+                name: "Second game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        let untouched = database
+            .create_game(CreateGameInput {
+                name: "Untouched game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+
+        database.start_game_session(&first.id, 1_000).unwrap();
+        database.heartbeat_game_session(&first.id, 2_000).unwrap();
+        database.end_game_session(&first.id, 3_000).unwrap();
+        database.start_game_session(&first.id, 4_000).unwrap();
+        database.start_game_session(&second.id, 4_500).unwrap();
+
+        let summaries = database.playtime_summaries(10_000).unwrap();
+        let first_summary = summaries
+            .iter()
+            .find(|item| item.game_id == first.id)
+            .unwrap();
+        let second_summary = summaries
+            .iter()
+            .find(|item| item.game_id == second.id)
+            .unwrap();
+        let untouched_summary = summaries
+            .iter()
+            .find(|item| item.game_id == untouched.id)
+            .unwrap();
+        assert_eq!(first_summary.total_milliseconds, 8_000);
+        assert_eq!(first_summary.active_sessions, 1);
+        assert_eq!(second_summary.total_milliseconds, 5_500);
+        assert_eq!(second_summary.active_sessions, 1);
+        assert_eq!(untouched_summary.total_milliseconds, 0);
+        assert_eq!(untouched_summary.active_sessions, 0);
+
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn reopening_recovers_open_sessions_at_the_last_heartbeat() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let game = database
+            .create_game(CreateGameInput {
+                name: "Interrupted game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        database.start_game_session(&game.id, 1_000).unwrap();
+        database.heartbeat_game_session(&game.id, 2_500).unwrap();
+        drop(database);
+
+        let reopened = Database::open(&directory).unwrap();
+        let summaries = reopened.playtime_summaries(10_000).unwrap();
+        assert_eq!(summaries[0].total_milliseconds, 1_500);
+        assert_eq!(summaries[0].active_sessions, 0);
+        let reason: String = reopened
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT end_reason FROM game_sessions WHERE game_id = ?1",
+                        [&game.id],
+                        |row| row.get(0),
+                    )
+                    .map_err(database_error)
+            })
+            .unwrap();
+        assert_eq!(reason, "interrupted");
+        drop(reopened);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn compatibility_settings_persist_and_empty_game_values_clear_inherited_collections() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let game = database
+            .create_game(CreateGameInput {
+                name: "Compatibility test".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+
+        let mut environment = BTreeMap::new();
+        environment.insert("WINEDEBUG".to_owned(), "-all".to_owned());
+        let defaults = CompatibilityDefaults {
+            runner_path: Some("/usr/bin/wine".to_owned()),
+            prefix_root: Some("/prefixes".to_owned()),
+            arguments_before: vec!["-windowed".to_owned()],
+            arguments_after: Vec::new(),
+            working_directory: Some("/games/default".to_owned()),
+            environment,
+            dll_overrides: BTreeMap::new(),
+        };
+        assert_eq!(
+            database
+                .save_compatibility_defaults(defaults.clone())
+                .unwrap(),
+            defaults
+        );
+
+        let overrides = GameCompatibilityOverrides {
+            arguments_before: Some(Vec::new()),
+            environment: Some(BTreeMap::new()),
+            ..GameCompatibilityOverrides::default()
+        };
+        assert_eq!(
+            database
+                .save_game_compatibility_overrides(&game.id, overrides.clone())
+                .unwrap(),
+            overrides
+        );
+        drop(database);
+
+        let reopened = Database::open(&directory).unwrap();
+        assert_eq!(reopened.compatibility_defaults().unwrap(), defaults);
+        let stored = reopened.game_compatibility_overrides(&game.id).unwrap();
+        assert_eq!(stored, overrides);
+        assert_eq!(stored.runner_path, None);
+        assert_eq!(stored.arguments_before, Some(Vec::new()));
+        assert_eq!(stored.environment, Some(BTreeMap::new()));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn compatibility_override_save_rejects_unknown_game() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        assert_eq!(
+            database
+                .save_game_compatibility_overrides(
+                    "00000000-0000-0000-0000-000000000001",
+                    GameCompatibilityOverrides::default(),
+                )
+                .unwrap_err(),
+            "game was not found"
+        );
+        assert_eq!(
+            database
+                .game_compatibility_overrides("00000000-0000-0000-0000-000000000001")
+                .unwrap_err(),
+            "game was not found"
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn effective_compatibility_config_merges_defaults_and_game_values() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let game = database
+            .create_game(CreateGameInput {
+                name: "Effective config".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        let mut default_environment = BTreeMap::new();
+        default_environment.insert("A".to_owned(), "default-a".to_owned());
+        default_environment.insert("B".to_owned(), "default-b".to_owned());
+        let mut default_dlls = BTreeMap::new();
+        default_dlls.insert("d3d11".to_owned(), "native".to_owned());
+        database
+            .save_compatibility_defaults(CompatibilityDefaults {
+                runner_path: Some("/usr/bin/wine".to_owned()),
+                prefix_root: Some("/prefixes".to_owned()),
+                arguments_before: vec!["default-before".to_owned()],
+                arguments_after: vec!["default-after".to_owned()],
+                working_directory: Some("/games/default".to_owned()),
+                environment: default_environment,
+                dll_overrides: default_dlls,
+            })
+            .unwrap();
+        let mut environment = BTreeMap::new();
+        environment.insert("B".to_owned(), "game-b".to_owned());
+        environment.insert("C".to_owned(), "game-c".to_owned());
+        let mut dlls = BTreeMap::new();
+        dlls.insert("d3d11".to_owned(), "builtin".to_owned());
+        dlls.insert("dxgi".to_owned(), "native".to_owned());
+        database
+            .save_game_compatibility_overrides(
+                &game.id,
+                GameCompatibilityOverrides {
+                    runner_path: Some("/opt/wine-custom".to_owned()),
+                    prefix_path: Some("/prefixes/custom".to_owned()),
+                    arguments_before: Some(vec!["game-before".to_owned()]),
+                    working_directory: Some(String::new()),
+                    environment: Some(environment),
+                    dll_overrides: Some(dlls),
+                    ..GameCompatibilityOverrides::default()
+                },
+            )
+            .unwrap();
+
+        let effective = database.effective_compatibility_config(&game.id).unwrap();
+        assert_eq!(effective.runner_path.as_deref(), Some("/opt/wine-custom"));
+        assert_eq!(effective.prefix_root.as_deref(), Some("/prefixes"));
+        assert_eq!(effective.prefix_path.as_deref(), Some("/prefixes/custom"));
+        assert_eq!(effective.arguments_before, vec!["game-before"]);
+        assert_eq!(effective.arguments_after, vec!["default-after"]);
+        assert_eq!(effective.working_directory, None);
+        assert_eq!(
+            effective.environment.get("A").map(String::as_str),
+            Some("default-a")
+        );
+        assert_eq!(
+            effective.environment.get("B").map(String::as_str),
+            Some("game-b")
+        );
+        assert_eq!(
+            effective.environment.get("C").map(String::as_str),
+            Some("game-c")
+        );
+        assert_eq!(
+            effective.dll_overrides.get("d3d11").map(String::as_str),
+            Some("builtin")
+        );
+        assert_eq!(
+            effective.dll_overrides.get("dxgi").map(String::as_str),
+            Some("native")
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn effective_compatibility_config_empty_values_clear_defaults() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let game = database
+            .create_game(CreateGameInput {
+                name: "Clear config".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        let mut default_environment = BTreeMap::new();
+        default_environment.insert("A".to_owned(), "default".to_owned());
+        let mut default_dlls = BTreeMap::new();
+        default_dlls.insert("d3d11".to_owned(), "native".to_owned());
+        database
+            .save_compatibility_defaults(CompatibilityDefaults {
+                runner_path: Some("/usr/bin/wine".to_owned()),
+                prefix_root: Some("/prefixes".to_owned()),
+                arguments_before: vec!["default".to_owned()],
+                arguments_after: vec!["default".to_owned()],
+                working_directory: Some("/games/default".to_owned()),
+                environment: default_environment,
+                dll_overrides: default_dlls,
+            })
+            .unwrap();
+        database
+            .save_game_compatibility_overrides(
+                &game.id,
+                GameCompatibilityOverrides {
+                    runner_path: Some(String::new()),
+                    prefix_path: Some(String::new()),
+                    arguments_before: Some(Vec::new()),
+                    arguments_after: Some(Vec::new()),
+                    working_directory: Some(String::new()),
+                    environment: Some(BTreeMap::new()),
+                    dll_overrides: Some(BTreeMap::new()),
+                },
+            )
+            .unwrap();
+
+        assert_eq!(
+            database.effective_compatibility_config(&game.id).unwrap(),
+            EffectiveCompatibilityConfig {
+                runner_path: None,
+                prefix_root: Some("/prefixes".to_owned()),
+                prefix_path: None,
+                arguments_before: Vec::new(),
+                arguments_after: Vec::new(),
+                working_directory: None,
+                environment: BTreeMap::new(),
+                dll_overrides: BTreeMap::new(),
+            }
+        );
         fs::remove_dir_all(directory).unwrap();
     }
 

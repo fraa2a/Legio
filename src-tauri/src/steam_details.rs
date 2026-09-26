@@ -564,7 +564,7 @@ mod tests {
         database
             .with_connection(|connection| {
                 connection
-                    .execute_batch("DROP TABLE downloads; DROP TABLE steam_details_cache; DROP INDEX games_executable_path_idx; ALTER TABLE games DROP COLUMN executable_path; ALTER TABLE games DROP COLUMN steam_account_id; PRAGMA user_version = 3;")
+                    .execute_batch("DROP TABLE downloads; DROP TABLE steam_details_cache; DROP TABLE game_native_launch_config; DROP TABLE game_sessions; DROP TABLE game_compatibility_overrides; DROP TABLE compatibility_defaults; DROP INDEX games_executable_path_idx; ALTER TABLE games DROP COLUMN executable_path; ALTER TABLE games DROP COLUMN steam_account_id; PRAGMA user_version = 3;")
                     .map_err(database_error)
             })
             .unwrap();

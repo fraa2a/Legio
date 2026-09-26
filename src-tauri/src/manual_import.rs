@@ -1,6 +1,6 @@
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 use rusqlite::{OptionalExtension, params};
@@ -22,6 +22,21 @@ pub struct ExecutableCandidate {
 pub struct ExecutableScan {
     pub candidates: Vec<ExecutableCandidate>,
     pub selected_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StagedExecutableCandidate {
+    pub relative_path: String,
+    pub score: u32,
+    pub signals: Vec<&'static str>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StagedExecutableScan {
+    pub candidates: Vec<StagedExecutableCandidate>,
+    pub selected_relative_path: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -108,6 +123,65 @@ pub fn scan_directory(directory: &str, game_name: Option<&str>) -> Result<Execut
         candidates,
         selected_path,
     })
+}
+
+pub(crate) fn scan_staged_directory(
+    directory: &Path,
+    game_name: Option<&str>,
+) -> Result<StagedExecutableScan, String> {
+    let root = fs::canonicalize(directory)
+        .map_err(|error| format!("could not open staged game directory: {error}"))?;
+    if !root.is_dir() {
+        return Err("staged game path is not a directory".to_owned());
+    }
+    let root_text = root.to_str().ok_or("staged game path is not valid UTF-8")?;
+    let scan = scan_directory(root_text, game_name)?;
+    let candidates = scan
+        .candidates
+        .into_iter()
+        .map(|candidate| {
+            let path = Path::new(&candidate.path);
+            let relative = path
+                .strip_prefix(&root)
+                .map_err(|_| "scanned executable is outside the staged game directory")?;
+            let relative_path = portable_relative_path(relative)?;
+            Ok(StagedExecutableCandidate {
+                relative_path,
+                score: candidate.score,
+                signals: candidate.signals,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let selected_relative_path = scan
+        .selected_path
+        .map(|selected| {
+            let relative = Path::new(&selected)
+                .strip_prefix(&root)
+                .map_err(|_| "selected executable is outside the staged game directory")?;
+            portable_relative_path(relative)
+        })
+        .transpose()?;
+    Ok(StagedExecutableScan {
+        candidates,
+        selected_relative_path,
+    })
+}
+
+fn portable_relative_path(path: &Path) -> Result<String, String> {
+    let components = path
+        .components()
+        .map(|component| match component {
+            Component::Normal(value) => value
+                .to_str()
+                .filter(|value| !value.contains('\\'))
+                .ok_or_else(|| "executable path is not valid UTF-8 or portable".to_owned()),
+            _ => Err("executable path contains an invalid component".to_owned()),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if components.is_empty() {
+        return Err("executable path is empty".to_owned());
+    }
+    Ok(components.join("/"))
 }
 
 pub fn import(state: &DatabaseState, input: ManualImportInput) -> Result<Game, String> {
@@ -274,6 +348,17 @@ mod tests {
         fs::write(root.join("B.exe"), []).unwrap();
         let scan = scan_directory(root.to_str().unwrap(), None).unwrap();
         assert_eq!(scan.selected_path, None);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn staged_scan_returns_paths_relative_to_its_root() {
+        let root = fixture();
+        fs::create_dir(root.join("bin")).unwrap();
+        fs::write(root.join("bin/Game.exe"), []).unwrap();
+        let scan = scan_staged_directory(&root, Some("Game")).unwrap();
+        assert_eq!(scan.selected_relative_path.as_deref(), Some("bin/Game.exe"));
+        assert_eq!(scan.candidates[0].relative_path, "bin/Game.exe");
         fs::remove_dir_all(root).unwrap();
     }
 

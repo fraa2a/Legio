@@ -50,16 +50,28 @@ pub(crate) fn resolve_runner(path: &str) -> Result<InstalledRunner, String> {
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn launch_command(runner: &InstalledRunner, executable: &Path) -> Command {
+pub(crate) fn launch_command(
+    runner: &InstalledRunner,
+    executable: &Path,
+    arguments_before: &[String],
+    arguments_after: &[String],
+) -> Command {
     match runner.kind {
         RunnerKind::Proton | RunnerKind::GeProton => {
             let mut command = Command::new(Path::new(&runner.path).join("proton"));
-            command.arg("run").arg(executable);
+            command
+                .arg("run")
+                .args(arguments_before)
+                .arg(executable)
+                .args(arguments_after);
             command
         }
         RunnerKind::Wine => {
             let mut command = Command::new(&runner.path);
-            command.arg(executable);
+            command
+                .args(arguments_before)
+                .arg(executable)
+                .args(arguments_after);
             command
         }
     }
@@ -314,6 +326,28 @@ mod tests {
         fs::write(&path, contents).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
         path
+    }
+
+    #[test]
+    fn launch_command_keeps_runner_arguments_structured() {
+        let runner = InstalledRunner {
+            kind: RunnerKind::Wine,
+            name: "Wine".to_owned(),
+            version: "9.0".to_owned(),
+            path: "/usr/bin/wine".to_owned(),
+        };
+        let before = vec!["-windowed".to_owned()];
+        let after = vec!["-safe".to_owned(), "two words".to_owned()];
+        let command = launch_command(&runner, Path::new("/games/game.exe"), &before, &after);
+        let arguments = command
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            arguments,
+            ["-windowed", "/games/game.exe", "-safe", "two words"]
+        );
     }
 
     #[test]

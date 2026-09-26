@@ -25,14 +25,19 @@ mod steam_vdf;
 pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
         .setup(|app| {
-            app.manage(database::DatabaseState::new(app.path().app_data_dir()));
-            app.manage(
-                download_queue::DownloadQueueState::new(
-                    app.path().app_data_dir(),
-                    &app.package_info().version.to_string(),
-                )
-                .map_err(std::io::Error::other)?,
-            );
+            let database = database::DatabaseState::new(app.path().app_data_dir());
+            let bandwidth_limit = database
+                .database()
+                .and_then(database::Database::download_bandwidth_limit)
+                .map_err(std::io::Error::other)?;
+            app.manage(database);
+            let download_queue = download_queue::DownloadQueueState::new(
+                app.path().app_data_dir(),
+                &app.package_info().version.to_string(),
+            )
+            .map_err(std::io::Error::other)?;
+            download_queue.set_bandwidth_limit(bandwidth_limit);
+            app.manage(download_queue);
             download_queue::start(app.handle().clone()).map_err(std::io::Error::other)?;
             app.manage(game_lifecycle::GameLaunchManager::new());
             let diagnostics = diagnostics::Diagnostics::new(
@@ -55,12 +60,21 @@ pub fn run() -> tauri::Result<()> {
             commands::get_app_info,
             commands::get_settings,
             commands::save_settings,
+            commands::get_compatibility_defaults,
+            commands::save_compatibility_defaults,
+            commands::get_game_compatibility_overrides,
+            commands::save_game_compatibility_overrides,
+            commands::get_native_launch_config,
+            commands::save_native_launch_config,
             commands::list_games,
+            commands::get_playtime_summaries,
             commands::create_game,
             commands::update_game,
             commands::remove_game,
             commands::launch_steam_game,
             commands::launch_game_with_runner,
+            commands::launch_configured_game_with_runner,
+            commands::launch_native_game,
             commands::list_game_launch_states,
             commands::cancel_game_launch,
             commands::stop_game,
@@ -79,6 +93,7 @@ pub fn run() -> tauri::Result<()> {
             download_queue::list_downloads,
             download_queue::stage_download,
             finalize_install::finalize_download,
+            finalize_install::scan_staged_executables,
             download_queue::queue_download,
             download_queue::pause_download,
             download_queue::resume_download,

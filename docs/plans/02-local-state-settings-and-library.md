@@ -60,6 +60,7 @@ None.
 - 2026-09-21: Phase completed. Rust owns SQLite initialization at the Tauri application-data path through one managed connection. Schema version 1 stores the current theme setting and local-library records only.
 - 2026-09-21: Selected bundled rusqlite with transactional PRAGMA user_version migrations and Rust-generated UUID game IDs. Theme is the first implemented setting and applies to the verification surface. The other canonical settings remain deferred until their consumers exist.
 - 2026-09-21: Added functional settings and library API testing controls. The native window initialized its local database, and automated persistence tests proved restart retention, override-preserving enrichment, rejected invalid updates, and unsupported-schema recovery.
+- 2026-09-24: Extended the typed local settings store with the download bandwidth limit. It defaults to zero (unlimited), persists through the existing settings key/value table, rejects values above SQLite's supported integer range, and is restored into the Rust download queue at startup. This is backend-only; the existing testing surface has not been changed.
 
 ### Milestone evidence
 

@@ -97,10 +97,23 @@ These commands are available on `main` after PR #35.
 | `save_game_compatibility_overrides` | `{ gameId, overrides }` | saved overrides |
 | `list_compatibility_runners` | none | `{ runners, diagnostics }` |
 | `launch_configured_game_with_runner` | `{ gameId }` | starts configured manual game |
+| `get_playtime_summaries` | none | per-game session totals in milliseconds |
+
+`get_playtime_summaries` returns `{ gameId, totalMilliseconds, activeSessions }` for each local game. Active totals are calculated through the request time. The backend starts a session after detecting the game process, closes it after the lifecycle monitor observes exit, and recovers sessions left open by a crash at their last heartbeat. Different games may have overlapping session time.
 
 Defaults have `runnerPath`, `prefixRoot`, `argumentsBefore`, `argumentsAfter`, `workingDirectory`, `environment`, and `dllOverrides`. Per-game overrides have those settings plus `prefixPath`. For scalar/list values, `null` inherits; an empty string/list clears an inherited value. Environment and DLL maps merge by key; an empty map clears all inherited entries. Saving settings persists them, but the UI should not imply that settings were applied until the save command succeeds.
 
 `launch_game_with_runner({ gameId, runnerPath })` is an explicit-runner testing command. Production UI should use `launch_configured_game_with_runner` after selecting settings. Runner discovery and configured launch are Linux-only; on other platforms discovery returns no runners and a diagnostic.
+
+### Native Windows manual games
+
+| Command | Arguments | Result |
+| --- | --- | --- |
+| `get_native_launch_config` | `{ gameId }` | `{ arguments: string[], workingDirectory: string | null }` |
+| `save_native_launch_config` | `{ gameId, config }` | saved config |
+| `launch_native_game` | `{ gameId }` | `void`, accepted launch request |
+
+Use these commands for manually imported Windows executables on Windows. Arguments are an array of exact process arguments, not a shell command. An empty or null working directory uses the executable's directory. The backend checks the executable and working directory again at launch. It tracks the launched process and descendants started within the executable's directory, then uses the shared Play, Cancel, Stop and session lifecycle. `launch_native_game` returns an unsupported-platform error elsewhere.
 
 ## Search and store metadata
 
@@ -177,8 +190,9 @@ Details include name, type, description, developers, publishers, genres, platfor
 | `resume_download` | `{ id }` | `void` |
 | `retry_download` | `{ id }` | `void` |
 | `cancel_download` | `{ id }` | `void` |
-| `set_download_bandwidth_limit` | `{ bytesPerSecond }` | `void`; zero means unlimited |
+| `set_download_bandwidth_limit` | `{ bytesPerSecond }` | `void`; zero means unlimited. The value persists across application restarts. |
 | `stage_download` | `{ id }` | staged directory path |
+| `scan_staged_executables` | `{ id, gameName? }` | `{ candidates: [{ relativePath, score, signals }], selectedRelativePath }` |
 | `finalize_download` | `{ id, executableRelative }` | `void`; creates installed game and library row |
 
 ```ts
@@ -198,9 +212,9 @@ interface DownloadJob {
 
 Current statuses are `queued`, `downloading`, `waiting`, `paused`, `failed`, `downloaded`, `staging`, `staged`, `finalizing`, `installed`, and `cancelled`. Treat status as an open string for forward compatibility. Typical actions: pause only `queued`/`downloading`/`waiting`; resume `paused`/`waiting`; retry `failed`; cancel active or queued states. The backend enforces valid transitions and reports invalid actions as rejected invokes.
 
-`queue_download` requires `acceptUnverified: true` before an unverified source can be queued. Poll `list_downloads` while the queue screen is visible because there is no progress event yet. Refresh the library after a successful `finalize_download`. For install selection, stage the verified archive, scan the staged directory, let the user select the executable, then pass its path relative to the staged root as `executableRelative`. Never use an executable outside the staged directory. If the UI cannot safely derive this relative path on every platform, add a backend command returning relative candidates before shipping the finalization flow.
+`queue_download` requires `acceptUnverified: true` before an unverified source can be queued. Poll `list_downloads` while the queue screen is visible because there is no progress event yet. Refresh the library after a successful `finalize_download`. For install selection, stage the verified archive, call `scan_staged_executables({ id, gameName? })`, let the user select a candidate by `relativePath`, then pass it unchanged as `executableRelative`. Candidate paths use forward slashes on every platform. The command only scans a download whose stored status is `staged` and whose stage path matches the app-owned path. Finalization revalidates the path, containment, and executable file before installing. `stage_download` still returns a path for diagnostics; the UI does not need to inspect it or convert absolute paths.
 
-For unverified releases, show the trust warning before queueing and send `acceptUnverified: true` only after explicit confirmation. Never infer trust from a Steam catalog result. The install sequence is enqueue, poll, stage, select executable, finalize, and reload queue plus library. `stage_download` returns the staged directory path while `scan_game_executables` returns absolute candidate paths. Verify containment against the staged root before deriving `executableRelative`, including on Windows where separators and drive prefixes differ. Treat unknown job status values as unrecognized instead of failing the page.
+For unverified releases, show the trust warning before queueing and send `acceptUnverified: true` only after explicit confirmation. Never infer trust from a Steam catalog result. The install sequence is enqueue, poll, stage, scan staged candidates, select an executable, finalize, and reload queue plus library. Treat unknown job status values as unrecognized instead of failing the page.
 
 ## Launch lifecycle
 
@@ -209,6 +223,7 @@ For unverified releases, show the trust warning before queueing and send `accept
 | `launch_steam_game` | `{ gameId, confirmAccountSwitch }` | `{ gameId, steamAppId }` accepted launch request |
 | `launch_game_with_runner` | `{ gameId, runnerPath }` | `void`, testing path |
 | `launch_configured_game_with_runner` | `{ gameId }` | `void`, configured manual game launch |
+| `launch_native_game` | `{ gameId }` | `void`, Windows manual game launch |
 | `list_game_launch_states` | none | `[{ gameId, status, error? }]` |
 | `cancel_game_launch` | `{ gameId }` | `void` |
 | `stop_game` | `{ gameId }` | `void` |

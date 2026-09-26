@@ -1,10 +1,14 @@
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
+#[cfg(any(target_os = "linux", windows))]
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::Child;
 #[cfg(target_os = "linux")]
 use std::process::Stdio;
+#[cfg(windows)]
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -15,12 +19,15 @@ use crate::runner_discovery::RunnerKind;
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
-use crate::database::DatabaseState;
+#[cfg(target_os = "linux")]
+use crate::database::EffectiveCompatibilityConfig;
+use crate::database::{Database, DatabaseState};
 use crate::{game_process, runner_discovery, steam_local, steam_switch};
 
 const START_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const EXIT_GRACE: Duration = Duration::from_secs(3);
+const SESSION_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 const LOG_READ_LIMIT: u64 = 128 * 1024;
 const LOG_LINE_LIMIT: usize = 8 * 1024;
 
@@ -52,6 +59,45 @@ struct Entry {
 struct LaunchTarget {
     install_path: PathBuf,
     steam_root: PathBuf,
+}
+
+struct SessionTracking {
+    database: Arc<Database>,
+    game_id: String,
+    last_heartbeat: Instant,
+}
+
+#[derive(Default)]
+struct LaunchContext {
+    steam_app_id: Option<u32>,
+    steam_log_path: Option<PathBuf>,
+    session_database: Option<Arc<Database>>,
+}
+
+impl SessionTracking {
+    fn start(database: Arc<Database>, game_id: &str) -> Result<Self, String> {
+        database.start_game_session(game_id, crate::database::now_milliseconds())?;
+        Ok(Self {
+            database,
+            game_id: game_id.to_owned(),
+            last_heartbeat: Instant::now(),
+        })
+    }
+
+    fn heartbeat_if_due(&mut self) -> Result<(), String> {
+        if self.last_heartbeat.elapsed() < SESSION_HEARTBEAT_INTERVAL {
+            return Ok(());
+        }
+        self.database
+            .heartbeat_game_session(&self.game_id, crate::database::now_milliseconds())?;
+        self.last_heartbeat = Instant::now();
+        Ok(())
+    }
+
+    fn finish(self) -> Result<(), String> {
+        self.database
+            .end_game_session(&self.game_id, crate::database::now_milliseconds())
+    }
 }
 
 impl LaunchTarget {
@@ -117,6 +163,7 @@ impl GameLaunchManager {
         let worker_id = game_id.clone();
         let manager = self.clone();
         let launch_game_id = worker_id.clone();
+        let session_database = app.state::<DatabaseState>().shared_database()?;
         let steam_log_path = target.steam_root.join("logs/console_log.txt");
         if let Err(error) = thread::Builder::new()
             .name(format!("legio-game-{app_id}"))
@@ -124,9 +171,12 @@ impl GameLaunchManager {
                 manager.run_launch(
                     worker_id,
                     process_target,
-                    Some(app_id),
-                    Some(steam_log_path),
                     cancel,
+                    LaunchContext {
+                        steam_app_id: Some(app_id),
+                        steam_log_path: Some(steam_log_path),
+                        session_database: Some(session_database),
+                    },
                     move |cancel| {
                         steam_switch::launch(&app, &launch_game_id, confirm_account_switch, cancel)
                             .map(|_| None)
@@ -143,12 +193,127 @@ impl GameLaunchManager {
         })
     }
 
+    #[cfg(windows)]
+    pub(crate) fn launch_native(&self, app: AppHandle, game_id: String) -> Result<(), String> {
+        let database = app.state::<DatabaseState>().shared_database()?;
+        let game = database.game(&game_id)?;
+        if game.steam_install_path.is_some() {
+            return Err("Steam-managed games must launch through Steam".to_owned());
+        }
+        let executable = game
+            .executable_path
+            .as_deref()
+            .ok_or_else(|| "This game has no selected executable".to_owned())?;
+        let executable = fs::canonicalize(executable)
+            .map_err(|error| format!("Could not inspect game executable: {error}"))?;
+        if !executable.is_file()
+            || !executable
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+        {
+            return Err("Selected file is not a Windows executable".to_owned());
+        }
+        let game_directory = executable
+            .parent()
+            .ok_or_else(|| "Game executable has no parent directory".to_owned())?;
+        let config = database.native_launch_config(&game_id)?;
+        validate_launch_arguments(&config.arguments)?;
+        let working_directory =
+            game_working_directory(config.working_directory.as_deref(), game_directory)?;
+        let mut command = Command::new(&executable);
+        command
+            .args(&config.arguments)
+            .current_dir(working_directory)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let process_target = game_process::ProcessTarget::Native {
+            game_directory: game_directory.to_path_buf(),
+            started_after_ms: crate::database::now_milliseconds(),
+            launcher_pid: None,
+            known_pids: Arc::default(),
+        };
+        let cancel = self.reserve_launch(&game_id, None, process_target.clone())?;
+        let manager = self.clone();
+        let worker_id = game_id.clone();
+        if let Err(error) = thread::Builder::new()
+            .name(format!("legio-native-{game_id}"))
+            .spawn(move || {
+                manager.run_launch(
+                    worker_id,
+                    process_target,
+                    cancel,
+                    LaunchContext {
+                        session_database: Some(database),
+                        ..LaunchContext::default()
+                    },
+                    move |_| {
+                        command
+                            .spawn()
+                            .map(Some)
+                            .map_err(|error| format!("Could not start native game: {error}"))
+                    },
+                );
+            })
+        {
+            self.set_state(&game_id, GameStatus::Idle, Some(error.to_string()));
+            return Err(format!("Could not start game launch task: {error}"));
+        }
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    pub(crate) fn launch_native(&self, _app: AppHandle, _game_id: String) -> Result<(), String> {
+        Err("Native executable launch is supported on Windows only".to_owned())
+    }
+
     #[cfg(target_os = "linux")]
     pub(crate) fn launch_with_runner(
         &self,
         app: AppHandle,
         game_id: String,
         runner_path: String,
+    ) -> Result<(), String> {
+        let config = EffectiveCompatibilityConfig {
+            runner_path: Some(runner_path),
+            ..EffectiveCompatibilityConfig::default()
+        };
+        self.launch_with_compatibility_config(app, game_id, config)
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn launch_configured(&self, app: AppHandle, game_id: String) -> Result<(), String> {
+        let config = app
+            .state::<DatabaseState>()
+            .database()?
+            .effective_compatibility_config(&game_id)?;
+        let config = if config
+            .runner_path
+            .as_deref()
+            .is_some_and(|path| !path.is_empty())
+        {
+            config
+        } else {
+            let runner_path = runner_discovery::discover()
+                .runners
+                .into_iter()
+                .next()
+                .map(|runner| runner.path)
+                .ok_or_else(|| "No compatible Proton or Wine runner is installed".to_owned())?;
+            EffectiveCompatibilityConfig {
+                runner_path: Some(runner_path),
+                ..config
+            }
+        };
+        self.launch_with_compatibility_config(app, game_id, config)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn launch_with_compatibility_config(
+        &self,
+        app: AppHandle,
+        game_id: String,
+        config: EffectiveCompatibilityConfig,
     ) -> Result<(), String> {
         let game = app.state::<DatabaseState>().database()?.game(&game_id)?;
         if game.steam_app_id.is_some() || game.steam_install_path.is_some() {
@@ -167,22 +332,52 @@ impl GameLaunchManager {
         {
             return Err("Selected file is not a Windows executable".to_owned());
         }
-        let runner = runner_discovery::resolve_runner(&runner_path)?;
+        let runner_path = config
+            .runner_path
+            .as_deref()
+            .filter(|path| !path.is_empty())
+            .ok_or_else(|| "No compatibility runner is selected".to_owned())?;
+        let runner = runner_discovery::resolve_runner(runner_path)?;
         let data_dir = app
             .path()
             .app_data_dir()
             .map_err(|error| format!("Could not resolve application data directory: {error}"))?;
-        let compat_data_path = game_compatdata_path(&data_dir, &game.id)?;
-        let mut command = runner_discovery::launch_command(&runner, &executable_path);
+        validate_launch_arguments(&config.arguments_before)?;
+        validate_launch_arguments(&config.arguments_after)?;
+        validate_launch_environment(&config.environment)?;
+        validate_dll_overrides(&config.dll_overrides)?;
+        let working_directory = game_working_directory(
+            config.working_directory.as_deref(),
+            executable_path
+                .parent()
+                .ok_or_else(|| "Game executable has no parent directory".to_owned())?,
+        )?;
+        let compat_data_path = game_compatdata_path(
+            &data_dir,
+            &game.id,
+            config.prefix_root.as_deref(),
+            config.prefix_path.as_deref(),
+        )?;
+        let mut command = runner_discovery::launch_command(
+            &runner,
+            &executable_path,
+            &config.arguments_before,
+            &config.arguments_after,
+        );
         command
-            .current_dir(
-                executable_path
-                    .parent()
-                    .ok_or_else(|| "Game executable has no parent directory".to_owned())?,
-            )
+            .current_dir(working_directory)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        for (key, value) in &config.environment {
+            command.env(key, value);
+        }
+        if !config.dll_overrides.is_empty() {
+            command.env(
+                "WINEDLLOVERRIDES",
+                format_dll_overrides(&config.dll_overrides),
+            );
+        }
         if matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton) {
             command
                 .env("STEAM_COMPAT_DATA_PATH", &compat_data_path)
@@ -201,21 +396,39 @@ impl GameLaunchManager {
         let cancel = self.reserve_launch(&game_id, None, process_target.clone())?;
         let manager = self.clone();
         let worker_id = game_id.clone();
+        let session_database = app.state::<DatabaseState>().shared_database()?;
         if let Err(error) = thread::Builder::new()
             .name(format!("legio-game-runner-{}", game.id))
             .spawn(move || {
-                manager.run_launch(worker_id, process_target, None, None, cancel, move |_| {
-                    command
-                        .spawn()
-                        .map(Some)
-                        .map_err(|error| format!("Could not start compatibility runner: {error}"))
-                });
+                manager.run_launch(
+                    worker_id,
+                    process_target,
+                    cancel,
+                    LaunchContext {
+                        session_database: Some(session_database),
+                        ..LaunchContext::default()
+                    },
+                    move |_| {
+                        command.spawn().map(Some).map_err(|error| {
+                            format!("Could not start compatibility runner: {error}")
+                        })
+                    },
+                );
             })
         {
             self.set_state(&game_id, GameStatus::Idle, Some(error.to_string()));
             return Err(format!("Could not start game launch task: {error}"));
         }
         Ok(())
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub(crate) fn launch_configured(
+        &self,
+        _app: AppHandle,
+        _game_id: String,
+    ) -> Result<(), String> {
+        Err("Compatibility runner launches are supported on Linux only".to_owned())
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -256,11 +469,15 @@ impl GameLaunchManager {
         &self,
         game_id: String,
         mut process_target: game_process::ProcessTarget,
-        steam_app_id: Option<u32>,
-        steam_log_path: Option<PathBuf>,
         cancel: Arc<AtomicBool>,
+        context: LaunchContext,
         launch: impl FnOnce(&AtomicBool) -> Result<Option<Child>, String>,
     ) {
+        let LaunchContext {
+            steam_app_id,
+            steam_log_path,
+            session_database,
+        } = context;
         let mut steam_log = steam_log_path.map(SteamLaunchLog::new);
         if cancel.load(Ordering::Acquire) {
             self.set_state(&game_id, GameStatus::Idle, None);
@@ -292,7 +509,27 @@ impl GameLaunchManager {
                 return;
             }
         }
+        #[cfg(windows)]
+        if let game_process::ProcessTarget::Native { launcher_pid, .. } = &mut process_target
+            && let Some(pid) = child.as_ref().map(Child::id)
+        {
+            *launcher_pid = Some(pid);
+            if let Err(error) = self.set_process_target(&game_id, process_target.clone()) {
+                let cleanup_error = terminate_child(&mut child).err();
+                self.set_state(
+                    &game_id,
+                    GameStatus::Idle,
+                    Some(append_cleanup_error(error, cleanup_error)),
+                );
+                return;
+            }
+        }
         let started = Instant::now();
+        #[cfg(windows)]
+        let native_launch = matches!(process_target, game_process::ProcessTarget::Native { .. });
+        #[cfg(not(windows))]
+        let native_launch = false;
+        let mut native_helper_exited_at = None;
         let mut steam_progress = SteamLaunchProgress::default();
         let mut cancelled_without_process_since = None;
         loop {
@@ -350,12 +587,20 @@ impl GameLaunchManager {
                     Ok(Some(status)) => {
                         child.take();
                         if !status.success() && !cancel.load(Ordering::Acquire) {
+                            let kind = if native_launch {
+                                "native launcher"
+                            } else {
+                                "runner"
+                            };
                             self.set_state(
                                 &game_id,
                                 GameStatus::Idle,
-                                Some(format!("Launch stage failed: runner exited before the game started ({status})")),
+                                Some(format!("Launch stage failed: {kind} exited before the game started ({status})")),
                             );
                             return;
+                        }
+                        if native_launch {
+                            native_helper_exited_at = Some(Instant::now());
                         }
                     }
                     Ok(None) => {}
@@ -385,6 +630,15 @@ impl GameLaunchManager {
                     })
                     .or_else(|| cleanup_error.map(|error| format!("Cancel stage failed: {error}")));
                 self.set_state(&game_id, GameStatus::Idle, error);
+                return;
+            }
+            if native_helper_exited_at.is_some_and(|exited: Instant| exited.elapsed() >= EXIT_GRACE)
+            {
+                self.set_state(
+                    &game_id,
+                    GameStatus::Idle,
+                    Some("Launch stage failed: native launcher exited without starting a detectable game process".to_owned()),
+                );
                 return;
             }
             if cancel.load(Ordering::Acquire)
@@ -423,23 +677,42 @@ impl GameLaunchManager {
             }
             thread::sleep(POLL_INTERVAL);
         }
-        self.set_state(&game_id, GameStatus::Running, None);
+        let mut session_error = None;
+        let mut session = session_database.and_then(|database| {
+            match SessionTracking::start(database, &game_id) {
+                Ok(session) => Some(session),
+                Err(error) => {
+                    session_error = Some(format!("Session tracking failed: {error}"));
+                    None
+                }
+            }
+        });
+        self.set_state(&game_id, GameStatus::Running, session_error);
         let mut missing_since = None;
         loop {
+            let heartbeat_error = session
+                .as_mut()
+                .and_then(|session| session.heartbeat_if_due().err());
+            if let Some(error) = heartbeat_error {
+                let end_error = finish_session(&mut session);
+                self.set_state(
+                    &game_id,
+                    GameStatus::Running,
+                    Some(append_cleanup_error(
+                        format!("Session tracking failed: {error}"),
+                        end_error,
+                    )),
+                );
+            }
             match game_process::matching_pids(&process_target) {
                 Ok(pids) if pids.is_empty() => {
                     let since = missing_since.get_or_insert_with(Instant::now);
                     if since.elapsed() >= EXIT_GRACE {
                         let cleanup_error = terminate_child(&mut child).err();
-                        if let Some(error) = cleanup_error {
-                            self.set_state(
-                                &game_id,
-                                GameStatus::Idle,
-                                Some(format!("Stop stage failed: {error}")),
-                            );
-                            return;
-                        }
-                        self.set_state(&game_id, GameStatus::Idle, None);
+                        let error =
+                            cleanup_error.map(|error| format!("Stop stage failed: {error}"));
+                        let error = combine_errors(error, finish_session(&mut session));
+                        self.set_state(&game_id, GameStatus::Idle, error);
                         return;
                     }
                 }
@@ -450,6 +723,7 @@ impl GameLaunchManager {
                         format!("Monitor stage failed: {error}"),
                         cleanup_error,
                     );
+                    let error = append_cleanup_error(error, finish_session(&mut session));
                     self.set_state(&game_id, GameStatus::Idle, Some(error));
                     return;
                 }
@@ -521,28 +795,133 @@ impl GameLaunchManager {
     }
 }
 
-fn game_compatdata_path(data_dir: &Path, game_id: &str) -> Result<PathBuf, String> {
-    fs::create_dir_all(data_dir)
-        .map_err(|error| format!("Could not create application data directory: {error}"))?;
-    let data_root = fs::canonicalize(data_dir)
-        .map_err(|error| format!("Could not resolve application data directory: {error}"))?;
-    let compat_root = data_root.join("compatdata");
-    fs::create_dir_all(&compat_root)
-        .map_err(|error| format!("Could not create compatibility data directory: {error}"))?;
-    let compat_root = fs::canonicalize(&compat_root)
-        .map_err(|error| format!("Could not resolve compatibility data directory: {error}"))?;
-    if !compat_root.starts_with(&data_root) {
-        return Err("Compatibility data directory escapes application data".to_owned());
+#[cfg(target_os = "linux")]
+fn game_compatdata_path(
+    data_dir: &Path,
+    game_id: &str,
+    prefix_root: Option<&str>,
+    prefix_path: Option<&str>,
+) -> Result<PathBuf, String> {
+    if let Some(prefix_path) = prefix_path.filter(|path| !path.is_empty()) {
+        return create_prefix_directory(Path::new(prefix_path), None);
     }
-    let prefix = compat_root.join(game_id);
+
+    let root = match prefix_root.filter(|path| !path.is_empty()) {
+        Some(path) => PathBuf::from(path),
+        None => data_dir.join("compatdata"),
+    };
+    create_prefix_directory(&root, Some(game_id))
+}
+
+#[cfg(target_os = "linux")]
+fn create_prefix_directory(root: &Path, game_id: Option<&str>) -> Result<PathBuf, String> {
+    if !root.is_absolute() || root.to_string_lossy().chars().any(char::is_control) {
+        return Err(
+            "Compatibility prefix paths must be absolute and contain no control characters"
+                .to_owned(),
+        );
+    }
+    fs::create_dir_all(root)
+        .map_err(|error| format!("Could not create compatibility prefix directory: {error}"))?;
+    let root = fs::canonicalize(root)
+        .map_err(|error| format!("Could not resolve compatibility prefix directory: {error}"))?;
+    let Some(game_id) = game_id else {
+        if !root.is_dir() {
+            return Err("Compatibility prefix path is not a directory".to_owned());
+        }
+        return Ok(root);
+    };
+    let prefix = root.join(game_id);
     fs::create_dir_all(&prefix)
         .map_err(|error| format!("Could not create game compatibility prefix: {error}"))?;
     let prefix = fs::canonicalize(&prefix)
         .map_err(|error| format!("Could not resolve game compatibility prefix: {error}"))?;
-    if !prefix.starts_with(&compat_root) {
-        return Err("Game compatibility prefix escapes application data".to_owned());
+    if !prefix.starts_with(&root) {
+        return Err("Game compatibility prefix escapes its configured root".to_owned());
     }
     Ok(prefix)
+}
+
+#[cfg(any(target_os = "linux", windows))]
+fn game_working_directory(path: Option<&str>, game_directory: &Path) -> Result<PathBuf, String> {
+    let Some(path) = path.filter(|path| !path.is_empty()) else {
+        return Ok(game_directory.to_path_buf());
+    };
+    let path = Path::new(path);
+    if !path.is_absolute() || path.to_string_lossy().chars().any(char::is_control) {
+        return Err(
+            "Working directory must be an absolute path without control characters".to_owned(),
+        );
+    }
+    let path = fs::canonicalize(path)
+        .map_err(|error| format!("Could not resolve working directory: {error}"))?;
+    if !path.is_dir() {
+        return Err("Working directory is not a directory".to_owned());
+    }
+    Ok(path)
+}
+
+#[cfg(any(target_os = "linux", windows))]
+fn validate_launch_arguments(arguments: &[String]) -> Result<(), String> {
+    if arguments.iter().any(|argument| argument.contains('\0')) {
+        return Err("Launch arguments cannot contain null characters".to_owned());
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn validate_launch_environment(
+    environment: &std::collections::BTreeMap<String, String>,
+) -> Result<(), String> {
+    for (key, value) in environment {
+        if key.is_empty() || key.contains('=') || key.contains('\0') || value.contains('\0') {
+            return Err("Compatibility environment contains an invalid variable".to_owned());
+        }
+        if [
+            "WINEPREFIX",
+            "STEAM_COMPAT_DATA_PATH",
+            "STEAM_COMPAT_CLIENT_INSTALL_PATH",
+            "WINEDLLOVERRIDES",
+            game_process::LAUNCH_TOKEN_ENV,
+        ]
+        .iter()
+        .any(|reserved| key.eq_ignore_ascii_case(reserved))
+        {
+            return Err(format!(
+                "Compatibility environment variable {key} is managed by Legio"
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn validate_dll_overrides(
+    overrides: &std::collections::BTreeMap<String, String>,
+) -> Result<(), String> {
+    for (name, value) in overrides {
+        if name.is_empty()
+            || !name.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b'*')
+            })
+            || value.is_empty()
+            || !value
+                .split(',')
+                .all(|part| matches!(part, "native" | "builtin" | "n" | "b"))
+        {
+            return Err("Compatibility DLL override is invalid".to_owned());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn format_dll_overrides(overrides: &std::collections::BTreeMap<String, String>) -> String {
+    overrides
+        .iter()
+        .map(|(name, value)| format!("{name}={value}"))
+        .collect::<Vec<_>>()
+        .join(";")
 }
 
 #[cfg(target_os = "linux")]
@@ -609,6 +988,20 @@ fn append_cleanup_error(error: String, cleanup_error: Option<String>) -> String 
         Some(cleanup_error) => format!("{error}; {cleanup_error}"),
         None => error,
     }
+}
+
+fn combine_errors(primary: Option<String>, secondary: Option<String>) -> Option<String> {
+    match primary {
+        Some(error) => Some(append_cleanup_error(error, secondary)),
+        None => secondary,
+    }
+}
+
+fn finish_session(session: &mut Option<SessionTracking>) -> Option<String> {
+    session
+        .take()
+        .and_then(|session| session.finish().err())
+        .map(|error| format!("Session tracking failed: {error}"))
 }
 
 struct SteamLaunchLog {
@@ -783,6 +1176,74 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
+    #[test]
+    fn compatibility_launch_config_validates_arguments_environment_and_dll_overrides() {
+        assert!(validate_launch_arguments(&["-safe".to_owned()]).is_ok());
+        assert!(validate_launch_arguments(&["bad\0arg".to_owned()]).is_err());
+
+        let mut environment = std::collections::BTreeMap::new();
+        environment.insert("WINEDEBUG".to_owned(), "-all".to_owned());
+        assert!(validate_launch_environment(&environment).is_ok());
+        environment.insert("WINEPREFIX".to_owned(), "/tmp/override".to_owned());
+        assert!(validate_launch_environment(&environment).is_err());
+
+        let mut overrides = std::collections::BTreeMap::new();
+        overrides.insert("d3d11".to_owned(), "native,builtin".to_owned());
+        overrides.insert("dxgi".to_owned(), "n".to_owned());
+        assert!(validate_dll_overrides(&overrides).is_ok());
+        assert_eq!(
+            format_dll_overrides(&overrides),
+            "d3d11=native,builtin;dxgi=n"
+        );
+        overrides.insert(
+            "dxgi".to_owned(),
+            "anything;STEAM_COMPAT_DATA_PATH=/tmp".to_owned(),
+        );
+        assert!(validate_dll_overrides(&overrides).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn compatibility_prefix_and_working_directory_resolve_configured_paths() {
+        let base = test_dir("compat-paths");
+        let app_data = base.join("app-data");
+        let prefix_root = base.join("prefixes");
+        let game_id = "00000000-0000-0000-0000-000000000001";
+        let generated = game_compatdata_path(
+            &app_data,
+            game_id,
+            Some(prefix_root.to_str().unwrap()),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            generated,
+            fs::canonicalize(&prefix_root).unwrap().join(game_id)
+        );
+
+        let custom_prefix = base.join("custom-prefix");
+        assert_eq!(
+            game_compatdata_path(
+                &app_data,
+                game_id,
+                Some(prefix_root.to_str().unwrap()),
+                Some(custom_prefix.to_str().unwrap()),
+            )
+            .unwrap(),
+            fs::canonicalize(custom_prefix).unwrap()
+        );
+
+        let game_directory = base.join("game");
+        fs::create_dir_all(&game_directory).unwrap();
+        assert_eq!(
+            game_working_directory(None, &game_directory).unwrap(),
+            game_directory
+        );
+        assert!(game_working_directory(Some("relative"), &game_directory).is_err());
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
     fn runner_stub(executable_name: &str, token: &str) -> Child {
         std::process::Command::new("/bin/bash")
             .args([
@@ -801,8 +1262,16 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn runner_launch_tracks_game_then_stop_returns_to_idle() {
+    fn runner_launch_persists_session_until_stop() {
         let base = test_dir("runner-lifecycle");
+        let database_dir = base.join("database");
+        let database = Arc::new(Database::open(&database_dir).unwrap());
+        let game = database
+            .create_game(crate::database::CreateGameInput {
+                name: "Controlled game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
         let token = uuid::Uuid::new_v4().to_string();
         let target = runner_test_target(&base, &token);
         let executable_name = match &target {
@@ -817,20 +1286,42 @@ mod tests {
         };
         let manager = GameLaunchManager::new();
         let cancel = manager
-            .reserve_launch("runner", None, target.clone())
+            .reserve_launch(&game.id, None, target.clone())
             .unwrap();
         assert_eq!(manager.list().unwrap()[0].status, GameStatus::Launching);
         let worker_manager = manager.clone();
+        let game_id = game.id.clone();
+        let session_database = Arc::clone(&database);
         let worker = thread::spawn(move || {
-            worker_manager.run_launch("runner".to_owned(), target, None, None, cancel, move |_| {
-                Ok(Some(runner_stub(&executable_name, &token)))
-            });
+            worker_manager.run_launch(
+                game_id,
+                target,
+                cancel,
+                LaunchContext {
+                    session_database: Some(session_database),
+                    ..LaunchContext::default()
+                },
+                move |_| Ok(Some(runner_stub(&executable_name, &token))),
+            );
         });
-        wait_for_status(&manager, "runner", GameStatus::Running);
-        manager.stop("runner").unwrap();
+        wait_for_status(&manager, &game.id, GameStatus::Running);
+        thread::sleep(Duration::from_millis(100));
+        manager.stop(&game.id).unwrap();
         worker.join().unwrap();
         assert_eq!(manager.list().unwrap()[0].status, GameStatus::Idle);
         assert_eq!(manager.list().unwrap()[0].error, None);
+
+        drop(database);
+        let reopened = Database::open(&database_dir).unwrap();
+        let summaries = reopened
+            .playtime_summaries(crate::database::now_milliseconds())
+            .unwrap();
+        let summary = summaries
+            .iter()
+            .find(|summary| summary.game_id == game.id)
+            .unwrap();
+        assert!(summary.total_milliseconds > 0);
+        assert_eq!(summary.active_sessions, 0);
         fs::remove_dir_all(base).unwrap();
     }
 
@@ -844,9 +1335,13 @@ mod tests {
         let cancel = manager
             .reserve_launch("runner", None, target.clone())
             .unwrap();
-        manager.run_launch("runner".to_owned(), target, None, None, cancel, |_| {
-            Err("Could not start compatibility runner: no such file".to_owned())
-        });
+        manager.run_launch(
+            "runner".to_owned(),
+            target,
+            cancel,
+            LaunchContext::default(),
+            |_| Err("Could not start compatibility runner: no such file".to_owned()),
+        );
         let state = &manager.list().unwrap()[0];
         assert_eq!(state.status, GameStatus::Idle);
         assert_eq!(
@@ -866,13 +1361,19 @@ mod tests {
         let cancel = manager
             .reserve_launch("runner", None, target.clone())
             .unwrap();
-        manager.run_launch("runner".to_owned(), target, None, None, cancel, |_| {
-            std::process::Command::new("/bin/bash")
-                .args(["-c", "exit 7"])
-                .spawn()
-                .map(Some)
-                .map_err(|error| error.to_string())
-        });
+        manager.run_launch(
+            "runner".to_owned(),
+            target,
+            cancel,
+            LaunchContext::default(),
+            |_| {
+                std::process::Command::new("/bin/bash")
+                    .args(["-c", "exit 7"])
+                    .spawn()
+                    .map(Some)
+                    .map_err(|error| error.to_string())
+            },
+        );
         let state = &manager.list().unwrap()[0];
         assert_eq!(state.status, GameStatus::Idle);
         assert!(
@@ -899,19 +1400,25 @@ mod tests {
         let worker_manager = manager.clone();
         let ready_path = ready.to_string_lossy().into_owned();
         let worker = thread::spawn(move || {
-            worker_manager.run_launch("runner".to_owned(), target, None, None, cancel, move |_| {
-                std::process::Command::new("/bin/bash")
-                    .args([
-                        "-c",
-                        "touch \"$1\"; exec sleep 60",
-                        "legio-stub",
-                        &ready_path,
-                    ])
-                    .env(game_process::LAUNCH_TOKEN_ENV, token)
-                    .spawn()
-                    .map(Some)
-                    .map_err(|error| error.to_string())
-            });
+            worker_manager.run_launch(
+                "runner".to_owned(),
+                target,
+                cancel,
+                LaunchContext::default(),
+                move |_| {
+                    std::process::Command::new("/bin/bash")
+                        .args([
+                            "-c",
+                            "touch \"$1\"; exec sleep 60",
+                            "legio-stub",
+                            &ready_path,
+                        ])
+                        .env(game_process::LAUNCH_TOKEN_ENV, token)
+                        .spawn()
+                        .map(Some)
+                        .map_err(|error| error.to_string())
+                },
+            );
         });
         let started = Instant::now();
         while !ready.exists() {
@@ -962,9 +1469,11 @@ mod tests {
                     app_id: APP_ID,
                     install_path: worker_install_path,
                 },
-                Some(APP_ID),
-                None,
                 cancel,
+                LaunchContext {
+                    steam_app_id: Some(APP_ID),
+                    ..LaunchContext::default()
+                },
                 move |_| {
                     let child = std::process::Command::new("sleep")
                         .arg("30")
@@ -1023,9 +1532,11 @@ mod tests {
                 app_id: 42,
                 install_path: base.join("game"),
             },
-            Some(42),
-            None,
             cancel,
+            LaunchContext {
+                steam_app_id: Some(42),
+                ..LaunchContext::default()
+            },
             move |_| {
                 std::process::Command::new(missing_executable)
                     .spawn()
