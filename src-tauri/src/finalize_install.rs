@@ -651,6 +651,7 @@ mod tests {
         finalize(&database, &data_dir, &id, &executable).unwrap();
 
         assert_eq!(state(&database, &id).0, "installed");
+        drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
 
