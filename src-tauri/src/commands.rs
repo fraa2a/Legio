@@ -190,6 +190,13 @@ pub fn list_game_launch_states(
 }
 
 #[tauri::command]
+pub fn get_compatibility_logs_directory(
+    state: State<'_, crate::game_lifecycle::GameLaunchManager>,
+) -> Result<std::path::PathBuf, String> {
+    state.compatibility_logs_directory()
+}
+
+#[tauri::command]
 pub fn cancel_game_launch(
     state: State<'_, crate::game_lifecycle::GameLaunchManager>,
     game_id: String,
