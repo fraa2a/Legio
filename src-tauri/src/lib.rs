@@ -12,8 +12,10 @@ mod desktop_shortcuts;
 mod diagnostics;
 mod download_queue;
 mod finalize_install;
+mod game_icons;
 mod game_lifecycle;
 mod game_process;
+mod image_format;
 pub mod legio_source;
 mod legio_source_cache;
 mod manual_import;
@@ -60,6 +62,9 @@ pub fn run() -> tauri::Result<()> {
             app.manage(steam_assets::AssetCacheState::new(
                 app.path().app_cache_dir(),
             ));
+            app.manage(game_icons::GameIconStore::new(
+                app.path().app_data_dir().map_err(|error| error.to_string()),
+            ));
             app.manage(
                 network::NetworkState::new(
                     &app.package_info().version.to_string(),
@@ -90,6 +95,9 @@ pub fn run() -> tauri::Result<()> {
             commands::get_playtime_summaries,
             commands::create_game,
             commands::create_game_shortcut,
+            commands::set_game_icon,
+            commands::get_game_icon,
+            commands::reset_game_icon,
             commands::update_game,
             commands::remove_game,
             commands::launch_steam_game,
