@@ -1649,7 +1649,7 @@ mod tests {
     fn native_manager_lifecycle_tracks_a_controlled_process() {
         let base = test_dir("native-manager-lifecycle");
         let database_dir = base.join("database");
-        thread::spawn(move || {
+        let database = thread::spawn(move || {
             let app = native_test_app(&database_dir);
             let executable = std::env::current_exe().unwrap();
             let (game, database) = {
@@ -1705,9 +1705,19 @@ mod tests {
                 .unwrap();
             assert!(summary.total_milliseconds > 0);
             assert_eq!(summary.active_sessions, 0);
+            database
         })
         .join()
         .unwrap();
+        let released = Instant::now();
+        while Arc::strong_count(&database) > 1 {
+            assert!(
+                released.elapsed() < Duration::from_secs(10),
+                "launch monitor did not release the session database"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        drop(database);
         fs::remove_dir_all(base).unwrap();
     }
 
