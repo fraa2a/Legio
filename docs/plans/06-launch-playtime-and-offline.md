@@ -35,7 +35,7 @@ Verification: a controlled executable traverses every stage, termination is obse
 
 ### 06B: Steam and native Windows launch
 
-Status: Steam-managed launch, account overrides, and a native Windows launch backend are implemented. Windows runtime verification remains.
+Status: Steam-managed launch, account overrides, and a native Windows launch backend are implemented. Targeted Windows CI checks pass; full Windows lifecycle verification remains.
 
 - Launch Steam-managed games through Steam.
 - Enumerate locally saved Steam account IDs and display names using bounded, read-only parsing of Steam-owned local metadata. Do not expose login names, passwords, tokens, or the raw source file.
@@ -48,7 +48,14 @@ Status: Steam-managed launch, account overrides, and a native Windows launch bac
 
 Verification: Steam ownership remains intact and helper-exit scenarios do not prematurely end monitoring. Fixture tests cover missing or malformed account metadata, duplicate display names, stale selections, matching and mismatched active IDs, unknown active identity, confirmation cancellation, switch failure, backups, rollback, unknown-field preservation, and no sensitive fields in errors or logs. Native Linux and Windows checks cover saved-session, password/Steam Guard, and active-account verification. Steam and running games remain open when confirmation is declined. Steam account-file formats and switch behavior require revalidation after client updates.
 
+- **Platform:** Windows Server 2025 on GitHub Actions.
+- **Command or scenario:** CI run [36265763292](https://github.com/fraa2a/Legio/actions/runs/36265763292) ran Windows Steam-root discovery, process-control, staged-finalization, and database-reopen recovery tests, then built the Tauri application.
+- **Observable result:** All four targeted Windows test commands and the Tauri build passed.
+- **Remaining blockers:** These checks do not start the Steam client or a real game and do not verify the complete native Windows manager lifecycle against a game process.
+
 ### 06C: Sessions, product surfaces, and offline behavior
+
+Status: In progress. Session persistence and download waiting/resume backend paths are implemented; product surfaces and broader offline behavior remain.
 
 - Persist detected game sessions and derive per-game playtime aggregates. Backend storage, crash recovery, and summaries are implemented; connecting them to Home and Library remains UI work.
 - Populate Home and local Library from stored data.
@@ -58,6 +65,11 @@ Verification: Steam ownership remains intact and helper-exit scenarios do not pr
 - Mark remote Store, source, download, and update work unavailable offline.
 
 Verification: session totals survive restart, local surfaces remain useful offline, permitted games launch, and remote work waits without request churn.
+
+- **Platform:** Linux with a controlled local HTTP server.
+- **Command or scenario:** `cargo test --manifest-path src-tauri/Cargo.toml --locked waiting_download_waits_for_connectivity_retry -- --nocapture`.
+- **Observable result:** A waiting download makes no request while the queue is idle. The resume hook used after a successful connectivity check requeues it, and the controlled download completes.
+- **Remaining blockers:** Home and Library integration, launch configuration and Retry presentation, and offline launch verification remain open. Download waiting/resume is verified only for the controlled network case above; Store, source refresh, other download failure cases, and update checks remain unverified offline.
 
 ## Dependencies
 
@@ -101,3 +113,5 @@ Phase 05C stores manually selected executable paths separately from Steam instal
 The backend now stores a session when the monitor detects a Steam-managed or compatibility-runner game process, updates its heartbeat while it runs, closes it when monitoring ends, and recovers open sessions after restart at the last heartbeat. `get_playtime_summaries` returns per-game milliseconds and active-session counts. Home and Library presentation is intentionally outstanding because the UI is excluded from this work.
 
 The controlled Linux manager test exercises the lifecycle and SQLite session join through the compatibility launch path: the session begins after process detection, closes after Stop, and remains closed in the summary after reopening the database.
+
+The Windows CI smoke run on [run 36265763292](https://github.com/fraa2a/Legio/actions/runs/36265763292) passed Steam-root discovery, process-control, staged executable finalization, recovery after database reopen, and a Tauri application build. These checks do not verify a real Steam client, a real-game launch, or the complete Windows manager lifecycle.

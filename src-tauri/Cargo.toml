@@ -26,6 +26,7 @@ uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
+tokio = { version = "1", features = ["test-util"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"

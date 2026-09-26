@@ -413,9 +413,18 @@ pub async fn refresh_legio_source(
 
 #[tauri::command]
 pub async fn check_steam_connectivity(
+    app: AppHandle,
     state: State<'_, NetworkState>,
 ) -> Result<ConnectivityCheck, String> {
-    Ok(state.inner().clone().check_connectivity().await)
+    let mut result = state.inner().clone().check_connectivity().await;
+    if result.status == NetworkStatus::Online
+        && let Err(error) = crate::download_queue::resume_waiting(app).await
+    {
+        result.detail = Some(format!(
+            "Steam is reachable, but waiting downloads could not resume: {error}"
+        ));
+    }
+    Ok(result)
 }
 
 #[tauri::command]
