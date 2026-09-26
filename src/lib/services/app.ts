@@ -4,6 +4,7 @@ export interface AppInfo {
   name: string;
   version: string;
   platform: string;
+  desktopEnvironment: string | null;
 }
 
 export function getAppInfo(): Promise<AppInfo> {

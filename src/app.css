@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant light (&:where([data-theme="light"], [data-theme="light"] *));
+
 @theme {
   --font-sans: "Motiva Sans", ui-sans-serif, system-ui, sans-serif;
 }
@@ -70,4 +72,34 @@
 body {
   background-color: #000;
   font-family: "Motiva Sans", system-ui, sans-serif;
+}
+
+html[data-theme="light"] body {
+  background-color: #e4e4e7;
+}
+
+@layer base {
+  :root {
+    --legio-focus: #fafafa;
+  }
+
+  :root[data-theme="light"] {
+    --legio-focus: #18181b;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--legio-focus);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
