@@ -5,8 +5,11 @@
   import Button from "../../components/ui/Button.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
+  import SelectField from "../../components/ui/SelectField.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
-  import { deleteGame, games } from "../../stores/games";
+  import TextField from "../../components/ui/TextField.svelte";
+  import { deleteGame, games, manualGameCount, steamGameCount } from "../../stores/games";
+  import { scanSteamLibrary } from "../../stores/steam-library";
   import {
     abortLaunch,
     hasPendingLaunch,
@@ -15,19 +18,67 @@
     requestLaunch,
     stopRunningGame,
   } from "../../stores/launch";
+  import AddGameDialog from "./AddGameDialog.svelte";
+  import GameDetailsDialog from "./GameDetailsDialog.svelte";
   import GameRow from "./GameRow.svelte";
+  import SteamScanDialog from "./SteamScanDialog.svelte";
+
+  type SourceFilter = "all" | "steam" | "manual";
+  type SortOrder = "name-asc" | "name-desc" | "steam-first" | "manual-first";
+
+  const sourceOptions: { value: string; label: string }[] = [
+    { value: "all", label: "Tutti" },
+    { value: "steam", label: "Steam" },
+    { value: "manual", label: "Manuali" },
+  ];
+
+  const sortOptions: { value: string; label: string }[] = [
+    { value: "name-asc", label: "Nome (A-Z)" },
+    { value: "name-desc", label: "Nome (Z-A)" },
+    { value: "steam-first", label: "Prima i giochi Steam" },
+    { value: "manual-first", label: "Prima i giochi manuali" },
+  ];
+
+  const collator = new Intl.Collator("it", { sensitivity: "base" });
 
   let query = $state("");
+  let sourceFilter = $state<SourceFilter>("all");
+  let sortOrder = $state<SortOrder>("name-asc");
   let actionError = $state<string | null>(null);
   let pendingGame = $state<string | null>(null);
   let cancelPending = $state<string | null>(null);
   let switchTarget = $state<Game | null>(null);
   let deleteTarget = $state<Game | null>(null);
+  let detailsId = $state<string | null>(null);
+  let addGameOpen = $state(false);
+  let steamScanOpen = $state(false);
 
-  const filtered = $derived.by(() => {
+  const detailsGame = $derived($games.data.find((game) => game.id === detailsId) ?? null);
+  const hasFilters = $derived(
+    query.trim().length > 0 || sourceFilter !== "all" || sortOrder !== "name-asc",
+  );
+
+  const visible = $derived.by(() => {
     const needle = query.trim().toLowerCase();
-    if (needle.length === 0) return $games.data;
-    return $games.data.filter((game) => game.name.toLowerCase().includes(needle));
+    const filtered = $games.data.filter((game) => {
+      if (needle.length > 0 && !game.name.toLowerCase().includes(needle)) return false;
+      if (sourceFilter === "steam") return game.steamAppId !== null;
+      if (sourceFilter === "manual") return game.steamAppId === null;
+      return true;
+    });
+    return [...filtered].sort((left, right) => {
+      if (sortOrder === "steam-first" || sortOrder === "manual-first") {
+        const leftSteam = left.steamAppId !== null;
+        const rightSteam = right.steamAppId !== null;
+        if (leftSteam !== rightSteam) {
+          return sortOrder === "steam-first"
+            ? Number(rightSteam) - Number(leftSteam)
+            : Number(leftSteam) - Number(rightSteam);
+        }
+      }
+      const byName = collator.compare(left.name, right.name);
+      return sortOrder === "name-desc" ? -byName : byName;
+    });
   });
 
   $effect(() => {
@@ -35,6 +86,12 @@
     const timer = setInterval(() => void launchStates.load(), 2000);
     return () => clearInterval(timer);
   });
+
+  function resetFilters(): void {
+    query = "";
+    sourceFilter = "all";
+    sortOrder = "name-asc";
+  }
 
   async function play(game: Game): Promise<void> {
     actionError = null;
@@ -106,7 +163,28 @@
       pendingGame = null;
     }
   }
+
+  function requestDelete(game: Game): void {
+    detailsId = null;
+    deleteTarget = game;
+  }
+
+  function openSteamScan(): void {
+    actionError = null;
+    steamScanOpen = true;
+    void scanSteamLibrary();
+  }
 </script>
+
+<div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+  <p class="text-sm text-zinc-400 light:text-zinc-600">
+    {$games.data.length} giochi · {$steamGameCount} da Steam · {$manualGameCount} manuali
+  </p>
+  <div class="flex flex-wrap gap-2">
+    <Button label="Rileva Steam" variant="secondary" onClick={openSteamScan} />
+    <Button label="Aggiungi gioco" onClick={() => (addGameOpen = true)} />
+  </div>
+</div>
 
 {#if actionError}
   <div class="mb-4">
@@ -114,28 +192,28 @@
   </div>
 {/if}
 
-<div class="mb-6 flex flex-col gap-2">
-  <label for="library-search" class="text-sm text-zinc-400 light:text-zinc-600">Cerca</label>
-  <input
-    id="library-search"
-    type="search"
-    bind:value={query}
-    placeholder="Filtra per nome"
-    class="w-full max-w-sm rounded-lg bg-white/5 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 light:bg-white light:text-zinc-900"
-  />
+<div class="mb-6 flex flex-wrap items-end gap-4">
+  <div class="w-full max-w-sm">
+    <TextField id="library-search" label="Cerca" type="search" bind:value={query} placeholder="Filtra per nome" />
+  </div>
+  <SelectField id="library-source" label="Origine" bind:value={sourceFilter} options={sourceOptions} />
+  <SelectField id="library-sort" label="Ordinamento" bind:value={sortOrder} options={sortOptions} />
+  {#if hasFilters}
+    <Button label="Azzera filtri" variant="secondary" onClick={resetFilters} />
+  {/if}
 </div>
 
 <StateBlock
   status={$games.status}
   hasData={$games.data.length > 0}
-  emptyMessage="Nessun gioco in libreria."
+  emptyMessage="Nessun gioco in libreria. Rileva le installazioni Steam o aggiungi un gioco manualmente."
   error={$games.error}
   onRetry={() => void games.load()}
 />
 
-{#if filtered.length > 0}
+{#if visible.length > 0}
   <ul class="flex flex-col gap-3">
-    {#each filtered as game (game.id)}
+    {#each visible as game (game.id)}
       <GameRow
         {game}
         launch={$launchStateByGame.get(game.id)}
@@ -144,14 +222,18 @@
         onPlay={play}
         onCancelLaunch={cancelLaunchFor}
         onStop={stop}
+        onSettings={(target) => (detailsId = target.id)}
         onDelete={(target) => (deleteTarget = target)}
       />
     {/each}
   </ul>
-{:else if query.trim().length > 0}
-  <p class="rounded-xl bg-white/5 p-6 text-zinc-400 light:bg-zinc-100 light:text-zinc-600">
-    Nessun gioco corrisponde alla ricerca.
-  </p>
+{:else if $games.data.length > 0}
+  <div class="rounded-xl bg-white/5 p-6 text-zinc-400 light:bg-zinc-100 light:text-zinc-600">
+    <p>Nessun gioco corrisponde a ricerca e filtri.</p>
+    <div class="mt-4">
+      <Button label="Azzera filtri" variant="secondary" onClick={resetFilters} />
+    </div>
+  </div>
 {/if}
 
 <Dialog open={switchTarget !== null} title="Cambio account Steam" onClose={() => (switchTarget = null)}>
@@ -173,3 +255,21 @@
     <Button label="Rimuovi" variant="danger" onClick={() => void confirmDelete()} />
   </div>
 </Dialog>
+
+{#if addGameOpen}
+  <AddGameDialog onClose={() => (addGameOpen = false)} />
+{/if}
+
+{#if steamScanOpen}
+  <SteamScanDialog onClose={() => (steamScanOpen = false)} />
+{/if}
+
+{#if detailsGame !== null}
+  {#key detailsGame.id}
+    <GameDetailsDialog
+      game={detailsGame}
+      onClose={() => (detailsId = null)}
+      onDelete={requestDelete}
+    />
+  {/key}
+{/if}

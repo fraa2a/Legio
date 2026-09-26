@@ -12,6 +12,7 @@
     onPlay,
     onCancelLaunch,
     onStop,
+    onSettings,
     onDelete,
   }: {
     game: Game;
@@ -21,12 +22,14 @@
     onPlay: (game: Game) => void;
     onCancelLaunch: (game: Game) => void;
     onStop: (game: Game) => void;
+    onSettings: (game: Game) => void;
     onDelete: (game: Game) => void;
   } = $props();
 
   const status = $derived(launch?.status ?? "idle");
   const isSteamGame = $derived(game.steamAppId !== null);
   const location = $derived(game.steamInstallPath ?? game.executablePath);
+  const locationLabel = $derived(isSteamGame ? "Installazione Steam" : "Eseguibile");
 </script>
 
 <li class="flex flex-wrap items-center gap-4 rounded-xl bg-white/5 p-4 light:bg-zinc-100">
@@ -34,6 +37,9 @@
     <div class="flex flex-wrap items-center gap-2">
       <p class="truncate font-medium text-zinc-50 light:text-zinc-900">{game.name}</p>
       <Badge tone={isSteamGame ? "info" : "neutral"} title={isSteamGame ? "Steam" : "Manuale"} />
+      {#if game.nameOverride !== null}
+        <Badge tone="warning" title="Nome personalizzato" />
+      {/if}
       {#if status !== "idle"}
         <Badge
           tone={status === "running" ? "success" : "warning"}
@@ -42,14 +48,16 @@
       {/if}
     </div>
     {#if location}
-      <p class="mt-1 truncate text-xs text-zinc-500">{location}</p>
+      <p class="mt-1 truncate text-xs text-zinc-500" title={location}>
+        {locationLabel}: {location}
+      </p>
     {/if}
     {#if launch?.error}
       <p class="mt-1 text-xs text-red-300 light:text-red-700" role="alert">{launch.error}</p>
     {/if}
   </div>
 
-  <div class="flex items-center gap-2">
+  <div class="flex flex-wrap items-center gap-2">
     {#if isSteamGame}
       {#if status === "idle"}
         <Button label="Gioca" variant="secondary" disabled={actionPending} onClick={() => onPlay(game)} />
@@ -69,6 +77,12 @@
         />
       {/if}
     {/if}
+    <Button
+      label="Impostazioni"
+      variant="secondary"
+      disabled={actionPending}
+      onClick={() => onSettings(game)}
+    />
     <Button label="Rimuovi" variant="danger" disabled={actionPending} onClick={() => onDelete(game)} />
   </div>
 </li>

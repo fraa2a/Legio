@@ -14,14 +14,14 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 
 ## P0: Library and game management
 
-- [ ] Build a Library view backed by `list_games`, with search, sorting, filters, empty state, loading state, and visible distinctions for Steam-managed and manually imported games.
-- [ ] Add Steam redetection: `scan_steam_installations` previews detected games and diagnostics. A separate explicit `import_steam_installations` action rescans and updates the persistent library. Reload `list_games` after import and show inserted, updated, unchanged, removed, and diagnostic counts.
-- [ ] Add manual game creation from a Steam App ID or selected executable. Support custom display name and editing/resetting automatic name overrides.
-- [ ] Add native file and folder selection for manual executable import. The current frontend dependencies and Tauri commands do not expose a file picker. Add and authorize a supported dialog plugin or provide another native picker before shipping this flow.
-- [ ] For executable selection, call `scan_game_executables({ directory, gameName })`, show every candidate with its score/signals, and require explicit selection when `selectedPath` is null. Then call `import_manual_game({ input: { executablePath, name } })`.
-- [ ] Allow changing a manual game's selected executable with `set_game_executable`. Make the UI distinguish a new scan from changing the saved executable. Do not expose executable selection for Steam-managed games.
-- [ ] Add game details/settings and delete confirmation. After create, update, delete, scan, or import, reconcile the library from the backend result or reload it.
-- [ ] Add Steam metadata display and refresh using `get_steam_details`. Render remote descriptions as text or sanitize HTML. Load images through `get_steam_asset`, convert returned bytes to a Blob URL, and revoke old URLs.
+- [x] Build a Library view backed by `list_games`, with search, sorting, filters, empty state, loading state, and visible distinctions for Steam-managed and manually imported games.
+- [x] Add Steam redetection: `scan_steam_installations` previews detected games and diagnostics. A separate explicit `import_steam_installations` action rescans and updates the persistent library. Reload `list_games` after import and show inserted, updated, unchanged, removed, and diagnostic counts.
+- [x] Add manual game creation from a Steam App ID or selected executable. Support custom display name and editing/resetting automatic name overrides.
+- [x] Add native file and folder selection for manual executable import. `tauri-plugin-dialog` is registered and only `dialog:allow-open` is authorized; pickers are wrapped in `services/dialog.ts`.
+- [x] For executable selection, call `scan_game_executables({ directory, gameName })`, show every candidate with its score/signals, and require explicit selection when `selectedPath` is null. Then call `import_manual_game({ input: { executablePath, name } })`.
+- [x] Allow changing a manual game's selected executable with `set_game_executable`. Make the UI distinguish a new scan from changing the saved executable. Do not expose executable selection for Steam-managed games.
+- [x] Add game details/settings and delete confirmation. After create, update, delete, scan, or import, reconcile the library from the backend result or reload it.
+- [x] Add Steam metadata display and refresh using `get_steam_details`. Render remote descriptions as text or sanitize HTML. Load images through `get_steam_asset`, convert returned bytes to a Blob URL, and revoke old URLs.
 
 ## P0: Store search and source trust
 
@@ -71,7 +71,7 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 
 ## Backend gaps to track instead of guessing in the UI
 
-- [ ] Decide whether to add a native picker API/plugin for manual directory and executable selection.
+- [x] Decide whether to add a native picker API/plugin for manual directory and executable selection. Resolved with `tauri-plugin-dialog` and the `dialog:allow-open` permission.
 - [ ] Consider a staged-executable scan that returns safe relative paths for `finalize_download`.
 - [ ] Add progress events for downloads and process lifecycle only if polling proves inadequate; there are no such events in the current contract.
 - [ ] Add persistent play sessions/playtime before designing Home or Library around those values.
