@@ -14,6 +14,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[cfg(target_os = "linux")]
+use crate::compatibility_logs::{CompatibilityLog, CompatibilityLogState};
 use crate::database::AppliedCompatibilityOptions;
 #[cfg(target_os = "linux")]
 use crate::database::EffectiveCompatibilityConfig;
@@ -49,6 +51,13 @@ pub(crate) struct GameLaunchState {
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compatibility_options: Option<AppliedCompatibilityOptions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compatibility_log_path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compatibility_log_error: Option<String>,
+    pub compatibility_log_truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runner_exit_code: Option<i32>,
 }
 
 struct Entry {
@@ -57,6 +66,9 @@ struct Entry {
     status: GameStatus,
     error: Option<String>,
     compatibility_options: Option<AppliedCompatibilityOptions>,
+    #[cfg(target_os = "linux")]
+    compatibility_log: Option<CompatibilityLogState>,
+    runner_exit_code: Option<i32>,
     cancel: Arc<AtomicBool>,
 }
 
@@ -76,6 +88,8 @@ struct LaunchContext {
     steam_app_id: Option<u32>,
     steam_log_path: Option<PathBuf>,
     session_database: Option<Arc<Database>>,
+    #[cfg(target_os = "linux")]
+    compatibility_log: Option<CompatibilityLog>,
 }
 
 impl SessionTracking {
@@ -122,24 +136,72 @@ impl LaunchTarget {
 #[derive(Default, Clone)]
 pub(crate) struct GameLaunchManager {
     entries: Arc<Mutex<HashMap<String, Entry>>>,
+    #[cfg(target_os = "linux")]
+    compatibility_log_root: Option<Result<PathBuf, String>>,
 }
 
 impl GameLaunchManager {
+    #[cfg(any(not(target_os = "linux"), test))]
     pub(crate) fn new() -> Self {
         Self::default()
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn with_log_directory(directory: Result<PathBuf, String>) -> Self {
+        Self {
+            entries: Arc::default(),
+            compatibility_log_root: Some(directory),
+        }
     }
 
     pub(crate) fn list(&self) -> Result<Vec<GameLaunchState>, String> {
         let entries = self.lock()?;
         Ok(entries
             .iter()
-            .map(|(game_id, entry)| GameLaunchState {
-                game_id: game_id.clone(),
-                status: entry.status,
-                error: entry.error.clone(),
-                compatibility_options: entry.compatibility_options.clone(),
+            .map(|(game_id, entry)| {
+                #[cfg(target_os = "linux")]
+                let (compatibility_log_path, compatibility_log_error, compatibility_log_truncated) =
+                    entry
+                        .compatibility_log
+                        .as_ref()
+                        .map_or((None, None, false), |log| {
+                            (
+                                Some(log.directory().to_path_buf()),
+                                log.output_error(),
+                                log.truncated(),
+                            )
+                        });
+                #[cfg(not(target_os = "linux"))]
+                let (compatibility_log_path, compatibility_log_error, compatibility_log_truncated) =
+                    (None, None, false);
+                GameLaunchState {
+                    game_id: game_id.clone(),
+                    status: entry.status,
+                    error: entry.error.clone(),
+                    compatibility_options: entry.compatibility_options.clone(),
+                    compatibility_log_path,
+                    compatibility_log_error,
+                    compatibility_log_truncated,
+                    runner_exit_code: entry.runner_exit_code,
+                }
             })
             .collect())
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn compatibility_logs_directory(&self) -> Result<PathBuf, String> {
+        let directory = self
+            .compatibility_log_root
+            .as_ref()
+            .ok_or_else(|| "Compatibility log directory is unavailable".to_owned())?
+            .as_ref()
+            .map_err(|error| format!("Could not resolve application log directory: {error}"))?;
+        crate::compatibility_logs::directory(directory)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub(crate) fn compatibility_logs_directory(&self) -> Result<PathBuf, String> {
+        Err("Compatibility logs are supported on Linux only".to_owned())
     }
 
     pub(crate) fn launch(
@@ -181,6 +243,8 @@ impl GameLaunchManager {
                         steam_app_id: Some(app_id),
                         steam_log_path: Some(steam_log_path),
                         session_database: Some(session_database),
+                        #[cfg(target_os = "linux")]
+                        compatibility_log: None,
                     },
                     move |cancel| {
                         steam_switch::launch(&app, &launch_game_id, confirm_account_switch, cancel)
@@ -392,11 +456,7 @@ impl GameLaunchManager {
             &config.arguments_after,
             options.runtime_path(),
         );
-        command
-            .current_dir(working_directory)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        command.current_dir(working_directory).stdin(Stdio::null());
         options.apply(&mut command, &config)?;
         if !config.dll_overrides.is_empty() {
             command.env(
@@ -422,14 +482,52 @@ impl GameLaunchManager {
             executable_path,
             launcher_pid: None,
         };
+        let applied_options =
+            crate::compatibility_options::PreparedOptions::diagnostic(&runner, &config);
         let cancel = self.reserve_launch(
             &game_id,
             None,
             process_target.clone(),
-            Some(crate::compatibility_options::PreparedOptions::diagnostic(
-                &runner, &config,
-            )),
+            Some(applied_options.clone()),
         )?;
+        let mut compatibility_log = if config.debug_logging {
+            let result = self
+                .compatibility_logs_directory()
+                .and_then(|log_directory| {
+                    CompatibilityLog::create(
+                        &log_directory,
+                        &game.id,
+                        &compat_data_path,
+                        &runner,
+                        &config,
+                        &applied_options,
+                    )
+                });
+            match result {
+                Ok(log) => Some(log),
+                Err(error) => {
+                    self.set_state(&game_id, GameStatus::Idle, Some(error.clone()));
+                    return Err(error);
+                }
+            }
+        } else {
+            None
+        };
+        if let Some(log) = compatibility_log.as_mut() {
+            crate::compatibility_options::PreparedOptions::apply_debug_logging(
+                &mut command,
+                &config,
+                &runner,
+                log.state().directory(),
+            );
+            command.stdout(Stdio::piped()).stderr(Stdio::piped());
+            if let Err(error) = self.set_compatibility_log_state(&game_id, Some(log.state())) {
+                self.set_state(&game_id, GameStatus::Idle, Some(error.clone()));
+                return Err(error);
+            }
+        } else {
+            command.stdout(Stdio::null()).stderr(Stdio::null());
+        }
         let manager = self.clone();
         let worker_id = game_id.clone();
         let session_database = database;
@@ -442,6 +540,7 @@ impl GameLaunchManager {
                     cancel,
                     LaunchContext {
                         session_database: Some(session_database),
+                        compatibility_log,
                         ..LaunchContext::default()
                     },
                     move |_| {
@@ -513,7 +612,11 @@ impl GameLaunchManager {
             steam_app_id,
             steam_log_path,
             session_database,
+            #[cfg(target_os = "linux")]
+            compatibility_log,
         } = context;
+        #[cfg(target_os = "linux")]
+        let mut compatibility_log = compatibility_log;
         let mut steam_log = steam_log_path.map(SteamLaunchLog::new);
         if cancel.load(Ordering::Acquire) {
             self.set_state(&game_id, GameStatus::Idle, None);
@@ -528,6 +631,25 @@ impl GameLaunchManager {
                 return;
             }
         };
+        #[cfg(target_os = "linux")]
+        if let Some(log) = compatibility_log.as_mut() {
+            let capture = child
+                .as_mut()
+                .ok_or_else(|| "Compatibility runner did not return a process".to_owned())
+                .and_then(|child| log.capture_output(child));
+            if let Err(error) = capture {
+                let cleanup_error = terminate_child(&mut child).err();
+                self.set_state(
+                    &game_id,
+                    GameStatus::Idle,
+                    Some(append_cleanup_error(
+                        format!("Diagnostics stage failed: {error}"),
+                        cleanup_error,
+                    )),
+                );
+                return;
+            }
+        }
         #[cfg(target_os = "linux")]
         if matches!(process_target, game_process::ProcessTarget::Runner { .. })
             && let Some(pid) = child.as_ref().map(Child::id)
@@ -618,9 +740,19 @@ impl GameLaunchManager {
                     }
                 }
             }
+            #[cfg(target_os = "linux")]
+            if let Some(log) = compatibility_log.as_ref() {
+                log.cap_runner_log();
+            }
             if let Some(runner_child) = child.as_mut() {
                 match runner_child.try_wait() {
                     Ok(Some(status)) => {
+                        #[cfg(target_os = "linux")]
+                        self.record_runner_exit(
+                            &game_id,
+                            status.code(),
+                            compatibility_log.as_mut(),
+                        );
                         child.take();
                         if !status.success() && !cancel.load(Ordering::Acquire) {
                             let kind = if native_launch {
@@ -764,6 +896,34 @@ impl GameLaunchManager {
                     return;
                 }
             }
+            #[cfg(target_os = "linux")]
+            if let Some(runner_child) = child.as_mut() {
+                match runner_child.try_wait() {
+                    Ok(Some(status)) => {
+                        self.record_runner_exit(
+                            &game_id,
+                            status.code(),
+                            compatibility_log.as_mut(),
+                        );
+                        child.take();
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        child.take();
+                        self.set_state(
+                            &game_id,
+                            GameStatus::Running,
+                            Some(format!(
+                                "Monitor stage failed: could not wait for compatibility runner: {error}"
+                            )),
+                        );
+                    }
+                }
+            }
+            #[cfg(target_os = "linux")]
+            if let Some(log) = compatibility_log.as_ref() {
+                log.cap_runner_log();
+            }
             thread::sleep(POLL_INTERVAL);
         }
     }
@@ -798,6 +958,9 @@ impl GameLaunchManager {
                 status: GameStatus::Launching,
                 error: None,
                 compatibility_options,
+                #[cfg(target_os = "linux")]
+                compatibility_log: None,
+                runner_exit_code: None,
                 cancel: Arc::clone(&cancel),
             },
         );
@@ -815,6 +978,44 @@ impl GameLaunchManager {
             .ok_or_else(|| "Game launch state disappeared".to_owned())?;
         entry.process_target = process_target;
         Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    fn set_compatibility_log_state(
+        &self,
+        game_id: &str,
+        log: Option<CompatibilityLogState>,
+    ) -> Result<(), String> {
+        let mut entries = self.lock()?;
+        let entry = entries
+            .get_mut(game_id)
+            .ok_or_else(|| "Game launch state disappeared".to_owned())?;
+        entry.compatibility_log = log;
+        Ok(())
+    }
+
+    fn set_runner_exit_code(&self, game_id: &str, code: i32) {
+        if let Ok(mut entries) = self.entries.lock()
+            && let Some(entry) = entries.get_mut(game_id)
+            && entry.compatibility_options.is_some()
+        {
+            entry.runner_exit_code = Some(code);
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn record_runner_exit(
+        &self,
+        game_id: &str,
+        code: Option<i32>,
+        log: Option<&mut CompatibilityLog>,
+    ) {
+        if let Some(code) = code {
+            self.set_runner_exit_code(game_id, code);
+            if let Some(log) = log {
+                log.record_exit_code(code);
+            }
+        }
     }
 
     fn set_state(&self, game_id: &str, status: GameStatus, error: Option<String>) {
@@ -1185,11 +1386,21 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     fn test_app(database_dir: &Path) -> tauri::App<tauri::test::MockRuntime> {
+        test_app_with_logs(database_dir, database_dir)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn test_app_with_logs(
+        database_dir: &Path,
+        log_directory: &Path,
+    ) -> tauri::App<tauri::test::MockRuntime> {
         let mut context = tauri::test::mock_context(tauri::test::noop_assets());
         context.config_mut().identifier = format!("org.legio.test.{}", uuid::Uuid::new_v4());
         tauri::test::mock_builder()
             .manage(DatabaseState::new(Ok(database_dir.to_path_buf())))
-            .manage(GameLaunchManager::new())
+            .manage(GameLaunchManager::with_log_directory(Ok(
+                log_directory.to_path_buf()
+            )))
             .build(context)
             .unwrap()
     }
@@ -1256,6 +1467,7 @@ mod tests {
                     steam_overlay: crate::database::SteamOverlayMode::Enabled,
                     graphics_renderer: crate::database::GraphicsRenderer::WineD3d,
                     wayland: crate::database::WaylandMode::Native,
+                    debug_logging: true,
                 }),
             )
             .unwrap();
@@ -1278,6 +1490,7 @@ mod tests {
             "wine_d3d"
         );
         assert_eq!(serialized["compatibilityOptions"]["wayland"], "native");
+        assert_eq!(serialized["compatibilityOptions"]["debugLogging"], true);
         fs::remove_dir_all(base).unwrap();
     }
 
@@ -1456,7 +1669,7 @@ mod tests {
     fn manager_launch_tracks_and_stops_a_controlled_game() {
         let base = test_dir("manager-lifecycle");
         let database_dir = base.join("database");
-        let app = test_app(&database_dir);
+        let app = test_app_with_logs(&database_dir, &base.join("logs"));
         let (database, game) = {
             let state = app.state::<DatabaseState>();
             let database = state.shared_database().unwrap();
@@ -1469,7 +1682,8 @@ mod tests {
         let runner_path = base.join("controlled-wine");
         let runner = test_runner(
             &runner_path,
-            "touch \"$LEGIO_TEST_READY\"\n\
+            "printf 'controlled stdout\\n'; printf 'controlled stderr\\n' >&2\n\
+             touch \"$LEGIO_TEST_READY\"\n\
              for _ in {1..500}; do\n\
                  [[ -e \"$LEGIO_TEST_GATE\" ]] && break\n\
                  sleep 0.01\n\
@@ -1481,6 +1695,7 @@ mod tests {
         let config = EffectiveCompatibilityConfig {
             runner_path: Some(runner.path.clone()),
             prefix_root: Some(base.join("prefixes").to_string_lossy().into_owned()),
+            debug_logging: true,
             environment: std::collections::BTreeMap::from([
                 (
                     "LEGIO_TEST_READY".to_owned(),
@@ -1527,7 +1742,27 @@ mod tests {
 
         manager.stop(&game.id).unwrap();
         wait_for_status(&manager, &game.id, GameStatus::Idle);
-        assert_eq!(manager.list().unwrap()[0].error, None);
+        let state = manager.list().unwrap().remove(0);
+        assert_eq!(state.error, None);
+        assert!(state.compatibility_log_error.is_none());
+        assert!(!state.compatibility_log_truncated);
+        let log_directory = state.compatibility_log_path.unwrap();
+        let output_timeout = Instant::now() + Duration::from_secs(3);
+        loop {
+            let stdout = fs::read_to_string(log_directory.join("stdout.log")).unwrap_or_default();
+            let stderr = fs::read_to_string(log_directory.join("stderr.log")).unwrap_or_default();
+            if stdout.contains("controlled stdout") && stderr.contains("controlled stderr") {
+                break;
+            }
+            assert!(
+                Instant::now() < output_timeout,
+                "runner output was not captured"
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+        let report = fs::read_to_string(log_directory.join("launch.json")).unwrap();
+        assert!(report.contains("Controlled Wine"));
+        assert!(report.contains("prefixPath"));
 
         drop(app);
         drop(database);
@@ -1578,7 +1813,7 @@ mod tests {
 
         let base = test_dir("installed-proton-lifecycle");
         let database_dir = base.join("database");
-        let app = test_app(&database_dir);
+        let app = test_app_with_logs(&database_dir, &base.join("logs"));
         let (database, game) = {
             let state = app.state::<DatabaseState>();
             let database = state.shared_database().unwrap();
@@ -1595,18 +1830,7 @@ mod tests {
         let config = EffectiveCompatibilityConfig {
             runner_path: Some(runner.path.clone()),
             prefix_root: Some(base.join("prefixes").to_string_lossy().into_owned()),
-            environment: if proton_logging {
-                std::collections::BTreeMap::from([
-                    ("PROTON_LOG".to_owned(), "1".to_owned()),
-                    (
-                        "PROTON_LOG_DIR".to_owned(),
-                        base.join("proton-logs").to_string_lossy().into_owned(),
-                    ),
-                    ("SteamGameId".to_owned(), "480".to_owned()),
-                ])
-            } else {
-                Default::default()
-            },
+            debug_logging: proton_logging,
             steam_runtime: if runtime_enabled {
                 crate::database::SteamRuntimeMode::SteamLinuxRuntime
             } else {
@@ -1705,8 +1929,14 @@ mod tests {
                 game_process_option_evidence(&manager, &game.id, &steam_client_root(), false)
             }
         });
-        let proton_log_evidence = proton_logging
-            .then(|| wait_for_proton_graphics_log(&base.join("proton-logs/steam-480.log")));
+        let proton_log_evidence = proton_logging.then(|| {
+            wait_for_proton_graphics_log(
+                &base
+                    .join("logs/compatibility")
+                    .join(&game.id)
+                    .join("steam-480.log"),
+            )
+        });
         let active = database
             .playtime_summaries(crate::database::now_milliseconds())
             .unwrap()
@@ -1733,6 +1963,7 @@ mod tests {
 
         let diagnostic = launch_diagnostic.expect("running game has launch diagnostics");
         assert_eq!(diagnostic.runner, expected_runner);
+        assert_eq!(diagnostic.debug_logging, proton_logging);
         if typed_options {
             assert_eq!(
                 diagnostic.steam_runtime,
@@ -1987,16 +2218,20 @@ mod tests {
     fn manager_reports_runner_exit_with_launch_stage_diagnostic() {
         let base = test_dir("manager-launch-failure");
         let database_dir = base.join("database");
-        let app = test_app(&database_dir);
+        let app = test_app_with_logs(&database_dir, &base.join("logs"));
         let (game, database) = {
             let state = app.state::<DatabaseState>();
             let game = create_manual_game(&state, &base.join("Test Game.exe"));
             (game, state.shared_database().unwrap())
         };
-        let runner = test_runner(&base.join("failed-wine"), "exit 7\n");
+        let runner = test_runner(
+            &base.join("failed-wine"),
+            "printf 'runner failure stdout\\n'; printf 'runner failure stderr\\n' >&2\nexit 7\n",
+        );
         let config = EffectiveCompatibilityConfig {
             runner_path: Some(runner.path.clone()),
             prefix_root: Some(base.join("prefixes").to_string_lossy().into_owned()),
+            debug_logging: true,
             ..EffectiveCompatibilityConfig::default()
         };
         let manager = app.state::<GameLaunchManager>().inner().clone();
@@ -2013,13 +2248,36 @@ mod tests {
             .unwrap();
 
         wait_for_status(&manager, &game.id, GameStatus::Idle);
+        let state = manager.list().unwrap().remove(0);
         assert!(
-            manager.list().unwrap()[0]
+            state
                 .error
                 .as_deref()
                 .unwrap()
                 .contains("Launch stage failed: runner exited before the game started")
         );
+        assert_eq!(state.runner_exit_code, Some(7));
+        let log_directory = state.compatibility_log_path.unwrap();
+        assert_eq!(
+            fs::read_to_string(log_directory.join("runner-exit-code.txt"))
+                .unwrap()
+                .trim(),
+            "7"
+        );
+        let output_deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let stdout = fs::read_to_string(log_directory.join("stdout.log")).unwrap_or_default();
+            let stderr = fs::read_to_string(log_directory.join("stderr.log")).unwrap_or_default();
+            if stdout.contains("runner failure stdout") && stderr.contains("runner failure stderr")
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < output_deadline,
+                "runner failure output was not captured"
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
         drop(app);
         drop(database);
         fs::remove_dir_all(base).unwrap();
@@ -2157,6 +2415,9 @@ mod tests {
                 status: GameStatus::Launching,
                 error: None,
                 compatibility_options: None,
+                #[cfg(target_os = "linux")]
+                compatibility_log: None,
+                runner_exit_code: None,
                 cancel: Arc::clone(&cancel),
             },
         );
@@ -2223,6 +2484,9 @@ mod tests {
                 status: GameStatus::Launching,
                 error: None,
                 compatibility_options: None,
+                #[cfg(target_os = "linux")]
+                compatibility_log: None,
+                runner_exit_code: None,
                 cancel: Arc::clone(&cancel),
             },
         );

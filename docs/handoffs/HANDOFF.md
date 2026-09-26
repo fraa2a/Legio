@@ -14,6 +14,7 @@ Updated: 2026-09-26
 - PR #53, `fix: wait for connectivity before retrying downloads`, was squash-merged as `e59dc4c`. It resumes waiting downloads after a successful connectivity check and adds targeted Windows test-link fixes.
 - PR #54, `docs: complete Phase 07 OFLL parity audit`, was squash-merged as `2c17825`. It records the v2.7.1 upstream responsibility matrix, canonical conflicts, and remaining parity gaps.
 - PR #55 added a real BOMBANANA! Demo lifecycle smoke using Proton 10.0; it was squash-merged as `05c5c70`.
+- PR #56, `test: verify Linux runtime option effects`, was squash-merged to `main` as `7590e79`. It verifies Steam Runtime, overlay, WineD3D, and GE-Proton Wayland effects with installed Windows games.
 - The Proton lifecycle smoke used BOMBANANA! Demo with Proton 10.0 and a temporary prefix and database. The ignored Rust smoke test is recorded in `docs/plans/07-linux-compatibility-and-ofll.md`.
 - The current local checkout is `feat/steam-catalog` and dirty. It contains pre-existing changes and untracked files, including local copies under `docs/frontend/` and a modified `docs/plans/README.md`. Inspect `git status` before editing; do not reset, clean, or overwrite unrelated work. Prefer a fresh worktree from current `main` for new backend work.
 
@@ -26,7 +27,7 @@ Updated: 2026-09-26
 - **06C:** connect the persisted playtime summaries to Home/Library and finish offline behavior. Session persistence is in `main`.
 - **07A:** complete. The BOMBANANA! Demo and Proton 10.0 smoke observed the game process, session, stop, and persisted session cleanup. Later GE-Proton smokes also exercised the Phase 06 lifecycle.
 - **07B:** typed configuration and process-level option effects are verified. GE-Proton 10.33 launched BOMBANANA! Demo through Steam Linux Runtime with overlay and native Wayland process mappings. A ROUNDS GE-Proton log confirmed WineD3D and D3D11 module loading. Visible overlay UI, rendered output, and input remain unverified.
-- **07C:** the exact v2.7.1 responsibility and conflict audit is complete. Implement canonically compatible backend gaps. The next clear milestone is capturing compatibility process output and Wine/Proton diagnostics. Keep fix packaging/execution decisions open as documented.
+- **07C:** the exact v2.7.1 responsibility and conflict audit is complete. The current isolated milestone adds inherited debug logging, bounded process output, Proton/Wine diagnostics, and a log-directory command. After its real Proton smoke and merge, continue with the next canonically compatible gap. Keep fix packaging/execution decisions open as documented.
 - **08:** the UI implementation remains in PR #36. Follow [TODO.md](../frontend/TODO.md), and keep backend contracts aligned with [backend-contracts.md](../frontend/backend-contracts.md). The product mockup requirement in section 35 may still block final UI acceptance; verify its current status.
 - **09A to 09C:** define game update and rollback behavior, launcher update trust/restart behavior, release packages/checksums/signing, and install acceptance tests.
 
@@ -46,7 +47,7 @@ Updated: 2026-09-26
 1. Check `git status`, current branch, and the latest GitHub PR/CI state using the GitHub connector. Do not assume this checkout is clean or that PR #36 has merged.
 2. Read `AGENTS.md`, `PLAN.md`, this handoff, the relevant `docs/plans/06-launch-playtime-and-offline.md` and `docs/plans/07-linux-compatibility-and-ofll.md`, then the frontend guide if changing command contracts.
 3. Start backend work in a fresh worktree from current `main`. Keep Rust as owner of processes, files, downloads, installation, validation, and persistent state. Keep Tauri commands thin and Svelte out of backend decisions.
-4. Pick one bounded milestone. For Phase 07, implement debug process logs and diagnostics, then continue with other canonical-compatible parity gaps. Keep each PR focused and preserve the open game-fix product decisions.
+4. Pick one bounded milestone. For Phase 07, complete and merge the active process-log diagnostics milestone, then continue with shortcuts, icons, and other canonical-compatible parity gaps. Keep each PR focused and preserve the open game-fix product decisions.
 5. For database changes, add a forward-only schema migration and migration tests that preserve existing records. Do not add migration from an old application data directory; the database migration feature itself remains required.
 6. Add tests for behavior and failure cases, then run `cargo fmt --check`, relevant Rust tests, `cargo clippy --lib --locked -- -D warnings`, and platform CI. The sandbox previously denied loopback socket binds for existing HTTP tests; report that limitation and use CI results rather than changing unrelated tests.
 7. Update the owning phase document with status and evidence. Open a focused PR through the GitHub connector, attach it to the task, and do not merge until required checks pass unless the user explicitly directs otherwise.
