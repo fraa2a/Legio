@@ -14,6 +14,7 @@ export interface Game {
   name: string;
   steamInstallPath: string | null;
   steamAccountId: string | null;
+  executablePath: string | null;
 }
 
 export interface CreateGameInput {

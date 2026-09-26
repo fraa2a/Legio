@@ -43,6 +43,11 @@ export interface SteamAsset {
   cacheWarning: string | null;
 }
 
-export function getSteamAsset(steamAppId: number, asset: SteamAssetKind, index?: number): Promise<SteamAsset> {
-  return invoke<SteamAsset>("get_steam_asset", { steamAppId, asset, index });
+export function getSteamAsset(
+  steamAppId: number,
+  asset: SteamAssetKind,
+  index?: number,
+  full?: boolean,
+): Promise<SteamAsset> {
+  return invoke<SteamAsset>("get_steam_asset", { steamAppId, asset, index, full });
 }

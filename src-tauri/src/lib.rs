@@ -26,6 +26,7 @@ mod steam_vdf;
 
 pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let database = database::DatabaseState::new(app.path().app_data_dir());
             let bandwidth_limit = database

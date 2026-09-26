@@ -3,5 +3,14 @@
   "identifier": "default",
   "description": "Default capability for the main Legio window",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "core:event:allow-listen",
+    "core:window:default",
+    "core:window:allow-close",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-start-dragging",
+    "dialog:allow-open"
+  ]
 }
