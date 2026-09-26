@@ -4,6 +4,8 @@ pub mod archive_install;
 mod catalog;
 mod commands;
 #[cfg(target_os = "linux")]
+mod compatibility_logs;
+#[cfg(target_os = "linux")]
 mod compatibility_options;
 mod database;
 mod diagnostics;
@@ -41,6 +43,11 @@ pub fn run() -> tauri::Result<()> {
             download_queue.set_bandwidth_limit(bandwidth_limit);
             app.manage(download_queue);
             download_queue::start(app.handle().clone()).map_err(std::io::Error::other)?;
+            #[cfg(target_os = "linux")]
+            app.manage(game_lifecycle::GameLaunchManager::with_log_directory(
+                app.path().app_log_dir().map_err(|error| error.to_string()),
+            ));
+            #[cfg(not(target_os = "linux"))]
             app.manage(game_lifecycle::GameLaunchManager::new());
             let diagnostics = diagnostics::Diagnostics::new(
                 app.path().app_log_dir().map_err(|error| error.to_string()),
@@ -78,6 +85,7 @@ pub fn run() -> tauri::Result<()> {
             commands::launch_configured_game_with_runner,
             commands::launch_native_game,
             commands::list_game_launch_states,
+            commands::get_compatibility_logs_directory,
             commands::cancel_game_launch,
             commands::stop_game,
             commands::inspect_steam_game_launch,

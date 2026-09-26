@@ -54,7 +54,7 @@ Status: the revision-specific behavior inventory and canonical conflict audit ar
 
 Reviewed upstream: [Online Fix Linux Launcher v2.7.1 at commit `86528986f71c3da0972a670c08feb0bb70a3dbe2`](https://github.com/ZzEdovec/onlinefix-linux/tree/86528986f71c3da0972a670c08feb0bb70a3dbe2). The local `/home/fraa/Documents/OFLL` source was compared with a detached checkout of this exact commit; its `src/app` tree matched. The audit covered the tracked application modules and forms, including [FilesWorker](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/modules/FilesWorker.php), [FixParser](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/modules/FixParser.php), [game settings](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/forms/gameSettings.php), [launcher settings](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/forms/launcherSettings.php), [game import](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/forms/newGameConfigurator.php), [game management](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/forms/MainForm.php), [RAR handling](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/modules/RarExtractor.php), [FreeTP installer](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/modules/ftpInstaller.php), and [README claims](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/README.md). Upstream claims below describe its documented behavior; they are not independent compatibility tests.
 
-| Upstream responsibility | Legio implementation and evidence on `main` at `e59dc4c` | State |
+| Upstream responsibility | Legio implementation and evidence on `main` at `7590e79` | State |
 | --- | --- | --- |
 | Discover Proton, GE-Proton, and Wine | `runner_discovery.rs` discovers local Proton-named tools, GE-Proton, and validated Wine executables. Discovery reports diagnostics. | Implemented for local installations |
 | Install, update, remove, and select Proton versions | The compatibility schema persists global and per-game runner selections. Launch revalidates an installed path. There is no release catalogue, download, install, or removal service. | Partial; runner management remains |
@@ -66,7 +66,7 @@ Reviewed upstream: [Online Fix Linux Launcher v2.7.1 at commit `86528986f71c3da0
 | Configure graphics, WineD3D, and Wayland | Typed renderer and Wayland modes set Proton options and reject unsupported runner combinations. Wayland is currently limited to GE-Proton. ROUNDS logs showed Proton's `wined3d` and `wayland` options and loaded WineD3D and D3D11 built-in modules. A BOMBANANA! process mapped GE-Proton's Wayland driver and `libwayland-client.so`. | Implemented; process and runner-log effects verified |
 | Apply per-game settings and global defaults | Database inheritance and reset are implemented for typed compatibility settings and the other launch fields. Tauri backend commands expose persistence; frontend controls are Phase 08. | Backend implemented |
 | Monitor and stop Wine/Proton game processes | `game_process.rs` and the shared `game_lifecycle.rs` track manual launches by launch token and executable, expose launch state, stop games, and report lifecycle-stage failures. Proton 10 and GE-Proton real-game smokes observed Running, persisted play sessions, stopped the game through Legio, and reopened the database to confirm closure. | Implemented; real-game lifecycle verified |
-| Provide debug mode, capture process output, and collect Wine/Proton diagnostics | Compatibility launch currently discards child stdout and stderr. Launch failures and applied typed settings are available in state, but there is no per-game debug mode, process log, log export, or Wine/Proton diagnostic bundle. User-provided `WINEDEBUG` can be passed as an environment value but does not provide collection. | Missing / partial |
+| Provide debug mode, capture process output, and collect Wine/Proton diagnostics | Schema v15 adds an inherited global/per-game debug logging toggle. Enabled Linux compatibility launches capture stdout and stderr to per-game files, each capped at 2 MiB. Proton/GE-Proton also writes `steam-480.log` in the same app log directory, capped at 10 MiB; Wine receives `WINEDEBUG=+timestamp,+pid,+tid,+seh` unless the user configured `WINEDEBUG`. The latest debug launch replaces prior logs for that game. `launch.json` records the selected runner, version, prefix, typed options, and configured environment variable names, without custom environment values. `list_game_launch_states` exposes the log directory, truncation and output errors, and an observed runner exit code; `get_compatibility_logs_directory` returns the local folder. Logs are not uploaded. | Backend implementation, automated coverage, and real Proton log verification |
 | Fetch Steam game covers and allow game-specific banners | Steam-linked games use the Steam asset cache. Manual compatibility games do not have OFLL's Steam header fetch or a persisted custom banner flow. | Partial |
 | Extract or choose a game icon | No executable icon extraction or persisted custom icon flow is implemented for manually imported games. | Missing |
 | Create desktop and application-menu shortcuts | Legio does not generate per-game `.desktop` shortcuts. | Missing |
@@ -121,7 +121,7 @@ Runner discovery and configuration are reliable, supported Windows games launch 
 
 - Define the safe, canonical-compatible scope and source model for OnlineFix, FreeTP, EOSFix, Photon, SteamFix, and other game-specific behavior. The upstream direct Hydra feed, sidecar installer, and file mutation flows are not an approved design.
 - Define runner download, installation, update, and removal behavior, including integrity metadata and installation locations.
-- The canonical plan requires debug logs, shortcuts, icons, and supported game/fix behavior. The exact prefix utilities and safe filesystem cleanup contract remain to be defined; cleanup must stay within confirmed Legio-owned paths.
+- Shortcuts, icons, and supported game/fix behavior remain to be implemented or resolved. The exact prefix utilities and safe filesystem cleanup contract remain to be defined; cleanup must stay within confirmed Legio-owned paths.
 - Verify visual rendering quality, gameplay input, and visible Steam overlay behavior. 07B verifies the effective options, process environment, renderer mapping, GE-Proton Wayland libraries, and WineD3D module loading, but did not inspect rendered output or input.
 
 ## Update notes
@@ -164,11 +164,11 @@ Observed: the test reported `Observed Proton 10.0 game process in Running state`
 
 The reproducible test is ignored in normal CI because it needs a local game and Proton installation. Set the two environment variables in the command above to run it on a machine with those dependencies.
 
-07B now persists `steamRuntime`, `steamOverlay`, `graphicsRenderer`, and `wayland` as enums in schema v14, both as global defaults and nullable game overrides. The effective configuration applies local runtime wrapping, Steam overlay injection, WineD3D, and GE-Proton Wayland options. Unknown enum values are rejected at deserialization. Environment entries cannot override variables owned by typed settings, and unsupported runner combinations fail before spawning. Missing runtime or overlay files produce actionable errors. The `list_game_launch_states` response reports the runner and typed configuration used for a compatibility launch. UI controls remain out of scope for this backend change.
+07B persists `steamRuntime`, `steamOverlay`, `graphicsRenderer`, and `wayland` as enums in schema v14, both as global defaults and nullable game overrides. Schema v15 adds an inherited `debugLogging` boolean. The effective configuration applies local runtime wrapping, Steam overlay injection, WineD3D, GE-Proton Wayland options, and debug logging. Unknown enum values are rejected at deserialization. Environment entries cannot override variables owned by typed settings, and unsupported runner combinations fail before spawning. Missing runtime or overlay files produce actionable errors. The `list_game_launch_states` response reports the runner and typed configuration used for a compatibility launch. UI controls remain out of scope for this backend change.
 
 The Steam Runtime mapping follows OFLL v2.7.1's Proton version mapping, but Legio requires the mapped runtime to already exist in a detected Steam library. Overlay uses OFLL's default fake App ID 480 for Legio manual games, which have no Steam App ID. Legio validates Steam's 32-bit and 64-bit renderer files and refuses to combine its overlay injection with a configured custom `LD_PRELOAD`. WineD3D and Wayland values are applied through the documented Proton environment options; native Wayland currently requires GE-Proton.
 
-Automated tests cover schema migration and persistence, inheritance and reset, environment application, wrapper argument structure, invalid runner or environment combinations, missing overlay/runtime diagnostics, and launch-state diagnostics. The successful Proton lifecycle smoke above completes 07A. The following evidence closes 07B's process-level verification criteria.
+Automated tests cover schema migration and persistence, inheritance and reset, environment application, wrapper argument structure, invalid runner or environment combinations, missing overlay/runtime diagnostics, launch-state diagnostics, log capture and bounds, redaction, and observed exit codes. The successful Proton lifecycle smoke above completes 07A. The following evidence closes 07B's process-level verification criteria.
 
 #### Typed launch option smoke evidence, 2026-09-26
 
@@ -188,6 +188,21 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked --lib \
   game_lifecycle::tests::installed_proton_game_launch_tracks_and_stops \
   -- --ignored --exact --nocapture
 
+LEGIO_PHASE07_TYPED_OPTIONS=graphics \
+LEGIO_PHASE07_GAME_EXE='/mnt/HDD/Games/Steam/steamapps/common/ROUNDS/ROUNDS.exe' \
+LEGIO_PHASE07_RUNNER='/home/fraa/.local/share/Steam/compatibilitytools.d/GE-Proton10-33-rtsp24-1' \
+cargo test --manifest-path src-tauri/Cargo.toml --locked --lib \
+  game_lifecycle::tests::installed_proton_game_launch_tracks_and_stops \
+  -- --ignored --exact --nocapture
+```
+
+#### Compatibility diagnostics smoke evidence, 2026-09-26
+
+The same Linux machine launched ROUNDS through GE-Proton 10.33 RTSP24-1 with the `graphics` smoke profile, which enables the typed `debugLogging` option. Legio observed the game in Running state, captured the Proton log under its per-game compatibility directory, reported Proton's `wined3d` and `wayland` options and WineD3D/D3D11 module loading, then stopped the game and closed its play session. The smoke passed in 39.58 seconds. This verifies that Legio's typed debug setting reaches the runner and directs Proton diagnostics to the managed local log directory. Process stdout/stderr capture and exit-code recording are covered by automated lifecycle tests.
+
+Command used:
+
+```sh
 LEGIO_PHASE07_TYPED_OPTIONS=graphics \
 LEGIO_PHASE07_GAME_EXE='/mnt/HDD/Games/Steam/steamapps/common/ROUNDS/ROUNDS.exe' \
 LEGIO_PHASE07_RUNNER='/home/fraa/.local/share/Steam/compatibilitytools.d/GE-Proton10-33-rtsp24-1' \

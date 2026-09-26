@@ -96,14 +96,17 @@ These commands are available on `main` after PR #35.
 | `get_game_compatibility_overrides` | `{ gameId }` | nullable per-game values |
 | `save_game_compatibility_overrides` | `{ gameId, overrides }` | saved overrides |
 | `list_compatibility_runners` | none | `{ runners, diagnostics }` |
+| `get_compatibility_logs_directory` | none | local compatibility log directory |
 | `launch_configured_game_with_runner` | `{ gameId }` | starts configured manual game |
 | `get_playtime_summaries` | none | per-game session totals in milliseconds |
 
 `get_playtime_summaries` returns `{ gameId, totalMilliseconds, activeSessions }` for each local game. Active totals are calculated through the request time. The backend starts a session after detecting the game process, closes it after the lifecycle monitor observes exit, and recovers sessions left open by a crash at their last heartbeat. Different games may have overlapping session time.
 
-Defaults have `runnerPath`, `prefixRoot`, `argumentsBefore`, `argumentsAfter`, `workingDirectory`, `environment`, `dllOverrides`, `steamRuntime`, `steamOverlay`, `graphicsRenderer`, and `wayland`. Per-game overrides have those settings plus `prefixPath`; each typed option is nullable and inherits when null. Enum values are `steamRuntime: "runner_default" | "steam_linux_runtime"`, `steamOverlay: "runner_default" | "enabled" | "disabled"`, `graphicsRenderer: "runner_default" | "wine_d3d"`, and `wayland: "runner_default" | "disabled" | "native"`. For scalar/list values, `null` inherits; an empty string/list clears an inherited value. Environment and DLL maps merge by key; an empty map clears all inherited entries. Saving settings persists them, but the UI should not imply that settings were applied until the save command succeeds.
+Defaults have `runnerPath`, `prefixRoot`, `argumentsBefore`, `argumentsAfter`, `workingDirectory`, `environment`, `dllOverrides`, `steamRuntime`, `steamOverlay`, `graphicsRenderer`, `wayland`, and `debugLogging`. Per-game overrides have those settings plus `prefixPath`; each typed option and `debugLogging` is nullable and inherits when null. Enum values are `steamRuntime: "runner_default" | "steam_linux_runtime"`, `steamOverlay: "runner_default" | "enabled" | "disabled"`, `graphicsRenderer: "runner_default" | "wine_d3d"`, and `wayland: "runner_default" | "disabled" | "native"`. For scalar/list values, `null` inherits; an empty string/list clears an inherited value. Environment and DLL maps merge by key; an empty map clears all inherited entries. Saving settings persists them, but the UI should not imply that settings were applied until the save command succeeds.
 
 The backend wraps Proton in a locally installed Steam Linux Runtime only when `steamRuntime` is `steam_linux_runtime`; it does not download runtimes. WineD3D and Wayland set Proton environment options. Native Wayland is accepted only with GE-Proton. Steam overlay enablement requires the two Steam overlay renderer libraries in the detected Steam installation; the backend validates them before launch. Do not expose arbitrary environment overrides for variables managed by these typed settings.
+
+When `debugLogging` is true, the backend captures runner stdout and stderr in the local compatibility log directory. Proton and GE-Proton also receive `PROTON_LOG=1`; Wine receives a default `WINEDEBUG` value only when the user has not configured one. Custom values for `PROTON_LOG`, `PROTON_LOG_DIR`, or `SteamGameId` cannot be combined with enabled debug logging because the logger owns those variables. Arbitrary environment values are not copied into the diagnostic report. One latest log set is retained per game.
 
 `launch_game_with_runner({ gameId, runnerPath })` is an explicit-runner testing command. Production UI should use `launch_configured_game_with_runner` after selecting settings. Runner discovery and configured launch are Linux-only; on other platforms discovery returns no runners and a diagnostic.
 
@@ -246,7 +249,12 @@ interface GameLaunchState {
     steamOverlay: "runner_default" | "enabled" | "disabled";
     graphicsRenderer: "runner_default" | "wine_d3d";
     wayland: "runner_default" | "disabled" | "native";
+    debugLogging: boolean;
   };
+  compatibilityLogPath?: string;
+  compatibilityLogError?: string;
+  compatibilityLogTruncated: boolean;
+  runnerExitCode?: number;
 }
 ```
 

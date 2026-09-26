@@ -10,6 +10,10 @@ use crate::runner_discovery::{self, InstalledRunner, RunnerKind};
 
 const STEAM_OVERLAY_LAYER: &str = "ENABLE_VK_LAYER_VALVE_steam_overlay_1";
 const STEAM_OVERLAY_GAME_ID: &str = "SteamOverlayGameId";
+const PROTON_LOG: &str = "PROTON_LOG";
+const PROTON_LOG_DIR: &str = "PROTON_LOG_DIR";
+const STEAM_GAME_ID: &str = "SteamGameId";
+const WINE_DEBUG: &str = "+timestamp,+pid,+tid,+seh";
 
 #[derive(Debug)]
 pub(crate) struct PreparedOptions {
@@ -61,6 +65,7 @@ impl PreparedOptions {
             steam_overlay: config.steam_overlay,
             graphics_renderer: config.graphics_renderer,
             wayland: config.wayland,
+            debug_logging: config.debug_logging,
         }
     }
 
@@ -89,6 +94,29 @@ impl PreparedOptions {
             }
         }
         self.apply_overlay(command, config)
+    }
+
+    pub(crate) fn apply_debug_logging(
+        command: &mut Command,
+        config: &EffectiveCompatibilityConfig,
+        runner: &InstalledRunner,
+        log_directory: &Path,
+    ) {
+        if !config.debug_logging {
+            return;
+        }
+        match runner.kind {
+            RunnerKind::Proton | RunnerKind::GeProton => {
+                command
+                    .env(PROTON_LOG, "1")
+                    .env(PROTON_LOG_DIR, log_directory)
+                    .env(STEAM_GAME_ID, "480");
+            }
+            RunnerKind::Wine if !config.environment.contains_key("WINEDEBUG") => {
+                command.env("WINEDEBUG", WINE_DEBUG);
+            }
+            RunnerKind::Wine => {}
+        }
     }
 
     fn apply_overlay(
@@ -138,6 +166,20 @@ fn validate(config: &EffectiveCompatibilityConfig, runner: &InstalledRunner) -> 
             return Err(format!(
                 "Compatibility environment variable {key} is managed by the typed launch options"
             ));
+        }
+    }
+
+    if config.debug_logging {
+        for key in [PROTON_LOG, PROTON_LOG_DIR, STEAM_GAME_ID] {
+            if config
+                .environment
+                .keys()
+                .any(|configured| configured.eq_ignore_ascii_case(key))
+            {
+                return Err(format!(
+                    "Compatibility environment variable {key} is managed by debug logging"
+                ));
+            }
         }
     }
 
@@ -289,6 +331,74 @@ mod tests {
                 .lines()
                 .any(|line| line == "PROTON_ENABLE_WAYLAND=1")
         );
+    }
+
+    #[test]
+    fn proton_debug_logging_writes_logs_to_the_game_directory() {
+        let log_directory = test_dir("proton-debug");
+        let config = EffectiveCompatibilityConfig {
+            debug_logging: true,
+            ..EffectiveCompatibilityConfig::default()
+        };
+        let runner = runner(RunnerKind::Proton);
+        let prepared = PreparedOptions::prepare(&config, &runner, None).unwrap();
+        let mut command = Command::new("/usr/bin/env");
+        prepared.apply(&mut command, &config).unwrap();
+        PreparedOptions::apply_debug_logging(&mut command, &config, &runner, &log_directory);
+        let output = command.output().unwrap();
+        let environment = String::from_utf8(output.stdout).unwrap();
+        assert!(environment.lines().any(|line| line == "PROTON_LOG=1"));
+        assert!(
+            environment
+                .lines()
+                .any(|line| { line == format!("PROTON_LOG_DIR={}", log_directory.display()) })
+        );
+        assert!(environment.lines().any(|line| line == "SteamGameId=480"));
+    }
+
+    #[test]
+    fn wine_debug_logging_sets_default_and_preserves_user_channels() {
+        let runner = runner(RunnerKind::Wine);
+        let mut config = EffectiveCompatibilityConfig {
+            debug_logging: true,
+            ..EffectiveCompatibilityConfig::default()
+        };
+        let prepared = PreparedOptions::prepare(&config, &runner, None).unwrap();
+        let mut command = Command::new("/usr/bin/env");
+        prepared.apply(&mut command, &config).unwrap();
+        PreparedOptions::apply_debug_logging(&mut command, &config, &runner, Path::new("/logs"));
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| { key == "WINEDEBUG" && value == Some(WINE_DEBUG.as_ref()) })
+        );
+
+        config
+            .environment
+            .insert("WINEDEBUG".to_owned(), "+seh".to_owned());
+        let prepared = PreparedOptions::prepare(&config, &runner, None).unwrap();
+        let mut command = Command::new("/usr/bin/env");
+        prepared.apply(&mut command, &config).unwrap();
+        PreparedOptions::apply_debug_logging(&mut command, &config, &runner, Path::new("/logs"));
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| { key == "WINEDEBUG" && value == Some("+seh".as_ref()) })
+        );
+    }
+
+    #[test]
+    fn debug_logging_rejects_runner_managed_log_environment() {
+        let mut environment = BTreeMap::new();
+        environment.insert("PROTON_LOG_DIR".to_owned(), "/tmp/custom".to_owned());
+        let config = EffectiveCompatibilityConfig {
+            debug_logging: true,
+            environment,
+            ..EffectiveCompatibilityConfig::default()
+        };
+        let error =
+            PreparedOptions::prepare(&config, &runner(RunnerKind::Proton), None).unwrap_err();
+        assert!(error.contains("PROTON_LOG_DIR is managed by debug logging"));
     }
 
     #[test]
