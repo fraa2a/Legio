@@ -153,6 +153,11 @@ jobs:
         shell: bash
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib finalize_install::tests::finalizes_with_a_candidate_from_the_staged_scan
 
+      - name: Test Windows finalization recovery after database reopen
+        if: runner.os == 'Windows'
+        shell: bash
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib finalize_install::tests::recovers_after_database_commit_fails_and_database_reopens
+
       - name: Build Tauri application
         shell: bash
         run: corepack pnpm tauri build --debug --no-bundle

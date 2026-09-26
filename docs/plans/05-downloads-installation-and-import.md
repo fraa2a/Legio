@@ -90,4 +90,6 @@ Encrypted archives, multipart archives, self-extracting archives, links, special
 
 Windows CI runs `finalize_install::tests::finalizes_with_a_candidate_from_the_staged_scan`, covering Windows path serialization, finalizer validation, and atomic installation with the candidate unchanged.
 
+Windows CI also runs `finalize_install::tests::recovers_after_database_commit_fails_and_database_reopens`, verifying recovery from a durable `finalizing` state after dropping and reopening the database, including a single installed game, preserved executable bytes, and staging cleanup.
+
 05A backend follow-up (2026-09-24): `set_download_bandwidth_limit` now stores bytes per second in the existing SQLite settings table and applies the value to the live queue only after persistence succeeds. Startup reads the saved value before starting queue recovery. Zero continues to mean unlimited. Rust database coverage checks the default, persistence across reopen, clearing to unlimited, and rejection above `i64::MAX`; the local workspace used for this change does not have the Rust toolchain installed, so that test still needs to run in CI.
