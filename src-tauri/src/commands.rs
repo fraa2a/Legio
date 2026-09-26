@@ -118,6 +118,19 @@ pub fn create_game(
 }
 
 #[tauri::command]
+pub fn create_game_shortcut(
+    state: State<'_, DatabaseState>,
+    game_id: String,
+    location: crate::desktop_shortcuts::ShortcutLocation,
+) -> Result<String, String> {
+    let game = state.database()?.game(&game_id)?;
+    let path = crate::desktop_shortcuts::create(&game, location)?;
+    path.to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "The desktop shortcut path is not valid UTF-8".to_owned())
+}
+
+#[tauri::command]
 pub fn update_game(
     state: State<'_, DatabaseState>,
     input: UpdateGameInput,

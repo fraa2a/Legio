@@ -8,6 +8,7 @@ mod compatibility_logs;
 #[cfg(target_os = "linux")]
 mod compatibility_options;
 mod database;
+mod desktop_shortcuts;
 mod diagnostics;
 mod download_queue;
 mod finalize_install;
@@ -27,8 +28,12 @@ mod steam_switch;
 mod steam_vdf;
 
 pub fn run() -> tauri::Result<()> {
+    #[cfg(target_os = "linux")]
+    let shortcut_game_id = desktop_shortcuts::requested_game_id(std::env::args_os().skip(1))
+        .map_err(std::io::Error::other)?;
+
     tauri::Builder::default()
-        .setup(|app| {
+        .setup(move |app| {
             let database = database::DatabaseState::new(app.path().app_data_dir());
             let bandwidth_limit = database
                 .database()
@@ -63,6 +68,12 @@ pub fn run() -> tauri::Result<()> {
                 .map_err(std::io::Error::other)?,
             );
             app.manage(diagnostics);
+            #[cfg(target_os = "linux")]
+            if let Some(game_id) = shortcut_game_id {
+                app.state::<game_lifecycle::GameLaunchManager>()
+                    .launch_configured(app.handle().clone(), game_id)
+                    .map_err(std::io::Error::other)?;
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -78,6 +89,7 @@ pub fn run() -> tauri::Result<()> {
             commands::list_games,
             commands::get_playtime_summaries,
             commands::create_game,
+            commands::create_game_shortcut,
             commands::update_game,
             commands::remove_game,
             commands::launch_steam_game,
