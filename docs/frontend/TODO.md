@@ -37,8 +37,8 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 - [x] Show per-job status, progress, rate, ETA, release version, and error. Treat `status` as an open string and preserve unrecognized future values.
 - [x] Wire pause, resume, retry, and cancel only for valid states. Refresh the queue after every action and show backend rejection messages.
 - [ ] Enqueue with `queue_download({ steamAppId, acceptUnverified })`; never fetch manifest download URLs directly from the frontend.
-- [ ] After a job reaches `downloaded`, call `stage_download`, show extraction/validation failures, then call `scan_staged_executables` to list its relative executable candidates.
-- [ ] Require explicit executable selection when `selectedRelativePath` is null and pass the selected `relativePath` as `executableRelative`. The backend revalidates containment and file type during finalization.
+- [ ] After a job reaches `downloaded`, call `stage_download`, show extraction/validation failures, and allow selection of the game executable from staged files.
+- [ ] Finalization needs `executableRelative`, relative to the staged root. `scan_game_executables` returns absolute paths, so derive a safe relative path only after verifying containment, or add a backend command that returns relative staged candidates. Do not pass paths outside the staging directory.
 - [ ] Call `finalize_download` with the selected relative executable. On success reload both queue and library. Present conflicts/recovery errors without hiding staged evidence.
 - [ ] Add a bandwidth limit control using `set_download_bandwidth_limit`; zero means unlimited. Decide whether the control belongs in Settings or Downloads.
 
@@ -58,7 +58,6 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 - [ ] Add Linux compatibility runner discovery and global defaults using `list_compatibility_runners`, `get_compatibility_defaults`, and `save_compatibility_defaults`.
 - [ ] Add per-game compatibility overrides using `get_game_compatibility_overrides` and `save_game_compatibility_overrides`. Expose inheritance/reset semantics for runner, prefix, arguments, working directory, environment, and DLL overrides.
 - [ ] Launch manually imported Windows games with `launch_configured_game_with_runner`; keep `launch_game_with_runner` as an explicit testing command. Explain unsupported-platform behavior returned by the backend.
-- [ ] On Windows, expose per-game native arguments and working directory through `get_native_launch_config` and `save_native_launch_config`, then launch a manual executable with `launch_native_game`.
 - [x] Show source/network staleness and cached-data warnings without blocking locally available library actions.
 
 ## P1: Home, polish, and verification
@@ -73,5 +72,6 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 ## Backend gaps to track instead of guessing in the UI
 
 - [ ] Decide whether to add a native picker API/plugin for manual directory and executable selection.
+- [ ] Consider a staged-executable scan that returns safe relative paths for `finalize_download`.
 - [ ] Add progress events for downloads and process lifecycle only if polling proves inadequate; there are no such events in the current contract.
 - [ ] Add persistent play sessions/playtime before designing Home or Library around those values.
