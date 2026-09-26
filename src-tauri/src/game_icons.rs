@@ -7,7 +7,7 @@ use std::{
 
 use serde::Serialize;
 
-use crate::image_format::ImageFormat;
+use crate::{database::Game, image_format::ImageFormat, pe_icons};
 
 const MAX_ICON_BYTES: usize = 2 * 1024 * 1024;
 
@@ -41,9 +41,25 @@ impl GameIconStore {
     pub(crate) fn set(&self, game_id: &str, source: &Path) -> Result<GameIconResult, String> {
         let game_id = canonical_game_id(game_id)?;
         let bytes = read_image(source, "selected icon")?;
-        let format = ImageFormat::from_bytes(&bytes).ok_or_else(|| {
-            "Selected file is not a supported PNG, JPEG, or WebP image".to_owned()
-        })?;
+        self.store(game_id, bytes)
+    }
+
+    pub(crate) fn extract(
+        &self,
+        game_id: &str,
+        executable: &Path,
+    ) -> Result<GameIconResult, String> {
+        let game_id = canonical_game_id(game_id)?;
+        let bytes = pe_icons::extract_png(executable)?;
+        self.store(game_id, bytes)
+    }
+
+    fn store(&self, game_id: String, bytes: Vec<u8>) -> Result<GameIconResult, String> {
+        if bytes.len() > MAX_ICON_BYTES {
+            return Err("Game icon exceeds the 2 MiB size limit".to_owned());
+        }
+        let format = ImageFormat::from_bytes(&bytes)
+            .ok_or_else(|| "Game icon is not a supported PNG, JPEG, or WebP image".to_owned())?;
         let _guard = self
             .lock
             .lock()
@@ -117,6 +133,20 @@ impl GameIconStore {
         }
         Ok(directory)
     }
+}
+
+pub(crate) fn extract_for_game(
+    store: &GameIconStore,
+    game: &Game,
+) -> Result<GameIconResult, String> {
+    if game.steam_app_id.is_some() || game.steam_install_path.is_some() {
+        return Err("Embedded icons are supported for manually imported Windows games".to_owned());
+    }
+    let executable = game
+        .executable_path
+        .as_deref()
+        .ok_or_else(|| "This game has no selected Windows executable".to_owned())?;
+    store.extract(&game.id, Path::new(executable))
 }
 
 fn canonical_game_id(game_id: &str) -> Result<String, String> {
@@ -279,6 +309,40 @@ mod tests {
         let path = std::env::temp_dir().join(format!("legio-game-icons-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    fn manual_game() -> Game {
+        Game {
+            id: "00000000-0000-0000-0000-000000000001".to_owned(),
+            steam_app_id: None,
+            automatic_name: None,
+            name_override: None,
+            name: "Imported game".to_owned(),
+            steam_install_path: None,
+            steam_account_id: None,
+            executable_path: None,
+        }
+    }
+
+    #[test]
+    fn extraction_requires_a_selected_executable() {
+        let store = GameIconStore::new(Err("store is unavailable".to_owned()));
+
+        let error = extract_for_game(&store, &manual_game()).unwrap_err();
+
+        assert!(error.contains("no selected Windows executable"));
+    }
+
+    #[test]
+    fn extraction_rejects_steam_managed_games() {
+        let store = GameIconStore::new(Err("store is unavailable".to_owned()));
+        let mut game = manual_game();
+        game.steam_app_id = Some(123);
+        game.executable_path = Some("/invalid/game.exe".to_owned());
+
+        let error = extract_for_game(&store, &game).unwrap_err();
+
+        assert!(error.contains("manually imported Windows games"));
     }
 
     #[test]
@@ -452,6 +516,31 @@ mod tests {
                 .contains("unsupported image format")
         );
         store.remove(game_id).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires an installed Windows game with embedded PE icons"]
+    fn extracted_icon_is_persisted_across_store_reopen() {
+        let executable = std::env::var_os("LEGIO_TEST_WINDOWS_GAME_EXE")
+            .map(PathBuf::from)
+            .expect("set LEGIO_TEST_WINDOWS_GAME_EXE to a Windows game executable");
+        let root = test_dir();
+        let app_data = root.join("app-data");
+        let game_id = "00000000-0000-0000-0000-000000000001";
+        let store = GameIconStore::new(Ok(app_data.clone()));
+
+        let extracted = store.extract(game_id, &executable).unwrap();
+
+        assert_eq!(extracted.content_type, "image/png");
+        assert!(extracted.bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+        assert_eq!(
+            GameIconStore::new(Ok(app_data))
+                .get(game_id)
+                .unwrap()
+                .unwrap(),
+            extracted
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }

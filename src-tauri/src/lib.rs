@@ -20,6 +20,7 @@ pub mod legio_source;
 mod legio_source_cache;
 mod manual_import;
 mod network;
+mod pe_icons;
 mod runner_discovery;
 mod steam_assets;
 mod steam_details;
@@ -96,6 +97,7 @@ pub fn run() -> tauri::Result<()> {
             commands::create_game,
             commands::create_game_shortcut,
             commands::set_game_icon,
+            commands::extract_game_icon,
             commands::get_game_icon,
             commands::reset_game_icon,
             commands::update_game,
