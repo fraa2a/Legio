@@ -50,6 +50,8 @@ Verification: Steam ownership remains intact and helper-exit scenarios do not pr
 
 ### 06C: Sessions, product surfaces, and offline behavior
 
+Status: In progress. Session persistence and download waiting/resume backend paths are implemented; product surfaces and broader offline behavior remain.
+
 - Persist detected game sessions and derive per-game playtime aggregates. Backend storage, crash recovery, and summaries are implemented; connecting them to Home and Library remains UI work.
 - Populate Home and local Library from stored data.
 - Expose launch configuration, errors, and real Retry behavior.
@@ -58,6 +60,11 @@ Verification: Steam ownership remains intact and helper-exit scenarios do not pr
 - Mark remote Store, source, download, and update work unavailable offline.
 
 Verification: session totals survive restart, local surfaces remain useful offline, permitted games launch, and remote work waits without request churn.
+
+- **Platform:** Linux with a controlled local HTTP server.
+- **Command or scenario:** `cargo test --manifest-path src-tauri/Cargo.toml --locked waiting_download_waits_for_connectivity_retry -- --nocapture`.
+- **Observable result:** A waiting download makes no request while the queue is idle. The resume hook used after a successful connectivity check requeues it, and the controlled download completes.
+- **Remaining blockers:** Home and Library integration, launch configuration and Retry presentation, and offline launch verification remain open. Download waiting/resume is verified only for the controlled network case above; Store, source refresh, other download failure cases, and update checks remain unverified offline.
 
 ## Dependencies
 
