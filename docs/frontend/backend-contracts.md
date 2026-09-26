@@ -97,6 +97,7 @@ These commands are available on `main` after PR #35.
 | `save_game_compatibility_overrides` | `{ gameId, overrides }` | saved overrides |
 | `list_compatibility_runners` | none | `{ runners, diagnostics }` |
 | `get_compatibility_logs_directory` | none | local compatibility log directory |
+| `create_game_shortcut` | `{ gameId, location }` | absolute path to the created shortcut |
 | `launch_configured_game_with_runner` | `{ gameId }` | starts configured manual game |
 | `get_playtime_summaries` | none | per-game session totals in milliseconds |
 
@@ -107,6 +108,8 @@ Defaults have `runnerPath`, `prefixRoot`, `argumentsBefore`, `argumentsAfter`, `
 The backend wraps Proton in a locally installed Steam Linux Runtime only when `steamRuntime` is `steam_linux_runtime`; it does not download runtimes. WineD3D and Wayland set Proton environment options. Native Wayland is accepted only with GE-Proton. Steam overlay enablement requires the two Steam overlay renderer libraries in the detected Steam installation; the backend validates them before launch. Do not expose arbitrary environment overrides for variables managed by these typed settings.
 
 When `debugLogging` is true, the backend captures runner stdout and stderr in the local compatibility log directory. Proton and GE-Proton also receive `PROTON_LOG=1`; Wine receives a default `WINEDEBUG` value only when the user has not configured one. Custom values for `PROTON_LOG`, `PROTON_LOG_DIR`, or `SteamGameId` cannot be combined with enabled debug logging because the logger owns those variables. Arbitrary environment values are not copied into the diagnostic report. One latest log set is retained per game.
+
+`create_game_shortcut` is Linux-only and accepts `location: "desktop" | "applications_menu"`. It supports manually imported Windows games with an existing `.exe` selection, writes a per-game `.desktop` file, and returns its path. Opening that entry starts Legio with the game UUID and launches it using the saved compatibility configuration. The desktop entry is a backend capability; the frontend action remains out of scope.
 
 `launch_game_with_runner({ gameId, runnerPath })` is an explicit-runner testing command. Production UI should use `launch_configured_game_with_runner` after selecting settings. Runner discovery and configured launch are Linux-only; on other platforms discovery returns no runners and a diagnostic.
 

@@ -54,7 +54,7 @@ Status: the revision-specific behavior inventory and canonical conflict audit ar
 
 Reviewed upstream: [Online Fix Linux Launcher v2.7.1 at commit `86528986f71c3da0972a670c08feb0bb70a3dbe2`](https://github.com/ZzEdovec/onlinefix-linux/tree/86528986f71c3da0972a670c08feb0bb70a3dbe2). The local `/home/fraa/Documents/OFLL` source was compared with a detached checkout of this exact commit; its `src/app` tree matched. The audit covered the tracked application modules and forms, including [FilesWorker](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/modules/FilesWorker.php), [FixParser](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/modules/FixParser.php), [game settings](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/forms/gameSettings.php), [launcher settings](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/forms/launcherSettings.php), [game import](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/forms/newGameConfigurator.php), [game management](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/forms/MainForm.php), [RAR handling](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/modules/RarExtractor.php), [FreeTP installer](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/modules/ftpInstaller.php), and [README claims](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/README.md). Upstream claims below describe its documented behavior; they are not independent compatibility tests.
 
-| Upstream responsibility | Legio implementation and evidence on `main` at `7590e79` | State |
+| Upstream responsibility | Legio implementation and evidence on `main` at `725ed72` | State |
 | --- | --- | --- |
 | Discover Proton, GE-Proton, and Wine | `runner_discovery.rs` discovers local Proton-named tools, GE-Proton, and validated Wine executables. Discovery reports diagnostics. | Implemented for local installations |
 | Install, update, remove, and select Proton versions | The compatibility schema persists global and per-game runner selections. Launch revalidates an installed path. There is no release catalogue, download, install, or removal service. | Partial; runner management remains |
@@ -69,7 +69,7 @@ Reviewed upstream: [Online Fix Linux Launcher v2.7.1 at commit `86528986f71c3da0
 | Provide debug mode, capture process output, and collect Wine/Proton diagnostics | Schema v15 adds an inherited global/per-game debug logging toggle. Enabled Linux compatibility launches capture stdout and stderr to per-game files, each capped at 2 MiB. Proton/GE-Proton also writes `steam-480.log` in the same app log directory, capped at 10 MiB; Wine receives `WINEDEBUG=+timestamp,+pid,+tid,+seh` unless the user configured `WINEDEBUG`. The latest debug launch replaces prior logs for that game. `launch.json` records the selected runner, version, prefix, typed options, and configured environment variable names, without custom environment values. `list_game_launch_states` exposes the log directory, truncation and output errors, and an observed runner exit code; `get_compatibility_logs_directory` returns the local folder. Logs are not uploaded. | Backend implementation, automated coverage, and real Proton log verification |
 | Fetch Steam game covers and allow game-specific banners | Steam-linked games use the Steam asset cache. Manual compatibility games do not have OFLL's Steam header fetch or a persisted custom banner flow. | Partial |
 | Extract or choose a game icon | No executable icon extraction or persisted custom icon flow is implemented for manually imported games. | Missing |
-| Create desktop and application-menu shortcuts | Legio does not generate per-game `.desktop` shortcuts. | Missing |
+| Create desktop and application-menu shortcuts | Linux `create_game_shortcut` writes a per-game `.desktop` entry to the XDG Desktop folder or applications menu for a manually imported Windows game. The entry launches Legio with the game UUID; app startup uses the persisted compatibility configuration and shared lifecycle. AppImage installs point to the persistent AppImage file instead of the temporary mount path. Tests validate escaping and file ownership; `desktop-file-validate` accepted the generated entries. Game removal does not yet remove its shortcuts automatically. | Backend creation and configured launch implemented; lifecycle cleanup remains |
 | Scan imported files for OnlineFix, FreeTP, EOSFix, SteamFix, and Photon metadata; derive DLL overrides or apply the Photon Newtonsoft workaround | Manual import selects Windows executables, but Legio does not identify or patch these fix layouts. Existing user-configured DLL overrides remain available. | Missing; fix behavior requires a product and trust decision |
 | Install a FreeTP installer selected beside a game and automatically import the result | Legio does not launch sidecar installers or execute fix installers. | Missing; no canonical installer contract exists |
 | Run prefix tools or an arbitrary selected executable inside a prefix | Legio has no backend operation for Wine utilities such as winecfg, regedit, explorer, taskmgr, or winetricks, and no run-in-prefix operation. | Missing; confirm required utility scope against the canonical plan |
@@ -121,7 +121,7 @@ Runner discovery and configuration are reliable, supported Windows games launch 
 
 - Define the safe, canonical-compatible scope and source model for OnlineFix, FreeTP, EOSFix, Photon, SteamFix, and other game-specific behavior. The upstream direct Hydra feed, sidecar installer, and file mutation flows are not an approved design.
 - Define runner download, installation, update, and removal behavior, including integrity metadata and installation locations.
-- Shortcuts, icons, and supported game/fix behavior remain to be implemented or resolved. The exact prefix utilities and safe filesystem cleanup contract remain to be defined; cleanup must stay within confirmed Legio-owned paths.
+- Per-game icon extraction or selection and supported game/fix behavior remain to be implemented or resolved. Shortcut removal when a game is deleted belongs with the safe filesystem cleanup contract, which must stay within confirmed Legio-owned paths. Exact prefix utilities also remain open.
 - Verify visual rendering quality, gameplay input, and visible Steam overlay behavior. 07B verifies the effective options, process environment, renderer mapping, GE-Proton Wayland libraries, and WineD3D module loading, but did not inspect rendered output or input.
 
 ## Update notes
@@ -195,6 +195,18 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked --lib \
   game_lifecycle::tests::installed_proton_game_launch_tracks_and_stops \
   -- --ignored --exact --nocapture
 ```
+
+#### Desktop shortcut generation evidence, 2026-09-26
+
+Platform: Linux x86_64. The backend tests generated menu and Desktop entry files in temporary directories, checked executable permissions and safe replacement, validated game and launch IDs, checked AppImage path resolution, and ran `desktop-file-validate` when available. The local validator accepted entries containing escaped names and executable paths with spaces, percent signs, quotes, dollar signs, backticks, and backslashes. The generated `Exec` argument uses `--launch-game=<uuid>`, which the Tauri startup path routes through the configured compatibility launch lifecycle.
+
+Command:
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml --locked --lib desktop_shortcuts:: -- --nocapture
+```
+
+Remaining blockers: the frontend shortcut action is out of scope, a desktop-environment click-through was not run, game-specific icons are not handled, and deleting a game does not remove its shortcuts.
 
 #### Compatibility diagnostics smoke evidence, 2026-09-26
 
