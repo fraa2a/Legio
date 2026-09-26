@@ -1545,6 +1545,138 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
+    #[ignore = "requires a local Windows game executable and Proton installation"]
+    fn installed_proton_game_launch_tracks_and_stops() {
+        let executable = PathBuf::from(
+            std::env::var_os("LEGIO_PHASE07_GAME_EXE")
+                .expect("set LEGIO_PHASE07_GAME_EXE to an installed Windows game"),
+        );
+        let runner_path = std::env::var_os("LEGIO_PHASE07_RUNNER")
+            .expect("set LEGIO_PHASE07_RUNNER to an installed Proton directory");
+        let runner_path = Path::new(&runner_path)
+            .to_str()
+            .expect("Proton path must be valid UTF-8");
+        let runner = runner_discovery::resolve_runner(runner_path).unwrap();
+        assert!(matches!(
+            runner.kind,
+            RunnerKind::Proton | RunnerKind::GeProton
+        ));
+        let expected_runner = runner.name.clone();
+
+        let base = test_dir("installed-proton-lifecycle");
+        let database_dir = base.join("database");
+        let app = test_app(&database_dir);
+        let (database, game) = {
+            let state = app.state::<DatabaseState>();
+            let database = state.shared_database().unwrap();
+            let game = crate::manual_import::import(
+                &state,
+                crate::manual_import::ManualImportInput {
+                    executable_path: executable.to_string_lossy().into_owned(),
+                    name: Some("Phase 07 Proton smoke".to_owned()),
+                },
+            )
+            .unwrap();
+            (database, game)
+        };
+        let config = EffectiveCompatibilityConfig {
+            runner_path: Some(runner.path.clone()),
+            prefix_root: Some(base.join("prefixes").to_string_lossy().into_owned()),
+            ..EffectiveCompatibilityConfig::default()
+        };
+        let manager = app.state::<GameLaunchManager>().inner().clone();
+        manager
+            .launch_with_compatibility_config(
+                app.handle().clone(),
+                game.id.clone(),
+                config,
+                move |selected_path| {
+                    assert_eq!(selected_path, runner.path);
+                    Ok(runner)
+                },
+            )
+            .unwrap();
+
+        let started = Instant::now();
+        let mut launch_error = None;
+        loop {
+            let state = manager
+                .list()
+                .unwrap()
+                .into_iter()
+                .find(|state| state.game_id == game.id)
+                .unwrap();
+            match state.status {
+                GameStatus::Running => {
+                    assert_eq!(
+                        state
+                            .compatibility_options
+                            .as_ref()
+                            .map(|options| &options.runner),
+                        Some(&expected_runner)
+                    );
+                    eprintln!("Observed {} game process in Running state", expected_runner);
+                    break;
+                }
+                GameStatus::Idle => {
+                    launch_error = state.error;
+                    break;
+                }
+                GameStatus::Launching if started.elapsed() >= Duration::from_secs(90) => {
+                    match manager.cancel(&game.id) {
+                        Ok(()) => wait_for_status(&manager, &game.id, GameStatus::Idle),
+                        Err(_) => {
+                            let latest = manager
+                                .list()
+                                .unwrap()
+                                .into_iter()
+                                .find(|state| state.game_id == game.id)
+                                .unwrap();
+                            if latest.status == GameStatus::Running {
+                                manager.stop(&game.id).unwrap();
+                            }
+                            wait_for_status(&manager, &game.id, GameStatus::Idle);
+                        }
+                    }
+                    panic!("Proton game did not become observable within 90 seconds");
+                }
+                GameStatus::Launching => thread::sleep(POLL_INTERVAL),
+            }
+        }
+        assert!(
+            launch_error.is_none(),
+            "Proton game launch failed: {}",
+            launch_error.unwrap_or_default()
+        );
+
+        thread::sleep(Duration::from_secs(12));
+        let active = database
+            .playtime_summaries(crate::database::now_milliseconds())
+            .unwrap()
+            .into_iter()
+            .find(|summary| summary.game_id == game.id)
+            .unwrap();
+        assert_eq!(active.active_sessions, 1);
+        manager.stop(&game.id).unwrap();
+        wait_for_status(&manager, &game.id, GameStatus::Idle);
+        assert_eq!(manager.list().unwrap()[0].error, None);
+
+        drop(app);
+        drop(database);
+        let reopened = Database::open(&database_dir).unwrap();
+        let summary = reopened
+            .playtime_summaries(crate::database::now_milliseconds())
+            .unwrap()
+            .into_iter()
+            .find(|summary| summary.game_id == game.id)
+            .unwrap();
+        assert!(summary.total_milliseconds > 0);
+        assert_eq!(summary.active_sessions, 0);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn manager_reports_missing_executable_during_preparation() {
         let base = test_dir("manager-prepare-failure");
         let database_dir = base.join("database");
