@@ -20,7 +20,7 @@
 | [04 Legio source, Store, and trust](04-legio-source-store-and-trust.md) | Completed | 03 | 05A queue controls and restart verification |
 | [05 Downloads, installation, and import](05-downloads-installation-and-import.md) | In progress | 04 | 05A queue controls and restart verification |
 | [06 Launch, playtime, and offline](06-launch-playtime-and-offline.md) | In progress | 05 | 06B Steam and native Windows runtime verification |
-| [07 Linux compatibility and OFLL](07-linux-compatibility-and-ofll.md) | In progress | 06 | 07A real-game Proton/Wine lifecycle smoke; 07B in-game option verification; 07C implement canonical-compatible parity gaps |
+| [07 Linux compatibility and OFLL](07-linux-compatibility-and-ofll.md) | In progress | 06 | 07B in-game option verification; 07C implement canonical-compatible parity gaps |
 | [08 Product UI and operations](08-product-ui-and-operations.md) | Blocked | 02, 03, 04, 05, 06, 07 | Supply the section 35 mockup, then 08A product UI |
 | [09 Updates, release, and future](09-updates-release-and-future.md) | Planned | 04, 05, 06, 07, 08 | 09A game update policies |
 
