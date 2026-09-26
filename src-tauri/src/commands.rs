@@ -119,15 +119,47 @@ pub fn create_game(
 
 #[tauri::command]
 pub fn create_game_shortcut(
+    app: AppHandle,
     state: State<'_, DatabaseState>,
     game_id: String,
     location: crate::desktop_shortcuts::ShortcutLocation,
 ) -> Result<String, String> {
     let game = state.database()?.game(&game_id)?;
-    let path = crate::desktop_shortcuts::create(&game, location)?;
+    let icon = app
+        .state::<crate::game_icons::GameIconStore>()
+        .path(&game.id)?;
+    let path = crate::desktop_shortcuts::create(&game, location, icon.as_deref())?;
     path.to_str()
         .map(str::to_owned)
         .ok_or_else(|| "The desktop shortcut path is not valid UTF-8".to_owned())
+}
+
+#[tauri::command]
+pub fn set_game_icon(
+    app: AppHandle,
+    game_id: String,
+    file_path: String,
+) -> Result<crate::game_icons::GameIconResult, String> {
+    app.state::<DatabaseState>().database()?.game(&game_id)?;
+    app.state::<crate::game_icons::GameIconStore>()
+        .set(&game_id, std::path::Path::new(&file_path))
+}
+
+#[tauri::command]
+pub fn get_game_icon(
+    app: AppHandle,
+    game_id: String,
+) -> Result<Option<crate::game_icons::GameIconResult>, String> {
+    app.state::<DatabaseState>().database()?.game(&game_id)?;
+    app.state::<crate::game_icons::GameIconStore>()
+        .get(&game_id)
+}
+
+#[tauri::command]
+pub fn reset_game_icon(app: AppHandle, game_id: String) -> Result<(), String> {
+    app.state::<DatabaseState>().database()?.game(&game_id)?;
+    app.state::<crate::game_icons::GameIconStore>()
+        .remove(&game_id)
 }
 
 #[tauri::command]
@@ -139,8 +171,23 @@ pub fn update_game(
 }
 
 #[tauri::command]
-pub fn remove_game(state: State<'_, DatabaseState>, id: String) -> Result<(), String> {
-    database::remove_game(&state, &id)
+pub fn remove_game(app: AppHandle, id: String) -> Result<(), String> {
+    database::remove_game(&app.state::<DatabaseState>(), &id)?;
+    let mut errors = Vec::new();
+    if let Err(error) = app.state::<crate::game_icons::GameIconStore>().remove(&id) {
+        errors.push(format!("custom icon: {error}"));
+    }
+    if let Err(error) = crate::desktop_shortcuts::remove(&id) {
+        errors.push(format!("desktop shortcuts: {error}"));
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Game was removed, but cleanup failed: {}",
+            errors.join("; ")
+        ))
+    }
 }
 
 #[tauri::command]

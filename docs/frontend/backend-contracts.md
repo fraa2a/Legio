@@ -40,6 +40,9 @@ Suggested startup hydration: load app info, settings, `list_games`, `list_downlo
 | `import_steam_installations` | none | `{ detected, inserted, updated, unchanged, removed, diagnostics }` |
 | `create_game` | `{ input: { name, steamAppId } }` | created `Game` |
 | `update_game` | `{ input: { id, steamAppId, automaticName, nameOverride } }` | updated `Game` |
+| `get_game_icon` | `{ gameId }` | `{ bytes, contentType }` or `null` |
+| `set_game_icon` | `{ gameId, filePath }` | `{ bytes, contentType }` |
+| `reset_game_icon` | `{ gameId }` | `void` |
 | `remove_game` | `{ id }` | `void` |
 
 `Game` currently serializes as:
@@ -110,6 +113,8 @@ The backend wraps Proton in a locally installed Steam Linux Runtime only when `s
 When `debugLogging` is true, the backend captures runner stdout and stderr in the local compatibility log directory. Proton and GE-Proton also receive `PROTON_LOG=1`; Wine receives a default `WINEDEBUG` value only when the user has not configured one. Custom values for `PROTON_LOG`, `PROTON_LOG_DIR`, or `SteamGameId` cannot be combined with enabled debug logging because the logger owns those variables. Arbitrary environment values are not copied into the diagnostic report. One latest log set is retained per game.
 
 `create_game_shortcut` is Linux-only and accepts `location: "desktop" | "applications_menu"`. It supports manually imported Windows games with an existing `.exe` selection, writes a per-game `.desktop` file, and returns its path. Opening that entry starts Legio with the game UUID and launches it using the saved compatibility configuration. The desktop entry is a backend capability; the frontend action remains out of scope.
+
+Game icon commands accept a selected absolute file path and currently support PNG, JPEG, and WebP images up to 2 MiB. `set_game_icon` copies the image into Legio's app data directory, `get_game_icon` returns its bytes and content type, and `reset_game_icon` removes the override. A missing override returns `null`; removing the game also removes its managed icon and Legio-owned Desktop and application-menu shortcuts. If cleanup fails, `remove_game` reports that the game is already removed and lists the cleanup errors. `create_game_shortcut` adds the selected icon path to the `.desktop` entry when one exists. The backend does not yet extract embedded icons from Windows executables.
 
 `launch_game_with_runner({ gameId, runnerPath })` is an explicit-runner testing command. Production UI should use `launch_configured_game_with_runner` after selecting settings. Runner discovery and configured launch are Linux-only; on other platforms discovery returns no runners and a diagnostic.
 

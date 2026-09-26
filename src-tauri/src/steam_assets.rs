@@ -11,6 +11,7 @@ use tauri::Manager;
 
 use crate::{
     database::DatabaseState,
+    image_format::ImageFormat,
     network::{NetworkState, is_steam_asset_url},
     steam_details::{SteamDetails, cached_details},
 };
@@ -117,9 +118,9 @@ impl AssetCacheState {
             return Ok(None);
         }
         let bytes = raw[split + 1..].to_vec();
-        let content_type =
-            sniff(&bytes).ok_or_else(|| "A cached image has invalid content.".to_owned())?;
-        if content_type != header.content_type {
+        let format = ImageFormat::from_bytes(&bytes)
+            .ok_or_else(|| "A cached image has invalid content.".to_owned())?;
+        if format.content_type() != header.content_type {
             return Err("A cached image has mismatched content type.".to_owned());
         }
         let stale = metadata
@@ -129,7 +130,7 @@ impl AssetCacheState {
             .is_none_or(|age| age >= FRESH_FOR);
         Ok(Some(CacheEntry {
             bytes,
-            content_type,
+            content_type: format.content_type(),
             stale,
         }))
     }
@@ -209,18 +210,6 @@ fn prune(directory: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn sniff(bytes: &[u8]) -> Option<&'static str> {
-    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
-        Some("image/jpeg")
-    } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        Some("image/png")
-    } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
-        Some("image/webp")
-    } else {
-        None
-    }
-}
-
 fn selected_url(
     details: &SteamDetails,
     asset: AssetKind,
@@ -277,8 +266,8 @@ async fn load_asset(
         .await
         .map_err(|error| format!("Steam image request failed: {error:?}"))
         .and_then(|bytes| {
-            sniff(&bytes)
-                .map(|content_type| (bytes, content_type))
+            ImageFormat::from_bytes(&bytes)
+                .map(|format| (bytes, format.content_type()))
                 .ok_or_else(|| "Steam returned unsupported image content.".to_owned())
         });
     match fetched {
