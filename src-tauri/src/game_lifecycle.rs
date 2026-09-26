@@ -1702,6 +1702,15 @@ mod tests {
         let state = wait_for_native_status(&manager, &game.id, GameStatus::Idle);
         assert_eq!(state.error, None);
         drop(app);
+        // The worker publishes idle just before dropping its session database.
+        let released = Instant::now();
+        while Arc::strong_count(&database) > 1 {
+            assert!(
+                released.elapsed() < Duration::from_secs(5),
+                "launch monitor did not release the session database"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
         drop(database);
 
         let reopened = Database::open(&database_dir).unwrap();
