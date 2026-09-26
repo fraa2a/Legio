@@ -5,6 +5,8 @@
     label,
     expanded,
     active = false,
+    togglesSidebar = false,
+    count,
     onClick,
     ariaLabel,
     children,
@@ -12,6 +14,8 @@
     label?: string;
     expanded: boolean;
     active?: boolean;
+    togglesSidebar?: boolean;
+    count?: number;
     onClick?: () => void;
     ariaLabel?: string;
     children?: Snippet;
@@ -20,18 +24,25 @@
   const accessibleName = $derived(ariaLabel ?? (expanded || !label ? undefined : label));
 
   const pillClass = $derived.by(() => {
-    if (expanded) return active ? "w-50 bg-white/10" : "w-50 hover:bg-white/10";
-    return active ? "w-12 bg-white/10" : "w-12 hover:bg-white/10";
+    if (expanded) {
+      return active
+        ? "w-50 bg-white/10 light:bg-zinc-900/10"
+        : "w-50 hover:bg-white/10 light:hover:bg-zinc-900/5";
+    }
+    return active
+      ? "w-12 bg-white/10 light:bg-zinc-900/10"
+      : "w-12 hover:bg-white/10 light:hover:bg-zinc-900/5";
   });
 </script>
 
 <button
   type="button"
   aria-label={accessibleName}
-  aria-pressed={active}
+  aria-current={active ? "page" : undefined}
+  aria-expanded={togglesSidebar ? expanded : undefined}
   class="flex w-full items-center transition-colors duration-200 {active
-    ? "text-white"
-    : "text-zinc-400 hover:text-white"}"
+    ? "text-white light:text-zinc-900"
+    : "text-zinc-400 hover:text-white light:text-zinc-500 light:hover:text-zinc-900"}"
   onclick={onClick}
 >
   <span
@@ -43,6 +54,14 @@
     {#if label !== undefined}
       <span class="overflow-hidden whitespace-nowrap text-sm font-medium">
         {label}
+      </span>
+    {/if}
+    {#if count !== undefined && count > 0 && expanded}
+      <span
+        class="ml-auto rounded-full bg-white/15 px-2 py-0.5 text-xs font-semibold text-white light:bg-zinc-900/15 light:text-zinc-900"
+        aria-hidden="true"
+      >
+        {count}
       </span>
     {/if}
   </span>

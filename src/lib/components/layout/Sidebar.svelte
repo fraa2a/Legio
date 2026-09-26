@@ -1,21 +1,30 @@
 <script lang="ts">
+  import { activeDownloadCount } from "../../stores/downloads";
+  import { activeSection, sectionLabels, sections, selectSection, type Section } from "../../stores/navigation";
   import Icon from "../ui/Icon.svelte";
   import Logo from "../ui/Logo.svelte";
   import SidebarButton from "../ui/SidebarButton.svelte";
 
-  type Section = "home" | "library" | "store" | "settings";
+  const icons: Record<Section, "home" | "library" | "store" | "downloads" | "settings"> = {
+    home: "home",
+    library: "library",
+    store: "store",
+    downloads: "downloads",
+    settings: "settings",
+  };
 
-  let activeSection = $state<Section>("home");
+  const navSections = sections.filter((section) => section !== "settings");
+
   let expanded = $state(true);
 </script>
 
 <aside
-  class="flex h-full shrink-0 flex-col overflow-hidden rounded-2xl bg-zinc-900 {expanded
+  class="my-2 ml-2 flex shrink-0 flex-col overflow-hidden rounded-2xl bg-zinc-900 light:bg-zinc-50 {expanded
     ? "w-[13.5rem]"
     : "w-16"} transition-[width] duration-300 ease-out"
 >
   <nav class="mt-2 flex flex-1 flex-col gap-1 p-2" aria-label="Main navigation">
-    <div class="flex w-full items-center text-white">
+    <div class="flex w-full items-center text-white light:text-zinc-900">
       <span
         class="flex h-12 items-center gap-2 overflow-hidden rounded-lg transition-[width] duration-300 ease-out {expanded
           ? "w-50"
@@ -29,19 +38,25 @@
         </span>
       </span>
     </div>
-    <SidebarButton label="Home" expanded={expanded} active={activeSection === "home"} onClick={() => (activeSection = "home")}>
-      <Icon name="home" />
-    </SidebarButton>
-    <SidebarButton label="Libreria" expanded={expanded} active={activeSection === "library"} onClick={() => (activeSection = "library")}>
-      <Icon name="library" />
-    </SidebarButton>
-    <SidebarButton label="Store" expanded={expanded} active={activeSection === "store"} onClick={() => (activeSection = "store")}>
-      <Icon name="store" />
-    </SidebarButton>
+    {#each navSections as section (section)}
+      <SidebarButton
+        label={sectionLabels[section]}
+        expanded={expanded}
+        active={$activeSection === section}
+        count={section === "downloads" ? $activeDownloadCount : undefined}
+        ariaLabel={section === "downloads" && $activeDownloadCount > 0
+          ? `${sectionLabels.downloads} (${$activeDownloadCount} attivi)`
+          : undefined}
+        onClick={() => selectSection(section)}
+      >
+        <Icon name={icons[section]} />
+      </SidebarButton>
+    {/each}
     <div class="mt-auto flex flex-col gap-1">
       <SidebarButton
         label="Comprimi"
         expanded={expanded}
+        togglesSidebar
         ariaLabel={expanded ? undefined : "Espandi sidebar"}
         onClick={() => (expanded = !expanded)}
       >
@@ -56,10 +71,10 @@
         {/if}
       </SidebarButton>
       <SidebarButton
-        label="Impostazioni"
+        label={sectionLabels.settings}
         expanded={expanded}
-        active={activeSection === "settings"}
-        onClick={() => (activeSection = "settings")}
+        active={$activeSection === "settings"}
+        onClick={() => selectSection("settings")}
       >
         <Icon name="settings" />
       </SidebarButton>
