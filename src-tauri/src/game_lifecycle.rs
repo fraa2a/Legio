@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 #[cfg(target_os = "linux")]
 use crate::runner_discovery::RunnerKind;
 use serde::Serialize;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 
 #[cfg(target_os = "linux")]
 use crate::database::EffectiveCompatibilityConfig;
@@ -278,7 +278,12 @@ impl GameLaunchManager {
             runner_path: Some(runner_path),
             ..EffectiveCompatibilityConfig::default()
         };
-        self.launch_with_compatibility_config(app, game_id, config)
+        self.launch_with_compatibility_config(
+            app,
+            game_id,
+            config,
+            runner_discovery::resolve_runner,
+        )
     }
 
     #[cfg(target_os = "linux")]
@@ -305,17 +310,24 @@ impl GameLaunchManager {
                 ..config
             }
         };
-        self.launch_with_compatibility_config(app, game_id, config)
+        self.launch_with_compatibility_config(
+            app,
+            game_id,
+            config,
+            runner_discovery::resolve_runner,
+        )
     }
 
     #[cfg(target_os = "linux")]
-    fn launch_with_compatibility_config(
+    fn launch_with_compatibility_config<R: Runtime>(
         &self,
-        app: AppHandle,
+        app: AppHandle<R>,
         game_id: String,
         config: EffectiveCompatibilityConfig,
+        resolve_runner: impl FnOnce(&str) -> Result<runner_discovery::InstalledRunner, String>,
     ) -> Result<(), String> {
-        let game = app.state::<DatabaseState>().database()?.game(&game_id)?;
+        let database = app.state::<DatabaseState>().shared_database()?;
+        let game = database.game(&game_id)?;
         if game.steam_app_id.is_some() || game.steam_install_path.is_some() {
             return Err("Compatibility runners can only launch manually imported games".to_owned());
         }
@@ -337,7 +349,7 @@ impl GameLaunchManager {
             .as_deref()
             .filter(|path| !path.is_empty())
             .ok_or_else(|| "No compatibility runner is selected".to_owned())?;
-        let runner = runner_discovery::resolve_runner(runner_path)?;
+        let runner = resolve_runner(runner_path)?;
         let data_dir = app
             .path()
             .app_data_dir()
@@ -396,7 +408,7 @@ impl GameLaunchManager {
         let cancel = self.reserve_launch(&game_id, None, process_target.clone())?;
         let manager = self.clone();
         let worker_id = game_id.clone();
-        let session_database = app.state::<DatabaseState>().shared_database()?;
+        let session_database = database;
         if let Err(error) = thread::Builder::new()
             .name(format!("legio-game-runner-{}", game.id))
             .spawn(move || {
@@ -1132,6 +1144,7 @@ fn parse_launch_event(line: &str, app_id: u32) -> Option<SteamLaunchEvent> {
 mod tests {
     use super::*;
     use std::io::Write;
+    use tauri::Manager;
 
     fn test_dir(label: &str) -> PathBuf {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -1142,6 +1155,50 @@ mod tests {
         ));
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    #[cfg(target_os = "linux")]
+    fn test_app(database_dir: &Path) -> tauri::App<tauri::test::MockRuntime> {
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().identifier = format!("org.legio.test.{}", uuid::Uuid::new_v4());
+        tauri::test::mock_builder()
+            .manage(DatabaseState::new(Ok(database_dir.to_path_buf())))
+            .manage(GameLaunchManager::new())
+            .build(context)
+            .unwrap()
+    }
+
+    #[cfg(target_os = "linux")]
+    fn create_manual_game(state: &DatabaseState, executable_path: &Path) -> crate::database::Game {
+        let game = state
+            .database()
+            .unwrap()
+            .create_game(crate::database::CreateGameInput {
+                name: "Controlled game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        fs::write(executable_path, b"controlled test executable").unwrap();
+        crate::manual_import::set_executable(state, &game.id, executable_path.to_str().unwrap())
+            .unwrap();
+        game
+    }
+
+    #[cfg(target_os = "linux")]
+    fn test_runner(path: &Path, script: &str) -> runner_discovery::InstalledRunner {
+        use std::os::unix::fs::PermissionsExt;
+
+        fs::write(path, format!("#!/bin/bash\n{script}")).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        runner_discovery::InstalledRunner {
+            kind: RunnerKind::Wine,
+            name: "Controlled Wine".to_owned(),
+            version: "test".to_owned(),
+            path: fs::canonicalize(path)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+        }
     }
 
     #[cfg(target_os = "linux")]
@@ -1322,6 +1379,172 @@ mod tests {
             .unwrap();
         assert!(summary.total_milliseconds > 0);
         assert_eq!(summary.active_sessions, 0);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn manager_launch_tracks_and_stops_a_controlled_game() {
+        let base = test_dir("manager-lifecycle");
+        let database_dir = base.join("database");
+        let app = test_app(&database_dir);
+        let (database, game) = {
+            let state = app.state::<DatabaseState>();
+            let database = state.shared_database().unwrap();
+            let game = create_manual_game(&state, &base.join("Test Game.exe"));
+            (database, game)
+        };
+
+        let ready = base.join("runner-ready");
+        let gate = base.join("start-game");
+        let runner_path = base.join("controlled-wine");
+        let runner = test_runner(
+            &runner_path,
+            "touch \"$LEGIO_TEST_READY\"\n\
+             for _ in {1..500}; do\n\
+                 [[ -e \"$LEGIO_TEST_GATE\" ]] && break\n\
+                 sleep 0.01\n\
+             done\n\
+             [[ -e \"$LEGIO_TEST_GATE\" ]] || exit 1\n\
+             bash -c 'exec -a \"$1\" sleep 60' _ \"$(basename \"$1\")\" &\n\
+             wait\n",
+        );
+        let config = EffectiveCompatibilityConfig {
+            runner_path: Some(runner.path.clone()),
+            prefix_root: Some(base.join("prefixes").to_string_lossy().into_owned()),
+            environment: std::collections::BTreeMap::from([
+                (
+                    "LEGIO_TEST_READY".to_owned(),
+                    ready.to_string_lossy().into_owned(),
+                ),
+                (
+                    "LEGIO_TEST_GATE".to_owned(),
+                    gate.to_string_lossy().into_owned(),
+                ),
+            ]),
+            ..EffectiveCompatibilityConfig::default()
+        };
+        let manager = app.state::<GameLaunchManager>().inner().clone();
+        manager
+            .launch_with_compatibility_config(
+                app.handle().clone(),
+                game.id.clone(),
+                config,
+                move |selected_path| {
+                    assert_eq!(selected_path, runner.path);
+                    Ok(runner)
+                },
+            )
+            .unwrap();
+
+        let started = Instant::now();
+        while !ready.exists() {
+            assert!(
+                started.elapsed() < Duration::from_secs(3),
+                "controlled runner did not start"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(manager.list().unwrap()[0].status, GameStatus::Launching);
+        fs::write(&gate, b"start").unwrap();
+        wait_for_status(&manager, &game.id, GameStatus::Running);
+        assert_eq!(
+            database
+                .playtime_summaries(crate::database::now_milliseconds())
+                .unwrap()[0]
+                .active_sessions,
+            1
+        );
+
+        manager.stop(&game.id).unwrap();
+        wait_for_status(&manager, &game.id, GameStatus::Idle);
+        assert_eq!(manager.list().unwrap()[0].error, None);
+
+        drop(app);
+        drop(database);
+        let reopened = Database::open(&database_dir).unwrap();
+        let summary = reopened
+            .playtime_summaries(crate::database::now_milliseconds())
+            .unwrap()
+            .into_iter()
+            .find(|summary| summary.game_id == game.id)
+            .unwrap();
+        assert!(summary.total_milliseconds > 0);
+        assert_eq!(summary.active_sessions, 0);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn manager_reports_missing_executable_during_preparation() {
+        let base = test_dir("manager-prepare-failure");
+        let database_dir = base.join("database");
+        let app = test_app(&database_dir);
+        let game = app
+            .state::<DatabaseState>()
+            .database()
+            .unwrap()
+            .create_game(crate::database::CreateGameInput {
+                name: "Unconfigured game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        let manager = app.state::<GameLaunchManager>().inner().clone();
+        let error = manager
+            .launch_with_compatibility_config(
+                app.handle().clone(),
+                game.id,
+                EffectiveCompatibilityConfig::default(),
+                |_| unreachable!("runner resolution follows executable preparation"),
+            )
+            .unwrap_err();
+
+        assert_eq!(error, "This manual game has no selected executable");
+        assert!(manager.list().unwrap().is_empty());
+        drop(app);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn manager_reports_runner_exit_with_launch_stage_diagnostic() {
+        let base = test_dir("manager-launch-failure");
+        let database_dir = base.join("database");
+        let app = test_app(&database_dir);
+        let (game, database) = {
+            let state = app.state::<DatabaseState>();
+            let game = create_manual_game(&state, &base.join("Test Game.exe"));
+            (game, state.shared_database().unwrap())
+        };
+        let runner = test_runner(&base.join("failed-wine"), "exit 7\n");
+        let config = EffectiveCompatibilityConfig {
+            runner_path: Some(runner.path.clone()),
+            prefix_root: Some(base.join("prefixes").to_string_lossy().into_owned()),
+            ..EffectiveCompatibilityConfig::default()
+        };
+        let manager = app.state::<GameLaunchManager>().inner().clone();
+        manager
+            .launch_with_compatibility_config(
+                app.handle().clone(),
+                game.id.clone(),
+                config,
+                move |selected_path| {
+                    assert_eq!(selected_path, runner.path);
+                    Ok(runner)
+                },
+            )
+            .unwrap();
+
+        wait_for_status(&manager, &game.id, GameStatus::Idle);
+        assert!(
+            manager.list().unwrap()[0]
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("Launch stage failed: runner exited before the game started")
+        );
+        drop(app);
+        drop(database);
         fs::remove_dir_all(base).unwrap();
     }
 
