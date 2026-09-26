@@ -163,7 +163,7 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     env:
-      VCPKGRS_TRIPLET: x64-windows-static
+      VCPKGRS_TRIPLET: x64-windows-static-md
 
     steps:
       - name: Check out repository
@@ -197,7 +197,7 @@ jobs:
         shell: pwsh
         run: |
           "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
-          vcpkg install libarchive:x64-windows-static
+          vcpkg install libarchive:x64-windows-static-md
 
       - name: Set up Node
         uses: actions/setup-node@v7
