@@ -20,7 +20,7 @@ Runner discovery and management, prefixes and runtime configuration, launch opti
 
 ### 07A: Runner discovery and basic launch
 
-Status: Proton, GE-Proton, and Wine inventory plus backend launch through a selected runner are implemented; a real-game smoke test remains.
+Status: Proton, GE-Proton, and Wine inventory plus backend launch through a selected runner are implemented. Terraria and Proton 10 are installed; a real-game smoke test is pending.
 
 - Discover Proton, GE-Proton, and Wine installations.
 - Validate runner paths and versions.
@@ -32,11 +32,11 @@ Verification: available runners are detected without false success and a basic W
 
 ### 07B: Compatibility configuration
 
-Status: persistent global defaults, per-game overrides, effective-value merging, validation, and launch integration are implemented in the Rust backend. Platform behavior and dedicated runtime, overlay, and graphics options remain open.
+Status: persistent global defaults, per-game overrides, effective-value merging, validation, typed runtime, overlay, graphics, WineD3D, and Wayland options are implemented in the Rust backend. Their in-game effects still need verification with a supported Windows game.
 
 - Persist runner selection, global defaults, per-game overrides, prefix roots and paths, environment variables, DLL overrides, arguments, and working directories.
 - Validate and apply the effective configuration immediately before launching a manually imported Windows game.
-- Define and support Steam Runtime behavior, overlay integration, and dedicated graphics, WineD3D, and Wayland options where canonical requirements allow.
+- Support Steam Runtime selection, overlay integration, WineD3D, and Wayland through typed settings with validation and diagnostics.
 - Preserve process handling and actionable diagnostics.
 
 Verification: each supported setting changes the observable launch environment, invalid combinations fail before launch, and diagnostics identify the applied configuration.
@@ -59,7 +59,7 @@ Reviewed upstream: [Online Fix Linux Launcher v2.7.1 at commit `86528986f71c3da0
 | Discover and choose Proton, GE-Proton, or Wine | `runner_discovery.rs` validates and lists local runners. Global and per-game runner values are persisted; configured launch uses the first discovered runner when no selection exists. Runner downloads and version management are absent. | Partial |
 | Create and choose per-game prefixes | `game_lifecycle.rs` creates isolated per-game compatibility data and validates custom prefix roots or exact paths. Prefix cleanup and relocation controls are absent. | Backend implemented |
 | Set environment variables, DLL overrides, launch arguments, and working directory | `database.rs` persists defaults and nullable per-game overrides. `game_lifecycle.rs` merges, validates, and applies them before launch. | Backend implemented |
-| Select Steam Runtime, Steam overlay, graphics, WineD3D, or native Wayland options | Arbitrary environment values can express some Proton variables, but Legio has no typed settings or verified runtime integration for these options. | Missing |
+| Select Steam Runtime, Steam overlay, graphics, WineD3D, or native Wayland options | Schema v14 persists typed global defaults and nullable per-game overrides. The effective values select a local Steam Linux Runtime wrapper for Proton 11+ (runtime 4), Proton 8-10 (sniper), or Proton 5.13-7 (soldier); older Proton versions and unsupported architectures return an error. No runtime download is attempted. Overlay enablement checks for both Steam renderer libraries, sets the overlay layer and OFLL's default `SteamOverlayGameId` 480 for manual games, and updates `LD_PRELOAD`; disablement removes overlay injection while retaining unrelated preload entries. WineD3D and Wayland set Proton environment options. Wayland is restricted to GE-Proton. Launch state exposes the selected runner and typed options. | Backend implemented; real-game effect verification pending |
 | Detect Steam and launch through it | `steam_local.rs`, `steam_switch.rs`, and the shared `game_lifecycle.rs` path support Steam-managed games. This does not provide OFLL's OnlineFix/Epic launch flow. | Partial |
 | Monitor and terminate game processes | `game_process.rs` and `game_lifecycle.rs` identify supported game processes, expose lifecycle state, stop games, and report stage failures. Manual Wine/Proton launches use a launch token plus executable matching. | Implemented for current launch paths |
 | Apply OnlineFix, FreeTP, Photon, EOS, or other game-specific patches | Legio does not apply these patches or install their game-specific files. | Missing; product scope decision required |
@@ -82,8 +82,8 @@ Runner discovery and configuration are reliable, supported Windows games launch 
 ## Open technical decisions
 
 - Define product scope and supported sources for game-specific fixes and external game downloads; no behavior is excluded yet.
-- Verify typed Steam Runtime, overlay, graphics, WineD3D, and Wayland behavior with supported Linux games.
-- Run a real supported Windows game through Proton or Wine to close 07A.
+- Verify typed Steam Runtime, overlay, WineD3D, and Wayland effects with a supported Linux game. Current automated tests verify the wrapper arguments, child environment, validation failures, persistence, inheritance, and diagnostics, not in-game rendering or overlay behavior.
+- Find an installed Windows game that reaches its game process, then exercise it through Legio's launch, process tracking, stop, and session lifecycle to close 07A.
 
 ## Update notes
 
@@ -93,4 +93,22 @@ PR #34 added the Linux-only `launch_game_with_runner` command for manually impor
 
 Tests cover process identification, launch and stop state transitions, spawn and wrapper failures, and cancellation before the game process appears. GitHub CI passes on Linux and Windows. 07A remains open until a supported Windows game is smoke-tested with an installed Proton or Wine runner.
 
-07B backend support now persists global defaults and nullable per-game overrides, merges them into effective runner, prefix, arguments, environment, DLL overrides, and working directory values, validates the result, and applies it before launch. A game-specific runner can inherit the global choice; if none is configured, launch uses the first discovered runner. Environment values can express Proton options such as WineD3D, but Legio has no dedicated graphics, Steam Runtime, overlay, or Wayland controls yet. These runtime integrations require Linux game verification; the UI controls remain outside this backend handoff.
+#### Real-game smoke evidence, 2026-09-26
+
+Platform: Linux x86_64 under Wayland. The detected local installation contains Proton 10.0, Steam Linux Runtime sniper, and Terraria App ID 105600. The game executable is a Windows PE file. The smoke used a new prefix under `/tmp`, not the installed game's Steam prefix:
+
+```sh
+env STEAM_COMPAT_CLIENT_INSTALL_PATH=/home/fraa/.local/share/Steam \
+  STEAM_COMPAT_DATA_PATH=/tmp/legio-phase07-terraria.ZPifa7 \
+  /mnt/HDD/Games/Steam/steamapps/common/SteamLinuxRuntime_sniper/run -- \
+  '/mnt/HDD/Games/Steam/steamapps/common/Proton 10.0/proton' run \
+  /mnt/HDD/Games/Steam/steamapps/common/Terraria/Terraria.exe
+```
+
+Observed: the runtime started Proton 10.1000-105, created the temporary prefix, and Wine reported `fsync: up and running`. Terraria then exited with `System.DllNotFoundException: SDL3.dll`; no game process was observed. This is a failed game launch, not a completed smoke test. A second attempt with ROUNDS did not reach its game process: pressure-vessel remained blocked reading from the `/mnt/HDD` filesystem and the attempt was terminated. 07A remains in progress.
+
+07B now persists `steamRuntime`, `steamOverlay`, `graphicsRenderer`, and `wayland` as enums in schema v14, both as global defaults and nullable game overrides. The effective configuration applies local runtime wrapping, Steam overlay injection, WineD3D, and GE-Proton Wayland options. Unknown enum values are rejected at deserialization. Environment entries cannot override variables owned by typed settings, and unsupported runner combinations fail before spawning. Missing runtime or overlay files produce actionable errors. The `list_game_launch_states` response reports the runner and typed configuration used for a compatibility launch. UI controls remain out of scope for this backend change.
+
+The Steam Runtime mapping follows OFLL v2.7.1's Proton version mapping, but Legio requires the mapped runtime to already exist in a detected Steam library. Overlay uses OFLL's default fake App ID 480 for Legio manual games, which have no Steam App ID. Legio validates Steam's 32-bit and 64-bit renderer files and refuses to combine its overlay injection with a configured custom `LD_PRELOAD`. WineD3D and Wayland values are applied through the documented Proton environment options; native Wayland currently requires GE-Proton. These are backend integration results, not a claim that the runtime, overlay, or rendering behavior has been observed in-game.
+
+Automated tests now cover schema migration and persistence, inheritance and reset, environment application, wrapper argument structure, invalid runner or environment combinations, missing overlay/runtime diagnostics, and launch-state diagnostics. 07A remains in progress until a real supported game process is observed through Proton and exercised through Legio's own launch and stop lifecycle.

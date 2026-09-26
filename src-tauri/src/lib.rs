@@ -3,6 +3,8 @@ use tauri::Manager;
 pub mod archive_install;
 mod catalog;
 mod commands;
+#[cfg(target_os = "linux")]
+mod compatibility_options;
 mod database;
 mod diagnostics;
 mod download_queue;
