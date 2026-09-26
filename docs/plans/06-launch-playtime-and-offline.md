@@ -20,11 +20,18 @@ Shared launch lifecycle, Steam-managed launch, optional per-game Steam account s
 
 ### 06A: Shared launch lifecycle
 
+Status: Completed for the Linux controlled-process path.
+
 - Define Rust-owned `prepare`, `launch`, `monitor`, `terminate`, and `collect diagnostics` stages.
 - Represent stage failures as typed, actionable results.
 - Keep platform-specific behavior behind the shared lifecycle only when needed.
 
 Verification: a controlled executable traverses every stage, termination is observed, and stage failures expose useful diagnostics.
+
+- **Platform:** Linux.
+- **Command or scenario:** `cargo test --manifest-path src-tauri/Cargo.toml --locked manager_ -- --nocapture`.
+- **Observable result:** `GameLaunchManager` prepares a database-backed manual game, starts a controlled Wine-kind runner stub, observes `Launching` and `Running`, stops the detected child process, returns to `Idle`, and preserves a closed session after reopening SQLite. Preparation and runner-exit failures return stage-specific errors.
+- **Remaining blockers:** Real Steam behavior, native Windows process tracking, and launching a real game remain unverified under 06B.
 
 ### 06B: Steam and native Windows launch
 
@@ -75,7 +82,7 @@ Supported games launch through the correct owner, actual game lifetime drives se
 
 ## Update notes
 
-The launch runner now accepts a launch action while retaining the same process monitor and terminate path. A Linux integration test prepares a target, starts a controlled `sleep` process with the Steam App ID environment, observes `Running`, stops it, and verifies the final `Idle` state. A missing executable test verifies that launch errors include the failing stage. This covers the runner with a controlled process; it does not exercise database-backed preparation, the Steam account-switch flow, or Windows process tracking, so 06A remains in progress.
+The launch runner now accepts a launch action while retaining the same process monitor and terminate path. The Linux manager tests exercise the compatibility launch path used by the application's runner commands with a database-backed manual game and a controlled Wine-kind runner stub. They verify process detection, the `Launching` to `Running` transition, Stop, return to `Idle`, persisted session closure after reopening SQLite, preparation failure, and a stage-specific runner failure. The test substitutes only runner discovery with the controlled stub; it does not use Steam or a real game. Windows process tracking and real Steam launch behavior remain open under 06B.
 
 [PR #18](https://github.com/fraa2a/Legio/pull/18) prepares the Rust backend for per-game Steam account preferences: bounded local account enumeration, SQLite persistence, and a fail-closed prelaunch check. It does not add account controls to the testing UI or launch a game. A trustworthy active-account source and actual Steam launch integration remain required before this feature can be enabled.
 
@@ -93,4 +100,4 @@ Phase 05C stores manually selected executable paths separately from Steam instal
 
 The backend now stores a session when the monitor detects a Steam-managed or compatibility-runner game process, updates its heartbeat while it runs, closes it when monitoring ends, and recovers open sessions after restart at the last heartbeat. `get_playtime_summaries` returns per-game milliseconds and active-session counts. Home and Library presentation is intentionally outstanding because the UI is excluded from this work.
 
-A Linux controlled-process test now exercises the join between lifecycle monitoring and SQLite sessions: the session begins after process detection, closes after Stop, and remains closed in the summary after reopening the database.
+The controlled Linux manager test exercises the lifecycle and SQLite session join through the compatibility launch path: the session begins after process detection, closes after Stop, and remains closed in the summary after reopening the database.
