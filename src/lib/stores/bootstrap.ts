@@ -1,7 +1,7 @@
 import { appInfo } from "./app-info";
 import { settings } from "./settings";
 import { games } from "./games";
-import { downloads } from "./downloads";
+import { bandwidthLimit, downloads } from "./downloads";
 import { source, refreshSource } from "./source";
 import { checkConnectivity, network } from "./network";
 import { launchStates } from "./launch";
@@ -12,6 +12,7 @@ export async function hydrateApp(): Promise<void> {
     settings.load(),
     games.load(),
     downloads.load(),
+    bandwidthLimit.load(),
     source.load(),
     network.load(),
     launchStates.load(),

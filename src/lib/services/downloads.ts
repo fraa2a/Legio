@@ -13,18 +13,29 @@ export interface DownloadJob {
   error: string | null;
 }
 
+export interface StagedExecutableCandidate {
+  relativePath: string;
+  score: number;
+  signals: string[];
+}
+
+export interface StagedExecutableScan {
+  candidates: StagedExecutableCandidate[];
+  selectedRelativePath: string | null;
+}
+
 const statusLabels: Record<string, string> = {
-  queued: "In coda",
-  downloading: "Download in corso",
-  waiting: "In attesa",
-  paused: "In pausa",
-  failed: "Fallito",
-  downloaded: "Scaricato",
-  staging: "Estrazione",
-  staged: "Pronto",
-  finalizing: "Installazione",
-  installed: "Installato",
-  cancelled: "Annullato",
+  queued: "in coda",
+  downloading: "download in corso",
+  waiting: "in attesa",
+  paused: "download in pausa",
+  failed: "download fallito",
+  downloaded: "download completato",
+  staging: "estrazione in corso",
+  staged: "estrazione completata",
+  finalizing: "installazione in corso",
+  installed: "installato",
+  cancelled: "download annullato",
 };
 
 export function describeDownloadStatus(status: string): string {
@@ -57,6 +68,22 @@ export function canCancelDownload(status: string): boolean {
   );
 }
 
+export function canStageDownload(status: string): boolean {
+  return status === "downloaded";
+}
+
+export function canFinalizeDownload(status: string): boolean {
+  return status === "staged";
+}
+
+export function canRemoveDownload(status: string): boolean {
+  return status === "cancelled" || status === "failed" || status === "installed";
+}
+
+export function isFinishedDownloadStatus(status: string): boolean {
+  return status === "cancelled" || status === "installed";
+}
+
 export function listDownloads(): Promise<DownloadJob[]> {
   return invoke<DownloadJob[]>("list_downloads");
 }
@@ -79,4 +106,39 @@ export function retryDownload(id: string): Promise<void> {
 
 export function cancelDownload(id: string): Promise<void> {
   return invoke<void>("cancel_download", { id });
+}
+
+export function removeDownload(id: string): Promise<void> {
+  return invoke<void>("remove_download", { id });
+}
+
+export function removeFinishedDownloads(): Promise<string[]> {
+  return invoke<string[]>("remove_finished_downloads");
+}
+
+export function stageDownload(id: string): Promise<string> {
+  return invoke<string>("stage_download", { id });
+}
+
+export function scanStagedExecutables(
+  id: string,
+  gameName: string | null,
+): Promise<StagedExecutableScan> {
+  return invoke<StagedExecutableScan>("scan_staged_executables", { id, gameName });
+}
+
+export function finalizeDownload(id: string, executableRelative: string): Promise<void> {
+  return invoke<void>("finalize_download", { id, executableRelative });
+}
+
+export function getDownloadBandwidthLimit(): Promise<number> {
+  return invoke<number>("get_download_bandwidth_limit");
+}
+
+export function setDownloadBandwidthLimit(bytesPerSecond: number): Promise<void> {
+  return invoke<void>("set_download_bandwidth_limit", { bytesPerSecond });
+}
+
+export function openInstalledFolder(): Promise<void> {
+  return invoke<void>("open_installed_folder");
 }

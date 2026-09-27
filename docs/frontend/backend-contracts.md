@@ -194,10 +194,14 @@ Details include name, type, description, developers, publishers, genres, platfor
 | `resume_download` | `{ id }` | `void` |
 | `retry_download` | `{ id }` | `void` |
 | `cancel_download` | `{ id }` | `void` |
+| `remove_download` | `{ id }` | `void`; deletes the row plus its `.part`, `.archive` and `.stage` files |
+| `remove_finished_downloads` | none | removed ids; clears every `cancelled` and `installed` row |
 | `set_download_bandwidth_limit` | `{ bytesPerSecond }` | `void`; zero means unlimited. The value persists across application restarts. |
+| `get_download_bandwidth_limit` | none | `number`; the stored bytes per second, or `0` when unlimited |
 | `stage_download` | `{ id }` | staged directory path |
 | `scan_staged_executables` | `{ id, gameName? }` | `{ candidates: [{ relativePath, score, signals }], selectedRelativePath }` |
 | `finalize_download` | `{ id, executableRelative }` | `void`; creates installed game and library row |
+| `open_installed_folder` | none | `void`; opens the platform file manager on the app-owned `installed` directory |
 
 ```ts
 interface DownloadJob {
@@ -216,9 +220,17 @@ interface DownloadJob {
 
 Current statuses are `queued`, `downloading`, `waiting`, `paused`, `failed`, `downloaded`, `staging`, `staged`, `finalizing`, `installed`, and `cancelled`. Treat status as an open string for forward compatibility. Typical actions: pause only `queued`/`downloading`/`waiting`; resume `paused`/`waiting`; retry `failed`; cancel active or queued states. The backend enforces valid transitions and reports invalid actions as rejected invokes.
 
+Cancelling a download only changes its status. The row and any leftover files remain, so a queue that only offers cancel grows without bound. Removal is a separate, explicit action: `remove_download` accepts only `cancelled`, `failed` and `installed`, and rejects anything still able to progress with `Cannot remove a <status> download`. It removes `.part`, `.archive` and the staging directory before deleting the row, so a cleanup failure keeps the row and its error instead of leaking files. The staged directory is never deleted when it is not a regular directory, which preserves unexpected content for inspection. Removing an `installed` row leaves `installed/<id>` and the library entry untouched, because the game is owned by the library, not the queue. `remove_finished_downloads` clears `cancelled` and `installed` in one call and deliberately leaves `failed` alone, because that error is still actionable.
+
+`open_installed_folder` takes no argument on purpose: the frontend cannot ask the backend to open an arbitrary path. It resolves the app-owned `installed` directory, creating it if it does not exist yet, and hands it to the platform file manager. On Linux it first checks `xdg-mime query default inode/directory`: when the registered handler is a terminal it is ignored, because opening a folder in a terminal is never the intent, and the command falls back to the first available file manager from `nautilus`, `nemo`, `thunar`, `dolphin`, `pcmanfm`, `caja`, `xfe`. Otherwise it uses `gio open`, which resolves the real default handler. A file manager still running after a short timeout counts as success. On Windows it runs `explorer.exe` and only a failed spawn is an error, because explorer reports a failure status even when it opens the folder. When nothing can be opened it surfaces `Could not open the install folder: ...`.
+
 `queue_download` requires `acceptUnverified: true` before an unverified source can be queued. Poll `list_downloads` while the queue screen is visible because there is no progress event yet. Refresh the library after a successful `finalize_download`. For install selection, stage the verified archive, call `scan_staged_executables({ id, gameName? })`, let the user select a candidate by `relativePath`, then pass it unchanged as `executableRelative`. Candidate paths use forward slashes on every platform. The command only scans a download whose stored status is `staged` and whose stage path matches the app-owned path. Finalization revalidates the path, containment, and executable file before installing. `stage_download` still returns a path for diagnostics; the UI does not need to inspect it or convert absolute paths.
 
 For unverified releases, show the trust warning before queueing and send `acceptUnverified: true` only after explicit confirmation. Never infer trust from a Steam catalog result. The install sequence is enqueue, poll, stage, scan staged candidates, select an executable, finalize, and reload queue plus library. Treat unknown job status values as unrecognized instead of failing the page.
+
+`stage_download` and `finalize_download` both run on a blocking thread, so the UI must show a pending state for each. A `finalize_download` rejection before the intent is stored leaves the status `staged` and does not set `job.error`, so the rejected message is the only signal. A rejection after the intent is stored leaves `finalizing` with `error` set; there is no retry or cancel command for that status, and startup recovery retries it. Conflicts preserve both the install target and the staged files for inspection. An `installed` row can still carry an `error` when only stage cleanup failed; that cleanup is retried on the next start. Present these three cases differently instead of rendering every `error` as a failure.
+
+`scan_staged_executables` falls back to the download's own name when `gameName` is null, so the UI can omit it and still get name-based ranking.
 
 ## Launch lifecycle
 

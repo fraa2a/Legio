@@ -819,6 +819,92 @@ pub async fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn get_download_bandwidth_limit(app: AppHandle) -> Result<u64, String> {
+    app.state::<DatabaseState>()
+        .database()?
+        .download_bandwidth_limit()
+}
+
+/// Statuses whose entry can be dropped once nothing further can happen to it.
+/// A retryable failure is included so a job the user does not want to retry
+/// does not stay in the list forever.
+const REMOVABLE: [&str; 3] = ["cancelled", "failed", "installed"];
+
+/// Statuses that carry no pending work and no error worth reading, so bulk
+/// cleanup may drop them without a confirmation.
+const FINISHED: [&str; 2] = ["cancelled", "installed"];
+
+fn remove_entry(queue: &DownloadQueueState, database: &Database, id: &str) -> Result<(), String> {
+    let id = Uuid::parse_str(id)
+        .map_err(|_| "Download ID is invalid".to_owned())?
+        .to_string();
+    let status = status(database, &id)?;
+    if !REMOVABLE.contains(&status.as_str()) {
+        return Err(format!("Cannot remove a {status} download"));
+    }
+    // Files are removed before the row so a cleanup failure keeps the entry and
+    // its error visible instead of leaking files silently. The installed game
+    // lives in a separate app-owned directory and is never touched here.
+    for extension in ["part", "archive"] {
+        remove_partial(&queue.path(&id, extension)?)
+            .map_err(|error| format!("Could not remove download files: {error}"))?;
+    }
+    finalize_install::remove_stage_directory(&queue.path(&id, "stage")?)?;
+    database.with_connection(|connection| {
+        connection
+            .execute("DELETE FROM downloads WHERE id = ?1", [&id])
+            .map_err(db_error)?;
+        Ok(())
+    })
+}
+
+#[tauri::command]
+pub async fn remove_download(app: AppHandle, id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        remove_entry(
+            &app.state::<DownloadQueueState>(),
+            app.state::<DatabaseState>().database()?,
+            &id,
+        )
+    })
+    .await
+    .map_err(|error| format!("Remove task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn remove_finished_downloads(app: AppHandle) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let queue = app.state::<DownloadQueueState>();
+        let state = app.state::<DatabaseState>();
+        let database = state.database()?;
+        let ids = finished_ids(database)?;
+        let mut removed = Vec::with_capacity(ids.len());
+        for id in ids {
+            remove_entry(&queue, database, &id)?;
+            removed.push(id);
+        }
+        Ok(removed)
+    })
+    .await
+    .map_err(|error| format!("Cleanup task failed: {error}"))?
+}
+
+fn finished_ids(database: &Database) -> Result<Vec<String>, String> {
+    let placeholders = FINISHED.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+    let query = format!(
+        "SELECT id FROM downloads WHERE status IN ({placeholders}) ORDER BY created_at, id"
+    );
+    database.with_connection(|connection| {
+        let mut statement = connection.prepare(&query).map_err(db_error)?;
+        statement
+            .query_map(rusqlite::params_from_iter(FINISHED), |row| row.get(0))
+            .map_err(db_error)?
+            .collect::<Result<_, _>>()
+            .map_err(db_error)
+    })
+}
+
+#[tauri::command]
 pub fn set_download_bandwidth_limit(app: AppHandle, bytes_per_second: u64) -> Result<(), String> {
     app.state::<DatabaseState>()
         .database()?
@@ -1116,6 +1202,145 @@ mod tests {
                 .contains("range: bytes=5-\r\n")
         );
         assert!(!requests[1].to_ascii_lowercase().contains("range:"));
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn set_status(database: &Database, id: &str, status: &str) {
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET status = ?2 WHERE id = ?1",
+                        params![id, status],
+                    )
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    fn status_of(database: &Database, id: &str) -> Option<String> {
+        database
+            .with_connection(|connection| {
+                connection
+                    .query_row("SELECT status FROM downloads WHERE id = ?1", [id], |row| {
+                        row.get(0)
+                    })
+                    .optional()
+                    .map_err(db_error)
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn removes_a_cancelled_entry_with_its_queued_files() {
+        let (database, queue, job, directory) = downloaded_fixture();
+        set_status(&database, &job.id, "cancelled");
+        let partial = queue.path(&job.id, "part").unwrap();
+        let stage = queue.path(&job.id, "stage").unwrap();
+        fs::write(&partial, b"partial").unwrap();
+        fs::create_dir_all(stage.join("Game")).unwrap();
+        fs::write(stage.join("Game/game.exe"), b"binary").unwrap();
+
+        remove_entry(&queue, &database, &job.id).unwrap();
+
+        assert_eq!(status_of(&database, &job.id), None);
+        assert!(list(&database).unwrap().is_empty());
+        assert!(!partial.exists());
+        assert!(!queue.path(&job.id, "archive").unwrap().exists());
+        assert!(!stage.exists());
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn removes_a_failed_entry_without_a_confirmation() {
+        let (database, queue, job, directory) = downloaded_fixture();
+        set_status(&database, &job.id, "failed");
+
+        assert!(REMOVABLE.contains(&"failed"));
+        remove_entry(&queue, &database, &job.id).unwrap();
+
+        assert_eq!(status_of(&database, &job.id), None);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn refuses_to_remove_an_entry_that_can_still_progress() {
+        let (database, queue, job, directory) = downloaded_fixture();
+        for status in ["downloaded", "staged", "finalizing", "downloading"] {
+            set_status(&database, &job.id, status);
+            let error = remove_entry(&queue, &database, &job.id).unwrap_err();
+            assert_eq!(error, format!("Cannot remove a {status} download"));
+            assert_eq!(status_of(&database, &job.id).as_deref(), Some(status));
+        }
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn removing_an_installed_entry_keeps_the_installed_game() {
+        let (database, queue, job, directory) = downloaded_fixture();
+        set_status(&database, &job.id, "installed");
+        let installed = directory.join("installed").join(&job.id);
+        fs::create_dir_all(&installed).unwrap();
+        fs::write(installed.join("game.exe"), b"binary").unwrap();
+
+        remove_entry(&queue, &database, &job.id).unwrap();
+
+        assert_eq!(status_of(&database, &job.id), None);
+        assert!(installed.join("game.exe").exists());
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn finished_cleanup_keeps_retryable_failures() {
+        let (database, _queue, cancelled, directory) = downloaded_fixture();
+        let mut ids = vec![cancelled.id.clone()];
+        for _ in 0..2 {
+            ids.push(enqueue(&database, 400, false).unwrap().id);
+        }
+        let installed = ids[1].clone();
+        let failed = ids[2].clone();
+        set_status(&database, &cancelled.id, "cancelled");
+        set_status(&database, &installed, "installed");
+        set_status(&database, &failed, "failed");
+
+        let mut selected = finished_ids(&database).unwrap();
+        selected.sort();
+        let mut expected = vec![cancelled.id.clone(), installed.clone()];
+        expected.sort();
+        assert_eq!(selected, expected);
+        for id in [cancelled.id.clone(), installed.clone()] {
+            remove_entry(&_queue, &database, &id).unwrap();
+        }
+
+        assert_eq!(status_of(&database, &cancelled.id), None);
+        assert_eq!(status_of(&database, &installed), None);
+        assert_eq!(status_of(&database, &failed).as_deref(), Some("failed"));
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_to_remove_a_symlinked_stage_directory() {
+        use std::os::unix::fs::symlink;
+
+        let (database, queue, job, directory) = downloaded_fixture();
+        set_status(&database, &job.id, "cancelled");
+        let outside = directory.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("keep.bin"), b"keep").unwrap();
+        symlink(&outside, queue.path(&job.id, "stage").unwrap()).unwrap();
+
+        let error = remove_entry(&queue, &database, &job.id).unwrap_err();
+        assert!(error.contains("preserved for inspection"), "{error}");
+
+        assert!(outside.join("keep.bin").exists());
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }

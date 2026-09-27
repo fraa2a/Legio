@@ -1,6 +1,6 @@
 <script lang="ts">
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
-  import { activeDownloadCount, downloads } from "../../stores/downloads";
+  import { activeDownloadCount, downloads, pendingDownloadCount } from "../../stores/downloads";
   import { gameCount, games, steamGameCount } from "../../stores/games";
   import { network, networkSummary } from "../../stores/network";
   import { source } from "../../stores/source";
@@ -21,7 +21,7 @@
     {
       label: "Download attivi",
       value: $activeDownloadCount.toString(),
-      hint: `${$downloads.data.length} in coda`,
+      hint: `${$pendingDownloadCount} da avviare o completare`,
     },
     { label: "Stato rete", value: $networkSummary.status, hint: `Steam: ${$networkSummary.steam}` },
     {

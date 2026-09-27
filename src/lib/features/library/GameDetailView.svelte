@@ -68,7 +68,9 @@
     <div class="flex flex-col overflow-hidden rounded-2xl bg-white/5 light:bg-zinc-100 sm:flex-row">
       <div class="flex min-w-0 flex-1 flex-col gap-3 p-5 sm:justify-center sm:p-6">
         <div class="flex flex-wrap items-center gap-2">
-          <Badge tone={isSteamGame ? "info" : "neutral"} title={isSteamGame ? "Steam" : "Manuale"} />
+          {#if !isSteamGame}
+            <Badge tone="neutral" title="Manuale" />
+          {/if}
           {#if game.nameOverride !== null}
             <Badge tone="warning" title="Nome personalizzato" />
           {/if}

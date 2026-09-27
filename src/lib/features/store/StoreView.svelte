@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { formatBytes } from "../../utils/format";
   import Badge from "../../components/ui/Badge.svelte";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
@@ -8,7 +7,8 @@
   import type { LoadStatus } from "../../stores/resource";
   import { refreshSource, sourceRefreshError, source } from "../../stores/source";
   import StoreGameDetail from "./StoreGameDetail.svelte";
-  import { availabilityMeta, sourceStatusFor, type SourceStatus } from "./source-status";
+  import StoreGameCard from "./StoreGameCard.svelte";
+  import { sourceStatusFor, type SourceStatus } from "./source-status";
 
   interface StoreEntry {
     steamAppId: number;
@@ -144,27 +144,14 @@
   />
 
   {#if entries.length > 0}
-    <ul class="flex flex-col gap-3">
+    <ul class="grid grid-cols-2 gap-4">
       {#each entries as entry (entry.steamAppId)}
-        {@const meta = availabilityMeta[entry.status.availability]}
-        <li class="rounded-xl bg-white/5 light:bg-zinc-100">
-          <button
-            type="button"
-            class="flex w-full flex-wrap items-center gap-3 rounded-xl p-4 text-left"
-            aria-label="Dettagli di {entry.name} nello store"
-            onclick={() => (selected = entry)}
-          >
-            <span class="min-w-0 flex-1 truncate font-medium text-zinc-50 light:text-zinc-900">
-              {entry.name}
-            </span>
-            {#if entry.status.entry !== null}
-              <span class="text-xs text-zinc-400 light:text-zinc-600">
-                v{entry.status.entry.release.version} · {formatBytes(entry.status.entry.download.sizeBytes)}
-              </span>
-            {/if}
-            <Badge tone={meta.tone} title={meta.label} />
-          </button>
-        </li>
+        <StoreGameCard
+          steamAppId={entry.steamAppId}
+          name={entry.name}
+          status={entry.status}
+          onOpen={() => (selected = entry)}
+        />
       {/each}
     </ul>
   {/if}

@@ -92,7 +92,6 @@
     <div class="flex min-w-0 flex-1 flex-col gap-3 p-5 sm:justify-center sm:p-6">
       <div class="flex flex-wrap items-center gap-2">
         <Badge tone={meta.tone} title={meta.label} />
-        <Badge tone="info" title="Steam" />
         {#each platforms as platform (platform)}
           <Badge tone="neutral" title={platform} />
         {/each}

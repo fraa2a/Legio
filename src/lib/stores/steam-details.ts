@@ -63,6 +63,8 @@ export function loadSteamDetails(
 }
 
 export function ensureSteamDetails(steamAppId: number): void {
-  if (get(steamDetails)[steamAppId] !== undefined) return;
+  const existing = get(steamDetails)[steamAppId];
+  // A failed attempt must not pin the title to an empty panel for the session.
+  if (existing !== undefined && existing.status !== "error") return;
   void loadSteamDetails(steamAppId, false).catch(() => undefined);
 }

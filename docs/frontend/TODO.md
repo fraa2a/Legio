@@ -36,11 +36,13 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 - [x] Build a Downloads screen and a queue entry point in the shell. Poll `list_downloads` while relevant views are active; there is no download progress event today.
 - [x] Show per-job status, progress, rate, ETA, release version, and error. Treat `status` as an open string and preserve unrecognized future values.
 - [x] Wire pause, resume, retry, and cancel only for valid states. Refresh the queue after every action and show backend rejection messages.
+- [x] Let a finished or abandoned entry leave the queue. Cancelling alone only changes the status, so add `remove_download` for `cancelled`/`failed`/`installed` and a bulk `remove_finished_downloads`, with a per-row remove button and a short confirmation. Keep the row minimal: the state label and the backend error, nothing else.
 - [x] Enqueue with `queue_download({ steamAppId, acceptUnverified })`; never fetch manifest download URLs directly from the frontend.
-- [ ] After a job reaches `downloaded`, call `stage_download`, show extraction/validation failures, and allow selection of the game executable from staged files.
-- [ ] Finalization needs `executableRelative`, relative to the staged root. `scan_game_executables` returns absolute paths, so derive a safe relative path only after verifying containment, or add a backend command that returns relative staged candidates. Do not pass paths outside the staging directory.
-- [ ] Call `finalize_download` with the selected relative executable. On success reload both queue and library. Present conflicts/recovery errors without hiding staged evidence.
-- [ ] Add a bandwidth limit control using `set_download_bandwidth_limit`; zero means unlimited. Decide whether the control belongs in Settings or Downloads.
+- [x] After a job reaches `downloaded`, call `stage_download`, show extraction/validation failures, and allow selection of the game executable from staged files.
+- [x] Finalization needs `executableRelative`, relative to the staged root. `scan_game_executables` returns absolute paths, so derive a safe relative path only after verifying containment, or add a backend command that returns relative staged candidates. Do not pass paths outside the staging directory. Resolved with `scan_staged_executables`, which already returns download-bound relative candidates; the frontend passes `relativePath` through unchanged and does no path handling.
+- [x] Call `finalize_download` with the selected relative executable. On success reload both queue and library. Present conflicts/recovery errors without hiding staged evidence.
+- [x] Add a bandwidth limit control using `set_download_bandwidth_limit`; zero means unlimited. Decided in favour of Settings, with `get_download_bandwidth_limit` added so the persisted limit is shown after a restart.
+- [x] Let the user reach the store install directory from Settings with `open_installed_folder`. The command takes no path argument, so the frontend cannot request an arbitrary location.
 
 ## P0: Launch lifecycle and account override
 
@@ -72,6 +74,6 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 ## Backend gaps to track instead of guessing in the UI
 
 - [x] Decide whether to add a native picker API/plugin for manual directory and executable selection. Resolved with `tauri-plugin-dialog` and the `dialog:allow-open` permission.
-- [ ] Consider a staged-executable scan that returns safe relative paths for `finalize_download`.
+- [x] Consider a staged-executable scan that returns safe relative paths for `finalize_download`. Resolved with `scan_staged_executables`, already implemented on the backend and now used by the Downloads screen.
 - [ ] Add progress events for downloads and process lifecycle only if polling proves inadequate; there are no such events in the current contract.
 - [ ] Add persistent play sessions/playtime before designing Home or Library around those values.
