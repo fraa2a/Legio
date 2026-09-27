@@ -45,7 +45,7 @@ fn timestamp() -> Result<i64, String> {
         .ok_or_else(|| "System clock is outside the supported date range".to_owned())
 }
 
-pub(crate) fn install_root(data_dir: &Path) -> Result<PathBuf, String> {
+fn install_root(data_dir: &Path) -> Result<PathBuf, String> {
     let root = data_dir.join("installed");
     fs::create_dir_all(&root)
         .map_err(|error| format!("Could not create install directory: {error}"))?;
@@ -408,24 +408,20 @@ fn cleanup_stage(database: &Database, id: &str, stage: &Path) -> Result<(), Stri
     {
         return clear_staged_path(database, id);
     }
-    remove_stage_directory(stage)?;
-    clear_staged_path(database, id)
-}
-
-/// Removes an app-owned staging directory. A path that is not a regular
-/// directory is never deleted so unexpected content stays available.
-pub(crate) fn remove_stage_directory(stage: &Path) -> Result<(), String> {
     match fs::symlink_metadata(stage) {
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
             fs::remove_dir_all(stage)
-                .map_err(|error| format!("Could not remove staged files: {error}"))
+                .map_err(|error| format!("Could not remove staged files: {error}"))?;
         }
         Ok(_) => {
-            Err("Staged path is no longer a regular directory; preserved for inspection".to_owned())
+            return Err(
+                "Staged path is no longer a regular directory; preserved for inspection".to_owned(),
+            );
         }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(format!("Could not inspect staged files: {error}")),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("Could not inspect staged files: {error}")),
     }
+    clear_staged_path(database, id)
 }
 
 fn clear_staged_path(database: &Database, id: &str) -> Result<(), String> {
