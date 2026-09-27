@@ -3,17 +3,25 @@ use tauri::Manager;
 pub mod archive_install;
 mod catalog;
 mod commands;
+#[cfg(target_os = "linux")]
+mod compatibility_logs;
+#[cfg(target_os = "linux")]
+mod compatibility_options;
 mod database;
+mod desktop_shortcuts;
 mod diagnostics;
 mod download_queue;
 mod finalize_install;
+mod game_artwork;
 mod game_lifecycle;
 mod game_process;
+mod image_format;
 mod installed_folder;
 pub mod legio_source;
 mod legio_source_cache;
 mod manual_import;
 mod network;
+mod pe_icons;
 mod runner_discovery;
 mod steam_assets;
 mod steam_details;
@@ -24,9 +32,13 @@ mod steam_switch;
 mod steam_vdf;
 
 pub fn run() -> tauri::Result<()> {
+    #[cfg(target_os = "linux")]
+    let shortcut_game_id = desktop_shortcuts::requested_game_id(std::env::args_os().skip(1))
+        .map_err(std::io::Error::other)?;
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
+        .setup(move |app| {
             let database = database::DatabaseState::new(app.path().app_data_dir());
             let bandwidth_limit = database
                 .database()
@@ -41,12 +53,20 @@ pub fn run() -> tauri::Result<()> {
             download_queue.set_bandwidth_limit(bandwidth_limit);
             app.manage(download_queue);
             download_queue::start(app.handle().clone()).map_err(std::io::Error::other)?;
+            #[cfg(target_os = "linux")]
+            app.manage(game_lifecycle::GameLaunchManager::with_log_directory(
+                app.path().app_log_dir().map_err(|error| error.to_string()),
+            ));
+            #[cfg(not(target_os = "linux"))]
             app.manage(game_lifecycle::GameLaunchManager::new());
             let diagnostics = diagnostics::Diagnostics::new(
                 app.path().app_log_dir().map_err(|error| error.to_string()),
             );
             app.manage(steam_assets::AssetCacheState::new(
                 app.path().app_cache_dir(),
+            ));
+            app.manage(game_artwork::GameArtworkStore::new(
+                app.path().app_data_dir().map_err(|error| error.to_string()),
             ));
             app.manage(
                 network::NetworkState::new(
@@ -56,6 +76,12 @@ pub fn run() -> tauri::Result<()> {
                 .map_err(std::io::Error::other)?,
             );
             app.manage(diagnostics);
+            #[cfg(target_os = "linux")]
+            if let Some(game_id) = shortcut_game_id {
+                app.state::<game_lifecycle::GameLaunchManager>()
+                    .launch_configured(app.handle().clone(), game_id)
+                    .map_err(std::io::Error::other)?;
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -71,6 +97,14 @@ pub fn run() -> tauri::Result<()> {
             commands::list_games,
             commands::get_playtime_summaries,
             commands::create_game,
+            commands::create_game_shortcut,
+            commands::set_game_icon,
+            commands::extract_game_icon,
+            commands::get_game_icon,
+            commands::reset_game_icon,
+            commands::set_game_banner,
+            commands::get_game_banner,
+            commands::reset_game_banner,
             commands::update_game,
             commands::remove_game,
             commands::launch_steam_game,
@@ -78,6 +112,7 @@ pub fn run() -> tauri::Result<()> {
             commands::launch_configured_game_with_runner,
             commands::launch_native_game,
             commands::list_game_launch_states,
+            commands::get_compatibility_logs_directory,
             commands::cancel_game_launch,
             commands::stop_game,
             commands::inspect_steam_game_launch,
