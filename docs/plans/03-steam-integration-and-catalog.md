@@ -48,13 +48,15 @@ Evidence: [PR #12](https://github.com/fraa2a/Legio/pull/12) added bounded VDF an
 Status: Completed.
 
 - Keep the catalog index separate from the user library.
-- Index search data locally so typing never depends on a live request.
+- Rank local catalog matches by exact title, query prefix, ordered words, any-order words, and partial matches so typing never depends on a live request.
 - Fetch metadata and artwork on demand through the shared client.
 - Apply bounded storage and cache metadata rules.
 
 Verification: local search works offline after indexing, uncached details load on demand, and stale or unavailable artwork degrades clearly.
 
 Evidence: [PR #11](https://github.com/fraa2a/Legio/pull/11) stores Hydra search records separately from the library and searches that local cache while typing. [PR #13](https://github.com/fraa2a/Legio/pull/13) fetches and caches Steam Store details and validated Steam image URLs on demand. [PR #17](https://github.com/fraa2a/Legio/pull/17) fetches selected image bytes through Rust, validates them, and keeps a bounded local cache with stale offline fallback. The [PR #17 CI run](https://github.com/fraa2a/Legio/actions/runs/35861225666) passed Rust, frontend, Linux, and Windows jobs. The catalog cache is populated only by explicit, bounded Hydra searches, so it remains a partial catalog.
+
+The Linux catalog tests passed with `cargo test --manifest-path src-tauri/Cargo.toml --locked catalog::tests:: -- --nocapture`. They verify that `risk rain` ranks `Risk of Rain 2` first, that `portal 2`, `god war`, `war god`, and partial `port 2` queries rank the closest cached title first, and that a relevant result in a 20,000-record cache is not hidden behind the first alphabetic results. The cache stores no Hydra rank, so Rust deterministically ranks its local matches. Results with the same score use the normalized title and Steam App ID as tie-breakers. Typo similarity is not enabled because the catalog has no existing fuzzy matcher.
 
 ## Dependencies
 
@@ -67,6 +69,7 @@ Steam installations and games are detected, imports retain Steam ownership, cata
 ## Provider and cache decisions
 
 - Hydra Launcher API supplies catalog search through anonymous `POST https://hydra-api-us-east-1.losbroxas.org/catalogue/search`. Each explicit refresh requests at most 50 Steam records. Typing searches only the accumulated local cache, capped at 20,000 records and 100 displayed matches. Catalog data does not indicate Legio download availability.
+- Local search considers exact words, word prefixes, partial words, and query word order. It does not add typo matching or fuzzy-search dependencies.
 - The public Steam Store `GET https://store.steampowered.com/api/appdetails?appids=<id>&l=english` supplies details for one App ID and Steam image URLs. The details cache holds at most 128 entries of 64 KiB each, with a 24-hour freshness period and at most eight screenshots per entry. Selected raster image bytes are limited to 2 MiB each and cached in at most 64 local files, with a 24-hour freshness period and stale offline fallback.
 - The Rust HTTP client has a 5-second connection timeout, 10-second request timeout, at most three redirects, and a 2 MiB response limit for Hydra search and Steam details. Local network JSONL logs rotate at 256 KiB with a 64-record queue and omit URLs, request bodies, paths, and raw error text.
 - Live smoke reported in the [Phase 03 handoff](../handoffs/phase03-continuation.md) observed 50 Hydra results from 110 matches for a Portal query and a 12,687-byte Steam `appdetails` response for App ID 400. These observations inform the current caps but do not establish maximum provider payload sizes.
