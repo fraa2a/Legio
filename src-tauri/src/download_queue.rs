@@ -1420,7 +1420,9 @@ mod tests {
         assert!(!requests[1].to_ascii_lowercase().contains("range:"));
         drop(database);
         fs::remove_dir_all(directory).unwrap();
-    }    fn set_status(database: &Database, id: &str, status: &str) {
+    }
+
+    fn set_status(database: &Database, id: &str, status: &str) {
         database
             .with_connection(|connection| {
                 connection
