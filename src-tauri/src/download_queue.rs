@@ -1111,6 +1111,115 @@ mod tests {
         fs::remove_dir_all(directory).unwrap();
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn remote_download_waits_then_retries_after_connectivity() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}/archive", listener.local_addr().unwrap());
+        let (request_sent, request_received) = mpsc::channel();
+        let server = thread::spawn(move || {
+            for (index, response) in [
+                b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".as_slice(),
+                b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".as_slice(),
+                b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n0123456789".as_slice(),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let deadline = Instant::now() + Duration::from_secs(15);
+                let (mut stream, _) = loop {
+                    match listener.accept() {
+                        Ok(connection) => break connection,
+                        Err(error)
+                            if error.kind() == std::io::ErrorKind::WouldBlock
+                                && Instant::now() < deadline =>
+                        {
+                            thread::sleep(Duration::from_millis(10));
+                        }
+                        Err(error) => panic!("download request {index} was not received: {error}"),
+                    }
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while !request.ends_with(b"\r\n\r\n") {
+                    stream.read_exact(&mut byte).unwrap();
+                    request.push(byte[0]);
+                }
+                request_sent
+                    .send((index, String::from_utf8(request).unwrap()))
+                    .unwrap();
+                stream.write_all(response).unwrap();
+            }
+        });
+
+        let (database, directory) = database_with_source();
+        let app = test_app(&directory);
+        let job = enqueue(&database, 400, false).unwrap();
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET url = ?2 WHERE id = ?1",
+                        params![job.id, url],
+                    )
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+
+        let app_handle = app.handle().clone();
+        kick(app_handle.clone());
+        let (index, request) = request_received
+            .recv_timeout(Duration::from_secs(3))
+            .expect("first remote request should reach the controlled server");
+        assert_eq!(index, 0);
+        assert!(request.starts_with("GET /archive HTTP/1.1"));
+        wait_for_status(&database, &job.id, "waiting");
+        tokio::time::advance(Duration::from_secs(60)).await;
+        assert!(matches!(
+            request_received.recv_timeout(Duration::from_millis(100)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        assert_eq!(status(&database, &job.id).unwrap(), "waiting");
+
+        resume_waiting(app_handle.clone()).await.unwrap();
+        let (index, _) = request_received
+            .recv_timeout(Duration::from_secs(3))
+            .expect("connectivity retry should issue one request");
+        assert_eq!(index, 1);
+        wait_for_status(&database, &job.id, "failed");
+        assert!(
+            list(&database).unwrap()[0]
+                .error
+                .as_deref()
+                .unwrap()
+                .starts_with("HTTP 404")
+        );
+
+        change_status(
+            app.state::<DatabaseState>().database().unwrap(),
+            &job.id,
+            &["failed"],
+            "queued",
+        )
+        .unwrap();
+        kick(app_handle);
+        let (index, _) = request_received
+            .recv_timeout(Duration::from_secs(3))
+            .expect("manual retry should issue one request");
+        assert_eq!(index, 2);
+        wait_for_status(&database, &job.id, "downloaded");
+        assert_eq!(list(&database).unwrap()[0].error, None);
+        server.join().unwrap();
+
+        drop(app);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
     #[tokio::test]
     async fn waiting_download_resume_reports_database_failure() {
         let app = test_app(Path::new("\0"));

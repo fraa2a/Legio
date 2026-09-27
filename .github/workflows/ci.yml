@@ -152,6 +152,13 @@ jobs:
           LEGIO_WINDOWS_TESTS: "1"
         run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_process::tests::'
 
+      - name: Test Windows native lifecycle manager
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          LEGIO_WINDOWS_TESTS: "1"
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_lifecycle::tests::native_manager_lifecycle_tracks_a_controlled_process
+
       - name: Test Windows staged executable finalization
         if: runner.os == 'Windows'
         shell: bash
