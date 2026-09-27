@@ -2113,7 +2113,6 @@ mod tests {
             launch_error.unwrap_or_default()
         );
 
-        thread::sleep(Duration::from_secs(12));
         let typed_option_evidence = typed_options.then(|| {
             if overlay_enabled {
                 wait_for_overlay_evidence(&manager, &game.id, &steam_client_root())
