@@ -5,7 +5,7 @@ use std::{
 
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
+use tauri::{Manager, Runtime};
 
 use crate::{
     database::{Database, DatabaseState, database_error},
@@ -352,8 +352,8 @@ pub(crate) fn cached_details(
     Ok(cached(database, app_id, now()?)?.details)
 }
 
-pub async fn get_details(
-    app: tauri::AppHandle,
+pub async fn get_details<R: Runtime>(
+    app: tauri::AppHandle<R>,
     network: &NetworkState,
     app_id: u32,
     refresh: bool,
@@ -399,6 +399,15 @@ mod tests {
 
     fn directory() -> std::path::PathBuf {
         std::env::temp_dir().join(format!("legio-details-test-{}", uuid::Uuid::new_v4()))
+    }
+
+    fn test_app(directory: &std::path::Path) -> tauri::App<tauri::test::MockRuntime> {
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().identifier = format!("org.legio.test.{}", uuid::Uuid::new_v4());
+        tauri::test::mock_builder()
+            .manage(DatabaseState::new(Ok(directory.to_path_buf())))
+            .build(context)
+            .unwrap()
     }
 
     #[test]
@@ -503,6 +512,34 @@ mod tests {
         assert!(cached(&database, 400, 99).unwrap().stale);
         assert!(cached(&database, 401, 100).unwrap().details.is_none());
         drop(database);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn app_reads_cached_details_without_a_network_request() {
+        let path = directory();
+        let app = test_app(&path);
+        let details = decode(&fixture(400), 400).unwrap();
+        let fetched_at = now().unwrap();
+        store(
+            app.state::<DatabaseState>().database().unwrap(),
+            &details,
+            fetched_at,
+        )
+        .unwrap();
+        let network = NetworkState::new(
+            "0.1.0",
+            crate::diagnostics::Diagnostics::new(Err("test".into())),
+        )
+        .unwrap();
+
+        let result = get_details(app.handle().clone(), &network, 400, false)
+            .await
+            .unwrap();
+        assert_eq!(result.details, Some(details));
+        assert_eq!(result.cached_at, Some(fetched_at));
+        assert!(!result.stale);
+        drop(app);
         std::fs::remove_dir_all(path).unwrap();
     }
 

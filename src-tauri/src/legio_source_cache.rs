@@ -2,7 +2,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::OptionalExtension;
 use serde::Serialize;
-use tauri::Manager;
+use tauri::{Manager, Runtime};
 
 use crate::{
     database::{Database, DatabaseState},
@@ -99,7 +99,7 @@ fn snapshot(
     }
 }
 
-pub async fn cached_source(app: tauri::AppHandle) -> Result<SourceSnapshot, String> {
+pub async fn cached_source<R: Runtime>(app: tauri::AppHandle<R>) -> Result<SourceSnapshot, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let database = app.state::<DatabaseState>();
         Ok(snapshot(cached(database.database()?)?, now()?, None))
@@ -162,15 +162,26 @@ mod tests {
         .unwrap()
     }
 
+    fn test_app(directory: &std::path::Path) -> tauri::App<tauri::test::MockRuntime> {
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().identifier = format!("org.legio.test.{}", uuid::Uuid::new_v4());
+        tauri::test::mock_builder()
+            .manage(DatabaseState::new(Ok(directory.to_path_buf())))
+            .build(context)
+            .unwrap()
+    }
+
     #[test]
-    fn invalid_refresh_keeps_last_valid_cache_and_marks_stale() {
+    fn offline_refresh_keeps_last_valid_cache_and_marks_stale() {
         let directory =
             std::env::temp_dir().join(format!("legio-source-cache-{}", uuid::Uuid::new_v4()));
         let database = Database::open(&directory).unwrap();
         store(&database, &valid(400), 100).unwrap();
         assert!(store(&database, &valid(401), -1).is_err());
-        let result = fallback(&database, 101, "source is invalid".to_owned()).unwrap();
+        let error = "Could not fetch Legio source: offline".to_owned();
+        let result = fallback(&database, 101, error.clone()).unwrap();
         assert!(result.stale);
+        assert_eq!(result.warning, Some(error));
         assert_eq!(result.cached_at, Some(100));
         assert_eq!(result.manifest.unwrap().verified[0].steam_app_id, 400);
         assert_eq!(
@@ -184,6 +195,27 @@ mod tests {
             400
         );
         drop(reopened);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn app_reads_cached_source_without_a_network_request() {
+        let directory =
+            std::env::temp_dir().join(format!("legio-source-cache-{}", uuid::Uuid::new_v4()));
+        let app = test_app(&directory);
+        let fetched_at = now().unwrap();
+        store(
+            app.state::<DatabaseState>().database().unwrap(),
+            &valid(400),
+            fetched_at,
+        )
+        .unwrap();
+
+        let result = cached_source(app.handle().clone()).await.unwrap();
+        assert_eq!(result.cached_at, Some(fetched_at));
+        assert!(!result.stale);
+        assert_eq!(result.manifest.unwrap().verified[0].steam_app_id, 400);
+        drop(app);
         std::fs::remove_dir_all(directory).unwrap();
     }
 

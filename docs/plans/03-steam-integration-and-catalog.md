@@ -58,6 +58,8 @@ Evidence: [PR #11](https://github.com/fraa2a/Legio/pull/11) stores Hydra search 
 
 The Linux catalog tests passed with `cargo test --manifest-path src-tauri/Cargo.toml --locked catalog::tests:: -- --nocapture`. They verify that `risk rain` ranks `Risk of Rain 2` first, that `portal 2`, `god war`, `war god`, and partial `port 2` queries rank the closest cached title first, and that a relevant result in a 20,000-record cache is not hidden behind the first alphabetic results. The cache stores no Hydra rank, so Rust deterministically ranks its local matches. Results with the same score use the normalized title and Steam App ID as tie-breakers. Typo similarity is not enabled because the catalog has no existing fuzzy matcher.
 
+The app-facing offline cache path is covered by `catalog::tests::app_catalog_search_works_from_cache_without_a_network_client`, which calls the Rust catalog service with a Tauri MockRuntime and returns `Risk of Rain 2` from SQLite without constructing a network client.
+
 ## Dependencies
 
 Phase 02 supplies persistent state, settings, game identity, and local library operations.

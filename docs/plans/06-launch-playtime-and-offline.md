@@ -60,7 +60,7 @@ Verification: Steam ownership remains intact and helper-exit scenarios do not pr
 
 ### 06C: Sessions, product surfaces, and offline behavior
 
-Status: In progress. Session persistence and download waiting, connectivity resume, and explicit retry backend paths are implemented; product surfaces and broader offline behavior remain.
+Status: In progress. Session persistence, download waiting, connectivity resume, and explicit retry are implemented. Local catalog, Steam details, and source cache reads work without network requests; controlled image refresh failure keeps stale artwork available. Product surfaces and offline game launch remain.
 
 - Persist detected game sessions and derive per-game playtime aggregates. Backend storage, crash recovery, and summaries are implemented; connecting them to Home and Library remains UI work.
 - Populate Home and local Library from stored data.
@@ -74,12 +74,17 @@ Verification: session totals survive restart, local surfaces remain useful offli
 - **Platform:** Linux with a controlled local HTTP server.
 - **Command or scenario:** `cargo test --manifest-path src-tauri/Cargo.toml --locked waiting_download_waits_for_connectivity_retry -- --nocapture`.
 - **Observable result:** A waiting download makes no request while the queue is idle. The resume hook used after a successful connectivity check requeues it, and the controlled download completes.
-- **Remaining blockers:** Home and Library integration, launch configuration and Retry presentation, and offline launch verification remain open. Store, source refresh, and update checks remain unverified offline.
+- **Remaining blockers:** Home and Library integration, launch configuration and Retry presentation, and offline game launch remain open. The cached source fallback is tested with an offline fetch error, but a live source refresh has not been run while disconnected. Update checks are not implemented and belong to Phase 09.
 
 - **Platform:** Linux with a controlled local HTTP server.
 - **Command or scenario:** `cargo test --manifest-path src-tauri/Cargo.toml --locked remote_download_waits_then_retries_after_connectivity -- --nocapture`.
-- **Observable result:** A controlled HTTP 503 moves the queued download to waiting. It makes no further request across 60 seconds. Calling the queue's resume hook retries it once; an HTTP 404 becomes failed; explicit retry completes after the server returns HTTP 200.
-- **Remaining blockers:** This verifies download retry paths only. Other remote operations still need offline and recovery scenarios.
+- **Observable result:** A controlled HTTP 503 moves the queued download to waiting. It makes no further request across 60 seconds. Calling the queue's resume hook retries it once; an HTTP 404 becomes failed; the `retry_download` command function retries once and completes after the server returns HTTP 200. Retry on a downloaded job is rejected and leaves it downloaded.
+- **Remaining blockers:** The controlled transfer does not exercise live Steam or source services, or offline game launch. Cache and controlled image failure evidence follows.
+
+- **Platform:** Linux with Tauri MockRuntime, temporary SQLite databases, and a controlled local HTTP server.
+- **Command or scenario:** `cargo test --manifest-path src-tauri/Cargo.toml --all-features --locked` (242 passed, 3 ignored on Linux).
+- **Observable result:** The app-facing catalog search, cached Steam details read, and cached Legio source read return stored data without a network request. A stale Steam image remains available when refresh receives HTTP 503. The source cache fallback returns the last valid manifest with a stale warning when given an offline fetch error.
+- **Remaining blockers:** This verifies local caches and controlled failure handling, not calls to live Steam, Hydra, or Legio source services. Home and Library integration and offline game launch remain open.
 
 ## Dependencies
 
