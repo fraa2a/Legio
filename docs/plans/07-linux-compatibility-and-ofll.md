@@ -20,7 +20,7 @@ Runner discovery and management, prefixes and runtime configuration, launch opti
 
 ### 07A: Runner discovery and basic launch
 
-Status: Completed. Real Linux smokes with BOMBANANA! Demo, Proton 10.0, and GE-Proton observed the game process, session tracking, and stop through the Phase 06 lifecycle. Option-specific process and runner-log effects are recorded under 07B.
+Status: Completed for runner discovery and backend process/lifecycle criteria. Real Linux smokes with BOMBANANA! Demo, Proton 10.0, and GE-Proton observed the matching game process in Running state, session tracking, and stop through the Phase 06 lifecycle. A later compositor capture synchronized to Running showed Steam but no game surface, so visible gameplay remains unverified under 07B. Option-specific process and runner-log effects are recorded there.
 
 - Discover Proton, GE-Proton, and Wine installations.
 - Validate runner paths and versions.
