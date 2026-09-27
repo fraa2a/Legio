@@ -21,6 +21,7 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 - [ ] For executable selection, call `scan_game_executables({ directory, gameName })`, show every candidate with its score/signals, and require explicit selection when `selectedPath` is null. Then call `import_manual_game({ input: { executablePath, name } })`.
 - [ ] Allow changing a manual game's selected executable with `set_game_executable`. Make the UI distinguish a new scan from changing the saved executable. Do not expose executable selection for Steam-managed games.
 - [ ] Add game details/settings and delete confirmation. After create, update, delete, scan, or import, reconcile the library from the backend result or reload it.
+- [ ] Add native image selection and reset controls for custom game icons and banners using `set_game_icon`, `set_game_banner`, `reset_game_icon`, and `reset_game_banner`. Load current overrides through the matching `get_*` commands and request `extract_game_icon` after import when an executable icon is available.
 - [ ] Add Steam metadata display and refresh using `get_steam_details`. Render remote descriptions as text or sanitize HTML. Load images through `get_steam_asset`, convert returned bytes to a Blob URL, and revoke old URLs.
 
 ## P0: Store search and source trust
