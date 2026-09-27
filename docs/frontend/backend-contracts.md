@@ -76,11 +76,12 @@ For user-visible Steam redetection, call `scan_steam_installations` to show dete
 | --- | --- | --- |
 | `scan_game_executables` | `{ directory, gameName? }` | `{ candidates: [{ path, score, signals }], selectedPath }` |
 | `import_manual_game` | `{ input: { executablePath, name? } }` | created `Game` |
+| `identify_manual_game_steam_app_id` | `{ gameId }` | `{ game, status, candidates, message }` |
 | `set_game_executable` | `{ gameId, executablePath }` | updated `Game` |
 
-Present all candidates when `selectedPath` is null. `selectedPath` is a suggestion, not a substitute for a user's explicit choice when the scan is ambiguous. A successful import adds a manual game with a null `steamAppId` and a populated `executablePath`.
+Present all candidates when `selectedPath` is null. `selectedPath` is a suggestion, not a substitute for a user's explicit choice when the scan is ambiguous. A successful import adds a manual game with a populated `executablePath`; the executable stem supplies `automaticName`, and an optional user-entered name is stored in `nameOverride`.
 
-There is currently no backend command that identifies a Steam App ID automatically from a selected executable, folder name, PE metadata, or known executable mapping. This remains a canonical gap from PLAN sections 17 and 18. The frontend must not infer or fabricate the association. Until a backend identification contract exists, keep imported executable games unassociated or let the user explicitly provide/edit a Steam App ID through the existing game update flow.
+After import, call `identify_manual_game_steam_app_id({ gameId })`. Rust checks exact normalized title matches for the executable name and nearby directory names against the local Hydra catalog, then refreshes Hydra when needed. A single exact App ID match is saved with its Steam title as `automaticName`; multiple exact IDs are returned as `candidates` for explicit selection. `status` is `matched`, `no_match`, `ambiguous`, `unavailable`, `already_linked`, or `not_manual`. Lookup failure never removes the imported game. A manual game stays manual even after it gains a Steam App ID: use `steamInstallPath` to decide Steam ownership and launch behavior, and `steamAppId` only for identity, metadata, artwork, and Store matching.
 
 Use a native file/folder picker service before calling the import commands and pass the selected absolute path to Rust. The backend intentionally does not expose a general filesystem browser command. PR #36 already has a narrowly scoped Tauri dialog wrapper; preserve that boundary when rebasing it onto current `main`.
 

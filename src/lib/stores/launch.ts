@@ -10,6 +10,9 @@ import {
 import type { Game } from "../services/local-state";
 import { toMessage } from "../utils/errors";
 import { createResource } from "./resource";
+import { appInfo } from "./app-info";
+import { launchConfiguredGameWithRunner, launchNativeGame } from "../services/launch";
+import { getCompatibilityLogsDirectory } from "../services/game-settings";
 
 export const launchStates = createResource<GameLaunchState[]>([], listGameLaunchStates);
 
@@ -43,15 +46,36 @@ export async function playGame(game: Game): Promise<void> {
   launchError.set(null);
   pendingGameId.set(game.id);
   try {
-    const inspection = await inspectSteamGameLaunch(game.id);
-    if (inspection.status === "mismatch") {
-      accountSwitchGame.set(game);
-      return;
+    if (game.steamInstallPath !== null) {
+      const inspection = await inspectSteamGameLaunch(game.id);
+      if (inspection.status === "mismatch") {
+        accountSwitchGame.set(game);
+        return;
+      }
+      await launchSteamGame(game.id, false);
+    } else if (game.executablePath !== null) {
+      const platform = get(appInfo).data.platform;
+      if (platform === "linux") {
+        await launchConfiguredGameWithRunner(game.id);
+      } else if (platform === "windows") {
+        await launchNativeGame(game.id);
+      } else {
+        throw new Error("L'avvio di giochi manuali non è disponibile su questa piattaforma.");
+      }
+    } else {
+      throw new Error("Seleziona un eseguibile nelle impostazioni del gioco.");
     }
-    await launchSteamGame(game.id, false);
     await launchStates.load();
   } catch (error) {
-    launchError.set(toMessage(error));
+    let message = toMessage(error);
+    if (game.steamInstallPath === null && game.executablePath !== null && get(appInfo).data.platform === "linux") {
+      try {
+        message += ` Log compatibilità: ${await getCompatibilityLogsDirectory()}`;
+      } catch (diagnosticsError) {
+        message += ` Impossibile trovare i log di compatibilità: ${toMessage(diagnosticsError)}`;
+      }
+    }
+    launchError.set(message);
   } finally {
     pendingGameId.set(null);
   }

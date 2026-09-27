@@ -16,12 +16,12 @@ export const gameCount = derived(games, (state) => state.data.length);
 
 export const steamGameCount = derived(
   games,
-  (state) => state.data.filter((game) => game.steamAppId !== null).length,
+  (state) => state.data.filter((game) => game.steamInstallPath !== null).length,
 );
 
 export const manualGameCount = derived(
   games,
-  (state) => state.data.filter((game) => game.steamAppId === null).length,
+  (state) => state.data.filter((game) => game.steamInstallPath === null).length,
 );
 
 export function reconcileGame(game: Game): void {

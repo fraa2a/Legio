@@ -31,7 +31,7 @@
   const status = $derived(launch?.status ?? "idle");
 </script>
 
-{#if game.steamAppId !== null}
+{#if game.steamInstallPath !== null || game.executablePath !== null}
   {#if status === "idle"}
     {#if circle}
       <Button

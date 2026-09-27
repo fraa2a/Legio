@@ -2,6 +2,7 @@
   import Dialog from "../../components/ui/Dialog.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import DownloadSettings from "./DownloadSettings.svelte";
+  import CompatibilitySettings from "./CompatibilitySettings.svelte";
   import NetworkSettings from "./NetworkSettings.svelte";
   import ThemeSettings from "./ThemeSettings.svelte";
 
@@ -11,6 +12,7 @@
     { id: "appearance", label: "Aspetto" },
     { id: "network", label: "Rete" },
     { id: "downloads", label: "Download" },
+    { id: "compatibility", label: "Compatibilità" },
   ] as const;
 
   type Category = (typeof categories)[number]["id"];
@@ -60,8 +62,10 @@
         <ThemeSettings />
       {:else if active === "network"}
         <NetworkSettings />
-      {:else}
+      {:else if active === "downloads"}
         <DownloadSettings />
+      {:else}
+        <CompatibilitySettings />
       {/if}
     </div>
   </div>

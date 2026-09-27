@@ -57,12 +57,14 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 
 ## P1: Settings and system feedback
 
-- [ ] Build Settings for theme, network/connectivity status, and actionable diagnostics from `get_network_log_status`.
-- [ ] Add Linux compatibility runner discovery and global defaults using `list_compatibility_runners`, `get_compatibility_defaults`, and `save_compatibility_defaults`. Include typed Steam Runtime, overlay, WineD3D, Wayland, and debug logging controls with the backend's validation rules.
-- [ ] Add per-game compatibility overrides using `get_game_compatibility_overrides` and `save_game_compatibility_overrides`. Expose inheritance/reset semantics for runner, prefix, arguments, working directory, environment, DLL overrides, Steam Runtime, overlay, WineD3D, Wayland, and debug logging.
-- [ ] Launch manually imported Windows games with `launch_configured_game_with_runner`; keep `launch_game_with_runner` as an explicit testing command. Explain unsupported-platform behavior returned by the backend. Surface compatibility diagnostics/log location from `get_compatibility_logs_directory` when a launch fails.
-- [ ] On Windows, expose per-game native arguments and working directory through `get_native_launch_config` and `save_native_launch_config`, then launch a manual executable with `launch_native_game`.
+- [ ] Build Settings for theme, network/connectivity status, and actionable diagnostics from `get_network_log_status`. Implemented; verify persistence and diagnostic errors in the app.
+- [ ] Add Linux compatibility runner discovery and global defaults using `list_compatibility_runners`, `get_compatibility_defaults`, and `save_compatibility_defaults`. Include typed Steam Runtime, overlay, WineD3D, Wayland, and debug logging controls with the backend's validation rules. Implemented; verify on Linux.
+- [ ] Add per-game compatibility overrides using `get_game_compatibility_overrides` and `save_game_compatibility_overrides`. Expose inheritance/reset semantics for runner, prefix, arguments, working directory, environment, DLL overrides, Steam Runtime, overlay, WineD3D, Wayland, and debug logging. Implemented; verify inheritance and clearing in the app.
+- [ ] On Linux, launch manually imported Windows games with `launch_configured_game_with_runner`; keep `launch_game_with_runner` as an explicit testing command. Explain unsupported-platform behavior returned by the backend. Surface compatibility diagnostics/log location from `get_compatibility_logs_directory` when a launch fails. Implemented; verify on Linux.
+- [ ] On Windows, expose per-game native arguments and working directory through `get_native_launch_config` and `save_native_launch_config`, then launch a manual executable with `launch_native_game`. Implemented; verify on Windows.
 - [x] Show source/network staleness and cached-data warnings without blocking locally available library actions. Keep cached catalog results, Steam details, source data, and stale artwork visible when refresh fails.
+
+Implementation update (2026-09-27): Settings now has theme, network diagnostics, download, and Linux compatibility sections. Linux defaults and per-game compatibility overrides are wired to the documented commands, including argument lists. Windows manual-game settings expose native arguments and working directory. These flows still need in-app verification before their checklist items are marked complete.
 
 ## P1: Home, polish, and verification
 
@@ -78,7 +80,7 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 
 - [x] Native file and folder selection is resolved with `tauri-plugin-dialog` and the narrowly scoped `dialog:allow-open` permission.
 - [x] Safe staged executable selection is resolved with `scan_staged_executables`, which returns download-bound relative paths consumed unchanged by the frontend.
-- [ ] Add automatic Steam App ID identification for manually selected executables as required by PLAN sections 17 and 18. There is no current command that derives a Steam identity from an EXE/folder/PE metadata, so the frontend must not fake this behavior.
+- [ ] Verify automatic Steam App ID identification for manually selected executables as required by PLAN sections 17 and 18. Rust now compares exact normalized executable and nearby folder titles against the cached and refreshed Hydra catalog. A unique match is linked automatically; duplicate exact matches require a user choice. Keep this open until verified in the app.
 - [ ] Expose session history or per-day playtime aggregates before implementing the full recent-played timeline and monthly activity heatmap. `get_playtime_summaries` currently provides totals and active-session counts.
 - [ ] Add progress events for downloads and process lifecycle only if polling proves inadequate; there are no such events in the current contract.
 - [ ] Define frontend commands only after backend/product decisions exist for runner acquisition, prefix cleanup/tools, and trusted fix packaging.

@@ -52,14 +52,14 @@
     const needle = query.trim().toLowerCase();
     const filtered = $games.data.filter((game) => {
       if (needle.length > 0 && !game.name.toLowerCase().includes(needle)) return false;
-      if (sourceFilter === "steam") return game.steamAppId !== null;
-      if (sourceFilter === "manual") return game.steamAppId === null;
+      if (sourceFilter === "steam") return game.steamInstallPath !== null;
+      if (sourceFilter === "manual") return game.steamInstallPath === null;
       return true;
     });
     return [...filtered].sort((left, right) => {
       if (sortOrder === "steam-first" || sortOrder === "manual-first") {
-        const leftSteam = left.steamAppId !== null;
-        const rightSteam = right.steamAppId !== null;
+        const leftSteam = left.steamInstallPath !== null;
+        const rightSteam = right.steamInstallPath !== null;
         if (leftSteam !== rightSteam) {
           return sortOrder === "steam-first"
             ? Number(rightSteam) - Number(leftSteam)

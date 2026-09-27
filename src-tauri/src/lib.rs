@@ -123,6 +123,7 @@ pub fn run() -> tauri::Result<()> {
             commands::import_steam_installations,
             commands::scan_game_executables,
             commands::import_manual_game,
+            commands::identify_manual_game_steam_app_id,
             commands::set_game_executable,
             commands::get_network_status,
             commands::get_network_log_status,

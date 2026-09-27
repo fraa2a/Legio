@@ -51,7 +51,7 @@
       {/if}
       <div class="flex items-center gap-2">
         <span class="min-w-0 flex-1 truncate font-medium text-zinc-50 light:text-zinc-900">{game.name}</span>
-        {#if steamAppId === null}
+        {#if game.steamInstallPath === null}
           <Badge tone="neutral" title="Manuale" />
         {/if}
         {#if game.nameOverride !== null}
@@ -61,7 +61,7 @@
     </div>
   </button>
 
-  {#if steamAppId !== null}
+  {#if game.steamInstallPath !== null || game.executablePath !== null}
     <div class="pointer-events-none absolute inset-0 flex items-center justify-center [&_button]:pointer-events-auto">
       <GameLaunchControls
         {game}

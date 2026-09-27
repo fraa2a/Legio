@@ -5,9 +5,14 @@ use std::{
 
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 use uuid::Uuid;
 
-use crate::database::{Database, DatabaseState, Game, database_error, required_name};
+use crate::{
+    catalog::{self, CatalogGame},
+    database::{Database, DatabaseState, Game, database_error, required_name},
+    network::NetworkState,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -44,6 +49,33 @@ pub struct StagedExecutableScan {
 pub struct ManualImportInput {
     pub executable_path: String,
     pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SteamIdentityCandidate {
+    pub steam_app_id: u32,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SteamIdentificationStatus {
+    Matched,
+    NoMatch,
+    Ambiguous,
+    Unavailable,
+    AlreadyLinked,
+    NotManual,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SteamIdentificationResult {
+    pub game: Game,
+    pub status: SteamIdentificationStatus,
+    pub candidates: Vec<SteamIdentityCandidate>,
+    pub message: Option<String>,
 }
 
 pub fn scan_directory(directory: &str, game_name: Option<&str>) -> Result<ExecutableScan, String> {
@@ -209,7 +241,11 @@ fn import_into(database: &Database, input: ManualImportInput) -> Result<Game, St
         .file_stem()
         .and_then(|name| name.to_str())
         .ok_or("executable filename is invalid")?;
-    let name = required_name(input.name.unwrap_or_else(|| stem.to_owned()), "name")?;
+    let automatic_name = required_name(stem.to_owned(), "automatic name")?;
+    let name_override = input
+        .name
+        .map(|name| required_name(name, "name"))
+        .transpose()?;
     let executable_path = path
         .to_str()
         .ok_or("executable path is not valid UTF-8")?
@@ -223,14 +259,245 @@ fn import_into(database: &Database, input: ManualImportInput) -> Result<Game, St
             return Err("executable is already in the library".to_owned());
         }
         connection.execute(
-            "INSERT INTO games (id, name_override, executable_path) VALUES (?1, ?2, ?3)",
-            params![id, name, executable_path],
+            "INSERT INTO games (id, automatic_name, name_override, executable_path) VALUES (?1, ?2, ?3, ?4)",
+            params![id, automatic_name, name_override, executable_path],
         ).map_err(database_error)?;
         connection.query_row(
             "SELECT id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path FROM games WHERE id = ?1",
             [&id], crate::database::game_from_row,
         ).map_err(database_error)
     })
+}
+
+pub async fn identify_steam_app_id(
+    app: tauri::AppHandle,
+    network: NetworkState,
+    game_id: String,
+) -> Result<SteamIdentificationResult, String> {
+    let game = {
+        let app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            app.state::<DatabaseState>().database()?.game(&game_id)
+        })
+        .await
+        .map_err(|error| format!("Steam identity lookup task failed: {error}"))??
+    };
+
+    let Some(executable_path) = game.executable_path.as_deref() else {
+        return Ok(identification_result(
+            game,
+            SteamIdentificationStatus::NotManual,
+            Vec::new(),
+            None,
+        ));
+    };
+    if game.steam_install_path.is_some() {
+        return Ok(identification_result(
+            game,
+            SteamIdentificationStatus::NotManual,
+            Vec::new(),
+            None,
+        ));
+    }
+    if game.steam_app_id.is_some() {
+        return Ok(identification_result(
+            game,
+            SteamIdentificationStatus::AlreadyLinked,
+            Vec::new(),
+            None,
+        ));
+    }
+
+    let executable = PathBuf::from(executable_path);
+    let legacy_name = game
+        .name_override
+        .as_deref()
+        .filter(|name| {
+            game.automatic_name.is_none()
+                && executable.file_stem().and_then(|stem| stem.to_str()) == Some(*name)
+        })
+        .map(str::to_owned);
+    let names = title_candidates(&executable);
+    if names.is_empty() {
+        return Ok(identification_result(
+            game,
+            SteamIdentificationStatus::NoMatch,
+            Vec::new(),
+            None,
+        ));
+    }
+
+    let mut remote_attempted = false;
+    let mut remote_error = None;
+    for name in names {
+        let cached = match catalog::search_catalog(app.clone(), name.clone()).await {
+            Ok(result) => result,
+            Err(error) => {
+                return Ok(identification_result(
+                    game,
+                    SteamIdentificationStatus::Unavailable,
+                    Vec::new(),
+                    Some(error.message),
+                ));
+            }
+        };
+        let mut candidates = exact_matches(&cached.games, &name);
+        if candidates.is_empty() && !remote_attempted {
+            remote_attempted = true;
+            match catalog::refresh_catalog(app.clone(), &network, name.clone()).await {
+                Ok(result) => candidates = exact_matches(&result.games, &name),
+                Err(error) => remote_error = Some(error.message),
+            }
+        }
+        if candidates.is_empty() {
+            continue;
+        }
+
+        if candidates.len() == 1 {
+            let candidate = &candidates[0];
+            let game = set_identified_steam_game(&app, &game.id, candidate, legacy_name).await?;
+            return Ok(identification_result(
+                game,
+                SteamIdentificationStatus::Matched,
+                candidates,
+                None,
+            ));
+        }
+        return Ok(identification_result(
+            game,
+            SteamIdentificationStatus::Ambiguous,
+            candidates,
+            None,
+        ));
+    }
+
+    let status = if remote_error.is_some() {
+        SteamIdentificationStatus::Unavailable
+    } else {
+        SteamIdentificationStatus::NoMatch
+    };
+    Ok(identification_result(
+        game,
+        status,
+        Vec::new(),
+        remote_error,
+    ))
+}
+
+fn title_candidates(executable: &Path) -> Vec<String> {
+    let generic_names = [
+        "bin",
+        "binaries",
+        "bootstrapper",
+        "crashreporter",
+        "debug",
+        "game",
+        "games",
+        "launch",
+        "launcher",
+        "release",
+        "retail",
+        "runtime",
+        "server",
+        "shipping",
+        "start",
+        "system",
+        "system32",
+        "win32",
+        "win64",
+        "x64",
+        "x86",
+    ];
+    let mut candidates = Vec::new();
+    if let Some(stem) = executable.file_stem().and_then(|name| name.to_str()) {
+        candidates.push(stem.to_owned());
+    }
+    let mut directory = executable.parent();
+    while let Some(path) = directory {
+        if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+            candidates.push(name.to_owned());
+        }
+        directory = path.parent();
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    candidates
+        .into_iter()
+        .filter(|name| {
+            let normalized = normalize_name(name);
+            name.len() <= 200
+                && !name.chars().any(char::is_control)
+                && !normalized.is_empty()
+                && !generic_names.contains(&normalized.as_str())
+                && !normalized.ends_with("shipping")
+                && seen.insert(normalized)
+        })
+        .take(3)
+        .collect()
+}
+
+fn exact_matches(games: &[CatalogGame], query: &str) -> Vec<SteamIdentityCandidate> {
+    let expected = normalize_name(query);
+    let mut matches: Vec<_> = games
+        .iter()
+        .filter(|game| normalize_name(&game.name) == expected)
+        .map(|game| SteamIdentityCandidate {
+            steam_app_id: game.steam_app_id,
+            name: game.name.clone(),
+        })
+        .collect();
+    matches.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then_with(|| left.steam_app_id.cmp(&right.steam_app_id))
+    });
+    matches.dedup_by_key(|candidate| candidate.steam_app_id);
+    matches
+}
+
+async fn set_identified_steam_game(
+    app: &tauri::AppHandle,
+    game_id: &str,
+    candidate: &SteamIdentityCandidate,
+    legacy_name: Option<String>,
+) -> Result<Game, String> {
+    let app = app.clone();
+    let game_id = game_id.to_owned();
+    let candidate = candidate.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<DatabaseState>()
+            .database()?
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "UPDATE games SET steam_app_id = ?2, automatic_name = ?3,
+                         name_override = CASE WHEN automatic_name IS NULL AND name_override = ?4 THEN NULL ELSE name_override END
+                         WHERE id = ?1 AND steam_app_id IS NULL AND steam_install_path IS NULL AND executable_path IS NOT NULL
+                         RETURNING id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path",
+                        rusqlite::params![game_id, candidate.steam_app_id, candidate.name, legacy_name],
+                        crate::database::game_from_row,
+                    )
+                    .optional()
+                    .map_err(database_error)?
+                    .ok_or_else(|| "game was not found or is not a manual import".to_owned())
+            })
+    })
+    .await
+    .map_err(|error| format!("Steam identity save task failed: {error}"))?
+}
+
+fn identification_result(
+    game: Game,
+    status: SteamIdentificationStatus,
+    candidates: Vec<SteamIdentityCandidate>,
+    message: Option<String>,
+) -> SteamIdentificationResult {
+    SteamIdentificationResult {
+        game,
+        status,
+        candidates,
+        message,
+    }
 }
 
 fn validate_executable(value: &str) -> Result<PathBuf, String> {

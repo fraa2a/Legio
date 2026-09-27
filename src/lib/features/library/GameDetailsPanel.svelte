@@ -2,10 +2,12 @@
   import type { Game } from "../../services/local-state";
   import { toMessage } from "../../utils/errors";
   import { deleteGame, saveGame } from "../../stores/games";
+  import { detectManualGameSteamAppId } from "../../stores/manual-import";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import TextField from "../../components/ui/TextField.svelte";
+  import type { SteamIdentityCandidate, SteamIdentificationResult } from "../../services/manual-import";
 
   let { game, onRemoved }: { game: Game; onRemoved: () => void } = $props();
 
@@ -13,6 +15,9 @@
   let pending = $state(false);
   let confirmingRemove = $state(false);
   let actionError = $state<string | null>(null);
+  let identityPending = $state(false);
+  let identityError = $state<string | null>(null);
+  let identityResult = $state<SteamIdentificationResult | null>(null);
 
   const nameValue = $derived(nameDraft ?? game.nameOverride ?? game.name);
   const trimmedName = $derived(nameValue.trim());
@@ -54,6 +59,57 @@
       pending = false;
     }
   }
+
+  async function detectIdentity(): Promise<void> {
+    identityError = null;
+    identityPending = true;
+    try {
+      identityResult = await detectManualGameSteamAppId(game.id);
+    } catch (error) {
+      identityError = toMessage(error);
+    } finally {
+      identityPending = false;
+    }
+  }
+
+  async function linkCandidate(candidate: SteamIdentityCandidate): Promise<void> {
+    identityError = null;
+    identityPending = true;
+    try {
+      const updated = await saveGame({
+        id: game.id,
+        steamAppId: candidate.steamAppId,
+        automaticName: candidate.name,
+        nameOverride: game.nameOverride,
+      });
+      identityResult = {
+        game: updated,
+        status: "matched",
+        candidates: [candidate],
+        message: null,
+      };
+    } catch (error) {
+      identityError = toMessage(error);
+    } finally {
+      identityPending = false;
+    }
+  }
+
+  const identityMessage = $derived.by(() => {
+    if (identityResult === null) return null;
+    switch (identityResult.status) {
+      case "matched":
+        return `App ID Steam rilevato: ${identityResult.game.automaticName} (${identityResult.game.steamAppId}).`;
+      case "ambiguous":
+        return "Trovate più corrispondenze con lo stesso nome. Scegli quella corretta.";
+      case "unavailable":
+        return identityResult.message ?? "Rilevazione Steam non disponibile.";
+      case "no_match":
+        return "Nessuna corrispondenza esatta nel catalogo Steam.";
+      default:
+        return null;
+    }
+  });
 </script>
 
 <Panel title="Impostazioni">
@@ -83,6 +139,51 @@
     {/if}
   </div>
 </Panel>
+
+{#if game.steamInstallPath === null && game.executablePath !== null}
+  <Panel title="Identità Steam">
+    {#if game.steamAppId !== null}
+      <p class="text-sm text-zinc-300 light:text-zinc-700">
+        {game.automaticName ?? game.name} <span class="text-zinc-500">({game.steamAppId})</span>
+      </p>
+    {:else}
+      <p class="text-sm text-zinc-400 light:text-zinc-600">
+        Legio confronta il nome dell'eseguibile e della cartella con il catalogo Steam.
+      </p>
+      <div>
+        <Button
+          label={identityPending ? "Ricerca in corso..." : "Rileva Steam App ID"}
+          variant="secondary"
+          disabled={identityPending}
+          onClick={() => void detectIdentity()}
+        />
+      </div>
+    {/if}
+    {#if identityError !== null}
+      <ErrorBanner message={identityError} onRetry={() => void detectIdentity()} />
+    {/if}
+    {#if identityMessage !== null}
+      <p class="text-sm text-zinc-300 light:text-zinc-700" role="status">{identityMessage}</p>
+    {/if}
+    {#if identityResult?.status === "ambiguous"}
+      <div class="flex flex-col gap-2">
+        {#each identityResult.candidates as candidate (candidate.steamAppId)}
+          <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white/5 p-3 light:bg-zinc-100">
+            <span class="text-sm text-zinc-100 light:text-zinc-900">
+              {candidate.name} <span class="text-zinc-500">({candidate.steamAppId})</span>
+            </span>
+            <Button
+              label="Collega"
+              variant="secondary"
+              disabled={identityPending}
+              onClick={() => void linkCandidate(candidate)}
+            />
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </Panel>
+{/if}
 
 <Panel title="Rimuovi dalla libreria">
   {#if actionError !== null}

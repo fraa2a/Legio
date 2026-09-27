@@ -26,10 +26,11 @@
   import SteamAccountPanel from "./SteamAccountPanel.svelte";
   import SteamMetadata from "./SteamMetadata.svelte";
   import SteamArtwork from "./SteamArtwork.svelte";
+  import GameSettingsPanel from "./GameSettingsPanel.svelte";
 
   const game = $derived($games.data.find((entry) => entry.id === $selectedGameId) ?? null);
   const steamAppId = $derived(game?.steamAppId ?? null);
-  const isSteamGame = $derived(steamAppId !== null);
+  const isSteamGame = $derived(game !== null && game.steamInstallPath !== null);
   const launch = $derived(game === null ? undefined : $launchStateByGame.get(game.id));
   const detailsState = $derived(steamAppId === null ? null : ($steamDetails[steamAppId] ?? null));
   const details = $derived(detailsState?.details ?? null);
@@ -162,6 +163,12 @@
         {/if}
 
         <GameDetailsPanel {game} onRemoved={closeGame} />
+
+        {#if !isSteamGame && game.executablePath !== null}
+          {#key game.id}
+            <GameSettingsPanel {game} />
+          {/key}
+        {/if}
 
         <Panel title="Installazione" class="flex-1">
           <dl class="grid gap-2 text-sm">

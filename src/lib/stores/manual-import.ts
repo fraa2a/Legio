@@ -1,10 +1,12 @@
 import { get, writable } from "svelte/store";
 import { pickExecutableFile, pickGameDirectory } from "../services/dialog";
 import {
+  identifyManualGameSteamAppId,
   importManualGame,
   scanGameExecutables,
   setGameExecutable,
   type ExecutableCandidate,
+  type SteamIdentificationResult,
 } from "../services/manual-import";
 import type { Game } from "../services/local-state";
 import { toMessage } from "../utils/errors";
@@ -112,13 +114,31 @@ function selectedExecutable(): string {
   return selected;
 }
 
-export async function importScannedGame(name: string | null): Promise<Game> {
+export interface ManualImportOutcome {
+  game: Game;
+  identification: SteamIdentificationResult | null;
+  identificationError: string | null;
+}
+
+export async function importScannedGame(name: string | null): Promise<ManualImportOutcome> {
   const game = await importManualGame({
     executablePath: selectedExecutable(),
     name: name !== null && name.trim().length > 0 ? name.trim() : null,
   });
   reconcileGame(game);
-  return game;
+  try {
+    const identification = await identifyManualGameSteamAppId(game.id);
+    reconcileGame(identification.game);
+    return { game: identification.game, identification, identificationError: null };
+  } catch (error) {
+    return { game, identification: null, identificationError: toMessage(error) };
+  }
+}
+
+export async function detectManualGameSteamAppId(gameId: string): Promise<SteamIdentificationResult> {
+  const result = await identifyManualGameSteamAppId(gameId);
+  reconcileGame(result.game);
+  return result;
 }
 
 export async function saveExecutableForGame(gameId: string): Promise<Game> {
