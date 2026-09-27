@@ -44,7 +44,12 @@ Suggested startup hydration: load app info, settings, `list_games`, `list_downlo
 | `set_game_icon` | `{ gameId, filePath }` | `{ bytes, contentType }` |
 | `extract_game_icon` | `{ gameId }` | `{ bytes, contentType }` |
 | `reset_game_icon` | `{ gameId }` | `void` |
+| `get_game_banner` | `{ gameId }` | `{ bytes, contentType }` or `null` |
+| `set_game_banner` | `{ gameId, filePath }` | `{ bytes, contentType }` |
+| `reset_game_banner` | `{ gameId }` | `void` |
 | `remove_game` | `{ id }` | `void` |
+
+Manual banners use the same app-managed image boundary as custom icons: PNG, JPEG, or WebP files up to 2 MiB are copied into persistent app data. `get_game_banner` returns `null` when no override exists; `reset_game_banner` clears only the override. Removing a game also removes its stored icon and banner. These custom-banner commands do not fetch a default Steam header; Steam-linked artwork remains available through `get_steam_asset`.
 
 `Game` currently serializes as:
 
@@ -115,7 +120,7 @@ When `debugLogging` is true, the backend captures runner stdout and stderr in th
 
 `create_game_shortcut` is Linux-only and accepts `location: "desktop" | "applications_menu"`. It supports manually imported Windows games with an existing `.exe` selection, writes a per-game `.desktop` file, and returns its path. Opening that entry starts Legio with the game UUID and launches it using the saved compatibility configuration. The desktop entry is a backend capability; the frontend action remains out of scope.
 
-Game icon commands support PNG, JPEG, and WebP images up to 2 MiB. `set_game_icon` accepts an absolute selected file path and copies the image into Legio's app data directory. `extract_game_icon` reads the selected executable saved for a manually imported game, takes the first PE group icon's largest supported frame, converts it to a PNG thumbnail up to 256x256, and saves it as the game's current icon. `get_game_icon` returns the saved bytes and content type, and `reset_game_icon` removes the saved icon. A missing icon returns `null`; removing the game also removes its managed icon and Legio-owned Desktop and application-menu shortcuts. If cleanup fails, `remove_game` reports that the game is already removed and lists the cleanup errors. `create_game_shortcut` adds the saved icon path to the `.desktop` entry when one exists. Importing a game does not invoke extraction automatically; the frontend can request it after import.
+Game icon and banner commands support PNG, JPEG, and WebP images up to 2 MiB. `set_game_icon` and `set_game_banner` accept an absolute selected file path and copy it into Legio's app data directory. `get_game_icon` and `get_game_banner` return the saved bytes and content type, while the reset commands remove only the custom override. A missing override returns `null`. `extract_game_icon` reads the selected executable saved for a manually imported game, takes the first PE group icon's largest supported frame, converts it to a PNG thumbnail up to 256x256, and saves it as the game's current icon. Removing a game also removes its managed icon and banner plus Legio-owned Desktop and application-menu shortcuts. If cleanup fails, `remove_game` reports that the game is already removed and lists the cleanup errors. `create_game_shortcut` adds the saved icon path to the `.desktop` entry when one exists. Importing a game does not invoke icon extraction automatically; the frontend can request it after import. Steam-linked header fetching uses `get_steam_asset`.
 
 `launch_game_with_runner({ gameId, runnerPath })` is an explicit-runner testing command. Production UI should use `launch_configured_game_with_runner` after selecting settings. Runner discovery and configured launch are Linux-only; on other platforms discovery returns no runners and a diagnostic.
 

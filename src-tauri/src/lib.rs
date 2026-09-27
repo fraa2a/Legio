@@ -12,7 +12,7 @@ mod desktop_shortcuts;
 mod diagnostics;
 mod download_queue;
 mod finalize_install;
-mod game_icons;
+mod game_artwork;
 mod game_lifecycle;
 mod game_process;
 mod image_format;
@@ -63,7 +63,7 @@ pub fn run() -> tauri::Result<()> {
             app.manage(steam_assets::AssetCacheState::new(
                 app.path().app_cache_dir(),
             ));
-            app.manage(game_icons::GameIconStore::new(
+            app.manage(game_artwork::GameArtworkStore::new(
                 app.path().app_data_dir().map_err(|error| error.to_string()),
             ));
             app.manage(
@@ -100,6 +100,9 @@ pub fn run() -> tauri::Result<()> {
             commands::extract_game_icon,
             commands::get_game_icon,
             commands::reset_game_icon,
+            commands::set_game_banner,
+            commands::get_game_banner,
+            commands::reset_game_banner,
             commands::update_game,
             commands::remove_game,
             commands::launch_steam_game,
