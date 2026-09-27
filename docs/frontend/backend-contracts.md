@@ -61,6 +61,8 @@ The frontend's `Game` type must include `executablePath`; it is easy to miss bec
 
 For user-visible Steam redetection, call `scan_steam_installations` to show detected games and diagnostics, then call `import_steam_installations` only after the user chooses to import/update. The import command performs its own scan and reconciliation; the preview is not a transaction token and can differ if Steam changes between calls. Reload `list_games` after import. The serialized scan response does not expose excluded non-games such as compatibility tools.
 
+Naming rules are enforced by the backend: `create_game` rejects an empty name and stores it as `nameOverride` with `automaticName` left null, so a manually created row has no automatic name to restore. `update_game` requires a non-null `automaticName` whenever `nameOverride` is null, so offer "restore automatic name" only when `automaticName` is not null. Show whether a row uses a custom name, and resolve the display name from the `name` field the backend returns.
+
 ### Manual executable import
 
 | Command | Arguments | Result |
@@ -69,9 +71,11 @@ For user-visible Steam redetection, call `scan_steam_installations` to show dete
 | `import_manual_game` | `{ input: { executablePath, name? } }` | created `Game` |
 | `set_game_executable` | `{ gameId, executablePath }` | updated `Game` |
 
-Present all candidates when `selectedPath` is null. `selectedPath` is a suggestion, not a substitute for a user's explicit choice when the scan is ambiguous. A successful import adds a manual game with a null `steamAppId` and a populated `executablePath`.
+Present all candidates when `selectedPath` is null. `selectedPath` is a suggestion, not a substitute for a user's explicit choice when the scan is ambiguous. A successful import adds a manual game with a null `steamAppId` and a populated `executablePath`. `set_game_executable` rejects Steam-managed rows, so never offer this flow when `steamAppId` is not null. The optional `name` of `ManualImportInput` and the optional `gameName` of `scan_game_executables` must be sent as `null` when absent; the backend then derives the display name from the executable path.
 
-The UI needs a native file/folder chooser before calling these commands. The current frontend dependencies do not include a Tauri dialog plugin and there is no browse command. Add a supported dialog plugin and its narrowly scoped permissions, wrap it in a service, and pass the selected absolute path to the backend. Do not enumerate user directories from a Svelte component.
+Candidate `signals` are only `game_name_match` and `game_root`. Display them as hints, never as a decision, and keep the import action disabled until the user picks a path. `set_game_executable` only changes the stored path, so the UI must present a rescan as a separate, explicitly confirmed step.
+
+Native selection uses `tauri-plugin-dialog` (`plugin:dialog|open`), registered in `src-tauri/src/lib.rs` with only the `dialog:allow-open` permission in `src-tauri/capabilities/default.json`. Wrap it in `src/lib/services/dialog.ts`; components must not import the plugin directly. `open({ directory: true })` returns the folder to scan, while `directory: false` returns an executable chosen directly. Both resolve to `null` when cancelled. A directly picked executable counts as an explicit selection and does not require a scan.
 
 ### Per-game Steam account override
 

@@ -225,15 +225,21 @@ fn selected_url(
     details: &SteamDetails,
     asset: AssetKind,
     index: Option<usize>,
+    full: bool,
 ) -> Result<&str, String> {
     let url = match (asset, index) {
         (AssetKind::Header, None) => details.assets.header.as_deref(),
         (AssetKind::Capsule, None) => details.assets.capsule.as_deref(),
-        (AssetKind::Screenshot, Some(index)) => details
-            .assets
-            .screenshots
-            .get(index)
-            .and_then(|image| image.thumbnail.as_deref().or(image.full.as_deref())),
+        (AssetKind::Screenshot, Some(index)) => {
+            details.assets.screenshots.get(index).and_then(|image| {
+                let large = image.full.as_deref();
+                if full && large.is_some() {
+                    large
+                } else {
+                    image.thumbnail.as_deref().or(large)
+                }
+            })
+        }
         _ => return Err("Invalid image selection.".to_owned()),
     }
     .ok_or_else(|| "This image is unavailable in cached Steam details.".to_owned())?;
@@ -324,6 +330,7 @@ pub async fn get_asset(
     app_id: u32,
     asset: AssetKind,
     index: Option<usize>,
+    full: bool,
 ) -> Result<AssetResult, String> {
     let app_for_lookup = app.clone();
     let (url, key) = tauri::async_runtime::spawn_blocking(move || {
@@ -332,11 +339,14 @@ pub async fn get_asset(
         let details = cached_details(database, app_id)
             .map_err(|error| error.message)?
             .ok_or_else(|| "No cached Steam details are available for this App ID.".to_owned())?;
-        let url = selected_url(&details, asset, index)?.to_owned();
+        let url = selected_url(&details, asset, index, full)?.to_owned();
         let key = match asset {
             AssetKind::Header => format!("{app_id}-header"),
             AssetKind::Capsule => format!("{app_id}-capsule"),
-            AssetKind::Screenshot => format!("{app_id}-screenshot-{}", index.unwrap_or_default()),
+            AssetKind::Screenshot => {
+                let suffix = if full { "-full" } else { "" };
+                format!("{app_id}-screenshot-{}{suffix}", index.unwrap_or_default())
+            }
         };
         Ok::<_, String>((url, key))
     })
@@ -460,9 +470,33 @@ mod tests {
             "assets": {"header": "https://steamstatic.com.evil.test/image.jpg", "capsule": null,
                 "background": null, "screenshots": []}
         })).unwrap();
-        assert!(selected_url(&details, AssetKind::Header, None).is_err());
-        assert!(selected_url(&details, AssetKind::Screenshot, Some(0)).is_err());
-        assert!(selected_url(&details, AssetKind::Capsule, Some(0)).is_err());
+        assert!(selected_url(&details, AssetKind::Header, None, false).is_err());
+        assert!(selected_url(&details, AssetKind::Screenshot, Some(0), false).is_err());
+        assert!(selected_url(&details, AssetKind::Capsule, Some(0), false).is_err());
+    }
+
+    #[test]
+    fn full_screenshot_selection_prefers_the_large_image() {
+        let details: SteamDetails = serde_json::from_value(serde_json::json!({
+            "steamAppId": 400, "name": "Portal", "appType": "game", "shortDescription": null,
+            "developers": [], "publishers": [], "genres": [], "platforms": null, "releaseDate": null,
+            "assets": {"header": null, "capsule": null, "background": null,
+                "screenshots": [{"thumbnail": "https://cdn.steamstatic.com/400/ss_small.jpg",
+                    "full": "https://cdn.steamstatic.com/400/ss.jpg"},
+                    {"thumbnail": "https://cdn.steamstatic.com/400/ss2_small.jpg"}]}
+        })).unwrap();
+        assert_eq!(
+            selected_url(&details, AssetKind::Screenshot, Some(0), false).unwrap(),
+            "https://cdn.steamstatic.com/400/ss_small.jpg"
+        );
+        assert_eq!(
+            selected_url(&details, AssetKind::Screenshot, Some(0), true).unwrap(),
+            "https://cdn.steamstatic.com/400/ss.jpg"
+        );
+        assert_eq!(
+            selected_url(&details, AssetKind::Screenshot, Some(1), true).unwrap(),
+            "https://cdn.steamstatic.com/400/ss2_small.jpg"
+        );
     }
 
     #[test]

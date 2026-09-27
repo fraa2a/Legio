@@ -507,6 +507,15 @@ pub async fn get_steam_asset(
     steam_app_id: u32,
     asset: crate::steam_assets::AssetKind,
     index: Option<usize>,
+    full: Option<bool>,
 ) -> Result<crate::steam_assets::AssetResult, String> {
-    crate::steam_assets::get_asset(app, state.inner(), steam_app_id, asset, index).await
+    crate::steam_assets::get_asset(
+        app,
+        state.inner(),
+        steam_app_id,
+        asset,
+        index,
+        full.unwrap_or(false),
+    )
+    .await
 }

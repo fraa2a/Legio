@@ -14,6 +14,17 @@ export const sectionLabels: Record<Section, string> = {
 
 export const activeSection = writable<Section>("home");
 
+export const selectedGameId = writable<string | null>(null);
+
 export function selectSection(section: Section): void {
   activeSection.set(section);
+}
+
+export function openGame(gameId: string): void {
+  selectedGameId.set(gameId);
+  activeSection.set("library");
+}
+
+export function closeGame(): void {
+  selectedGameId.set(null);
 }

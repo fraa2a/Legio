@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { appInfo } from "../../stores/app-info";
-  import { activeSection, sectionLabels } from "../../stores/navigation";
+  import { games } from "../../stores/games";
+  import { activeSection, closeGame, sectionLabels, selectedGameId } from "../../stores/navigation";
   import {
     closeWindow,
     isWindowMaximized,
@@ -14,7 +15,12 @@
   let maximized = $state(false);
   let heading: HTMLElement | undefined = $state();
   const showMaximize = $derived($appInfo.data.desktopEnvironment !== "hyprland");
-  const title = $derived(sectionLabels[$activeSection]);
+  const game = $derived(
+    $selectedGameId === null
+      ? null
+      : ($games.data.find((entry) => entry.id === $selectedGameId) ?? null),
+  );
+  const title = $derived(game?.name ?? sectionLabels[$activeSection]);
 
   $effect(() => {
     void title;
@@ -69,6 +75,20 @@
   class="my-2 grid shrink-0 grid-cols-[1fr_auto_1fr] items-center rounded-2xl bg-zinc-900 p-2 light:bg-zinc-50"
   data-tauri-drag-region
 >
+  <div class="col-start-1 flex items-center">
+    {#if game !== null}
+      <button
+        type="button"
+        class="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-zinc-400 transition-colors duration-200 hover:bg-white/10 hover:text-zinc-100 light:hover:bg-zinc-900/10 light:hover:text-zinc-900"
+        onclick={closeGame}
+      >
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2Z" />
+        </svg>
+        Libreria
+      </button>
+    {/if}
+  </div>
   <h1
     bind:this={heading}
     data-page-heading

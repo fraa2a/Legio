@@ -9,6 +9,7 @@
     type DownloadJob,
   } from "../../services/downloads";
   import { toMessage } from "../../utils/errors";
+  import { formatBytes } from "../../utils/format";
   import Badge from "../../components/ui/Badge.svelte";
   import Button from "../../components/ui/Button.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
@@ -33,18 +34,6 @@
     const timer = setInterval(() => void downloads.load(), 2000);
     return () => clearInterval(timer);
   });
-
-  const formatBytes = (value: number): string => {
-    if (value < 1024) return `${value} B`;
-    const units = ["KB", "MB", "GB", "TB"];
-    let size = value / 1024;
-    let unit = 0;
-    while (size >= 1024 && unit < units.length - 1) {
-      size /= 1024;
-      unit += 1;
-    }
-    return `${size.toFixed(1)} ${units[unit]}`;
-  };
 
   const formatEta = (seconds: number | null): string => {
     if (seconds === null) return "-";
