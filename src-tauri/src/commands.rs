@@ -142,6 +142,101 @@ pub fn create_game(
 }
 
 #[tauri::command]
+pub fn create_game_shortcut(
+    app: AppHandle,
+    state: State<'_, DatabaseState>,
+    game_id: String,
+    location: crate::desktop_shortcuts::ShortcutLocation,
+) -> Result<String, String> {
+    let game = state.database()?.game(&game_id)?;
+    let icon = app
+        .state::<crate::game_artwork::GameArtworkStore>()
+        .path(&game.id, crate::game_artwork::ArtworkKind::Icon)?;
+    let path = crate::desktop_shortcuts::create(&game, location, icon.as_deref())?;
+    path.to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "The desktop shortcut path is not valid UTF-8".to_owned())
+}
+
+#[tauri::command]
+pub fn set_game_icon(
+    app: AppHandle,
+    game_id: String,
+    file_path: String,
+) -> Result<crate::game_artwork::GameArtworkResult, String> {
+    app.state::<DatabaseState>().database()?.game(&game_id)?;
+    app.state::<crate::game_artwork::GameArtworkStore>().set(
+        &game_id,
+        crate::game_artwork::ArtworkKind::Icon,
+        std::path::Path::new(&file_path),
+    )
+}
+
+#[tauri::command]
+pub async fn extract_game_icon(
+    app: AppHandle,
+    game_id: String,
+) -> Result<crate::game_artwork::GameArtworkResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let game = app.state::<DatabaseState>().database()?.game(&game_id)?;
+        crate::game_artwork::extract_for_game(
+            &app.state::<crate::game_artwork::GameArtworkStore>(),
+            &game,
+        )
+    })
+    .await
+    .map_err(|error| format!("Game icon extraction task failed: {error}"))?
+}
+
+#[tauri::command]
+pub fn get_game_icon(
+    app: AppHandle,
+    game_id: String,
+) -> Result<Option<crate::game_artwork::GameArtworkResult>, String> {
+    app.state::<DatabaseState>().database()?.game(&game_id)?;
+    app.state::<crate::game_artwork::GameArtworkStore>()
+        .get(&game_id, crate::game_artwork::ArtworkKind::Icon)
+}
+
+#[tauri::command]
+pub fn reset_game_icon(app: AppHandle, game_id: String) -> Result<(), String> {
+    app.state::<DatabaseState>().database()?.game(&game_id)?;
+    app.state::<crate::game_artwork::GameArtworkStore>()
+        .remove(&game_id, crate::game_artwork::ArtworkKind::Icon)
+}
+
+#[tauri::command]
+pub fn set_game_banner(
+    app: AppHandle,
+    game_id: String,
+    file_path: String,
+) -> Result<crate::game_artwork::GameArtworkResult, String> {
+    app.state::<DatabaseState>().database()?.game(&game_id)?;
+    app.state::<crate::game_artwork::GameArtworkStore>().set(
+        &game_id,
+        crate::game_artwork::ArtworkKind::Banner,
+        std::path::Path::new(&file_path),
+    )
+}
+
+#[tauri::command]
+pub fn get_game_banner(
+    app: AppHandle,
+    game_id: String,
+) -> Result<Option<crate::game_artwork::GameArtworkResult>, String> {
+    app.state::<DatabaseState>().database()?.game(&game_id)?;
+    app.state::<crate::game_artwork::GameArtworkStore>()
+        .get(&game_id, crate::game_artwork::ArtworkKind::Banner)
+}
+
+#[tauri::command]
+pub fn reset_game_banner(app: AppHandle, game_id: String) -> Result<(), String> {
+    app.state::<DatabaseState>().database()?.game(&game_id)?;
+    app.state::<crate::game_artwork::GameArtworkStore>()
+        .remove(&game_id, crate::game_artwork::ArtworkKind::Banner)
+}
+
+#[tauri::command]
 pub fn update_game(
     state: State<'_, DatabaseState>,
     input: UpdateGameInput,
@@ -150,8 +245,26 @@ pub fn update_game(
 }
 
 #[tauri::command]
-pub fn remove_game(state: State<'_, DatabaseState>, id: String) -> Result<(), String> {
-    database::remove_game(&state, &id)
+pub fn remove_game(app: AppHandle, id: String) -> Result<(), String> {
+    database::remove_game(&app.state::<DatabaseState>(), &id)?;
+    let mut errors = Vec::new();
+    if let Err(error) = app
+        .state::<crate::game_artwork::GameArtworkStore>()
+        .remove_for_game(&id)
+    {
+        errors.push(format!("custom artwork: {error}"));
+    }
+    if let Err(error) = crate::desktop_shortcuts::remove(&id) {
+        errors.push(format!("desktop shortcuts: {error}"));
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Game was removed, but cleanup failed: {}",
+            errors.join("; ")
+        ))
+    }
 }
 
 #[tauri::command]
@@ -211,6 +324,13 @@ pub fn list_game_launch_states(
     state: State<'_, crate::game_lifecycle::GameLaunchManager>,
 ) -> Result<Vec<crate::game_lifecycle::GameLaunchState>, String> {
     state.list()
+}
+
+#[tauri::command]
+pub fn get_compatibility_logs_directory(
+    state: State<'_, crate::game_lifecycle::GameLaunchManager>,
+) -> Result<std::path::PathBuf, String> {
+    state.compatibility_logs_directory()
 }
 
 #[tauri::command]
@@ -468,9 +588,18 @@ pub async fn refresh_legio_source(
 
 #[tauri::command]
 pub async fn check_steam_connectivity(
+    app: AppHandle,
     state: State<'_, NetworkState>,
 ) -> Result<ConnectivityCheck, String> {
-    Ok(state.inner().clone().check_connectivity().await)
+    let mut result = state.inner().clone().check_connectivity().await;
+    if result.status == NetworkStatus::Online
+        && let Err(error) = crate::download_queue::resume_waiting(app).await
+    {
+        result.detail = Some(format!(
+            "Steam is reachable, but waiting downloads could not resume: {error}"
+        ));
+    }
+    Ok(result)
 }
 
 #[tauri::command]
