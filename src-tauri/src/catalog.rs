@@ -5,7 +5,7 @@ use std::{
 
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
+use tauri::{Manager, Runtime};
 
 use crate::{
     database::{Database, DatabaseState},
@@ -454,8 +454,8 @@ fn merge_source(
     result
 }
 
-pub async fn search_catalog(
-    app: tauri::AppHandle,
+pub async fn search_catalog<R: Runtime>(
+    app: tauri::AppHandle<R>,
     value: String,
 ) -> Result<CatalogSearch, CatalogError> {
     let query = query(&value)?.to_owned();
@@ -502,6 +502,15 @@ pub async fn refresh_catalog(
 mod tests {
     use super::*;
     use crate::legio_source::parse_manifest;
+
+    fn test_app(directory: &std::path::Path) -> tauri::App<tauri::test::MockRuntime> {
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().identifier = format!("org.legio.test.{}", uuid::Uuid::new_v4());
+        tauri::test::mock_builder()
+            .manage(DatabaseState::new(Ok(directory.to_path_buf())))
+            .build(context)
+            .unwrap()
+    }
 
     #[test]
     fn merges_source_by_app_id_without_replacing_catalog_identity() {
@@ -681,6 +690,38 @@ mod tests {
             ]
         );
         drop(state);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn app_catalog_search_works_from_cache_without_a_network_client() {
+        let directory =
+            std::env::temp_dir().join(format!("legio-catalog-test-{}", uuid::Uuid::new_v4()));
+        let app = test_app(&directory);
+        let page = CatalogPage {
+            games: vec![CatalogGame {
+                steam_app_id: 400,
+                name: "Risk of Rain 2".into(),
+                availability: SourceAvailability::Unknown,
+            }],
+            remote_count: 1,
+        };
+        let fetched_at = now().unwrap();
+        store(
+            app.state::<DatabaseState>().database().unwrap(),
+            "risk rain",
+            &page,
+            fetched_at,
+        )
+        .unwrap();
+
+        let result = search_catalog(app.handle().clone(), "risk rain".into())
+            .await
+            .unwrap();
+        assert_eq!(result.games, page.games);
+        assert_eq!(result.cached_at, Some(fetched_at));
+        assert!(!result.stale);
+        drop(app);
         std::fs::remove_dir_all(directory).unwrap();
     }
 

@@ -784,7 +784,7 @@ pub async fn resume_download(app: AppHandle, id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn retry_download(app: AppHandle, id: String) -> Result<(), String> {
+pub async fn retry_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
     let worker_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         change_status(
@@ -1199,20 +1199,17 @@ mod tests {
                 .starts_with("HTTP 404")
         );
 
-        change_status(
-            app.state::<DatabaseState>().database().unwrap(),
-            &job.id,
-            &["failed"],
-            "queued",
-        )
-        .unwrap();
-        kick(app_handle);
+        retry_download(app_handle.clone(), job.id.clone())
+            .await
+            .unwrap();
         let (index, _) = request_received
             .recv_timeout(Duration::from_secs(3))
             .expect("manual retry should issue one request");
         assert_eq!(index, 2);
         wait_for_status(&database, &job.id, "downloaded");
         assert_eq!(list(&database).unwrap()[0].error, None);
+        assert!(retry_download(app_handle, job.id.clone()).await.is_err());
+        assert_eq!(status(&database, &job.id).unwrap(), "downloaded");
         server.join().unwrap();
 
         drop(app);
