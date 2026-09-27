@@ -19,20 +19,41 @@ use crate::compatibility_logs::{CompatibilityLog, CompatibilityLogState};
 use crate::database::AppliedCompatibilityOptions;
 #[cfg(target_os = "linux")]
 use crate::database::EffectiveCompatibilityConfig;
+#[cfg(target_os = "linux")]
+use crate::database::SteamOverlayMode;
 use crate::database::{Database, DatabaseState};
 #[cfg(target_os = "linux")]
 use crate::runner_discovery::RunnerKind;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
 
+#[cfg(target_os = "linux")]
+use crate::steam_process;
 use crate::{game_process, runner_discovery, steam_local, steam_switch};
 
 const START_TIMEOUT: Duration = Duration::from_secs(120);
+#[cfg(target_os = "linux")]
+const STEAM_START_TIMEOUT: Duration = Duration::from_secs(60);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const EXIT_GRACE: Duration = Duration::from_secs(3);
 const SESSION_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 const LOG_READ_LIMIT: u64 = 128 * 1024;
 const LOG_LINE_LIMIT: usize = 8 * 1024;
+
+#[cfg(target_os = "linux")]
+fn ensure_steam_for_overlay(
+    overlay: SteamOverlayMode,
+    steam_root: Option<&Path>,
+    ensure_running: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<(), String> {
+    if overlay != SteamOverlayMode::Enabled {
+        return Ok(());
+    }
+    let steam_root = steam_root.ok_or_else(|| {
+        "Steam overlay was enabled but no Steam installation was found".to_owned()
+    })?;
+    ensure_running(steam_root)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -449,6 +470,7 @@ impl GameLaunchManager {
             &runner,
             steam_root.as_deref(),
         )?;
+        let steam_overlay = config.steam_overlay;
         let mut command = runner_discovery::launch_command(
             &runner,
             &executable_path,
@@ -543,7 +565,10 @@ impl GameLaunchManager {
                         compatibility_log,
                         ..LaunchContext::default()
                     },
-                    move |_| {
+                    move |cancel| {
+                        ensure_steam_for_overlay(steam_overlay, steam_root.as_deref(), |root| {
+                            steam_process::ensure_running(root, STEAM_START_TIMEOUT, cancel)
+                        })?;
                         command.spawn().map(Some).map_err(|error| {
                             format!("Could not start compatibility runner: {error}")
                         })
@@ -1372,6 +1397,54 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tauri::Manager;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn steam_starts_only_for_explicit_overlay_mode() {
+        let steam_root = Path::new("/steam");
+        let mut started = false;
+
+        ensure_steam_for_overlay(SteamOverlayMode::RunnerDefault, None, |_| {
+            started = true;
+            Ok(())
+        })
+        .unwrap();
+        ensure_steam_for_overlay(SteamOverlayMode::Disabled, None, |_| {
+            started = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(!started);
+
+        ensure_steam_for_overlay(SteamOverlayMode::Enabled, Some(steam_root), |root| {
+            assert_eq!(root, steam_root);
+            started = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(started);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn explicit_overlay_requires_a_steam_installation() {
+        let error =
+            ensure_steam_for_overlay(SteamOverlayMode::Enabled, None, |_| Ok(())).unwrap_err();
+
+        assert!(error.contains("no Steam installation was found"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn steam_start_failure_is_reported_before_runner_launch() {
+        let error =
+            ensure_steam_for_overlay(SteamOverlayMode::Enabled, Some(Path::new("/steam")), |_| {
+                Err("Could not start Steam: permission denied".to_owned())
+            })
+            .unwrap_err();
+
+        assert!(error.contains("Could not start Steam: permission denied"));
+    }
 
     fn test_dir(label: &str) -> PathBuf {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
