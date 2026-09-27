@@ -6,7 +6,7 @@ use std::{
 
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
+use tauri::{Manager, Runtime};
 
 use crate::{
     database::{Database, DatabaseState, database_error},
@@ -190,9 +190,9 @@ fn steam_image(value: Option<String>) -> Option<String> {
     })
 }
 
-// The appdetails endpoint matches its argument against package, sub and DLC ids
-// as well, so the response key is often a different id than the one requested.
-// The steam_appid inside the payload is the reliable match.
+// Steam may key appdetails by a package, sub, or DLC id instead of the
+// requested application id. Match the payload id first and use the map key
+// only as a fallback.
 fn take_entry(response: &mut HashMap<String, SteamResponse>, app_id: u32) -> Option<SteamResponse> {
     let key = response
         .iter()
@@ -389,8 +389,8 @@ where
         .map_err(|error| DetailsError::new(DetailsErrorKind::Internal, error.to_string()))?
 }
 
-pub async fn get_details(
-    app: tauri::AppHandle,
+pub async fn get_details<R: Runtime>(
+    app: tauri::AppHandle<R>,
     network: &NetworkState,
     app_id: u32,
     refresh: bool,
@@ -415,8 +415,8 @@ pub async fn get_details(
     }
     let bytes = match network.steam_details(app_id).await {
         Ok(bytes) => bytes,
-        // Stale metadata serves the view better than an empty panel, but an
-        // explicit refresh has to report the failure instead of hiding it.
+        // Stale metadata is preferable to an empty panel during an implicit
+        // refresh. An explicit refresh still reports its failure.
         Err(_error) if !refresh && previous.details.is_some() => return Ok(previous),
         Err(error) => return Err(error.into()),
     };
@@ -456,40 +456,13 @@ mod tests {
         std::env::temp_dir().join(format!("legio-details-test-{}", uuid::Uuid::new_v4()))
     }
 
-    #[test]
-    fn selects_metadata_and_only_present_steam_assets() {
-        let details = decode(&fixture(400), 400).unwrap();
-        assert_eq!(details.name, "Portal");
-        assert_eq!(details.genres, ["Action"]);
-        assert_eq!(
-            details.short_description.as_deref(),
-            Some("A <b>puzzle</b> game")
-        );
-        assert_eq!(details.release_date.unwrap().date, "10 Oct, 2007");
-        assert!(details.assets.header.is_some());
-        assert_eq!(details.assets.capsule, None);
-        assert_eq!(details.assets.background, None);
-        assert_eq!(
-            details.assets.screenshots,
-            [Screenshot {
-                thumbnail: None,
-                full: Some("https://cdn.akamai.steamstatic.com/steam/apps/400/ss.jpg".into())
-            }]
-        );
-        let minimal = decode(
-            br#"{"400":{"success":true,"data":{"steam_appid":400,"name":"Portal","type":"game"}}}"#,
-            400,
-        )
-        .unwrap();
-        assert_eq!(
-            minimal.assets,
-            Assets {
-                header: None,
-                capsule: None,
-                background: None,
-                screenshots: vec![]
-            }
-        );
+    fn test_app(directory: &std::path::Path) -> tauri::App<tauri::test::MockRuntime> {
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().identifier = format!("org.legio.test.{}", uuid::Uuid::new_v4());
+        tauri::test::mock_builder()
+            .manage(DatabaseState::new(Ok(directory.to_path_buf())))
+            .build(context)
+            .unwrap()
     }
 
     #[test]
@@ -525,6 +498,42 @@ mod tests {
         assert_eq!(details.steam_app_id, 2780980);
         assert_eq!(details.name, "Portal");
         assert!(details.assets.header.is_some());
+    }
+
+    #[test]
+    fn selects_metadata_and_only_present_steam_assets() {
+        let details = decode(&fixture(400), 400).unwrap();
+        assert_eq!(details.name, "Portal");
+        assert_eq!(details.genres, ["Action"]);
+        assert_eq!(
+            details.short_description.as_deref(),
+            Some("A <b>puzzle</b> game")
+        );
+        assert_eq!(details.release_date.unwrap().date, "10 Oct, 2007");
+        assert!(details.assets.header.is_some());
+        assert_eq!(details.assets.capsule, None);
+        assert_eq!(details.assets.background, None);
+        assert_eq!(
+            details.assets.screenshots,
+            [Screenshot {
+                thumbnail: None,
+                full: Some("https://cdn.akamai.steamstatic.com/steam/apps/400/ss.jpg".into())
+            }]
+        );
+        let minimal = decode(
+            br#"{"400":{"success":true,"data":{"steam_appid":400,"name":"Portal","type":"game"}}}"#,
+            400,
+        )
+        .unwrap();
+        assert_eq!(
+            minimal.assets,
+            Assets {
+                header: None,
+                capsule: None,
+                background: None,
+                screenshots: vec![]
+            }
+        );
     }
 
     #[test]
@@ -594,6 +603,34 @@ mod tests {
         assert!(cached(&database, 400, 99).unwrap().stale);
         assert!(cached(&database, 401, 100).unwrap().details.is_none());
         drop(database);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn app_reads_cached_details_without_a_network_request() {
+        let path = directory();
+        let app = test_app(&path);
+        let details = decode(&fixture(400), 400).unwrap();
+        let fetched_at = now().unwrap();
+        store(
+            app.state::<DatabaseState>().database().unwrap(),
+            &details,
+            fetched_at,
+        )
+        .unwrap();
+        let network = NetworkState::new(
+            "0.1.0",
+            crate::diagnostics::Diagnostics::new(Err("test".into())),
+        )
+        .unwrap();
+
+        let result = get_details(app.handle().clone(), &network, 400, false)
+            .await
+            .unwrap();
+        assert_eq!(result.details, Some(details));
+        assert_eq!(result.cached_at, Some(fetched_at));
+        assert!(!result.stale);
+        drop(app);
         std::fs::remove_dir_all(path).unwrap();
     }
 
