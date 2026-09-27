@@ -1,19 +1,23 @@
 <script lang="ts">
   import { activeDownloadCount } from "../../stores/downloads";
-  import { activeSection, sectionLabels, sections, selectSection, type Section } from "../../stores/navigation";
+  import {
+    activeSection,
+    openSettings,
+    sectionLabels,
+    sections,
+    selectSection,
+    type Section,
+  } from "../../stores/navigation";
   import Icon from "../ui/Icon.svelte";
   import Logo from "../ui/Logo.svelte";
   import SidebarButton from "../ui/SidebarButton.svelte";
 
-  const icons: Record<Section, "home" | "library" | "store" | "downloads" | "settings"> = {
+  const icons: Record<Section, "home" | "library" | "store" | "downloads"> = {
     home: "home",
     library: "library",
     store: "store",
     downloads: "downloads",
-    settings: "settings",
   };
-
-  const navSections = sections.filter((section) => section !== "settings");
 
   let expanded = $state(true);
 </script>
@@ -38,7 +42,7 @@
         </span>
       </span>
     </div>
-    {#each navSections as section (section)}
+    {#each sections as section (section)}
       <SidebarButton
         label={sectionLabels[section]}
         expanded={expanded}
@@ -70,12 +74,7 @@
           </svg>
         {/if}
       </SidebarButton>
-      <SidebarButton
-        label={sectionLabels.settings}
-        expanded={expanded}
-        active={$activeSection === "settings"}
-        onClick={() => selectSection("settings")}
-      >
+      <SidebarButton label="Impostazioni" {expanded} onClick={openSettings}>
         <Icon name="settings" />
       </SidebarButton>
     </div>

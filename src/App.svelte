@@ -3,7 +3,9 @@
   import Sidebar from "./lib/components/layout/Sidebar.svelte";
   import MainContainer from "./lib/components/layout/MainContainer.svelte";
   import TitleBar from "./lib/components/layout/TitleBar.svelte";
+  import SettingsDialog from "./lib/features/settings/SettingsDialog.svelte";
   import { hydrateApp } from "./lib/stores/bootstrap";
+  import { closeSettings, settingsOpen } from "./lib/stores/navigation";
   import { resolvedTheme, settings } from "./lib/stores/settings";
 
   onMount(() => {
@@ -43,3 +45,7 @@
     <MainContainer />
   </div>
 </div>
+
+{#if $settingsOpen}
+  <SettingsDialog onClose={closeSettings} />
+{/if}

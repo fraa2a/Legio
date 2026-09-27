@@ -3,7 +3,6 @@
   import HomeView from "../../features/home/HomeView.svelte";
   import GameDetailView from "../../features/library/GameDetailView.svelte";
   import LibraryView from "../../features/library/LibraryView.svelte";
-  import SettingsView from "../../features/settings/SettingsView.svelte";
   import StoreView from "../../features/store/StoreView.svelte";
   import { activeSection, selectedGameId } from "../../stores/navigation";
 </script>
@@ -19,9 +18,7 @@
     {/if}
   {:else if $activeSection === "store"}
     <StoreView />
-  {:else if $activeSection === "downloads"}
-    <DownloadsView />
   {:else}
-    <SettingsView />
+    <DownloadsView />
   {/if}
 </main>
