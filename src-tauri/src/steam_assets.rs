@@ -442,6 +442,38 @@ mod tests {
     }
 
     #[test]
+    fn stale_image_is_returned_when_refresh_is_offline() {
+        let cache = cache();
+        let unavailable =
+            b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        let (url, server) = server(unavailable.to_vec());
+        cache.write("400-header", &url, JPEG, "image/jpeg").unwrap();
+        let path = cache.directory().unwrap().join("400-header.asset");
+        let old = SystemTime::now() - FRESH_FOR - Duration::from_secs(1);
+        fs::File::open(&path)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(old))
+            .unwrap();
+        let network = NetworkState::new(
+            "0.1.0",
+            crate::diagnostics::Diagnostics::new(Err("test".into())),
+        )
+        .unwrap();
+
+        let result = tauri::async_runtime::block_on(load_asset(
+            cache.clone(),
+            &network,
+            "400-header".into(),
+            url,
+        ))
+        .unwrap();
+        server.join().unwrap();
+        assert_eq!(result.bytes, JPEG);
+        assert!(result.stale);
+        fs::remove_dir_all(cache.directory().unwrap()).unwrap();
+    }
+
+    #[test]
     fn rejects_untrusted_url_and_invalid_selection() {
         let details: SteamDetails = serde_json::from_value(serde_json::json!({
             "steamAppId": 400, "name": "Portal", "appType": "game", "shortDescription": null,
