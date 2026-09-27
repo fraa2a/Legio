@@ -1,6 +1,6 @@
 # Frontend TODO
 
-This checklist tracks product UI work against the backend that is already available. The current UI redesign in PR #36 (`feat/ui-upgrade`) is a shell foundation, not a complete application: it adds the title bar, sidebar, window controls, fonts, and reusable primitives. `MainContainer` is empty, the sidebar only changes its own active styling, and `features/`, `stores/`, `types/`, and `utils/` contain placeholders. No product page consumes the service wrappers yet. The redesign also removed the previous verification components, so keep their useful tested flows while replacing them with product screens.
+This checklist tracks product UI work against the backend available on current `main`. PR #36 (`feat/ui-upgrade`) is the active frontend integration branch and can be ahead of the checklist in some areas while behind current backend contracts in others. After updating that branch from `main`, check items off only when the current implementation is wired to the documented commands and verified in the app.
 
 Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, types, statuses, and backend behavior. Check items off only when the behavior is implemented and verified in the app.
 
@@ -16,16 +16,17 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 
 - [x] Build a Library view backed by `list_games`, with search, sorting, filters, empty state, loading state, and visible distinctions for Steam-managed and manually imported games.
 - [x] Add Steam redetection: `scan_steam_installations` previews detected games and diagnostics. A separate explicit `import_steam_installations` action rescans and updates the persistent library. Reload `list_games` after import and show inserted, updated, unchanged, removed, and diagnostic counts.
-- [x] Add manual game creation from a Steam App ID or selected executable. Support custom display name and editing/resetting automatic name overrides.
-- [x] Add native file and folder selection for manual executable import. `tauri-plugin-dialog` is registered and only `dialog:allow-open` is authorized; pickers are wrapped in `services/dialog.ts`.
+- [x] Add manual game creation from a Steam App ID or selected executable. Support custom display name and editing/resetting automatic name overrides. Executable import currently creates an unassociated game with `steamAppId: null`; do not present it as automatically Steam-identified.
+- [x] Keep native file and folder selection for manual executable import behind the frontend dialog service. The backend accepts selected absolute paths and intentionally does not expose a general filesystem browser command.
 - [x] For executable selection, call `scan_game_executables({ directory, gameName })`, show every candidate with its score/signals, and require explicit selection when `selectedPath` is null. Then call `import_manual_game({ input: { executablePath, name } })`.
 - [x] Allow changing a manual game's selected executable with `set_game_executable`. Make the UI distinguish a new scan from changing the saved executable. Do not expose executable selection for Steam-managed games.
 - [x] Add game details/settings and delete confirmation. After create, update, delete, scan, or import, reconcile the library from the backend result or reload it.
+- [ ] Add native image selection and reset controls for custom game icons and banners using `set_game_icon`, `set_game_banner`, `reset_game_icon`, and `reset_game_banner`. Load current overrides through the matching `get_*` commands and request `extract_game_icon` after import when an executable icon is available.
 - [x] Add Steam metadata display and refresh using `get_steam_details`. Render remote descriptions as text or sanitize HTML. Load images through `get_steam_asset`, convert returned bytes to a Blob URL, and revoke old URLs.
 
 ## P0: Store search and source trust
 
-- [x] Build Store search with a debounced query, local results first, refresh state, empty state, and retryable errors. Use `search_catalog` for cached/local results and `refresh_catalog` to query Hydra through Rust. Do not call Hydra directly from Svelte.
+- [x] Build Store search with a debounced query, local results first, refresh state, empty state, and retryable errors. Use `search_catalog` for cached/local results and `refresh_catalog` to query Hydra through Rust. Do not call Hydra directly from Svelte. Preserve the relevance order returned by Rust; do not re-sort search results alphabetically.
 - [x] Handle out-of-order query responses so a slow response for an old query cannot replace current results. Refresh errors must leave cached results visible.
 - [x] Load the Legio source separately with `get_legio_source` and `refresh_legio_source`. Merge source availability by `steamAppId`; show cache freshness and warning state. Treat a missing or unpublished source manifest as an expected empty/unavailable state.
 - [x] Show source status clearly: `verified`, `unverified`, `unavailable`, or `unknown`. Require explicit confirmation before queuing an unverified release.
@@ -35,21 +36,21 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 
 - [x] Build a Downloads screen and a queue entry point in the shell. Poll `list_downloads` while relevant views are active; there is no download progress event today.
 - [x] Show per-job status, progress, rate, ETA, release version, and error. Treat `status` as an open string and preserve unrecognized future values.
-- [x] Wire pause, resume, retry, and cancel only for valid states. Refresh the queue after every action and show backend rejection messages.
-- [x] Let a finished or abandoned entry leave the queue. Cancelling alone only changes the status, so add `remove_download` for `cancelled`/`failed`/`installed` and a bulk `remove_finished_downloads`, with a per-row remove button and a short confirmation. Keep the row minimal: the state label and the backend error, nothing else.
+- [x] Wire pause, resume, retry, and cancel only for valid states. Refresh the queue after every action and show backend rejection messages. Treat `waiting` as a network-wait state without request churn; after a successful `check_steam_connectivity`, reload the queue because the backend resumes waiting jobs.
+- [x] Let a finished or abandoned entry leave the queue. Use `remove_download` for `cancelled`, `failed`, and `installed`, and `remove_finished_downloads` for bulk cleanup of completed rows. Keep retryable failures visible unless the user removes them explicitly.
 - [x] Enqueue with `queue_download({ steamAppId, acceptUnverified })`; never fetch manifest download URLs directly from the frontend.
-- [x] After a job reaches `downloaded`, call `stage_download`, show extraction/validation failures, and allow selection of the game executable from staged files.
-- [x] Finalization needs `executableRelative`, relative to the staged root. `scan_game_executables` returns absolute paths, so derive a safe relative path only after verifying containment, or add a backend command that returns relative staged candidates. Do not pass paths outside the staging directory. Resolved with `scan_staged_executables`, which already returns download-bound relative candidates; the frontend passes `relativePath` through unchanged and does no path handling.
+- [x] After a job reaches `downloaded`, call `stage_download`, show extraction/validation failures, then call `scan_staged_executables` to list its relative executable candidates.
+- [x] Require explicit executable selection when `selectedRelativePath` is null and pass the selected `relativePath` as `executableRelative`. The backend revalidates containment and file type during finalization.
 - [x] Call `finalize_download` with the selected relative executable. On success reload both queue and library. Present conflicts/recovery errors without hiding staged evidence.
-- [x] Add a bandwidth limit control using `set_download_bandwidth_limit`; zero means unlimited. Decided in favour of Settings, with `get_download_bandwidth_limit` added so the persisted limit is shown after a restart.
-- [x] Let the user reach the store install directory from Settings with `open_installed_folder`. The command takes no path argument, so the frontend cannot request an arbitrary location.
+- [x] Add a bandwidth limit control using `set_download_bandwidth_limit`; zero means unlimited. It lives in Settings and reads the persisted value through `get_download_bandwidth_limit`.
+- [x] Let the user open the app-owned install directory from Settings through `open_installed_folder`. The frontend does not pass an arbitrary path.
 
 ## P0: Launch lifecycle and account override
 
 - [x] Add per-game Play/Cancel/Stop controls backed by `list_game_launch_states`, `launch_steam_game`, `cancel_game_launch`, and `stop_game`.
 - [x] Poll lifecycle state while a game is launching or running. Show Play for idle, Cancel while launching, and Stop while running. A successful launch command means accepted/requested, not that the game is running.
 - [x] Keep cancellation pending in local UI state until the backend reports idle or an error. The backend status enum currently has `idle`, `launching`, and `running`, with no `cancelling` value.
-- [x] Surface per-game launch errors next to the affected game and provide a retry path.
+- [x] Surface per-game launch errors next to the affected game and provide a retry path. Do not add frontend helper-process timing or Steam startup delays; the shared backend lifecycle and explicit-overlay Steam readiness gate own that behavior.
 - [ ] Add the per-game saved Steam account selector. Populate it with `list_saved_steam_accounts`; save through `set_game_steam_account_preference`. The account list exposes display names and Steam IDs, not private account login names.
 - [ ] Before launch, call `inspect_steam_game_launch`. On `mismatch`, ask the user before closing and restarting Steam, then launch with `confirmAccountSwitch: true`. Treat `unknown` as uncertain, never as a verified account match. Allow canceling the dialog without launching.
 - [ ] Add account health using `check_game_steam_account`, including missing saved account, mismatch, and uncertain states.
@@ -57,15 +58,17 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 ## P1: Settings and system feedback
 
 - [ ] Build Settings for theme, network/connectivity status, and actionable diagnostics from `get_network_log_status`.
-- [ ] Add Linux compatibility runner discovery and global defaults using `list_compatibility_runners`, `get_compatibility_defaults`, and `save_compatibility_defaults`.
-- [ ] Add per-game compatibility overrides using `get_game_compatibility_overrides` and `save_game_compatibility_overrides`. Expose inheritance/reset semantics for runner, prefix, arguments, working directory, environment, and DLL overrides.
-- [ ] Launch manually imported Windows games with `launch_configured_game_with_runner`; keep `launch_game_with_runner` as an explicit testing command. Explain unsupported-platform behavior returned by the backend.
-- [x] Show source/network staleness and cached-data warnings without blocking locally available library actions.
+- [ ] Add Linux compatibility runner discovery and global defaults using `list_compatibility_runners`, `get_compatibility_defaults`, and `save_compatibility_defaults`. Include typed Steam Runtime, overlay, WineD3D, Wayland, and debug logging controls with the backend's validation rules.
+- [ ] Add per-game compatibility overrides using `get_game_compatibility_overrides` and `save_game_compatibility_overrides`. Expose inheritance/reset semantics for runner, prefix, arguments, working directory, environment, DLL overrides, Steam Runtime, overlay, WineD3D, Wayland, and debug logging.
+- [ ] Launch manually imported Windows games with `launch_configured_game_with_runner`; keep `launch_game_with_runner` as an explicit testing command. Explain unsupported-platform behavior returned by the backend. Surface compatibility diagnostics/log location from `get_compatibility_logs_directory` when a launch fails.
+- [ ] On Windows, expose per-game native arguments and working directory through `get_native_launch_config` and `save_native_launch_config`, then launch a manual executable with `launch_native_game`.
+- [x] Show source/network staleness and cached-data warnings without blocking locally available library actions. Keep cached catalog results, Steam details, source data, and stale artwork visible when refresh fails.
 
 ## P1: Home, polish, and verification
 
-- [x] Build Home around real library and queue data. Do not show playtime, recent sessions, achievements, or install progress features until corresponding backend data exists.
-- [ ] Add consistent loading, empty, offline, stale, error, confirmation, and success states across pages.
+- [x] Build Home around real library and queue data.
+- [ ] Wire `get_playtime_summaries` into Home and Library for real total playtime and active-session state. Do not invent recent-session timelines or the monthly heatmap until the backend exposes session history/per-day aggregates.
+- [ ] Add consistent loading, empty, offline, stale, error, confirmation, and success states across pages. Home, Library, local metadata, playtime, settings, and permitted installed-game actions must remain useful offline; remote actions should expose an explicit retry state without loops.
 - [ ] Review the section 35 product mockup when available and reconcile it with the current shell before final visual acceptance.
 - [ ] Add component/service tests for query races, hydration failures, queue action eligibility, manual candidate selection, confirmation dialogs, and stale cache display.
 - [ ] Manually verify Steam redetection, manual import, source search, unverified confirmation, download recovery, finalization, account switching, launch cancel/stop, and settings persistence on supported platforms.
@@ -73,7 +76,10 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 
 ## Backend gaps to track instead of guessing in the UI
 
-- [x] Decide whether to add a native picker API/plugin for manual directory and executable selection. Resolved with `tauri-plugin-dialog` and the `dialog:allow-open` permission.
-- [x] Consider a staged-executable scan that returns safe relative paths for `finalize_download`. Resolved with `scan_staged_executables`, already implemented on the backend and now used by the Downloads screen.
+- [x] Native file and folder selection is resolved with `tauri-plugin-dialog` and the narrowly scoped `dialog:allow-open` permission.
+- [x] Safe staged executable selection is resolved with `scan_staged_executables`, which returns download-bound relative paths consumed unchanged by the frontend.
+- [ ] Add automatic Steam App ID identification for manually selected executables as required by PLAN sections 17 and 18. There is no current command that derives a Steam identity from an EXE/folder/PE metadata, so the frontend must not fake this behavior.
+- [ ] Expose session history or per-day playtime aggregates before implementing the full recent-played timeline and monthly activity heatmap. `get_playtime_summaries` currently provides totals and active-session counts.
 - [ ] Add progress events for downloads and process lifecycle only if polling proves inadequate; there are no such events in the current contract.
-- [ ] Add persistent play sessions/playtime before designing Home or Library around those values.
+- [ ] Define frontend commands only after backend/product decisions exist for runner acquisition, prefix cleanup/tools, and trusted fix packaging.
+- [ ] Add application/game update contracts in Phase 09 before building update-check UI.
