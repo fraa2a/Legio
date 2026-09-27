@@ -2,7 +2,7 @@
 
 This is the implementation guide for wiring the Legio UI to the Rust/Tauri backend. Keep it aligned with the registered commands in [`src-tauri/src/lib.rs`](../../src-tauri/src/lib.rs), their request and response types, and the frontend service modules under [`src/lib/services`](../../src/lib/services).
 
-The active frontend integration work is PR #36 (`feat/ui-upgrade`). The branch now contains the navigable shell, Library, Store, Downloads, basic Home, native picker wiring, staged-install flow, download cleanup, and launch controls. This guide describes the contract after reconciling that work with current `main`. Keep [`TODO.md`](TODO.md) aligned with behavior that is actually wired and verified in the app. Product code belongs under `src/lib/features/{home,library,store,downloads,settings}`, shared state under `src/lib/stores`, and all Tauri calls inside typed service modules.
+The active frontend integration work is PR #36 (`feat/ui-upgrade`). This document describes the backend contract available on current `main`, not the exact implementation state of that branch. When PR #36 is updated from `main`, reconcile its services and stores against this guide, then update [`TODO.md`](TODO.md) only for flows that are actually wired and verified in the app. Keep product code under `src/lib/features/{home,library,store,downloads,settings}`, shared state under `src/lib/stores`, and all Tauri calls inside typed service modules.
 
 The UI should call Tauri only from a feature service module. Components should consume typed service functions and own presentation state, not duplicate backend rules. Rust is the source of truth for library records, installation state, queue state, compatibility settings, and process state.
 
@@ -197,11 +197,9 @@ The source manifest URL is `https://source.taxphobia.top/store.json`. Hydra and 
 | Command | Arguments | Result |
 | --- | --- | --- |
 | `get_steam_details` | `{ steamAppId, refresh }` | `{ details, cachedAt, stale }` |
-| `get_steam_asset` | `{ steamAppId, asset, index?, full? }` | `{ bytes, contentType, stale, cacheWarning }` |
+| `get_steam_asset` | `{ steamAppId, asset, index? }` | `{ bytes, contentType, stale, cacheWarning }` |
 
 Details include name, type, description, developers, publishers, genres, platform flags, release date, and Steam image URLs. Render remote descriptions as text or sanitize HTML before display. Asset kinds are `header`, `capsule`, and `screenshot`; screenshot requires its zero-based `index`. The asset command returns a number array, not a URL or base64 string. Convert it to a `Blob` using `contentType`, create an object URL, and revoke the URL when replaced or unmounted.
-
-For screenshots, `full: true` asks the backend for the full-size Steam image when available and falls back to the thumbnail. Header and capsule selection ignore the flag. The cache key distinguishes full screenshots from thumbnails, so fullscreen artwork can coexist with card-sized cached assets.
 
 Cached catalog search, cached Steam details, and the last valid Legio source have app-facing offline read coverage. Steam artwork can return a stale cached image when refresh fails. Preserve those values in the UI and show `stale`, `cacheWarning`, or source warning separately instead of replacing usable content with an error page.
 
@@ -217,14 +215,10 @@ Cached catalog search, cached Steam details, and the last valid Legio source hav
 | `resume_download` | `{ id }` | `void` |
 | `retry_download` | `{ id }` | `void` |
 | `cancel_download` | `{ id }` | `void` |
-| `remove_download` | `{ id }` | `void`; removes a terminal queue row and its queue-owned files |
-| `remove_finished_downloads` | none | removed download IDs; clears `cancelled` and `installed` rows |
 | `set_download_bandwidth_limit` | `{ bytesPerSecond }` | `void`; zero means unlimited. The value persists across application restarts. |
-| `get_download_bandwidth_limit` | none | persisted bytes per second; `0` means unlimited |
 | `stage_download` | `{ id }` | staged directory path |
 | `scan_staged_executables` | `{ id, gameName? }` | `{ candidates: [{ relativePath, score, signals }], selectedRelativePath }` |
 | `finalize_download` | `{ id, executableRelative }` | `void`; creates installed game and library row |
-| `open_installed_folder` | none | `void`; opens Legio's app-owned install directory in the platform file manager |
 
 ```ts
 interface DownloadJob {
@@ -242,10 +236,6 @@ interface DownloadJob {
 ```
 
 Current statuses are `queued`, `downloading`, `waiting`, `paused`, `failed`, `downloaded`, `staging`, `staged`, `finalizing`, `installed`, and `cancelled`. Treat status as an open string for forward compatibility. Typical actions: pause only `queued`/`downloading`/`waiting`; resume `paused`/`waiting`; retry `failed`; cancel active or queued states. The backend enforces valid transitions and reports invalid actions as rejected invokes.
-
-Cancellation only changes the queue status. `remove_download` is the explicit cleanup action and accepts only `cancelled`, `failed`, and `installed`. It removes queue-owned partial/archive/staging files before deleting the row, rejects states that can still progress, preserves unexpected non-directory staging content, and never deletes the finalized installed game. `remove_finished_downloads` clears `cancelled` and `installed` rows while deliberately leaving retryable `failed` rows visible. After either command, reload `list_downloads`.
-
-`get_download_bandwidth_limit` reads the same persisted setting written by `set_download_bandwidth_limit`, so Settings can show the real value after restart. `open_installed_folder` accepts no path from the frontend and only opens Legio's own install root.
 
 `queue_download` requires `acceptUnverified: true` before an unverified source can be queued. Poll `list_downloads` while the queue screen is visible because there is no progress event yet. Refresh the library after a successful `finalize_download`. For install selection, stage the verified archive, call `scan_staged_executables({ id, gameName? })`, let the user select a candidate by `relativePath`, then pass it unchanged as `executableRelative`. Candidate paths use forward slashes on every platform. The command only scans a download whose stored status is `staged` and whose stage path matches the app-owned path. Finalization revalidates the path, containment, and executable file before installing. `stage_download` still returns a path for diagnostics; the UI does not need to inspect it or convert absolute paths.
 
