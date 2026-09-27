@@ -126,8 +126,8 @@ pub fn create_game_shortcut(
 ) -> Result<String, String> {
     let game = state.database()?.game(&game_id)?;
     let icon = app
-        .state::<crate::game_icons::GameIconStore>()
-        .path(&game.id)?;
+        .state::<crate::game_artwork::GameArtworkStore>()
+        .path(&game.id, crate::game_artwork::ArtworkKind::Icon)?;
     let path = crate::desktop_shortcuts::create(&game, location, icon.as_deref())?;
     path.to_str()
         .map(str::to_owned)
@@ -139,20 +139,26 @@ pub fn set_game_icon(
     app: AppHandle,
     game_id: String,
     file_path: String,
-) -> Result<crate::game_icons::GameIconResult, String> {
+) -> Result<crate::game_artwork::GameArtworkResult, String> {
     app.state::<DatabaseState>().database()?.game(&game_id)?;
-    app.state::<crate::game_icons::GameIconStore>()
-        .set(&game_id, std::path::Path::new(&file_path))
+    app.state::<crate::game_artwork::GameArtworkStore>().set(
+        &game_id,
+        crate::game_artwork::ArtworkKind::Icon,
+        std::path::Path::new(&file_path),
+    )
 }
 
 #[tauri::command]
 pub async fn extract_game_icon(
     app: AppHandle,
     game_id: String,
-) -> Result<crate::game_icons::GameIconResult, String> {
+) -> Result<crate::game_artwork::GameArtworkResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let game = app.state::<DatabaseState>().database()?.game(&game_id)?;
-        crate::game_icons::extract_for_game(&app.state::<crate::game_icons::GameIconStore>(), &game)
+        crate::game_artwork::extract_for_game(
+            &app.state::<crate::game_artwork::GameArtworkStore>(),
+            &game,
+        )
     })
     .await
     .map_err(|error| format!("Game icon extraction task failed: {error}"))?
@@ -162,17 +168,48 @@ pub async fn extract_game_icon(
 pub fn get_game_icon(
     app: AppHandle,
     game_id: String,
-) -> Result<Option<crate::game_icons::GameIconResult>, String> {
+) -> Result<Option<crate::game_artwork::GameArtworkResult>, String> {
     app.state::<DatabaseState>().database()?.game(&game_id)?;
-    app.state::<crate::game_icons::GameIconStore>()
-        .get(&game_id)
+    app.state::<crate::game_artwork::GameArtworkStore>()
+        .get(&game_id, crate::game_artwork::ArtworkKind::Icon)
 }
 
 #[tauri::command]
 pub fn reset_game_icon(app: AppHandle, game_id: String) -> Result<(), String> {
     app.state::<DatabaseState>().database()?.game(&game_id)?;
-    app.state::<crate::game_icons::GameIconStore>()
-        .remove(&game_id)
+    app.state::<crate::game_artwork::GameArtworkStore>()
+        .remove(&game_id, crate::game_artwork::ArtworkKind::Icon)
+}
+
+#[tauri::command]
+pub fn set_game_banner(
+    app: AppHandle,
+    game_id: String,
+    file_path: String,
+) -> Result<crate::game_artwork::GameArtworkResult, String> {
+    app.state::<DatabaseState>().database()?.game(&game_id)?;
+    app.state::<crate::game_artwork::GameArtworkStore>().set(
+        &game_id,
+        crate::game_artwork::ArtworkKind::Banner,
+        std::path::Path::new(&file_path),
+    )
+}
+
+#[tauri::command]
+pub fn get_game_banner(
+    app: AppHandle,
+    game_id: String,
+) -> Result<Option<crate::game_artwork::GameArtworkResult>, String> {
+    app.state::<DatabaseState>().database()?.game(&game_id)?;
+    app.state::<crate::game_artwork::GameArtworkStore>()
+        .get(&game_id, crate::game_artwork::ArtworkKind::Banner)
+}
+
+#[tauri::command]
+pub fn reset_game_banner(app: AppHandle, game_id: String) -> Result<(), String> {
+    app.state::<DatabaseState>().database()?.game(&game_id)?;
+    app.state::<crate::game_artwork::GameArtworkStore>()
+        .remove(&game_id, crate::game_artwork::ArtworkKind::Banner)
 }
 
 #[tauri::command]
@@ -187,8 +224,11 @@ pub fn update_game(
 pub fn remove_game(app: AppHandle, id: String) -> Result<(), String> {
     database::remove_game(&app.state::<DatabaseState>(), &id)?;
     let mut errors = Vec::new();
-    if let Err(error) = app.state::<crate::game_icons::GameIconStore>().remove(&id) {
-        errors.push(format!("custom icon: {error}"));
+    if let Err(error) = app
+        .state::<crate::game_artwork::GameArtworkStore>()
+        .remove_for_game(&id)
+    {
+        errors.push(format!("custom artwork: {error}"));
     }
     if let Err(error) = crate::desktop_shortcuts::remove(&id) {
         errors.push(format!("desktop shortcuts: {error}"));
