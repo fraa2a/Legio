@@ -15,21 +15,45 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 #[cfg(target_os = "linux")]
-use crate::runner_discovery::RunnerKind;
-use serde::Serialize;
-use tauri::{AppHandle, Manager};
-
+use crate::compatibility_logs::{CompatibilityLog, CompatibilityLogState};
+use crate::database::AppliedCompatibilityOptions;
 #[cfg(target_os = "linux")]
 use crate::database::EffectiveCompatibilityConfig;
+#[cfg(target_os = "linux")]
+use crate::database::SteamOverlayMode;
 use crate::database::{Database, DatabaseState};
+#[cfg(target_os = "linux")]
+use crate::runner_discovery::RunnerKind;
+use serde::Serialize;
+use tauri::{AppHandle, Manager, Runtime};
+
+#[cfg(target_os = "linux")]
+use crate::steam_process;
 use crate::{game_process, runner_discovery, steam_local, steam_switch};
 
 const START_TIMEOUT: Duration = Duration::from_secs(120);
+#[cfg(target_os = "linux")]
+const STEAM_START_TIMEOUT: Duration = Duration::from_secs(60);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const EXIT_GRACE: Duration = Duration::from_secs(3);
 const SESSION_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 const LOG_READ_LIMIT: u64 = 128 * 1024;
 const LOG_LINE_LIMIT: usize = 8 * 1024;
+
+#[cfg(target_os = "linux")]
+fn ensure_steam_for_overlay(
+    overlay: SteamOverlayMode,
+    steam_root: Option<&Path>,
+    ensure_running: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<(), String> {
+    if overlay != SteamOverlayMode::Enabled {
+        return Ok(());
+    }
+    let steam_root = steam_root.ok_or_else(|| {
+        "Steam overlay was enabled but no Steam installation was found".to_owned()
+    })?;
+    ensure_running(steam_root)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -46,6 +70,15 @@ pub(crate) struct GameLaunchState {
     pub status: GameStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compatibility_options: Option<AppliedCompatibilityOptions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compatibility_log_path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compatibility_log_error: Option<String>,
+    pub compatibility_log_truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runner_exit_code: Option<i32>,
 }
 
 struct Entry {
@@ -53,6 +86,10 @@ struct Entry {
     process_target: game_process::ProcessTarget,
     status: GameStatus,
     error: Option<String>,
+    compatibility_options: Option<AppliedCompatibilityOptions>,
+    #[cfg(target_os = "linux")]
+    compatibility_log: Option<CompatibilityLogState>,
+    runner_exit_code: Option<i32>,
     cancel: Arc<AtomicBool>,
 }
 
@@ -72,6 +109,8 @@ struct LaunchContext {
     steam_app_id: Option<u32>,
     steam_log_path: Option<PathBuf>,
     session_database: Option<Arc<Database>>,
+    #[cfg(target_os = "linux")]
+    compatibility_log: Option<CompatibilityLog>,
 }
 
 impl SessionTracking {
@@ -118,23 +157,72 @@ impl LaunchTarget {
 #[derive(Default, Clone)]
 pub(crate) struct GameLaunchManager {
     entries: Arc<Mutex<HashMap<String, Entry>>>,
+    #[cfg(target_os = "linux")]
+    compatibility_log_root: Option<Result<PathBuf, String>>,
 }
 
 impl GameLaunchManager {
+    #[cfg(any(not(target_os = "linux"), test))]
     pub(crate) fn new() -> Self {
         Self::default()
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn with_log_directory(directory: Result<PathBuf, String>) -> Self {
+        Self {
+            entries: Arc::default(),
+            compatibility_log_root: Some(directory),
+        }
     }
 
     pub(crate) fn list(&self) -> Result<Vec<GameLaunchState>, String> {
         let entries = self.lock()?;
         Ok(entries
             .iter()
-            .map(|(game_id, entry)| GameLaunchState {
-                game_id: game_id.clone(),
-                status: entry.status,
-                error: entry.error.clone(),
+            .map(|(game_id, entry)| {
+                #[cfg(target_os = "linux")]
+                let (compatibility_log_path, compatibility_log_error, compatibility_log_truncated) =
+                    entry
+                        .compatibility_log
+                        .as_ref()
+                        .map_or((None, None, false), |log| {
+                            (
+                                Some(log.directory().to_path_buf()),
+                                log.output_error(),
+                                log.truncated(),
+                            )
+                        });
+                #[cfg(not(target_os = "linux"))]
+                let (compatibility_log_path, compatibility_log_error, compatibility_log_truncated) =
+                    (None, None, false);
+                GameLaunchState {
+                    game_id: game_id.clone(),
+                    status: entry.status,
+                    error: entry.error.clone(),
+                    compatibility_options: entry.compatibility_options.clone(),
+                    compatibility_log_path,
+                    compatibility_log_error,
+                    compatibility_log_truncated,
+                    runner_exit_code: entry.runner_exit_code,
+                }
             })
             .collect())
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn compatibility_logs_directory(&self) -> Result<PathBuf, String> {
+        let directory = self
+            .compatibility_log_root
+            .as_ref()
+            .ok_or_else(|| "Compatibility log directory is unavailable".to_owned())?
+            .as_ref()
+            .map_err(|error| format!("Could not resolve application log directory: {error}"))?;
+        crate::compatibility_logs::directory(directory)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub(crate) fn compatibility_logs_directory(&self) -> Result<PathBuf, String> {
+        Err("Compatibility logs are supported on Linux only".to_owned())
     }
 
     pub(crate) fn launch(
@@ -158,7 +246,7 @@ impl GameLaunchManager {
             app_id,
             install_path: target.install_path.clone(),
         };
-        let cancel = self.reserve_launch(&game_id, Some(app_id), process_target.clone())?;
+        let cancel = self.reserve_launch(&game_id, Some(app_id), process_target.clone(), None)?;
 
         let worker_id = game_id.clone();
         let manager = self.clone();
@@ -176,6 +264,8 @@ impl GameLaunchManager {
                         steam_app_id: Some(app_id),
                         steam_log_path: Some(steam_log_path),
                         session_database: Some(session_database),
+                        #[cfg(target_os = "linux")]
+                        compatibility_log: None,
                     },
                     move |cancel| {
                         steam_switch::launch(&app, &launch_game_id, confirm_account_switch, cancel)
@@ -194,7 +284,11 @@ impl GameLaunchManager {
     }
 
     #[cfg(windows)]
-    pub(crate) fn launch_native(&self, app: AppHandle, game_id: String) -> Result<(), String> {
+    pub(crate) fn launch_native<R: Runtime>(
+        &self,
+        app: AppHandle<R>,
+        game_id: String,
+    ) -> Result<(), String> {
         let database = app.state::<DatabaseState>().shared_database()?;
         let game = database.game(&game_id)?;
         if game.steam_install_path.is_some() {
@@ -233,7 +327,7 @@ impl GameLaunchManager {
             launcher_pid: None,
             known_pids: Arc::default(),
         };
-        let cancel = self.reserve_launch(&game_id, None, process_target.clone())?;
+        let cancel = self.reserve_launch(&game_id, None, process_target.clone(), None)?;
         let manager = self.clone();
         let worker_id = game_id.clone();
         if let Err(error) = thread::Builder::new()
@@ -263,7 +357,11 @@ impl GameLaunchManager {
     }
 
     #[cfg(not(windows))]
-    pub(crate) fn launch_native(&self, _app: AppHandle, _game_id: String) -> Result<(), String> {
+    pub(crate) fn launch_native<R: Runtime>(
+        &self,
+        _app: AppHandle<R>,
+        _game_id: String,
+    ) -> Result<(), String> {
         Err("Native executable launch is supported on Windows only".to_owned())
     }
 
@@ -278,7 +376,12 @@ impl GameLaunchManager {
             runner_path: Some(runner_path),
             ..EffectiveCompatibilityConfig::default()
         };
-        self.launch_with_compatibility_config(app, game_id, config)
+        self.launch_with_compatibility_config(
+            app,
+            game_id,
+            config,
+            runner_discovery::resolve_runner,
+        )
     }
 
     #[cfg(target_os = "linux")]
@@ -305,17 +408,24 @@ impl GameLaunchManager {
                 ..config
             }
         };
-        self.launch_with_compatibility_config(app, game_id, config)
+        self.launch_with_compatibility_config(
+            app,
+            game_id,
+            config,
+            runner_discovery::resolve_runner,
+        )
     }
 
     #[cfg(target_os = "linux")]
-    fn launch_with_compatibility_config(
+    fn launch_with_compatibility_config<R: Runtime>(
         &self,
-        app: AppHandle,
+        app: AppHandle<R>,
         game_id: String,
         config: EffectiveCompatibilityConfig,
+        resolve_runner: impl FnOnce(&str) -> Result<runner_discovery::InstalledRunner, String>,
     ) -> Result<(), String> {
-        let game = app.state::<DatabaseState>().database()?.game(&game_id)?;
+        let database = app.state::<DatabaseState>().shared_database()?;
+        let game = database.game(&game_id)?;
         if game.steam_app_id.is_some() || game.steam_install_path.is_some() {
             return Err("Compatibility runners can only launch manually imported games".to_owned());
         }
@@ -337,7 +447,7 @@ impl GameLaunchManager {
             .as_deref()
             .filter(|path| !path.is_empty())
             .ok_or_else(|| "No compatibility runner is selected".to_owned())?;
-        let runner = runner_discovery::resolve_runner(runner_path)?;
+        let runner = resolve_runner(runner_path)?;
         let data_dir = app
             .path()
             .app_data_dir()
@@ -358,20 +468,26 @@ impl GameLaunchManager {
             config.prefix_root.as_deref(),
             config.prefix_path.as_deref(),
         )?;
+        let steam_root = if matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton) {
+            Some(steam_client_root()?)
+        } else {
+            None
+        };
+        let options = crate::compatibility_options::PreparedOptions::prepare(
+            &config,
+            &runner,
+            steam_root.as_deref(),
+        )?;
+        let steam_overlay = config.steam_overlay;
         let mut command = runner_discovery::launch_command(
             &runner,
             &executable_path,
             &config.arguments_before,
             &config.arguments_after,
+            options.runtime_path(),
         );
-        command
-            .current_dir(working_directory)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        for (key, value) in &config.environment {
-            command.env(key, value);
-        }
+        command.current_dir(working_directory).stdin(Stdio::null());
+        options.apply(&mut command, &config)?;
         if !config.dll_overrides.is_empty() {
             command.env(
                 "WINEDLLOVERRIDES",
@@ -379,9 +495,12 @@ impl GameLaunchManager {
             );
         }
         if matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton) {
+            let steam_root = steam_root
+                .as_ref()
+                .ok_or_else(|| "Steam installation was not resolved for Proton".to_owned())?;
             command
                 .env("STEAM_COMPAT_DATA_PATH", &compat_data_path)
-                .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_client_root()?);
+                .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
         } else {
             command.env("WINEPREFIX", &compat_data_path);
         }
@@ -393,10 +512,55 @@ impl GameLaunchManager {
             executable_path,
             launcher_pid: None,
         };
-        let cancel = self.reserve_launch(&game_id, None, process_target.clone())?;
+        let applied_options =
+            crate::compatibility_options::PreparedOptions::diagnostic(&runner, &config);
+        let cancel = self.reserve_launch(
+            &game_id,
+            None,
+            process_target.clone(),
+            Some(applied_options.clone()),
+        )?;
+        let mut compatibility_log = if config.debug_logging {
+            let result = self
+                .compatibility_logs_directory()
+                .and_then(|log_directory| {
+                    CompatibilityLog::create(
+                        &log_directory,
+                        &game.id,
+                        &compat_data_path,
+                        &runner,
+                        &config,
+                        &applied_options,
+                    )
+                });
+            match result {
+                Ok(log) => Some(log),
+                Err(error) => {
+                    self.set_state(&game_id, GameStatus::Idle, Some(error.clone()));
+                    return Err(error);
+                }
+            }
+        } else {
+            None
+        };
+        if let Some(log) = compatibility_log.as_mut() {
+            crate::compatibility_options::PreparedOptions::apply_debug_logging(
+                &mut command,
+                &config,
+                &runner,
+                log.state().directory(),
+            );
+            command.stdout(Stdio::piped()).stderr(Stdio::piped());
+            if let Err(error) = self.set_compatibility_log_state(&game_id, Some(log.state())) {
+                self.set_state(&game_id, GameStatus::Idle, Some(error.clone()));
+                return Err(error);
+            }
+        } else {
+            command.stdout(Stdio::null()).stderr(Stdio::null());
+        }
         let manager = self.clone();
         let worker_id = game_id.clone();
-        let session_database = app.state::<DatabaseState>().shared_database()?;
+        let session_database = database;
         if let Err(error) = thread::Builder::new()
             .name(format!("legio-game-runner-{}", game.id))
             .spawn(move || {
@@ -406,9 +570,13 @@ impl GameLaunchManager {
                     cancel,
                     LaunchContext {
                         session_database: Some(session_database),
+                        compatibility_log,
                         ..LaunchContext::default()
                     },
-                    move |_| {
+                    move |cancel| {
+                        ensure_steam_for_overlay(steam_overlay, steam_root.as_deref(), |root| {
+                            steam_process::ensure_running(root, STEAM_START_TIMEOUT, cancel)
+                        })?;
                         command.spawn().map(Some).map_err(|error| {
                             format!("Could not start compatibility runner: {error}")
                         })
@@ -477,7 +645,11 @@ impl GameLaunchManager {
             steam_app_id,
             steam_log_path,
             session_database,
+            #[cfg(target_os = "linux")]
+            compatibility_log,
         } = context;
+        #[cfg(target_os = "linux")]
+        let mut compatibility_log = compatibility_log;
         let mut steam_log = steam_log_path.map(SteamLaunchLog::new);
         if cancel.load(Ordering::Acquire) {
             self.set_state(&game_id, GameStatus::Idle, None);
@@ -492,6 +664,25 @@ impl GameLaunchManager {
                 return;
             }
         };
+        #[cfg(target_os = "linux")]
+        if let Some(log) = compatibility_log.as_mut() {
+            let capture = child
+                .as_mut()
+                .ok_or_else(|| "Compatibility runner did not return a process".to_owned())
+                .and_then(|child| log.capture_output(child));
+            if let Err(error) = capture {
+                let cleanup_error = terminate_child(&mut child).err();
+                self.set_state(
+                    &game_id,
+                    GameStatus::Idle,
+                    Some(append_cleanup_error(
+                        format!("Diagnostics stage failed: {error}"),
+                        cleanup_error,
+                    )),
+                );
+                return;
+            }
+        }
         #[cfg(target_os = "linux")]
         if matches!(process_target, game_process::ProcessTarget::Runner { .. })
             && let Some(pid) = child.as_ref().map(Child::id)
@@ -582,9 +773,19 @@ impl GameLaunchManager {
                     }
                 }
             }
+            #[cfg(target_os = "linux")]
+            if let Some(log) = compatibility_log.as_ref() {
+                log.cap_runner_log();
+            }
             if let Some(runner_child) = child.as_mut() {
                 match runner_child.try_wait() {
                     Ok(Some(status)) => {
+                        #[cfg(target_os = "linux")]
+                        self.record_runner_exit(
+                            &game_id,
+                            status.code(),
+                            compatibility_log.as_mut(),
+                        );
                         child.take();
                         if !status.success() && !cancel.load(Ordering::Acquire) {
                             let kind = if native_launch {
@@ -728,6 +929,34 @@ impl GameLaunchManager {
                     return;
                 }
             }
+            #[cfg(target_os = "linux")]
+            if let Some(runner_child) = child.as_mut() {
+                match runner_child.try_wait() {
+                    Ok(Some(status)) => {
+                        self.record_runner_exit(
+                            &game_id,
+                            status.code(),
+                            compatibility_log.as_mut(),
+                        );
+                        child.take();
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        child.take();
+                        self.set_state(
+                            &game_id,
+                            GameStatus::Running,
+                            Some(format!(
+                                "Monitor stage failed: could not wait for compatibility runner: {error}"
+                            )),
+                        );
+                    }
+                }
+            }
+            #[cfg(target_os = "linux")]
+            if let Some(log) = compatibility_log.as_ref() {
+                log.cap_runner_log();
+            }
             thread::sleep(POLL_INTERVAL);
         }
     }
@@ -737,6 +966,7 @@ impl GameLaunchManager {
         game_id: &str,
         app_id: Option<u32>,
         process_target: game_process::ProcessTarget,
+        compatibility_options: Option<AppliedCompatibilityOptions>,
     ) -> Result<Arc<AtomicBool>, String> {
         let cancel = Arc::new(AtomicBool::new(false));
         let mut entries = self.lock()?;
@@ -760,6 +990,10 @@ impl GameLaunchManager {
                 process_target,
                 status: GameStatus::Launching,
                 error: None,
+                compatibility_options,
+                #[cfg(target_os = "linux")]
+                compatibility_log: None,
+                runner_exit_code: None,
                 cancel: Arc::clone(&cancel),
             },
         );
@@ -777,6 +1011,44 @@ impl GameLaunchManager {
             .ok_or_else(|| "Game launch state disappeared".to_owned())?;
         entry.process_target = process_target;
         Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    fn set_compatibility_log_state(
+        &self,
+        game_id: &str,
+        log: Option<CompatibilityLogState>,
+    ) -> Result<(), String> {
+        let mut entries = self.lock()?;
+        let entry = entries
+            .get_mut(game_id)
+            .ok_or_else(|| "Game launch state disappeared".to_owned())?;
+        entry.compatibility_log = log;
+        Ok(())
+    }
+
+    fn set_runner_exit_code(&self, game_id: &str, code: i32) {
+        if let Ok(mut entries) = self.entries.lock()
+            && let Some(entry) = entries.get_mut(game_id)
+            && entry.compatibility_options.is_some()
+        {
+            entry.runner_exit_code = Some(code);
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn record_runner_exit(
+        &self,
+        game_id: &str,
+        code: Option<i32>,
+        log: Option<&mut CompatibilityLog>,
+    ) {
+        if let Some(code) = code {
+            self.set_runner_exit_code(game_id, code);
+            if let Some(log) = log {
+                log.record_exit_code(code);
+            }
+        }
     }
 
     fn set_state(&self, game_id: &str, status: GameStatus, error: Option<String>) {
@@ -1132,6 +1404,55 @@ fn parse_launch_event(line: &str, app_id: u32) -> Option<SteamLaunchEvent> {
 mod tests {
     use super::*;
     use std::io::Write;
+    use tauri::Manager;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn steam_starts_only_for_explicit_overlay_mode() {
+        let steam_root = Path::new("/steam");
+        let mut started = false;
+
+        ensure_steam_for_overlay(SteamOverlayMode::RunnerDefault, None, |_| {
+            started = true;
+            Ok(())
+        })
+        .unwrap();
+        ensure_steam_for_overlay(SteamOverlayMode::Disabled, None, |_| {
+            started = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(!started);
+
+        ensure_steam_for_overlay(SteamOverlayMode::Enabled, Some(steam_root), |root| {
+            assert_eq!(root, steam_root);
+            started = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(started);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn explicit_overlay_requires_a_steam_installation() {
+        let error =
+            ensure_steam_for_overlay(SteamOverlayMode::Enabled, None, |_| Ok(())).unwrap_err();
+
+        assert!(error.contains("no Steam installation was found"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn steam_start_failure_is_reported_before_runner_launch() {
+        let error =
+            ensure_steam_for_overlay(SteamOverlayMode::Enabled, Some(Path::new("/steam")), |_| {
+                Err("Could not start Steam: permission denied".to_owned())
+            })
+            .unwrap_err();
+
+        assert!(error.contains("Could not start Steam: permission denied"));
+    }
 
     fn test_dir(label: &str) -> PathBuf {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -1145,6 +1466,71 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
+    fn test_app(database_dir: &Path) -> tauri::App<tauri::test::MockRuntime> {
+        test_app_with_logs(database_dir, database_dir)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn test_app_with_logs(
+        database_dir: &Path,
+        log_directory: &Path,
+    ) -> tauri::App<tauri::test::MockRuntime> {
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().identifier = format!("org.legio.test.{}", uuid::Uuid::new_v4());
+        tauri::test::mock_builder()
+            .manage(DatabaseState::new(Ok(database_dir.to_path_buf())))
+            .manage(GameLaunchManager::with_log_directory(Ok(
+                log_directory.to_path_buf()
+            )))
+            .build(context)
+            .unwrap()
+    }
+
+    #[cfg(windows)]
+    fn native_test_app(database_dir: &Path) -> tauri::App<tauri::test::MockRuntime> {
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().identifier = format!("org.legio.test.{}", uuid::Uuid::new_v4());
+        tauri::test::mock_builder()
+            .manage(DatabaseState::new(Ok(database_dir.to_path_buf())))
+            .manage(GameLaunchManager::new())
+            .build(context)
+            .unwrap()
+    }
+
+    #[cfg(target_os = "linux")]
+    fn create_manual_game(state: &DatabaseState, executable_path: &Path) -> crate::database::Game {
+        let game = state
+            .database()
+            .unwrap()
+            .create_game(crate::database::CreateGameInput {
+                name: "Controlled game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        fs::write(executable_path, b"controlled test executable").unwrap();
+        crate::manual_import::set_executable(state, &game.id, executable_path.to_str().unwrap())
+            .unwrap();
+        game
+    }
+
+    #[cfg(target_os = "linux")]
+    fn test_runner(path: &Path, script: &str) -> runner_discovery::InstalledRunner {
+        use std::os::unix::fs::PermissionsExt;
+
+        fs::write(path, format!("#!/bin/bash\n{script}")).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        runner_discovery::InstalledRunner {
+            kind: RunnerKind::Wine,
+            name: "Controlled Wine".to_owned(),
+            version: "test".to_owned(),
+            path: fs::canonicalize(path)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
     fn runner_test_target(base: &Path, token: &str) -> game_process::ProcessTarget {
         let executable = base.join("Test Game.exe");
         fs::write(&executable, b"stub").unwrap();
@@ -1153,6 +1539,51 @@ mod tests {
             executable_path: fs::canonicalize(executable).unwrap(),
             launcher_pid: None,
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn launch_state_serializes_applied_compatibility_options() {
+        let base = test_dir("compatibility-diagnostics");
+        let manager = GameLaunchManager::new();
+        let target = runner_test_target(&base, "diagnostic-token");
+        manager
+            .reserve_launch(
+                "manual-game",
+                None,
+                target,
+                Some(AppliedCompatibilityOptions {
+                    runner: "GE-Proton10-33".to_owned(),
+                    version: "GE-Proton10-33".to_owned(),
+                    steam_runtime: crate::database::SteamRuntimeMode::SteamLinuxRuntime,
+                    steam_overlay: crate::database::SteamOverlayMode::Enabled,
+                    graphics_renderer: crate::database::GraphicsRenderer::WineD3d,
+                    wayland: crate::database::WaylandMode::Native,
+                    debug_logging: true,
+                }),
+            )
+            .unwrap();
+        let state = manager.list().unwrap().pop().unwrap();
+        let serialized = serde_json::to_value(state).unwrap();
+        assert_eq!(
+            serialized["compatibilityOptions"]["runner"],
+            "GE-Proton10-33"
+        );
+        assert_eq!(
+            serialized["compatibilityOptions"]["steamRuntime"],
+            "steam_linux_runtime"
+        );
+        assert_eq!(
+            serialized["compatibilityOptions"]["steamOverlay"],
+            "enabled"
+        );
+        assert_eq!(
+            serialized["compatibilityOptions"]["graphicsRenderer"],
+            "wine_d3d"
+        );
+        assert_eq!(serialized["compatibilityOptions"]["wayland"], "native");
+        assert_eq!(serialized["compatibilityOptions"]["debugLogging"], true);
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[cfg(target_os = "linux")]
@@ -1173,6 +1604,106 @@ mod tests {
             );
             thread::sleep(Duration::from_millis(20));
         }
+    }
+
+    #[cfg(windows)]
+    fn wait_for_native_status(
+        manager: &GameLaunchManager,
+        game_id: &str,
+        status: GameStatus,
+    ) -> GameLaunchState {
+        let started = Instant::now();
+        loop {
+            let state = manager
+                .list()
+                .unwrap()
+                .into_iter()
+                .find(|entry| entry.game_id == game_id)
+                .unwrap();
+            if state.status == status {
+                return state;
+            }
+            if status == GameStatus::Running && state.status == GameStatus::Idle {
+                panic!("game returned to idle before running: {:?}", state.error);
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(45),
+                "game did not reach {status:?}; last state was {:?}: {:?}",
+                state.status,
+                state.error
+            );
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn controlled_native_child_waits_for_stop() {
+        if std::env::args().any(|arg| arg == "controlled_native_child_waits_for_stop") {
+            thread::sleep(Duration::from_secs(30));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_manager_lifecycle_tracks_a_controlled_process() {
+        let base = test_dir("native-manager-lifecycle");
+        let database_dir = base.join("database");
+        let app = native_test_app(&database_dir);
+        let executable = std::env::current_exe().unwrap();
+        let (game, database) = {
+            let state = app.state::<DatabaseState>();
+            let database = state.shared_database().unwrap();
+            let game = database
+                .create_game(crate::database::CreateGameInput {
+                    name: "Controlled native game".to_owned(),
+                    steam_app_id: None,
+                })
+                .unwrap();
+            crate::manual_import::set_executable(&state, &game.id, executable.to_str().unwrap())
+                .unwrap();
+            database
+                .save_native_launch_config(
+                    &game.id,
+                    crate::database::NativeLaunchConfig {
+                        arguments: vec!["controlled_native_child_waits_for_stop".to_owned()],
+                        working_directory: None,
+                    },
+                )
+                .unwrap();
+            (game, database)
+        };
+
+        let manager = app.state::<GameLaunchManager>().inner().clone();
+        manager
+            .launch_native(app.handle().clone(), game.id.clone())
+            .unwrap();
+        let state = wait_for_native_status(&manager, &game.id, GameStatus::Running);
+        assert_eq!(state.error, None);
+        let active = database
+            .playtime_summaries(crate::database::now_milliseconds())
+            .unwrap()
+            .into_iter()
+            .find(|summary| summary.game_id == game.id)
+            .unwrap();
+        assert_eq!(active.active_sessions, 1);
+
+        manager.stop(&game.id).unwrap();
+        let state = wait_for_native_status(&manager, &game.id, GameStatus::Idle);
+        assert_eq!(state.error, None);
+        let reopened = Database::open(&database_dir).unwrap();
+        let summary = reopened
+            .playtime_summaries(crate::database::now_milliseconds())
+            .unwrap()
+            .into_iter()
+            .find(|summary| summary.game_id == game.id)
+            .unwrap();
+        assert!(summary.total_milliseconds > 0);
+        assert_eq!(summary.active_sessions, 0);
+        drop(app);
+        drop(database);
+        drop(reopened);
+        // The mock runtime can retain this SQLite file until process exit on Windows.
     }
 
     #[cfg(target_os = "linux")]
@@ -1286,7 +1817,7 @@ mod tests {
         };
         let manager = GameLaunchManager::new();
         let cancel = manager
-            .reserve_launch(&game.id, None, target.clone())
+            .reserve_launch(&game.id, None, target.clone(), None)
             .unwrap();
         assert_eq!(manager.list().unwrap()[0].status, GameStatus::Launching);
         let worker_manager = manager.clone();
@@ -1327,13 +1858,631 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn manager_launch_tracks_and_stops_a_controlled_game() {
+        let base = test_dir("manager-lifecycle");
+        let database_dir = base.join("database");
+        let app = test_app_with_logs(&database_dir, &base.join("logs"));
+        let (database, game) = {
+            let state = app.state::<DatabaseState>();
+            let database = state.shared_database().unwrap();
+            let game = create_manual_game(&state, &base.join("Test Game.exe"));
+            (database, game)
+        };
+
+        let ready = base.join("runner-ready");
+        let gate = base.join("start-game");
+        let runner_path = base.join("controlled-wine");
+        let runner = test_runner(
+            &runner_path,
+            "printf 'controlled stdout\\n'; printf 'controlled stderr\\n' >&2\n\
+             touch \"$LEGIO_TEST_READY\"\n\
+             for _ in {1..500}; do\n\
+                 [[ -e \"$LEGIO_TEST_GATE\" ]] && break\n\
+                 sleep 0.01\n\
+             done\n\
+             [[ -e \"$LEGIO_TEST_GATE\" ]] || exit 1\n\
+             bash -c 'exec -a \"$1\" sleep 60' _ \"$(basename \"$1\")\" &\n\
+             wait\n",
+        );
+        let config = EffectiveCompatibilityConfig {
+            runner_path: Some(runner.path.clone()),
+            prefix_root: Some(base.join("prefixes").to_string_lossy().into_owned()),
+            debug_logging: true,
+            environment: std::collections::BTreeMap::from([
+                (
+                    "LEGIO_TEST_READY".to_owned(),
+                    ready.to_string_lossy().into_owned(),
+                ),
+                (
+                    "LEGIO_TEST_GATE".to_owned(),
+                    gate.to_string_lossy().into_owned(),
+                ),
+            ]),
+            ..EffectiveCompatibilityConfig::default()
+        };
+        let manager = app.state::<GameLaunchManager>().inner().clone();
+        manager
+            .launch_with_compatibility_config(
+                app.handle().clone(),
+                game.id.clone(),
+                config,
+                move |selected_path| {
+                    assert_eq!(selected_path, runner.path);
+                    Ok(runner)
+                },
+            )
+            .unwrap();
+
+        let started = Instant::now();
+        while !ready.exists() {
+            assert!(
+                started.elapsed() < Duration::from_secs(3),
+                "controlled runner did not start"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(manager.list().unwrap()[0].status, GameStatus::Launching);
+        fs::write(&gate, b"start").unwrap();
+        wait_for_status(&manager, &game.id, GameStatus::Running);
+        assert_eq!(
+            database
+                .playtime_summaries(crate::database::now_milliseconds())
+                .unwrap()[0]
+                .active_sessions,
+            1
+        );
+
+        manager.stop(&game.id).unwrap();
+        wait_for_status(&manager, &game.id, GameStatus::Idle);
+        let state = manager.list().unwrap().remove(0);
+        assert_eq!(state.error, None);
+        assert!(state.compatibility_log_error.is_none());
+        assert!(!state.compatibility_log_truncated);
+        let log_directory = state.compatibility_log_path.unwrap();
+        let output_timeout = Instant::now() + Duration::from_secs(3);
+        loop {
+            let stdout = fs::read_to_string(log_directory.join("stdout.log")).unwrap_or_default();
+            let stderr = fs::read_to_string(log_directory.join("stderr.log")).unwrap_or_default();
+            if stdout.contains("controlled stdout") && stderr.contains("controlled stderr") {
+                break;
+            }
+            assert!(
+                Instant::now() < output_timeout,
+                "runner output was not captured"
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+        let report = fs::read_to_string(log_directory.join("launch.json")).unwrap();
+        assert!(report.contains("Controlled Wine"));
+        assert!(report.contains("prefixPath"));
+
+        drop(app);
+        drop(database);
+        let reopened = Database::open(&database_dir).unwrap();
+        let summary = reopened
+            .playtime_summaries(crate::database::now_milliseconds())
+            .unwrap()
+            .into_iter()
+            .find(|summary| summary.game_id == game.id)
+            .unwrap();
+        assert!(summary.total_milliseconds > 0);
+        assert_eq!(summary.active_sessions, 0);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "requires a local Windows game executable and Proton installation"]
+    fn installed_proton_game_launch_tracks_and_stops() {
+        let executable = PathBuf::from(
+            std::env::var_os("LEGIO_PHASE07_GAME_EXE")
+                .expect("set LEGIO_PHASE07_GAME_EXE to an installed Windows game"),
+        );
+        let runner_path = std::env::var_os("LEGIO_PHASE07_RUNNER")
+            .expect("set LEGIO_PHASE07_RUNNER to an installed Proton directory");
+        let runner_path = Path::new(&runner_path)
+            .to_str()
+            .expect("Proton path must be valid UTF-8");
+        let runner = runner_discovery::resolve_runner(runner_path).unwrap();
+        let option_profile = std::env::var("LEGIO_PHASE07_TYPED_OPTIONS").unwrap_or_default();
+        let typed_options = !option_profile.is_empty();
+        let runtime_enabled = option_profile == "all" || option_profile == "graphics";
+        let overlay_enabled = option_profile == "all" || option_profile == "direct_overlay";
+        let proton_logging = option_profile == "graphics";
+        assert!(
+            !typed_options
+                || ["all", "graphics", "direct_overlay"].contains(&option_profile.as_str()),
+            "set LEGIO_PHASE07_TYPED_OPTIONS to all, graphics, or direct_overlay"
+        );
+        assert!(matches!(
+            runner.kind,
+            RunnerKind::Proton | RunnerKind::GeProton
+        ));
+        if typed_options {
+            assert_eq!(runner.kind, RunnerKind::GeProton);
+        }
+        let expected_runner = runner.name.clone();
+
+        let base = test_dir("installed-proton-lifecycle");
+        let database_dir = base.join("database");
+        let app = test_app_with_logs(&database_dir, &base.join("logs"));
+        let (database, game) = {
+            let state = app.state::<DatabaseState>();
+            let database = state.shared_database().unwrap();
+            let game = crate::manual_import::import(
+                &state,
+                crate::manual_import::ManualImportInput {
+                    executable_path: executable.to_string_lossy().into_owned(),
+                    name: Some("Phase 07 Proton smoke".to_owned()),
+                },
+            )
+            .unwrap();
+            (database, game)
+        };
+        let config = EffectiveCompatibilityConfig {
+            runner_path: Some(runner.path.clone()),
+            prefix_root: Some(base.join("prefixes").to_string_lossy().into_owned()),
+            debug_logging: proton_logging,
+            steam_runtime: if runtime_enabled {
+                crate::database::SteamRuntimeMode::SteamLinuxRuntime
+            } else {
+                Default::default()
+            },
+            steam_overlay: if overlay_enabled {
+                crate::database::SteamOverlayMode::Enabled
+            } else {
+                Default::default()
+            },
+            graphics_renderer: if typed_options {
+                crate::database::GraphicsRenderer::WineD3d
+            } else {
+                Default::default()
+            },
+            wayland: if typed_options {
+                crate::database::WaylandMode::Native
+            } else {
+                Default::default()
+            },
+            ..EffectiveCompatibilityConfig::default()
+        };
+        let manager = app.state::<GameLaunchManager>().inner().clone();
+        manager
+            .launch_with_compatibility_config(
+                app.handle().clone(),
+                game.id.clone(),
+                config,
+                move |selected_path| {
+                    assert_eq!(selected_path, runner.path);
+                    Ok(runner)
+                },
+            )
+            .unwrap();
+
+        let started = Instant::now();
+        let launch_timeout = if typed_options {
+            Duration::from_secs(180)
+        } else {
+            Duration::from_secs(90)
+        };
+        let mut launch_error = None;
+        let mut launch_diagnostic = None;
+        loop {
+            let state = manager
+                .list()
+                .unwrap()
+                .into_iter()
+                .find(|state| state.game_id == game.id)
+                .unwrap();
+            match state.status {
+                GameStatus::Running => {
+                    launch_diagnostic = state.compatibility_options;
+                    eprintln!("Observed {} game process in Running state", expected_runner);
+                    break;
+                }
+                GameStatus::Idle => {
+                    launch_error = state.error;
+                    break;
+                }
+                GameStatus::Launching if started.elapsed() >= launch_timeout => {
+                    match manager.cancel(&game.id) {
+                        Ok(()) => wait_for_status(&manager, &game.id, GameStatus::Idle),
+                        Err(_) => {
+                            let latest = manager
+                                .list()
+                                .unwrap()
+                                .into_iter()
+                                .find(|state| state.game_id == game.id)
+                                .unwrap();
+                            if latest.status == GameStatus::Running {
+                                manager.stop(&game.id).unwrap();
+                            }
+                            wait_for_status(&manager, &game.id, GameStatus::Idle);
+                        }
+                    }
+                    panic!(
+                        "Proton game did not become observable within {} seconds",
+                        launch_timeout.as_secs()
+                    );
+                }
+                GameStatus::Launching => thread::sleep(POLL_INTERVAL),
+            }
+        }
+        assert!(
+            launch_error.is_none(),
+            "Proton game launch failed: {}",
+            launch_error.unwrap_or_default()
+        );
+
+        let typed_option_evidence = typed_options.then(|| {
+            if overlay_enabled {
+                wait_for_overlay_evidence(&manager, &game.id, &steam_client_root())
+            } else {
+                game_process_option_evidence(&manager, &game.id, &steam_client_root(), false)
+            }
+        });
+        let proton_log_evidence = proton_logging.then(|| {
+            wait_for_proton_graphics_log(
+                &base
+                    .join("logs/compatibility")
+                    .join(&game.id)
+                    .join("steam-480.log"),
+            )
+        });
+        let active = database
+            .playtime_summaries(crate::database::now_milliseconds())
+            .unwrap()
+            .into_iter()
+            .find(|summary| summary.game_id == game.id)
+            .unwrap();
+        assert_eq!(active.active_sessions, 1);
+        manager.stop(&game.id).unwrap();
+        wait_for_status(&manager, &game.id, GameStatus::Idle);
+        assert_eq!(manager.list().unwrap()[0].error, None);
+
+        drop(app);
+        drop(database);
+        let reopened = Database::open(&database_dir).unwrap();
+        let summary = reopened
+            .playtime_summaries(crate::database::now_milliseconds())
+            .unwrap()
+            .into_iter()
+            .find(|summary| summary.game_id == game.id)
+            .unwrap();
+        assert!(summary.total_milliseconds > 0);
+        assert_eq!(summary.active_sessions, 0);
+        fs::remove_dir_all(base).unwrap();
+
+        let diagnostic = launch_diagnostic.expect("running game has launch diagnostics");
+        assert_eq!(diagnostic.runner, expected_runner);
+        assert_eq!(diagnostic.debug_logging, proton_logging);
+        if typed_options {
+            assert_eq!(
+                diagnostic.steam_runtime,
+                if runtime_enabled {
+                    crate::database::SteamRuntimeMode::SteamLinuxRuntime
+                } else {
+                    Default::default()
+                }
+            );
+            assert_eq!(
+                diagnostic.steam_overlay,
+                if overlay_enabled {
+                    crate::database::SteamOverlayMode::Enabled
+                } else {
+                    Default::default()
+                }
+            );
+            assert_eq!(
+                diagnostic.graphics_renderer,
+                crate::database::GraphicsRenderer::WineD3d
+            );
+            assert_eq!(diagnostic.wayland, crate::database::WaylandMode::Native);
+        }
+        if let Some(evidence) = proton_log_evidence {
+            let entries = evidence.unwrap_or_else(|error| panic!("{error}"));
+            let options = entries
+                .iter()
+                .find(|line| line.contains("Options:"))
+                .expect("Proton log records its compatibility options");
+            assert!(options.contains("'wined3d'"), "{options}");
+            assert!(options.contains("'wayland'"), "{options}");
+            assert!(
+                entries
+                    .iter()
+                    .any(|line| line.contains("wined3d.dll") && line.contains("builtin")),
+                "Proton did not load its WineD3D implementation: {entries:?}"
+            );
+            assert!(
+                entries.iter().any(|line| line.contains("d3d11.dll")),
+                "The game did not load its Direct3D 11 implementation: {entries:?}"
+            );
+            eprintln!(
+                "Proton applied WineD3D and Wayland, then loaded WineD3D and D3D11: {entries:?}"
+            );
+        }
+        if let Some(evidence) = typed_option_evidence {
+            eprintln!("{}", evidence.unwrap_or_else(|error| panic!("{error}")));
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn wait_for_overlay_evidence(
+        manager: &GameLaunchManager,
+        game_id: &str,
+        steam_root: &Result<PathBuf, String>,
+    ) -> Result<String, String> {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            match game_process_option_evidence(manager, game_id, steam_root, true) {
+                Ok(evidence) => return Ok(evidence),
+                Err(error) if error.contains("did not map the Steam overlay renderer") => {
+                    if Instant::now() >= deadline {
+                        return Err(error);
+                    }
+                    thread::sleep(Duration::from_millis(500));
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn game_process_option_evidence(
+        manager: &GameLaunchManager,
+        game_id: &str,
+        steam_root: &Result<PathBuf, String>,
+        overlay_enabled: bool,
+    ) -> Result<String, String> {
+        let target = manager
+            .lock()?
+            .get(game_id)
+            .map(|entry| entry.process_target.clone())
+            .ok_or_else(|| "Running game process target is unavailable".to_owned())?;
+        let pids = game_process::matching_pids(&target)?;
+        let steam_root = steam_root.as_ref().map_err(Clone::clone)?;
+        let overlay_library =
+            fs::canonicalize(steam_root.join("ubuntu12_64/gameoverlayrenderer.so"))
+                .map_err(|error| format!("Could not resolve Steam overlay renderer: {error}"))?;
+        let steam_root = steam_root.to_string_lossy();
+        let mut failures = Vec::new();
+
+        for pid in pids {
+            let process = PathBuf::from(format!("/proc/{pid}"));
+            let environment = fs::read(process.join("environ")).map_err(|error| {
+                format!("Could not read game process {pid} environment: {error}")
+            })?;
+            let mut expected = vec!["PROTON_USE_WINED3D=1", "PROTON_ENABLE_WAYLAND=1"];
+            if overlay_enabled {
+                expected.extend([
+                    "ENABLE_VK_LAYER_VALVE_steam_overlay_1=1",
+                    "SteamOverlayGameId=480",
+                ]);
+            }
+            let missing = expected
+                .iter()
+                .filter(|value| {
+                    !environment
+                        .split(|byte| *byte == 0)
+                        .any(|entry| entry == value.as_bytes())
+                })
+                .copied()
+                .collect::<Vec<_>>();
+            if !missing.is_empty() {
+                failures.push(format!(
+                    "Game process {pid} is missing typed environment entries: {}",
+                    missing.join(", ")
+                ));
+                continue;
+            }
+
+            let maps = fs::read_to_string(process.join("maps"))
+                .map_err(|error| format!("Could not read game process {pid} mappings: {error}"))?;
+            let preload = environment
+                .split(|byte| *byte == 0)
+                .find_map(|entry| entry.strip_prefix(b"LD_PRELOAD="))
+                .map(String::from_utf8_lossy);
+            let overlay_maps = maps
+                .lines()
+                .filter(|line| line.contains("gameoverlayrenderer.so"))
+                .collect::<Vec<_>>();
+            if overlay_enabled
+                && (preload
+                    .as_deref()
+                    .is_none_or(|value| !value.contains("gameoverlayrenderer.so"))
+                    || !overlay_maps
+                        .iter()
+                        .any(|line| line.contains(steam_root.as_ref())))
+            {
+                failures.push(format!(
+                    "Game process {pid} did not map the Steam overlay renderer from {}; LD_PRELOAD={preload:?}; mappings={overlay_maps:?}; resolved renderer={}",
+                    steam_root,
+                    overlay_library.display(),
+                ));
+                continue;
+            }
+            let wined3d_loaded = maps
+                .lines()
+                .any(|line| line.to_ascii_lowercase().contains("wined3d"));
+            let wayland_client_loaded = maps
+                .lines()
+                .any(|line| line.contains("libwayland-client.so"));
+            if overlay_enabled && !wayland_client_loaded {
+                failures.push(format!(
+                    "Game process {pid} received native Wayland but did not map libwayland-client.so"
+                ));
+                continue;
+            }
+            let graphics_maps = maps
+                .lines()
+                .filter(|line| {
+                    let line = line.to_ascii_lowercase();
+                    ["wined3d", "d3d", "wayland", "vulkan", "libgl"]
+                        .iter()
+                        .any(|marker| line.contains(marker))
+                })
+                .take(30)
+                .collect::<Vec<_>>();
+            let overlay_evidence = if overlay_enabled {
+                "Steam overlay renderer mapped"
+            } else {
+                "Steam overlay was not requested"
+            };
+            return Ok(format!(
+                "Game process {pid} received WineD3D and GE-Proton Wayland settings; WineD3D module mapped: {wined3d_loaded}; Wayland client mapped: {wayland_client_loaded}; {overlay_evidence}; graphics mappings: {graphics_maps:?}"
+            ));
+        }
+
+        Err(if failures.is_empty() {
+            "No running game process was available for typed option inspection".to_owned()
+        } else {
+            failures.join("; ")
+        })
+    }
+
+    #[cfg(target_os = "linux")]
+    fn wait_for_proton_graphics_log(path: &Path) -> Result<Vec<String>, String> {
+        let started = Instant::now();
+        let timeout = Duration::from_secs(60);
+        let mut entries = Vec::new();
+        loop {
+            if let Ok(log) = fs::read_to_string(path) {
+                entries = log
+                    .lines()
+                    .filter(|line| {
+                        let line = line.to_ascii_lowercase();
+                        line.contains("wined3d") || line.contains("d3d11")
+                    })
+                    .take(20)
+                    .map(str::to_owned)
+                    .collect();
+                let has_wined3d = entries
+                    .iter()
+                    .any(|line| line.contains("wined3d.dll") && line.contains("builtin"));
+                let has_d3d11 = entries.iter().any(|line| line.contains("d3d11.dll"));
+                if has_wined3d && has_d3d11 {
+                    return Ok(entries);
+                }
+            }
+            if started.elapsed() >= timeout {
+                return Err(format!(
+                    "Proton did not load WineD3D and D3D11 within {} seconds: {entries:?}",
+                    timeout.as_secs()
+                ));
+            }
+            thread::sleep(Duration::from_millis(500));
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn manager_reports_missing_executable_during_preparation() {
+        let base = test_dir("manager-prepare-failure");
+        let database_dir = base.join("database");
+        let app = test_app(&database_dir);
+        let game = app
+            .state::<DatabaseState>()
+            .database()
+            .unwrap()
+            .create_game(crate::database::CreateGameInput {
+                name: "Unconfigured game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        let manager = app.state::<GameLaunchManager>().inner().clone();
+        let error = manager
+            .launch_with_compatibility_config(
+                app.handle().clone(),
+                game.id,
+                EffectiveCompatibilityConfig::default(),
+                |_| unreachable!("runner resolution follows executable preparation"),
+            )
+            .unwrap_err();
+
+        assert_eq!(error, "This manual game has no selected executable");
+        assert!(manager.list().unwrap().is_empty());
+        drop(app);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn manager_reports_runner_exit_with_launch_stage_diagnostic() {
+        let base = test_dir("manager-launch-failure");
+        let database_dir = base.join("database");
+        let app = test_app_with_logs(&database_dir, &base.join("logs"));
+        let (game, database) = {
+            let state = app.state::<DatabaseState>();
+            let game = create_manual_game(&state, &base.join("Test Game.exe"));
+            (game, state.shared_database().unwrap())
+        };
+        let runner = test_runner(
+            &base.join("failed-wine"),
+            "printf 'runner failure stdout\\n'; printf 'runner failure stderr\\n' >&2\nexit 7\n",
+        );
+        let config = EffectiveCompatibilityConfig {
+            runner_path: Some(runner.path.clone()),
+            prefix_root: Some(base.join("prefixes").to_string_lossy().into_owned()),
+            debug_logging: true,
+            ..EffectiveCompatibilityConfig::default()
+        };
+        let manager = app.state::<GameLaunchManager>().inner().clone();
+        manager
+            .launch_with_compatibility_config(
+                app.handle().clone(),
+                game.id.clone(),
+                config,
+                move |selected_path| {
+                    assert_eq!(selected_path, runner.path);
+                    Ok(runner)
+                },
+            )
+            .unwrap();
+
+        wait_for_status(&manager, &game.id, GameStatus::Idle);
+        let state = manager.list().unwrap().remove(0);
+        assert!(
+            state
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("Launch stage failed: runner exited before the game started")
+        );
+        assert_eq!(state.runner_exit_code, Some(7));
+        let log_directory = state.compatibility_log_path.unwrap();
+        assert_eq!(
+            fs::read_to_string(log_directory.join("runner-exit-code.txt"))
+                .unwrap()
+                .trim(),
+            "7"
+        );
+        let output_deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let stdout = fs::read_to_string(log_directory.join("stdout.log")).unwrap_or_default();
+            let stderr = fs::read_to_string(log_directory.join("stderr.log")).unwrap_or_default();
+            if stdout.contains("runner failure stdout") && stderr.contains("runner failure stderr")
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < output_deadline,
+                "runner failure output was not captured"
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+        drop(app);
+        drop(database);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn runner_spawn_failure_returns_to_idle_with_error() {
         let base = test_dir("runner-spawn-failure");
         let manager = GameLaunchManager::new();
         let token = uuid::Uuid::new_v4().to_string();
         let target = runner_test_target(&base, &token);
         let cancel = manager
-            .reserve_launch("runner", None, target.clone())
+            .reserve_launch("runner", None, target.clone(), None)
             .unwrap();
         manager.run_launch(
             "runner".to_owned(),
@@ -1359,7 +2508,7 @@ mod tests {
         let token = uuid::Uuid::new_v4().to_string();
         let target = runner_test_target(&base, &token);
         let cancel = manager
-            .reserve_launch("runner", None, target.clone())
+            .reserve_launch("runner", None, target.clone(), None)
             .unwrap();
         manager.run_launch(
             "runner".to_owned(),
@@ -1395,7 +2544,7 @@ mod tests {
         let token = uuid::Uuid::new_v4().to_string();
         let target = runner_test_target(&base, &token);
         let cancel = manager
-            .reserve_launch("runner", None, target.clone())
+            .reserve_launch("runner", None, target.clone(), None)
             .unwrap();
         let worker_manager = manager.clone();
         let ready_path = ready.to_string_lossy().into_owned();
@@ -1456,6 +2605,10 @@ mod tests {
                 },
                 status: GameStatus::Launching,
                 error: None,
+                compatibility_options: None,
+                #[cfg(target_os = "linux")]
+                compatibility_log: None,
+                runner_exit_code: None,
                 cancel: Arc::clone(&cancel),
             },
         );
@@ -1521,6 +2674,10 @@ mod tests {
                 },
                 status: GameStatus::Launching,
                 error: None,
+                compatibility_options: None,
+                #[cfg(target_os = "linux")]
+                compatibility_log: None,
+                runner_exit_code: None,
                 cancel: Arc::clone(&cancel),
             },
         );
