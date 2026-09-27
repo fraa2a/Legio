@@ -2,7 +2,7 @@
 
 This is the implementation guide for wiring the Legio UI to the Rust/Tauri backend. Keep it aligned with the registered commands in [`src-tauri/src/lib.rs`](../../src-tauri/src/lib.rs), their request and response types, and the frontend service modules under [`src/lib/services`](../../src/lib/services).
 
-The current UI redesign is PR #36 (`feat/ui-upgrade`). It adds the Svelte 5/Tailwind shell, window controls, and reusable primitives, but the main content is empty and the sidebar state does not select a page. Feature, store, type, and utility directories are placeholders. Implement the product flows in `src/lib/features/{home,library,store,downloads,settings}`, with shared state in `src/lib/stores`; keep all Tauri calls inside typed service modules. See [`TODO.md`](TODO.md) for the feature-by-feature completion checklist.
+The active frontend integration work is PR #36 (`feat/ui-upgrade`). This document describes the backend contract available on current `main`, not the exact implementation state of that branch. When PR #36 is updated from `main`, reconcile its services and stores against this guide, then update [`TODO.md`](TODO.md) only for flows that are actually wired and verified in the app. Keep product code under `src/lib/features/{home,library,store,downloads,settings}`, shared state under `src/lib/stores`, and all Tauri calls inside typed service modules.
 
 The UI should call Tauri only from a feature service module. Components should consume typed service functions and own presentation state, not duplicate backend rules. Rust is the source of truth for library records, installation state, queue state, compatibility settings, and process state.
 
@@ -20,14 +20,14 @@ Call these through `invoke` wrappers:
 
 | Command | Arguments | Result |
 | --- | --- | --- |
-| `get_app_info` | none | `{ name, version, platform }` |
+| `get_app_info` | none | `{ name, version, platform, desktopEnvironment }` |
 | `get_settings` | none | `{ theme: "system" | "dark" | "light" }` |
 | `save_settings` | `{ settings: { theme } }` | saved settings |
 | `get_network_status` | none | `"unknown" | "online"` |
 | `check_steam_connectivity` | none | `{ status, detail }` |
 | `get_network_log_status` | none | `{ directory, lastError, droppedRecords, pendingRecords }` |
 
-Suggested startup hydration: load app info, settings, `list_games`, `list_downloads`, and cached `get_legio_source`; show cached content immediately, then refresh network connectivity and source metadata in the background.
+Suggested startup hydration: load app info, settings, `list_games`, `list_downloads`, cached `get_legio_source`, and `get_playtime_summaries`; show cached/local content immediately, then refresh connectivity and remote metadata in the background. `desktopEnvironment` is optional and is currently used only for platform-specific presentation such as Hyprland window controls.
 
 ## Library and game settings
 
@@ -80,7 +80,9 @@ For user-visible Steam redetection, call `scan_steam_installations` to show dete
 
 Present all candidates when `selectedPath` is null. `selectedPath` is a suggestion, not a substitute for a user's explicit choice when the scan is ambiguous. A successful import adds a manual game with a null `steamAppId` and a populated `executablePath`.
 
-The UI needs a native file/folder chooser before calling these commands. The current frontend dependencies do not include a Tauri dialog plugin and there is no browse command. Add a supported dialog plugin and its narrowly scoped permissions, wrap it in a service, and pass the selected absolute path to the backend. Do not enumerate user directories from a Svelte component.
+There is currently no backend command that identifies a Steam App ID automatically from a selected executable, folder name, PE metadata, or known executable mapping. This remains a canonical gap from PLAN sections 17 and 18. The frontend must not infer or fabricate the association. Until a backend identification contract exists, keep imported executable games unassociated or let the user explicitly provide/edit a Steam App ID through the existing game update flow.
+
+Use a native file/folder picker service before calling the import commands and pass the selected absolute path to Rust. The backend intentionally does not expose a general filesystem browser command. PR #36 already has a narrowly scoped Tauri dialog wrapper; preserve that boundary when rebasing it onto current `main`.
 
 ### Per-game Steam account override
 
@@ -114,7 +116,7 @@ These commands are available on `main` after PR #35.
 
 Defaults have `runnerPath`, `prefixRoot`, `argumentsBefore`, `argumentsAfter`, `workingDirectory`, `environment`, `dllOverrides`, `steamRuntime`, `steamOverlay`, `graphicsRenderer`, `wayland`, and `debugLogging`. Per-game overrides have those settings plus `prefixPath`; each typed option and `debugLogging` is nullable and inherits when null. Enum values are `steamRuntime: "runner_default" | "steam_linux_runtime"`, `steamOverlay: "runner_default" | "enabled" | "disabled"`, `graphicsRenderer: "runner_default" | "wine_d3d"`, and `wayland: "runner_default" | "disabled" | "native"`. For scalar/list values, `null` inherits; an empty string/list clears an inherited value. Environment and DLL maps merge by key; an empty map clears all inherited entries. Saving settings persists them, but the UI should not imply that settings were applied until the save command succeeds.
 
-The backend wraps Proton in a locally installed Steam Linux Runtime only when `steamRuntime` is `steam_linux_runtime`; it does not download runtimes. WineD3D and Wayland set Proton environment options. Native Wayland is accepted only with GE-Proton. Steam overlay enablement requires the two Steam overlay renderer libraries in the detected Steam installation; the backend validates them before launch. Do not expose arbitrary environment overrides for variables managed by these typed settings.
+The backend wraps Proton in a locally installed Steam Linux Runtime only when `steamRuntime` is `steam_linux_runtime`; it does not download runtimes. WineD3D and Wayland set Proton environment options. Native Wayland is accepted only with GE-Proton. Steam overlay enablement requires the two Steam overlay renderer libraries in the detected Steam installation; the backend validates them before launch. When overlay is explicitly enabled and Steam is not ready, the backend starts the local Steam client and waits for both the Steam process and `steamwebhelper` before spawning Proton. The frontend must not add its own fixed delay or second Steam-start sequence. Do not expose arbitrary environment overrides for variables managed by these typed settings.
 
 When `debugLogging` is true, the backend captures runner stdout and stderr in the local compatibility log directory. Proton and GE-Proton also receive `PROTON_LOG=1`; Wine receives a default `WINEDEBUG` value only when the user has not configured one. Custom values for `PROTON_LOG`, `PROTON_LOG_DIR`, or `SteamGameId` cannot be combined with enabled debug logging because the logger owns those variables. Arbitrary environment values are not copied into the diagnostic report. One latest log set is retained per game.
 
@@ -156,6 +158,8 @@ interface CatalogSearch {
 
 Search the cache first, debounce user input, and use `refresh_catalog` for network refresh. A failed refresh rejects; keep the cached results visible and show the error. Catalog errors have `kind` values `invalid_query`, `invalid_response`, `timeout`, `network`, `http`, `too_large`, `database`, or `internal`. Catalog results are not automatically added to the library. To add an entry, either create a Steam-linked game or download a Legio source entry and finalize its install.
 
+Local catalog results are already ranked by relevance in Rust. Exact matches and full-query prefixes rank highest, followed by ordered exact words, then weaker ordered/unordered partial matches. Alphabetical title and Steam App ID are only tie-breakers. Preserve the order returned by `search_catalog`; do not sort search results alphabetically in Svelte. Queries such as `risk rain` are expected to rank `Risk of Rain 2` first. Typo/fuzzy similarity is not currently implemented.
+
 `refresh_catalog` is the only frontend entry point for online catalogue search. Rust sends `POST https://hydra-api-us-east-1.losbroxas.org/catalogue/search` with `{ title: query, take: 50, skip: 0 }`, accepts only Steam shop results, validates the response, and caches it. There is no pagination command. Queries are trimmed, must be nonempty, are limited to 200 UTF-8 bytes, and cannot contain control characters. The backend caps local results at 100 and marks cached catalog data stale after 24 hours. A refresh failure is an error, not a fallback response, so call `search_catalog` first and keep those results while refresh is in flight or failed.
 
 Suggested page flow:
@@ -195,7 +199,9 @@ The source manifest URL is `https://source.example.invalid/store.json`. Hydra an
 | `get_steam_details` | `{ steamAppId, refresh }` | `{ details, cachedAt, stale }` |
 | `get_steam_asset` | `{ steamAppId, asset, index? }` | `{ bytes, contentType, stale, cacheWarning }` |
 
-Details include name, type, description, developers, publishers, genres, platform flags, release date, and Steam image URLs. Render remote descriptions as text or sanitize HTML before display. Asset kinds are `header`, `capsule`, and `screenshot`; screenshot requires its zero-based `index`. The asset command returns a number array, not a URL or base64 string. Convert it to a `Blob` using `contentType`, create an object URL, and revoke the URL when replaced or unmounted. Respect `stale` and `cacheWarning` while preserving a usable cached image.
+Details include name, type, description, developers, publishers, genres, platform flags, release date, and Steam image URLs. Render remote descriptions as text or sanitize HTML before display. Asset kinds are `header`, `capsule`, and `screenshot`; screenshot requires its zero-based `index`. The asset command returns a number array, not a URL or base64 string. Convert it to a `Blob` using `contentType`, create an object URL, and revoke the URL when replaced or unmounted.
+
+Cached catalog search, cached Steam details, and the last valid Legio source have app-facing offline read coverage. Steam artwork can return a stale cached image when refresh fails. Preserve those values in the UI and show `stale`, `cacheWarning`, or source warning separately instead of replacing usable content with an error page.
 
 ## Downloads and installation
 
@@ -235,6 +241,8 @@ Current statuses are `queued`, `downloading`, `waiting`, `paused`, `failed`, `do
 
 For unverified releases, show the trust warning before queueing and send `acceptUnverified: true` only after explicit confirmation. Never infer trust from a Steam catalog result. The install sequence is enqueue, poll, stage, scan staged candidates, select an executable, finalize, and reload queue plus library. Treat unknown job status values as unrecognized instead of failing the page.
 
+A transient remote failure can put a job in `waiting` without request churn. Calling `check_steam_connectivity` performs the connectivity probe and, when it reports online, asks the download queue to resume waiting jobs. A permanent HTTP failure such as 404 moves the job to `failed`; `retry_download` is the explicit user retry path and is rejected for jobs that are already complete. After connectivity or retry actions, reload `list_downloads` instead of predicting the next state in the frontend.
+
 ## Launch lifecycle
 
 | Command | Arguments | Result |
@@ -249,7 +257,7 @@ For unverified releases, show the trust warning before queueing and send `accept
 
 Launch state status is currently `idle`, `launching`, or `running`. The launch command returning successfully means launch was requested, not that the game process is running. Poll state while a game is launching or running. Show `cancel` while `launching`, call `cancel_game_launch`, then reconcile to idle/error from the state list. Show `stop` only when running and call `stop_game`. Surface the state's `error` and rejected command errors. There is no `cancelling` backend state in this contract, so if the UI displays one, treat it as transient local presentation until the next backend state confirms the outcome.
 
-For configured Linux compatibility launches, `compatibilityOptions` reports the selected runner name and version plus the typed options accepted for that launch. It is omitted for launch paths without compatibility options.
+For configured Linux compatibility launches, `compatibilityOptions` reports the selected runner name and version plus the typed options accepted for that launch. It is omitted for launch paths without compatibility options. The shared manager owns prepare, launch, process detection, Running, Stop, Idle, diagnostics, and session tracking. The frontend should present those states and errors, not duplicate helper-to-game detection or timing logic.
 
 ```ts
 interface GameLaunchState {
@@ -271,6 +279,26 @@ interface GameLaunchState {
   runnerExitCode?: number;
 }
 ```
+
+## Playtime, Home, Library, and offline surfaces
+
+| Command | Arguments | Result |
+| --- | --- | --- |
+| `get_playtime_summaries` | none | `{ gameId, totalMilliseconds, activeSessions }[]` |
+| `get_network_status` | none | current local network state |
+| `check_steam_connectivity` | none | connectivity result and waiting-download resume attempt |
+
+`get_playtime_summaries` is backed by persistent process sessions and is available without network access. Use it for per-game total playtime and active-session indicators in Home and Library. Do not invent recent-session timelines or the monthly activity heatmap from totals alone; no frontend contract currently exposes session history or per-day aggregates.
+
+Offline UI should keep Home, Library, local metadata, playtime, settings, and permitted installed-game actions usable. Cached catalog/details/source/artwork may remain visible with stale warnings. Remote refresh, new downloads, and other network-backed actions should show an unavailable/retry state without loops. Update checks belong to Phase 09 and do not have a frontend/backend contract yet.
+
+## Known backend gaps relevant to frontend work
+
+- Automatic Steam App ID identification from a manually selected executable is not implemented. Do not emulate it in Svelte.
+- Session history/per-day activity needed for a full recent-played timeline and monthly heatmap is not exposed by the current playtime summary command.
+- Download and launch progress are polling contracts; there are no push events yet.
+- Runner acquisition/version installation, safe prefix cleanup/tools, and trusted game-fix packaging remain open Phase 07 product/backend work and have no shipping frontend command.
+- Application/game update checks are Phase 09 work; do not build fake update state in the UI.
 
 ## Frontend organization and change checklist
 
