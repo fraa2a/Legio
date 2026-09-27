@@ -51,6 +51,7 @@
   const location = $derived(game?.steamInstallPath ?? game?.executablePath ?? null);
 
   let artworkOpen = $state(false);
+  let activeTab = $state<"overview" | "settings">("overview");
 
   $effect(() => {
     if ($selectedGameId !== null && game === null) closeGame();
@@ -144,33 +145,17 @@
       <ErrorBanner message={$launchError} />
     {/if}
 
-    <div class="grid flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
-      <div class="flex min-w-0 flex-col gap-3">
+    <nav class="flex gap-1 border-b border-white/10 light:border-zinc-900/10" aria-label="Pagina del gioco">
+      <button type="button" aria-current={activeTab === "overview" ? "page" : undefined} onclick={() => (activeTab = "overview")} class="border-b-2 px-4 py-3 text-sm font-medium transition-colors {activeTab === 'overview' ? 'border-white text-white light:border-zinc-900 light:text-zinc-900' : 'border-transparent text-zinc-400 hover:text-white light:text-zinc-600 light:hover:text-zinc-900'}">Panoramica</button>
+      <button type="button" aria-current={activeTab === "settings" ? "page" : undefined} onclick={() => (activeTab = "settings")} class="border-b-2 px-4 py-3 text-sm font-medium transition-colors {activeTab === 'settings' ? 'border-white text-white light:border-zinc-900 light:text-zinc-900' : 'border-transparent text-zinc-400 hover:text-white light:text-zinc-600 light:hover:text-zinc-900'}">Impostazioni del gioco</button>
+    </nav>
+
+    {#if activeTab === "overview"}
+      <div class="flex min-w-0 max-w-5xl flex-col gap-4">
         {#if steamAppId !== null}
           <SteamMetadata {steamAppId} />
         {/if}
-
-        {#if !isSteamGame}
-          <ExecutablePanel game={game} />
-        {/if}
-      </div>
-
-      <div class="flex min-w-0 flex-col gap-3">
-        {#if isSteamGame}
-          {#key game.id}
-            <SteamAccountPanel {game} />
-          {/key}
-        {/if}
-
-        <GameDetailsPanel {game} onRemoved={closeGame} />
-
-        {#if !isSteamGame && game.executablePath !== null}
-          {#key game.id}
-            <GameSettingsPanel {game} />
-          {/key}
-        {/if}
-
-        <Panel title="Installazione" class="flex-1">
+        <Panel title="Installazione">
           <dl class="grid gap-2 text-sm">
             <div class="flex flex-wrap gap-x-3">
               <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">Origine</dt>
@@ -201,7 +186,20 @@
           </dl>
         </Panel>
       </div>
-    </div>
+    {:else}
+      <div class="mx-auto flex w-full max-w-4xl flex-col gap-4">
+        {#if isSteamGame}
+          {#key game.id}<SteamAccountPanel {game} />{/key}
+        {/if}
+        <GameDetailsPanel {game} onRemoved={closeGame} />
+        {#if !isSteamGame}
+          <ExecutablePanel game={game} />
+          {#if game.executablePath !== null}
+            {#key game.id}<GameSettingsPanel {game} />{/key}
+          {/if}
+        {/if}
+      </div>
+    {/if}
   </div>
 {/if}
 

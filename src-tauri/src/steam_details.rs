@@ -14,7 +14,7 @@ use crate::{
 };
 
 const CACHE_LIMIT: u32 = 128;
-const MAX_DETAILS_BYTES: usize = 64 * 1024;
+const MAX_DETAILS_BYTES: usize = 512 * 1024;
 const STALE_SECONDS: i64 = 24 * 60 * 60;
 const MAX_SCREENSHOTS: usize = 8;
 
@@ -25,6 +25,8 @@ pub struct SteamDetails {
     pub name: String,
     pub app_type: String,
     pub short_description: Option<String>,
+    #[serde(default)]
+    pub detailed_description: Option<String>,
     pub developers: Vec<String>,
     pub publishers: Vec<String>,
     pub genres: Vec<String>,
@@ -142,6 +144,7 @@ struct SteamData {
     #[serde(rename = "type")]
     app_type: String,
     short_description: Option<String>,
+    detailed_description: Option<String>,
     #[serde(default)]
     developers: Vec<String>,
     #[serde(default)]
@@ -257,6 +260,9 @@ fn decode(bytes: &[u8], app_id: u32) -> Result<SteamDetails, DetailsError> {
         short_description: data
             .short_description
             .filter(|value| !value.trim().is_empty()),
+        detailed_description: data
+            .detailed_description
+            .filter(|value| !value.trim().is_empty()),
         developers: data.developers,
         publishers: data.publishers,
         genres: data
@@ -306,7 +312,7 @@ fn store(database: &Database, details: &SteamDetails, fetched_at: i64) -> Result
     if json.len() > MAX_DETAILS_BYTES {
         return Err(DetailsError::new(
             DetailsErrorKind::TooLarge,
-            "Selected Steam metadata exceeds the 64 KiB cache entry limit.",
+            "Selected Steam metadata exceeds the 512 KiB cache entry limit.",
         ));
     }
     database.with_connection(|connection| {
@@ -341,9 +347,14 @@ fn cached(
             stale: false,
         }),
         Some((json, fetched_at)) => {
-            let mut details: SteamDetails = serde_json::from_str(&json).map_err(|error| {
+            let cached_value: serde_json::Value = serde_json::from_str(&json).map_err(|error| {
                 DetailsError::database(format!("Invalid cached Steam details: {error}"))
             })?;
+            let missing_description = cached_value.get("detailedDescription").is_none();
+            let mut details: SteamDetails =
+                serde_json::from_value(cached_value).map_err(|error| {
+                    DetailsError::database(format!("Invalid cached Steam details: {error}"))
+                })?;
             if details.steam_app_id != app_id {
                 return Err(DetailsError::database(
                     "Cached Steam App ID does not match its cache key.".to_owned(),
@@ -360,7 +371,8 @@ fn cached(
             Ok(DetailsResult {
                 details: Some(details),
                 cached_at: Some(fetched_at),
-                stale: current_time < fetched_at
+                stale: missing_description
+                    || current_time < fetched_at
                     || current_time.saturating_sub(fetched_at) >= STALE_SECONDS,
             })
         }

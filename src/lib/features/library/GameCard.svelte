@@ -33,7 +33,7 @@
 <ArtworkTile {steamAppId} {monogram}>
   <button
     type="button"
-    class="flex flex-1 flex-col text-left"
+    class="flex flex-1 flex-col text-left focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-white"
     aria-label="Dettagli di {game.name}"
     onclick={onOpen}
   >
@@ -49,7 +49,7 @@
       {#if launch?.error}
         <span class="text-xs text-red-300 light:text-red-700" role="alert">{launch.error}</span>
       {/if}
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 pr-28">
         <span class="min-w-0 flex-1 truncate font-medium text-zinc-50 light:text-zinc-900">{game.name}</span>
         {#if game.steamInstallPath === null}
           <Badge tone="neutral" title="Manuale" />
@@ -62,15 +62,14 @@
   </button>
 
   {#if game.steamInstallPath !== null || game.executablePath !== null}
-    <div class="pointer-events-none absolute inset-0 flex items-center justify-center [&_button]:pointer-events-auto">
+    <div class="absolute bottom-3 right-3 z-10">
       <GameLaunchControls
         {game}
         {launch}
         {actionPending}
         {cancelPending}
-        circle={status === "idle"}
         variant="primary"
-        revealOnHover
+        class="h-12 min-w-24 shadow-lg shadow-black/30"
         {onPlay}
         {onCancel}
         {onStop}

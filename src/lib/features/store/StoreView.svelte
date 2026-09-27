@@ -78,7 +78,15 @@
     onBack={() => (selected = null)}
   />
 {:else}
-  <section class="mb-6 flex flex-wrap items-center gap-3 text-sm text-zinc-400 light:text-zinc-600">
+  <header class="mb-5 flex flex-wrap items-end justify-between gap-3">
+    <div>
+      <p class="text-xs font-medium uppercase tracking-wider text-zinc-500">Catalogo Legio</p>
+      <h2 class="mt-1 text-2xl font-semibold text-zinc-50 light:text-zinc-900">Store</h2>
+      <p class="mt-1 text-sm text-zinc-400 light:text-zinc-600">Sfoglia i titoli disponibili e controlla i dettagli prima di scaricare.</p>
+    </div>
+  </header>
+
+  <section class="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-zinc-400 light:border-zinc-900/10 light:bg-white light:text-zinc-600">
     {#if manifest === null}
       <span>Nessun manifest della sorgente Legio disponibile.</span>
       <Button label="Scarica sorgente" onClick={() => void refreshSource()} />
@@ -104,14 +112,14 @@
     </div>
   {/if}
 
-  <div class="mb-6 flex flex-col gap-2">
+  <div class="mb-6 flex flex-col gap-2 rounded-xl bg-white/5 p-4 light:bg-white">
     <label for="store-query" class="text-sm text-zinc-400 light:text-zinc-600">Cerca un titolo</label>
     <input
       id="store-query"
       type="search"
       bind:value={query}
       placeholder="Titolo del gioco"
-      class="w-full max-w-sm rounded-lg bg-white/5 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 light:bg-white light:text-zinc-900"
+      class="h-11 w-full rounded-lg border border-white/10 bg-zinc-900/60 px-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-white/40 light:border-zinc-900/10 light:bg-zinc-50 light:text-zinc-900 light:focus:border-zinc-900/40"
     />
   </div>
 
@@ -144,7 +152,7 @@
   />
 
   {#if entries.length > 0}
-    <ul class="grid grid-cols-2 gap-4">
+    <ul class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {#each entries as entry (entry.steamAppId)}
         <StoreGameCard
           steamAppId={entry.steamAppId}

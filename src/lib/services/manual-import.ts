@@ -29,6 +29,12 @@ export interface SteamIdentificationResult {
   message: string | null;
 }
 
+export interface SteamIdentificationPreview {
+  status: SteamIdentificationResult["status"];
+  candidates: SteamIdentityCandidate[];
+  message: string | null;
+}
+
 export function scanGameExecutables(
   directory: string,
   gameName: string | null,
@@ -42,6 +48,10 @@ export function importManualGame(input: ManualImportInput): Promise<Game> {
 
 export function identifyManualGameSteamAppId(gameId: string): Promise<SteamIdentificationResult> {
   return invoke<SteamIdentificationResult>("identify_manual_game_steam_app_id", { gameId });
+}
+
+export function previewManualGameSteamAppId(executablePath: string): Promise<SteamIdentificationPreview> {
+  return invoke<SteamIdentificationPreview>("preview_manual_game_steam_app_id", { executablePath });
 }
 
 export function setGameExecutable(gameId: string, executablePath: string): Promise<Game> {

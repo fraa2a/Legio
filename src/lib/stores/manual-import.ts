@@ -10,7 +10,7 @@ import {
 } from "../services/manual-import";
 import type { Game } from "../services/local-state";
 import { toMessage } from "../utils/errors";
-import { reconcileGame } from "./games";
+import { reconcileGame, saveGame } from "./games";
 import type { LoadStatus } from "./resource";
 
 interface ManualImportState {
@@ -116,22 +116,29 @@ function selectedExecutable(): string {
 
 export interface ManualImportOutcome {
   game: Game;
-  identification: SteamIdentificationResult | null;
-  identificationError: string | null;
+  linkingError: string | null;
 }
 
-export async function importScannedGame(name: string | null): Promise<ManualImportOutcome> {
+export async function importScannedGame(
+  name: string | null,
+  identity: { steamAppId: number; name: string } | null,
+): Promise<ManualImportOutcome> {
   const game = await importManualGame({
     executablePath: selectedExecutable(),
     name: name !== null && name.trim().length > 0 ? name.trim() : null,
   });
   reconcileGame(game);
+  if (identity === null) return { game, linkingError: null };
   try {
-    const identification = await identifyManualGameSteamAppId(game.id);
-    reconcileGame(identification.game);
-    return { game: identification.game, identification, identificationError: null };
+    const linked = await saveGame({
+      id: game.id,
+      steamAppId: identity.steamAppId,
+      automaticName: identity.name,
+      nameOverride: game.nameOverride,
+    });
+    return { game: linked, linkingError: null };
   } catch (error) {
-    return { game, identification: null, identificationError: toMessage(error) };
+    return { game, linkingError: toMessage(error) };
   }
 }
 

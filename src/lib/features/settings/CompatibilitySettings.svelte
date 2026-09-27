@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
+  import SelectField from "../../components/ui/SelectField.svelte";
   import TextField from "../../components/ui/TextField.svelte";
   import {
     emptyCompatibilityDefaults,
@@ -127,6 +128,7 @@
     try {
       defaults = await saveCompatibilityDefaults({
         ...defaults,
+        workingDirectory: null,
         argumentsBefore: parseArguments(argumentsBefore),
         argumentsAfter: parseArguments(argumentsAfter),
         environment: parseEnvironment(environmentText),
@@ -211,18 +213,7 @@
     {/if}
 
     <div class="grid gap-4 md:grid-cols-2">
-      <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-        Runner predefinito
-        <select
-          value={defaults.runnerPath ?? ""}
-          onchange={(event) => (defaults = { ...defaults, runnerPath: event.currentTarget.value || null })}
-          class="h-10 rounded-lg bg-white/5 px-3 text-sm text-zinc-100 light:bg-white light:text-zinc-900"
-        >
-          {#each runnerOptions as option (option.value)}
-            <option value={option.value}>{option.label}</option>
-          {/each}
-        </select>
-      </label>
+      <SelectField id="compat-runner" label="Runner predefinito" value={defaults.runnerPath ?? ""} options={runnerOptions} onChange={(value) => (defaults = { ...defaults, runnerPath: value || null })} />
       <TextField
         id="compat-prefix-root"
         label="Cartella predefinita dei prefix"
@@ -230,13 +221,6 @@
         placeholder="Percorso opzionale"
         hint="Legio crea un prefix per gioco dentro questa cartella."
         oninput={(value) => (defaults = { ...defaults, prefixRoot: value || null })}
-      />
-      <TextField
-        id="compat-working-directory"
-        label="Cartella di lavoro"
-        value={defaults.workingDirectory ?? ""}
-        placeholder="Cartella dell'eseguibile"
-        oninput={(value) => (defaults = { ...defaults, workingDirectory: value || null })}
       />
       <label class="flex items-center gap-2 text-sm text-zinc-300 light:text-zinc-700">
         <input
@@ -249,36 +233,10 @@
     </div>
 
     <div class="grid gap-4 md:grid-cols-2">
-      <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-        Steam Linux Runtime
-        <select value={defaults.steamRuntime} onchange={(event) => setSteamRuntime(event.currentTarget.value)} class="h-10 rounded-lg bg-white/5 px-3 text-sm text-zinc-100 light:bg-white light:text-zinc-900">
-          <option value="runner_default">Predefinito del runner</option>
-          <option value="steam_linux_runtime">Usa Steam Linux Runtime installato</option>
-        </select>
-      </label>
-      <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-        Overlay Steam
-        <select value={defaults.steamOverlay} onchange={(event) => setSteamOverlay(event.currentTarget.value)} class="h-10 rounded-lg bg-white/5 px-3 text-sm text-zinc-100 light:bg-white light:text-zinc-900">
-          <option value="runner_default">Predefinito del runner</option>
-          <option value="enabled">Attivo</option>
-          <option value="disabled">Disattivo</option>
-        </select>
-      </label>
-      <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-        Renderer grafico
-        <select value={defaults.graphicsRenderer} onchange={(event) => setGraphicsRenderer(event.currentTarget.value)} class="h-10 rounded-lg bg-white/5 px-3 text-sm text-zinc-100 light:bg-white light:text-zinc-900">
-          <option value="runner_default">Predefinito del runner</option>
-          <option value="wine_d3d">WineD3D</option>
-        </select>
-      </label>
-      <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-        Wayland
-        <select value={defaults.wayland} onchange={(event) => setWayland(event.currentTarget.value)} class="h-10 rounded-lg bg-white/5 px-3 text-sm text-zinc-100 light:bg-white light:text-zinc-900">
-          <option value="runner_default">Predefinito del runner</option>
-          <option value="disabled">Disattivato</option>
-          <option value="native">Nativo, solo GE-Proton</option>
-        </select>
-      </label>
+      <SelectField id="compat-runtime" label="Steam Linux Runtime" value={defaults.steamRuntime} options={[{ value: "runner_default", label: "Predefinito del runner" }, { value: "steam_linux_runtime", label: "Usa Steam Linux Runtime installato" }]} onChange={setSteamRuntime} />
+      <SelectField id="compat-overlay" label="Overlay Steam" value={defaults.steamOverlay} options={[{ value: "runner_default", label: "Predefinito del runner" }, { value: "enabled", label: "Attivo" }, { value: "disabled", label: "Disattivo" }]} onChange={setSteamOverlay} />
+      <SelectField id="compat-renderer" label="Renderer grafico" value={defaults.graphicsRenderer} options={[{ value: "runner_default", label: "Predefinito del runner" }, { value: "wine_d3d", label: "WineD3D" }]} onChange={setGraphicsRenderer} />
+      <SelectField id="compat-wayland" label="Wayland" value={defaults.wayland} options={[{ value: "runner_default", label: "Predefinito del runner" }, { value: "disabled", label: "Disattivato" }, { value: "native", label: "Nativo, solo GE-Proton" }]} onChange={setWayland} />
     </div>
 
     <div class="grid gap-4 md:grid-cols-2">

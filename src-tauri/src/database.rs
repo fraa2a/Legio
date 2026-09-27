@@ -1204,7 +1204,6 @@ fn merge_compatibility_config(
             .unwrap_or(defaults.arguments_after),
         working_directory: overrides
             .working_directory
-            .or(defaults.working_directory)
             .filter(|value| !value.is_empty()),
         environment,
         dll_overrides,

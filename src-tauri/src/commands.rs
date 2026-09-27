@@ -558,6 +558,15 @@ pub async fn identify_manual_game_steam_app_id(
 }
 
 #[tauri::command]
+pub async fn preview_manual_game_steam_app_id(
+    app: AppHandle,
+    state: State<'_, NetworkState>,
+    executable_path: String,
+) -> Result<manual_import::SteamIdentificationPreview, String> {
+    manual_import::preview_steam_app_id(app, state.inner().clone(), executable_path).await
+}
+
+#[tauri::command]
 pub async fn set_game_executable(
     app: AppHandle,
     game_id: String,

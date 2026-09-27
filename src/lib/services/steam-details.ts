@@ -5,6 +5,7 @@ export interface SteamDetails {
   name: string;
   appType: string;
   shortDescription: string | null;
+  detailedDescription: string | null;
   developers: string[];
   publishers: string[];
   genres: string[];

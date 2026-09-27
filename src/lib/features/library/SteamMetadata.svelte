@@ -5,6 +5,7 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import ScreenshotGallery from "./ScreenshotGallery.svelte";
+  import { renderSteamDescription } from "./steam-description";
 
   let { steamAppId }: { steamAppId: number } = $props();
 
@@ -12,6 +13,7 @@
   const details = $derived(detailsState?.details ?? null);
   const cachedAt = $derived(detailsState?.cachedAt ?? null);
   const screenshots = $derived(details?.assets.screenshots.slice(0, 6) ?? []);
+  const description = $derived(details?.detailedDescription ?? details?.shortDescription ?? null);
 
   function refresh(): void {
     void loadSteamDetails(steamAppId, true).catch(() => undefined);
@@ -46,10 +48,8 @@
       Nessun dato Steam disponibile per questo titolo.
     </p>
   {:else}
-    {#if details.shortDescription !== null}
-      <p class="text-sm leading-relaxed text-zinc-200 light:text-zinc-800">
-        {details.shortDescription}
-      </p>
+    {#if description !== null}
+      <div use:renderSteamDescription={description} class="space-y-3 text-sm leading-relaxed text-zinc-200 [&_a]:text-sky-300 [&_a]:underline [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:font-semibold [&_li]:ml-5 [&_ol]:list-decimal [&_p]:my-2 [&_ul]:list-disc light:text-zinc-800 light:[&_a]:text-sky-700"></div>
     {/if}
 
     {#if details.genres.length > 0}
@@ -86,4 +86,3 @@
     {/if}
   {/if}
 </Panel>
-

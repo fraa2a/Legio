@@ -12,6 +12,7 @@
     variant = "secondary",
     circle = false,
     revealOnHover = false,
+    class: className = "",
     onPlay,
     onCancel,
     onStop,
@@ -23,6 +24,7 @@
     variant?: "primary" | "secondary";
     circle?: boolean;
     revealOnHover?: boolean;
+    class?: string;
     onPlay: (game: Game) => void;
     onCancel: (game: Game) => void;
     onStop: (game: Game) => void;
@@ -42,21 +44,22 @@
         onClick={() => onPlay(game)}
         class={revealOnHover
           ? "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-          : undefined}
+          : className}
       >
         <Icon name="play" size="h-5 w-5 translate-x-px" />
       </Button>
     {:else}
-      <Button label="Gioca" {variant} disabled={actionPending} onClick={() => onPlay(game)} />
+      <Button label="Gioca" {variant} class={className} disabled={actionPending} onClick={() => onPlay(game)} />
     {/if}
   {:else if status === "launching"}
     <Button
       label={cancelPending ? "Annullamento..." : "Annulla avvio"}
       {variant}
+      class={className}
       disabled={cancelPending}
       onClick={() => onCancel(game)}
     />
   {:else}
-    <Button label="Arresta" {variant} disabled={actionPending} onClick={() => onStop(game)} />
+    <Button label="Arresta" {variant} class={className} disabled={actionPending} onClick={() => onStop(game)} />
   {/if}
 {/if}

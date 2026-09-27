@@ -21,6 +21,7 @@
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
+  import SelectField from "../../components/ui/SelectField.svelte";
   import TextField from "../../components/ui/TextField.svelte";
   import { toMessage } from "../../utils/errors";
 
@@ -157,7 +158,7 @@
   }
 
   function toggleWorkingDirectory(enabled: boolean): void {
-    setOverride("workingDirectory", enabled ? defaults?.workingDirectory ?? "" : null);
+    setOverride("workingDirectory", enabled ? "" : null);
   }
 
   function toggleArgumentsBefore(enabled: boolean): void {
@@ -287,20 +288,13 @@
     {/if}
 
     <div class="grid gap-4 md:grid-cols-2">
-      <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
+      <div class="flex flex-col gap-1.5">
         <span class="flex items-center gap-2">
           <input type="checkbox" checked={overrides.runnerPath !== null} onchange={(event) => toggleRunner(event.currentTarget.checked)} />
           Runner personalizzato
         </span>
-        <select
-          value={overrides.runnerPath ?? ""}
-          disabled={overrides.runnerPath === null}
-          onchange={(event) => setOverride("runnerPath", event.currentTarget.value)}
-          class="h-10 rounded-lg bg-white/5 px-3 text-sm text-zinc-100 disabled:opacity-50 light:bg-white light:text-zinc-900"
-        >
-          {#each runnerOptions as option (option.value)}<option value={option.value}>{option.label}</option>{/each}
-        </select>
-      </label>
+        <SelectField id="game-compat-runner" label="Runner" value={overrides.runnerPath ?? ""} options={runnerOptions} disabled={overrides.runnerPath === null} onChange={(value) => setOverride("runnerPath", value)} />
+      </div>
       <div class="flex flex-col gap-1.5">
         <label class="flex items-center gap-2 text-sm text-zinc-400 light:text-zinc-600">
           <input type="checkbox" checked={overrides.prefixPath !== null} onchange={(event) => togglePrefix(event.currentTarget.checked)} />
@@ -325,7 +319,7 @@
           label="Cartella di lavoro"
           value={overrides.workingDirectory ?? ""}
           disabled={overrides.workingDirectory === null}
-          placeholder="Eredita il default"
+          placeholder="Predefinita: cartella dell'eseguibile"
           oninput={(value) => setOverride("workingDirectory", value)}
         />
       </div>
@@ -368,48 +362,11 @@
     </div>
 
     <div class="grid gap-4 md:grid-cols-2">
-      <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-        Steam Linux Runtime
-        <select value={overrides.steamRuntime ?? "inherit"} onchange={(event) => setSteamRuntime(event.currentTarget.value)} class="h-10 rounded-lg bg-white/5 px-3 text-sm text-zinc-100 light:bg-white light:text-zinc-900">
-          <option value="inherit">Eredita default</option>
-          <option value="runner_default">Predefinito del runner</option>
-          <option value="steam_linux_runtime">Steam Linux Runtime</option>
-        </select>
-      </label>
-      <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-        Overlay Steam
-        <select value={overrides.steamOverlay ?? "inherit"} onchange={(event) => setSteamOverlay(event.currentTarget.value)} class="h-10 rounded-lg bg-white/5 px-3 text-sm text-zinc-100 light:bg-white light:text-zinc-900">
-          <option value="inherit">Eredita default</option>
-          <option value="runner_default">Predefinito del runner</option>
-          <option value="enabled">Attivo</option>
-          <option value="disabled">Disattivo</option>
-        </select>
-      </label>
-      <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-        Renderer grafico
-        <select value={overrides.graphicsRenderer ?? "inherit"} onchange={(event) => setGraphicsRenderer(event.currentTarget.value)} class="h-10 rounded-lg bg-white/5 px-3 text-sm text-zinc-100 light:bg-white light:text-zinc-900">
-          <option value="inherit">Eredita default</option>
-          <option value="runner_default">Predefinito del runner</option>
-          <option value="wine_d3d">WineD3D</option>
-        </select>
-      </label>
-      <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-        Wayland
-        <select value={overrides.wayland ?? "inherit"} onchange={(event) => setWayland(event.currentTarget.value)} class="h-10 rounded-lg bg-white/5 px-3 text-sm text-zinc-100 light:bg-white light:text-zinc-900">
-          <option value="inherit">Eredita default</option>
-          <option value="runner_default">Predefinito del runner</option>
-          <option value="disabled">Disattivato</option>
-          <option value="native">Nativo, solo GE-Proton</option>
-        </select>
-      </label>
-      <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-        Log di debug
-        <select value={overrides.debugLogging === null ? "inherit" : String(overrides.debugLogging)} onchange={(event) => setDebugLogging(event.currentTarget.value)} class="h-10 rounded-lg bg-white/5 px-3 text-sm text-zinc-100 light:bg-white light:text-zinc-900">
-          <option value="inherit">Eredita default</option>
-          <option value="true">Attivi</option>
-          <option value="false">Disattivi</option>
-        </select>
-      </label>
+      <SelectField id="game-compat-runtime" label="Steam Linux Runtime" value={overrides.steamRuntime ?? "inherit"} options={[{ value: "inherit", label: "Eredita default" }, { value: "runner_default", label: "Predefinito del runner" }, { value: "steam_linux_runtime", label: "Steam Linux Runtime" }]} onChange={setSteamRuntime} />
+      <SelectField id="game-compat-overlay" label="Overlay Steam" value={overrides.steamOverlay ?? "inherit"} options={[{ value: "inherit", label: "Eredita default" }, { value: "runner_default", label: "Predefinito del runner" }, { value: "enabled", label: "Attivo" }, { value: "disabled", label: "Disattivo" }]} onChange={setSteamOverlay} />
+      <SelectField id="game-compat-renderer" label="Renderer grafico" value={overrides.graphicsRenderer ?? "inherit"} options={[{ value: "inherit", label: "Eredita default" }, { value: "runner_default", label: "Predefinito del runner" }, { value: "wine_d3d", label: "WineD3D" }]} onChange={setGraphicsRenderer} />
+      <SelectField id="game-compat-wayland" label="Wayland" value={overrides.wayland ?? "inherit"} options={[{ value: "inherit", label: "Eredita default" }, { value: "runner_default", label: "Predefinito del runner" }, { value: "disabled", label: "Disattivato" }, { value: "native", label: "Nativo, solo GE-Proton" }]} onChange={setWayland} />
+      <SelectField id="game-compat-debug" label="Log di debug" value={overrides.debugLogging === null ? "inherit" : String(overrides.debugLogging)} options={[{ value: "inherit", label: "Eredita default" }, { value: "true", label: "Attivi" }, { value: "false", label: "Disattivi" }]} onChange={setDebugLogging} />
     </div>
 
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}

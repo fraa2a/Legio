@@ -78,6 +78,14 @@ pub struct SteamIdentificationResult {
     pub message: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SteamIdentificationPreview {
+    pub status: SteamIdentificationStatus,
+    pub candidates: Vec<SteamIdentityCandidate>,
+    pub message: Option<String>,
+}
+
 pub fn scan_directory(directory: &str, game_name: Option<&str>) -> Result<ExecutableScan, String> {
     let root = fs::canonicalize(directory)
         .map_err(|error| format!("could not open game directory: {error}"))?;
@@ -317,14 +325,49 @@ pub async fn identify_steam_app_id(
                 && executable.file_stem().and_then(|stem| stem.to_str()) == Some(*name)
         })
         .map(str::to_owned);
-    let names = title_candidates(&executable);
-    if names.is_empty() {
+    let preview = detect_steam_identity(&app, &network, &executable).await;
+    if preview.status == SteamIdentificationStatus::Matched {
+        let candidate = &preview.candidates[0];
+        let game = set_identified_steam_game(&app, &game.id, candidate, legacy_name).await?;
         return Ok(identification_result(
             game,
-            SteamIdentificationStatus::NoMatch,
-            Vec::new(),
-            None,
+            preview.status,
+            preview.candidates,
+            preview.message,
         ));
+    }
+    Ok(identification_result(
+        game,
+        preview.status,
+        preview.candidates,
+        preview.message,
+    ))
+}
+
+pub async fn preview_steam_app_id(
+    app: tauri::AppHandle,
+    network: NetworkState,
+    executable_path: String,
+) -> Result<SteamIdentificationPreview, String> {
+    let executable =
+        tauri::async_runtime::spawn_blocking(move || validate_executable(&executable_path))
+            .await
+            .map_err(|error| format!("Executable validation task failed: {error}"))??;
+    Ok(detect_steam_identity(&app, &network, &executable).await)
+}
+
+async fn detect_steam_identity(
+    app: &tauri::AppHandle,
+    network: &NetworkState,
+    executable: &Path,
+) -> SteamIdentificationPreview {
+    let names = title_candidates(executable);
+    if names.is_empty() {
+        return SteamIdentificationPreview {
+            status: SteamIdentificationStatus::NoMatch,
+            candidates: Vec::new(),
+            message: None,
+        };
     }
 
     let mut remote_attempted = false;
@@ -333,18 +376,17 @@ pub async fn identify_steam_app_id(
         let cached = match catalog::search_catalog(app.clone(), name.clone()).await {
             Ok(result) => result,
             Err(error) => {
-                return Ok(identification_result(
-                    game,
-                    SteamIdentificationStatus::Unavailable,
-                    Vec::new(),
-                    Some(error.message),
-                ));
+                return SteamIdentificationPreview {
+                    status: SteamIdentificationStatus::Unavailable,
+                    candidates: Vec::new(),
+                    message: Some(error.message),
+                };
             }
         };
         let mut candidates = exact_matches(&cached.games, &name);
         if candidates.is_empty() && !remote_attempted {
             remote_attempted = true;
-            match catalog::refresh_catalog(app.clone(), &network, name.clone()).await {
+            match catalog::refresh_catalog(app.clone(), network, name.clone()).await {
                 Ok(result) => candidates = exact_matches(&result.games, &name),
                 Err(error) => remote_error = Some(error.message),
             }
@@ -353,22 +395,15 @@ pub async fn identify_steam_app_id(
             continue;
         }
 
-        if candidates.len() == 1 {
-            let candidate = &candidates[0];
-            let game = set_identified_steam_game(&app, &game.id, candidate, legacy_name).await?;
-            return Ok(identification_result(
-                game,
-                SteamIdentificationStatus::Matched,
-                candidates,
-                None,
-            ));
-        }
-        return Ok(identification_result(
-            game,
-            SteamIdentificationStatus::Ambiguous,
+        return SteamIdentificationPreview {
+            status: if candidates.len() == 1 {
+                SteamIdentificationStatus::Matched
+            } else {
+                SteamIdentificationStatus::Ambiguous
+            },
             candidates,
-            None,
-        ));
+            message: None,
+        };
     }
 
     let status = if remote_error.is_some() {
@@ -376,12 +411,11 @@ pub async fn identify_steam_app_id(
     } else {
         SteamIdentificationStatus::NoMatch
     };
-    Ok(identification_result(
-        game,
+    SteamIdentificationPreview {
         status,
-        Vec::new(),
-        remote_error,
-    ))
+        candidates: Vec::new(),
+        message: remote_error,
+    }
 }
 
 fn title_candidates(executable: &Path) -> Vec<String> {
