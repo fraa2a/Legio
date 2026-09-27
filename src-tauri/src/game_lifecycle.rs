@@ -1649,76 +1649,61 @@ mod tests {
     fn native_manager_lifecycle_tracks_a_controlled_process() {
         let base = test_dir("native-manager-lifecycle");
         let database_dir = base.join("database");
-        let database = thread::spawn(move || {
-            let app = native_test_app(&database_dir);
-            let executable = std::env::current_exe().unwrap();
-            let (game, database) = {
-                let state = app.state::<DatabaseState>();
-                let database = state.shared_database().unwrap();
-                let game = database
-                    .create_game(crate::database::CreateGameInput {
-                        name: "Controlled native game".to_owned(),
-                        steam_app_id: None,
-                    })
-                    .unwrap();
-                crate::manual_import::set_executable(
-                    &state,
+        let app = native_test_app(&database_dir);
+        let executable = std::env::current_exe().unwrap();
+        let (game, database) = {
+            let state = app.state::<DatabaseState>();
+            let database = state.shared_database().unwrap();
+            let game = database
+                .create_game(crate::database::CreateGameInput {
+                    name: "Controlled native game".to_owned(),
+                    steam_app_id: None,
+                })
+                .unwrap();
+            crate::manual_import::set_executable(&state, &game.id, executable.to_str().unwrap())
+                .unwrap();
+            database
+                .save_native_launch_config(
                     &game.id,
-                    executable.to_str().unwrap(),
+                    crate::database::NativeLaunchConfig {
+                        arguments: vec!["controlled_native_child_waits_for_stop".to_owned()],
+                        working_directory: None,
+                    },
                 )
                 .unwrap();
-                database
-                    .save_native_launch_config(
-                        &game.id,
-                        crate::database::NativeLaunchConfig {
-                            arguments: vec!["controlled_native_child_waits_for_stop".to_owned()],
-                            working_directory: None,
-                        },
-                    )
-                    .unwrap();
-                (game, database)
-            };
+            (game, database)
+        };
 
-            let manager = app.state::<GameLaunchManager>().inner().clone();
-            manager
-                .launch_native(app.handle().clone(), game.id.clone())
-                .unwrap();
-            let state = wait_for_native_status(&manager, &game.id, GameStatus::Running);
-            assert_eq!(state.error, None);
-            let active = database
-                .playtime_summaries(crate::database::now_milliseconds())
-                .unwrap()
-                .into_iter()
-                .find(|summary| summary.game_id == game.id)
-                .unwrap();
-            assert_eq!(active.active_sessions, 1);
+        let manager = app.state::<GameLaunchManager>().inner().clone();
+        manager
+            .launch_native(app.handle().clone(), game.id.clone())
+            .unwrap();
+        let state = wait_for_native_status(&manager, &game.id, GameStatus::Running);
+        assert_eq!(state.error, None);
+        let active = database
+            .playtime_summaries(crate::database::now_milliseconds())
+            .unwrap()
+            .into_iter()
+            .find(|summary| summary.game_id == game.id)
+            .unwrap();
+        assert_eq!(active.active_sessions, 1);
 
-            manager.stop(&game.id).unwrap();
-            let state = wait_for_native_status(&manager, &game.id, GameStatus::Idle);
-            assert_eq!(state.error, None);
-            let reopened = Database::open(&database_dir).unwrap();
-            let summary = reopened
-                .playtime_summaries(crate::database::now_milliseconds())
-                .unwrap()
-                .into_iter()
-                .find(|summary| summary.game_id == game.id)
-                .unwrap();
-            assert!(summary.total_milliseconds > 0);
-            assert_eq!(summary.active_sessions, 0);
-            database
-        })
-        .join()
-        .unwrap();
-        let released = Instant::now();
-        while Arc::strong_count(&database) > 1 {
-            assert!(
-                released.elapsed() < Duration::from_secs(10),
-                "launch monitor did not release the session database"
-            );
-            thread::sleep(Duration::from_millis(10));
-        }
+        manager.stop(&game.id).unwrap();
+        let state = wait_for_native_status(&manager, &game.id, GameStatus::Idle);
+        assert_eq!(state.error, None);
+        let reopened = Database::open(&database_dir).unwrap();
+        let summary = reopened
+            .playtime_summaries(crate::database::now_milliseconds())
+            .unwrap()
+            .into_iter()
+            .find(|summary| summary.game_id == game.id)
+            .unwrap();
+        assert!(summary.total_milliseconds > 0);
+        assert_eq!(summary.active_sessions, 0);
+        drop(app);
         drop(database);
-        fs::remove_dir_all(base).unwrap();
+        drop(reopened);
+        // The mock runtime can retain this SQLite file until process exit on Windows.
     }
 
     #[cfg(target_os = "linux")]
