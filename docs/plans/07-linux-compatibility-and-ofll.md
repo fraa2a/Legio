@@ -245,6 +245,8 @@ When compatibility configuration explicitly enables the Steam overlay, the launc
 
 The local Linux smoke used BOMBANANA! Demo with GE-Proton 10.33 and the explicit overlay profile after confirming that no Steam or BOMBANANA process was running. The test output showed Steam starting and its runtime initializing, then reported the GE-Proton game process in Running state with the Steam overlay renderer mapped. Legio stopped the game through its lifecycle and closed the persisted play session. This verifies startup from a stopped Steam process, game lifecycle, and process-level renderer injection. A compositor capture synchronized with the process's Running state showed the Steam client window but no game surface or visible overlay. Rendered game output and overlay interaction remain unverified.
 
+The same ignored smoke also passed with ROUNDS and the direct overlay profile. It observed the GE-Proton process in Running state and the overlay renderer mapped. A compositor capture showed Steam's sign-in window and no ROUNDS surface, so this is additional process-level evidence only.
+
 Commands:
 
 ```sh
