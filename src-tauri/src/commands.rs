@@ -146,6 +146,19 @@ pub fn set_game_icon(
 }
 
 #[tauri::command]
+pub async fn extract_game_icon(
+    app: AppHandle,
+    game_id: String,
+) -> Result<crate::game_icons::GameIconResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let game = app.state::<DatabaseState>().database()?.game(&game_id)?;
+        crate::game_icons::extract_for_game(&app.state::<crate::game_icons::GameIconStore>(), &game)
+    })
+    .await
+    .map_err(|error| format!("Game icon extraction task failed: {error}"))?
+}
+
+#[tauri::command]
 pub fn get_game_icon(
     app: AppHandle,
     game_id: String,
