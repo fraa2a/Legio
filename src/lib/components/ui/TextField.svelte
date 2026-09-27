@@ -36,7 +36,7 @@
       oninput?.(value);
     }}
     aria-describedby={hint ? `${id}-hint` : undefined}
-    class="h-10 w-full rounded-lg bg-white/5 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 disabled:opacity-50 light:bg-white light:text-zinc-900"
+    class="h-10 w-full rounded-lg border border-transparent bg-white/5 px-3 py-2 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-500 focus:border-white/40 disabled:opacity-50 light:bg-white light:text-zinc-900 light:focus:border-zinc-900/40"
   />
   {#if hint}
     <p id={`${id}-hint`} class="text-xs text-zinc-500">{hint}</p>

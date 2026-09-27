@@ -15,6 +15,13 @@ export const activeSection = writable<Section>("home");
 
 export const selectedGameId = writable<string | null>(null);
 
+export interface StoreGameSelection {
+  steamAppId: number;
+  name: string;
+}
+
+export const selectedStoreGame = writable<StoreGameSelection | null>(null);
+
 export const settingsOpen = writable(false);
 
 export function selectSection(section: Section): void {
@@ -28,6 +35,15 @@ export function openGame(gameId: string): void {
 
 export function closeGame(): void {
   selectedGameId.set(null);
+}
+
+export function openStoreGame(game: StoreGameSelection): void {
+  selectedStoreGame.set(game);
+  activeSection.set("store");
+}
+
+export function closeStoreGame(): void {
+  selectedStoreGame.set(null);
 }
 
 export function openSettings(): void {

@@ -4,6 +4,7 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
   import { catalog, runCatalogSearch } from "../../stores/catalog";
+  import { openStoreGame, selectedStoreGame } from "../../stores/navigation";
   import type { LoadStatus } from "../../stores/resource";
   import { refreshSource, sourceRefreshError, source } from "../../stores/source";
   import StoreGameDetail from "./StoreGameDetail.svelte";
@@ -17,7 +18,6 @@
   }
 
   let query = $state("");
-  let selected = $state<StoreEntry | null>(null);
 
   const manifest = $derived($source.data.manifest);
   const trimmed = $derived(query.trim());
@@ -71,12 +71,8 @@
   });
 </script>
 
-{#if selected !== null}
-  <StoreGameDetail
-    steamAppId={selected.steamAppId}
-    name={selected.name}
-    onBack={() => (selected = null)}
-  />
+{#if $selectedStoreGame !== null}
+  <StoreGameDetail steamAppId={$selectedStoreGame.steamAppId} name={$selectedStoreGame.name} />
 {:else}
   <header class="mb-5 flex flex-wrap items-end justify-between gap-3">
     <div>
@@ -158,7 +154,7 @@
           steamAppId={entry.steamAppId}
           name={entry.name}
           status={entry.status}
-          onOpen={() => (selected = entry)}
+          onOpen={() => openStoreGame(entry)}
         />
       {/each}
     </ul>

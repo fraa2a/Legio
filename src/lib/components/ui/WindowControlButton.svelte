@@ -23,7 +23,7 @@
 <button
   type="button"
   aria-label={label}
-  class="flex size-8 items-center justify-center rounded-full text-zinc-300 light:text-zinc-600 {hoverClass}"
+  class="flex size-9 items-center justify-center rounded-full text-zinc-300 light:text-zinc-600 {hoverClass}"
   onclick={onClick}
 >
   {@render children()}
