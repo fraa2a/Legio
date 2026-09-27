@@ -54,7 +54,7 @@ Status: the revision-specific behavior inventory and canonical conflict audit ar
 
 Reviewed upstream: [Online Fix Linux Launcher v2.7.1 at commit `86528986f71c3da0972a670c08feb0bb70a3dbe2`](https://github.com/ZzEdovec/onlinefix-linux/tree/86528986f71c3da0972a670c08feb0bb70a3dbe2). The local `/home/fraa/Documents/OFLL` source was compared with a detached checkout of this exact commit; its `src/app` tree matched. The audit covered the tracked application modules and forms, including [FilesWorker](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/modules/FilesWorker.php), [FixParser](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/modules/FixParser.php), [game settings](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/forms/gameSettings.php), [launcher settings](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/forms/launcherSettings.php), [game import](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/forms/newGameConfigurator.php), [game management](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/forms/MainForm.php), [RAR handling](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/modules/RarExtractor.php), [FreeTP installer](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/modules/ftpInstaller.php), and [README claims](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/README.md). Upstream claims below describe its documented behavior; they are not independent compatibility tests.
 
-| Upstream responsibility | Legio implementation and evidence against `main` baseline `a953ca0` | State |
+| Upstream responsibility | Legio implementation and evidence against `main` baseline `80f9572` | State |
 | --- | --- | --- |
 | Discover Proton, GE-Proton, and Wine | `runner_discovery.rs` discovers local Proton-named tools, GE-Proton, and validated Wine executables. Discovery reports diagnostics. | Implemented for local installations |
 | Install, update, remove, and select Proton versions | The compatibility schema persists global and per-game runner selections. Launch revalidates an installed path. There is no release catalogue, download, install, or removal service. | Partial; runner management remains |
@@ -68,7 +68,7 @@ Reviewed upstream: [Online Fix Linux Launcher v2.7.1 at commit `86528986f71c3da0
 | Monitor and stop Wine/Proton game processes | `game_process.rs` and the shared `game_lifecycle.rs` track manual launches by launch token and executable, expose launch state, stop games, and report lifecycle-stage failures. Proton 10 and GE-Proton real-game smokes observed Running, persisted play sessions, stopped the game through Legio, and reopened the database to confirm closure. | Implemented; real-game lifecycle verified |
 | Provide debug mode, capture process output, and collect Wine/Proton diagnostics | Schema v15 adds an inherited global/per-game debug logging toggle. Enabled Linux compatibility launches capture stdout and stderr to per-game files, each capped at 2 MiB. Proton/GE-Proton also writes `steam-480.log` in the same app log directory, capped at 10 MiB; Wine receives `WINEDEBUG=+timestamp,+pid,+tid,+seh` unless the user configured `WINEDEBUG`. The latest debug launch replaces prior logs for that game. `launch.json` records the selected runner, version, prefix, typed options, and configured environment variable names, without custom environment values. `list_game_launch_states` exposes the log directory, truncation and output errors, and an observed runner exit code; `get_compatibility_logs_directory` returns the local folder. Logs are not uploaded. | Backend implementation, automated coverage, and real Proton log verification |
 | Fetch Steam game covers and allow game-specific banners | Steam-linked games use the Steam asset cache. Manual compatibility games do not have OFLL's Steam header fetch or a persisted custom banner flow. | Partial |
-| Extract or choose a game icon | `set_game_icon` copies a selected PNG, JPEG, or WebP image up to 2 MiB into app data; `get_game_icon` returns bytes and content type; `reset_game_icon` clears the override. The backend detects supported file signatures. Custom selection survives reopening the store. Embedded Windows PE icon extraction during import or from a selected executable is not implemented. | Manual image selection and persistence implemented; executable extraction remains |
+| Extract or choose a game icon | `set_game_icon` copies a selected PNG, JPEG, or WebP image up to 2 MiB into app data; `get_game_icon` returns bytes and content type; `reset_game_icon` clears the saved icon. `extract_game_icon` reads the saved executable for a manually imported game, selects the largest supported frame from its first PE group icon, converts it to a PNG thumbnail up to 256x256, and persists it. Tests reject malformed, symlinked, and unsupported executables and exercise a local Windows game. Automatic invocation during import remains frontend wiring for Phase 08. | Backend extraction and manual image selection implemented |
 | Create desktop and application-menu shortcuts | Linux `create_game_shortcut` writes a per-game `.desktop` entry to the XDG Desktop folder or applications menu for a manually imported Windows game. The entry launches Legio with the game UUID; app startup uses the persisted compatibility configuration and shared lifecycle. AppImage installs point to the persistent AppImage file instead of the temporary mount path. A selected custom game icon is included in `Icon=`. `remove_game` removes only shortcut files with Legio's game marker. Tests validate escaping, ownership checks, and desktop-file syntax. | Backend creation, configured launch, and owned-file cleanup implemented |
 | Scan imported files for OnlineFix, FreeTP, EOSFix, SteamFix, and Photon metadata; derive DLL overrides or apply the Photon Newtonsoft workaround | Manual import selects Windows executables, but Legio does not identify or patch these fix layouts. Existing user-configured DLL overrides remain available. | Missing; fix behavior requires a product and trust decision |
 | Install a FreeTP installer selected beside a game and automatically import the result | Legio does not launch sidecar installers or execute fix installers. | Missing; no canonical installer contract exists |
@@ -121,7 +121,7 @@ Runner discovery and configuration are reliable, supported Windows games launch 
 
 - Define the safe, canonical-compatible scope and source model for OnlineFix, FreeTP, EOSFix, Photon, SteamFix, and other game-specific behavior. The upstream direct Hydra feed, sidecar installer, and file mutation flows are not an approved design.
 - Define runner download, installation, update, and removal behavior, including integrity metadata and installation locations.
-- Automatic extraction of embedded PE icons and supported game/fix behavior remain unimplemented or unresolved. Manual raster icon selection is available through the backend. Prefix and banner cleanup still need a safe filesystem contract. Exact prefix utilities also remain open.
+- Automatic invocation of the embedded PE icon extraction command during import remains frontend wiring for Phase 08. Supported game/fix behavior remains unresolved. Manual raster icon selection and explicit executable icon extraction are available through the backend. Prefix and banner cleanup still need a safe filesystem contract. Exact prefix utilities also remain open.
 - Verify visual rendering quality, gameplay input, and visible Steam overlay behavior. 07B verifies the effective options, process environment, renderer mapping, GE-Proton Wayland libraries, and WineD3D module loading, but did not inspect rendered output or input.
 
 ## Update notes
@@ -206,7 +206,7 @@ Command:
 cargo test --manifest-path src-tauri/Cargo.toml --locked --lib desktop_shortcuts:: -- --nocapture
 ```
 
-At the time of this shortcut evidence, custom game icons were not yet supported; see the later game icon override evidence below. The frontend shortcut action remains out of scope, desktop-environment click-through was not run, and deleting a game does not remove its shortcuts.
+At the time of this shortcut evidence, custom game icons were not yet supported; see the later game icon override evidence below. The frontend shortcut action remains out of scope and desktop-environment click-through was not run. PR #61 later added cleanup for Legio-owned shortcuts when a game is removed.
 
 #### Game icon override evidence, 2026-09-27
 
@@ -219,7 +219,23 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_icons:: -- -
 cargo test --manifest-path src-tauri/Cargo.toml --locked --lib desktop_shortcuts:: -- --nocapture
 ```
 
-Remaining blockers: embedded PE resource extraction is not implemented, the frontend icon picker remains Phase 08 work, and no GUI click-through was run.
+Remaining blockers: no GUI click-through was run. The frontend icon picker and automatic invocation of `extract_game_icon` during import remain Phase 08 work.
+
+#### Executable icon extraction evidence, 2026-09-27
+
+Platform: Linux x86_64. The ignored extraction smoke parsed the locally installed Windows executable for BOMBANANA! Demo, selected its largest supported frame, and verified the resulting PNG decodes at no more than 256x256. A separate ignored store smoke exercises persisting and reopening that extracted PNG. This test reads the executable only; it does not launch a game and is not additional 07A smoke evidence.
+
+Commands:
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml --all-features pe_icons:: -- --nocapture
+LEGIO_TEST_WINDOWS_GAME_EXE='/mnt/HDD/Games/Steam/steamapps/common/BOMBANANA! Demo/BOMBANANA.exe' cargo test --manifest-path src-tauri/Cargo.toml --all-features pe_icons::tests::extracts_installed_windows_game_icon -- --ignored --exact --nocapture
+LEGIO_TEST_WINDOWS_GAME_EXE='/mnt/HDD/Games/Steam/steamapps/common/BOMBANANA! Demo/BOMBANANA.exe' cargo test --manifest-path src-tauri/Cargo.toml --all-features game_icons::tests::extracted_icon_is_persisted_across_store_reopen -- --ignored --exact --nocapture
+```
+
+The full suite passed with 229 tests passed and three ignored, and Clippy completed with warnings denied. The ignored game smokes above were each run separately and passed.
+
+Remaining blockers: automatic invocation after manual import and the frontend picker remain Phase 08 work.
 
 #### Compatibility diagnostics smoke evidence, 2026-09-26
 
