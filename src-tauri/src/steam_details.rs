@@ -27,12 +27,21 @@ pub struct SteamDetails {
     pub short_description: Option<String>,
     #[serde(default)]
     pub detailed_description: Option<String>,
+    #[serde(default)]
+    pub system_requirements: Option<SystemRequirements>,
     pub developers: Vec<String>,
     pub publishers: Vec<String>,
     pub genres: Vec<String>,
     pub platforms: Option<Platforms>,
     pub release_date: Option<ReleaseDate>,
     pub assets: Assets,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemRequirements {
+    pub minimum: Option<String>,
+    pub recommended: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -145,6 +154,8 @@ struct SteamData {
     app_type: String,
     short_description: Option<String>,
     detailed_description: Option<String>,
+    #[serde(default)]
+    pc_requirements: Option<serde_json::Value>,
     #[serde(default)]
     developers: Vec<String>,
     #[serde(default)]
@@ -263,6 +274,23 @@ fn decode(bytes: &[u8], app_id: u32) -> Result<SteamDetails, DetailsError> {
         detailed_description: data
             .detailed_description
             .filter(|value| !value.trim().is_empty()),
+        system_requirements: data.pc_requirements.and_then(|value| {
+            let value = value.as_object()?;
+            let minimum = value
+                .get("minimum")
+                .and_then(|entry| entry.as_str())
+                .filter(|entry| !entry.trim().is_empty())
+                .map(str::to_owned);
+            let recommended = value
+                .get("recommended")
+                .and_then(|entry| entry.as_str())
+                .filter(|entry| !entry.trim().is_empty())
+                .map(str::to_owned);
+            (minimum.is_some() || recommended.is_some()).then_some(SystemRequirements {
+                minimum,
+                recommended,
+            })
+        }),
         developers: data.developers,
         publishers: data.publishers,
         genres: data
@@ -351,6 +379,7 @@ fn cached(
                 DetailsError::database(format!("Invalid cached Steam details: {error}"))
             })?;
             let missing_description = cached_value.get("detailedDescription").is_none();
+            let missing_requirements = cached_value.get("systemRequirements").is_none();
             let mut details: SteamDetails =
                 serde_json::from_value(cached_value).map_err(|error| {
                     DetailsError::database(format!("Invalid cached Steam details: {error}"))
@@ -372,6 +401,7 @@ fn cached(
                 details: Some(details),
                 cached_at: Some(fetched_at),
                 stale: missing_description
+                    || missing_requirements
                     || current_time < fetched_at
                     || current_time.saturating_sub(fetched_at) >= STALE_SECONDS,
             })

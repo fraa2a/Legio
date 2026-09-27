@@ -6,6 +6,7 @@ export interface SteamDetails {
   appType: string;
   shortDescription: string | null;
   detailedDescription: string | null;
+  systemRequirements?: { minimum: string | null; recommended: string | null } | null;
   developers: string[];
   publishers: string[];
   genres: string[];
@@ -35,7 +36,7 @@ export function getSteamDetails(steamAppId: number, refresh: boolean): Promise<S
   return invoke<SteamDetailsResult>("get_steam_details", { steamAppId, refresh });
 }
 
-export type SteamAssetKind = "header" | "capsule" | "screenshot";
+export type SteamAssetKind = "header" | "capsule" | "screenshot" | "hero" | "logo";
 
 export interface SteamAsset {
   bytes: number[];

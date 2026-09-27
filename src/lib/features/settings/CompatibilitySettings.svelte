@@ -151,7 +151,10 @@
     ...(defaults.runnerPath && !runners.some((runner) => runner.path === defaults.runnerPath)
       ? [{ value: defaults.runnerPath, label: defaults.runnerPath }]
       : []),
-    ...runners.map((runner) => ({ value: runner.path, label: `${runner.name} (${runner.version})` })),
+    ...runners.map((runner) => ({
+      value: runner.path,
+      label: runner.kind === "wine" ? `${runner.name} (${runner.version})` : runner.name,
+    })),
   ]);
 
   function setSteamRuntime(value: string): void {

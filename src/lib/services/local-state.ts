@@ -4,6 +4,7 @@ export type Theme = "system" | "dark" | "light";
 
 export interface Settings {
   theme: Theme;
+  steamLibraryPollMinutes: number;
 }
 
 export interface Game {

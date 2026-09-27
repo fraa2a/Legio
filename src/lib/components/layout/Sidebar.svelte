@@ -23,7 +23,7 @@
 </script>
 
 <aside
-  class="my-2 ml-2 flex shrink-0 flex-col overflow-hidden rounded-2xl bg-zinc-900 light:bg-zinc-50 {expanded
+  class="my-1.5 ml-1.5 flex shrink-0 flex-col overflow-hidden rounded-xl bg-zinc-900 light:bg-zinc-50 {expanded
     ? "w-[13.5rem]"
     : "w-16"} transition-[width] duration-300 ease-out"
 >
@@ -37,7 +37,7 @@
         <span class="ml-2 flex size-8 shrink-0 items-center justify-center">
           <Logo />
         </span>
-        <span class="overflow-hidden whitespace-nowrap text-4xl font-semibold tracking-[0.2em]">
+        <span class="overflow-hidden whitespace-nowrap font-mono text-[1.8rem] font-bold tracking-[0.12em]">
           LEGIO
         </span>
       </span>

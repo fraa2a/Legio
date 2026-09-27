@@ -7,6 +7,7 @@
 
   let {
     game,
+    playtimeMilliseconds = 0,
     launch,
     actionPending = false,
     cancelPending = false,
@@ -16,6 +17,7 @@
     onOpen,
   }: {
     game: Game;
+    playtimeMilliseconds?: number;
     launch: GameLaunchState | undefined;
     actionPending?: boolean;
     cancelPending?: boolean;
@@ -51,13 +53,14 @@
       {/if}
       <div class="flex items-center gap-2 pr-28">
         <span class="min-w-0 flex-1 truncate font-medium text-zinc-50 light:text-zinc-900">{game.name}</span>
-        {#if game.steamInstallPath === null}
-          <Badge tone="neutral" title="Manuale" />
-        {/if}
-        {#if game.nameOverride !== null}
-          <Badge tone="warning" title="Nome personalizzato" />
-        {/if}
       </div>
+      <span class="text-xs text-zinc-300 light:text-zinc-700">
+        {#if playtimeMilliseconds >= 3600000}
+          {Math.floor(playtimeMilliseconds / 3600000)} h {Math.floor((playtimeMilliseconds % 3600000) / 60000)} min
+        {:else}
+          {Math.floor(playtimeMilliseconds / 60000)} min
+        {/if} giocati
+      </span>
     </div>
   </button>
 

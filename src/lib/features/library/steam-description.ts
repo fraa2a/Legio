@@ -1,6 +1,6 @@
 const allowedTags = new Set([
   "a", "b", "blockquote", "br", "code", "div", "em", "h1", "h2", "h3", "h4",
-  "i", "li", "ol", "p", "pre", "span", "strong", "ul",
+  "hr", "i", "li", "ol", "p", "pre", "span", "strong", "ul",
 ]);
 const ignoredTags = new Set(["form", "iframe", "img", "input", "math", "object", "script", "style", "svg"]);
 

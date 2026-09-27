@@ -8,6 +8,7 @@
   let {
     steamAppId,
     asset,
+    fallbackAsset = null,
     index = null,
     version = null,
     full = false,
@@ -18,6 +19,7 @@
   }: {
     steamAppId: number;
     asset: SteamAssetKind;
+    fallbackAsset?: SteamAssetKind | null;
     index?: number | null;
     version?: number | null;
     full?: boolean;
@@ -32,10 +34,10 @@
   let warning = $state<string | null>(null);
   let error = $state<string | null>(null);
 
-  const request = $derived({ steamAppId, asset, index, version, full });
+  const request = $derived({ steamAppId, asset, fallbackAsset, index, version, full });
 
   $effect(() => {
-    const { steamAppId: appId, asset: kind, index: shot, full: large } = request;
+    const { steamAppId: appId, asset: kind, fallbackAsset: fallback, index: shot, full: large } = request;
 
     url = null;
     stale = false;
@@ -44,7 +46,10 @@
 
     let objectUrl: string | null = null;
     let cancelled = false;
-    void getSteamAsset(appId, kind, shot ?? undefined, large).then(
+    void getSteamAsset(appId, kind, shot ?? undefined, large).catch((failure: unknown) => {
+      if (fallback !== null) return getSteamAsset(appId, fallback, shot ?? undefined, large);
+      throw failure;
+    }).then(
       (result) => {
         if (cancelled) return;
         objectUrl = URL.createObjectURL(

@@ -40,6 +40,10 @@ export interface NativeLaunchConfig {
   workingDirectory: string | null;
 }
 
+export interface SteamLaunchConfig {
+  arguments: string[];
+}
+
 export interface CompatibilityRunner {
   kind: "proton" | "ge_proton" | "wine";
   name: string;
@@ -119,6 +123,17 @@ export function saveNativeLaunchConfig(
   config: NativeLaunchConfig,
 ): Promise<NativeLaunchConfig> {
   return invoke<NativeLaunchConfig>("save_native_launch_config", { gameId, config });
+}
+
+export function getSteamLaunchConfig(gameId: string): Promise<SteamLaunchConfig> {
+  return invoke<SteamLaunchConfig>("get_steam_launch_config", { gameId });
+}
+
+export function saveSteamLaunchConfig(
+  gameId: string,
+  config: SteamLaunchConfig,
+): Promise<SteamLaunchConfig> {
+  return invoke<SteamLaunchConfig>("save_steam_launch_config", { gameId, config });
 }
 
 export function getCompatibilityLogsDirectory(): Promise<string> {

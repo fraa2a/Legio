@@ -22,16 +22,48 @@
   let root: HTMLDivElement;
   let trigger: HTMLButtonElement;
   let open = $state(false);
+  let optionsTop = $state(0);
+  let optionsLeft = $state(0);
+  let optionsWidth = $state(0);
+  let optionsMaxHeight = $state(256);
   const selectedLabel = $derived(options.find((option) => option.value === value)?.label ?? value);
 
   $effect(() => {
     if (disabled) open = false;
   });
 
+  $effect(() => {
+    if (!open) return;
+    const closeOnScroll = (event: Event) => {
+      if (!(event.target instanceof Node && root.contains(event.target))) open = false;
+    };
+    const closeOnResize = () => (open = false);
+    window.addEventListener("scroll", closeOnScroll, true);
+    window.addEventListener("resize", closeOnResize);
+    return () => {
+      window.removeEventListener("scroll", closeOnScroll, true);
+      window.removeEventListener("resize", closeOnResize);
+    };
+  });
+
   async function showOptions(): Promise<void> {
     if (disabled) return;
     open = true;
     await tick();
+    const listbox = root.querySelector<HTMLDivElement>("[role='listbox']");
+    if (listbox === null) return;
+
+    const triggerRect = trigger.getBoundingClientRect();
+    const gap = 8;
+    const spaceAbove = Math.max(0, triggerRect.top - gap);
+    const spaceBelow = Math.max(0, window.innerHeight - triggerRect.bottom - gap);
+    const desiredHeight = Math.min(256, listbox.scrollHeight);
+    const above = spaceBelow < desiredHeight && spaceAbove > spaceBelow;
+    optionsMaxHeight = Math.floor(Math.min(desiredHeight, above ? spaceAbove : spaceBelow));
+    optionsTop = above ? triggerRect.top - gap - optionsMaxHeight : triggerRect.bottom + gap;
+    optionsLeft = triggerRect.left;
+    optionsWidth = triggerRect.width;
+
     const selected = root.querySelector<HTMLButtonElement>('[role="option"][aria-selected="true"]');
     (selected ?? root.querySelector<HTMLButtonElement>('[role="option"]'))?.focus();
   }
@@ -93,7 +125,7 @@
     </svg>
   </button>
   {#if open}
-    <div id={`${id}-options`} role="listbox" tabindex="-1" aria-labelledby={`${id}-label`} onkeydown={handleKeydown} class="absolute top-full z-50 mt-1 max-h-64 w-full overflow-auto rounded-xl border border-white/10 bg-zinc-900 p-1 shadow-xl shadow-black/30 light:border-zinc-900/10 light:bg-white light:shadow-zinc-900/15">
+    <div id={`${id}-options`} role="listbox" tabindex="-1" aria-labelledby={`${id}-label`} onkeydown={handleKeydown} style:top="{optionsTop}px" style:left="{optionsLeft}px" style:width="{optionsWidth}px" style:max-height="{optionsMaxHeight}px" class="fixed z-50 overflow-auto rounded-xl border border-white/10 bg-zinc-900 p-1 shadow-xl shadow-black/30 light:border-zinc-900/10 light:bg-white light:shadow-zinc-900/15">
       {#each options as option (option.value)}
         <button
           type="button"

@@ -98,6 +98,23 @@ pub fn get_native_launch_config(
 }
 
 #[tauri::command]
+pub fn get_steam_launch_config(
+    state: State<'_, DatabaseState>,
+    game_id: String,
+) -> Result<database::SteamLaunchConfig, String> {
+    state.database()?.steam_launch_config(&game_id)
+}
+
+#[tauri::command]
+pub fn save_steam_launch_config(
+    state: State<'_, DatabaseState>,
+    game_id: String,
+    config: database::SteamLaunchConfig,
+) -> Result<database::SteamLaunchConfig, String> {
+    state.database()?.save_steam_launch_config(&game_id, config)
+}
+
+#[tauri::command]
 pub fn save_native_launch_config(
     state: State<'_, DatabaseState>,
     game_id: String,

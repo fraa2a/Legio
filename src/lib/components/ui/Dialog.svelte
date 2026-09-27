@@ -35,7 +35,7 @@
 <dialog
   bind:this={dialog}
   aria-labelledby={titleId}
-  class="m-auto {widthClass} max-w-[calc(100vw-2rem)] rounded-2xl bg-zinc-900 text-zinc-100 backdrop:bg-black/70 light:bg-zinc-50 light:text-zinc-900 {flush
+  class="m-auto {widthClass} max-w-[calc(100vw-2rem)] rounded-2xl border border-white/15 bg-zinc-900 text-zinc-100 shadow-2xl shadow-black/40 backdrop:bg-black/70 light:border-zinc-900/15 light:bg-zinc-50 light:text-zinc-900 {flush
     ? 'h-[min(40rem,calc(100dvh-3rem))] overflow-hidden'
     : 'max-h-[calc(100dvh-3rem)] overflow-y-auto'}"
   oncancel={(event) => {
@@ -49,7 +49,7 @@
   <div class="{flush ? 'flex h-full min-h-0 flex-col' : 'flex flex-col gap-5 p-6'}">
     <div
       class="flex items-center justify-between gap-4 {flush
-        ? 'shrink-0 border-b border-white/5 px-6 py-4 light:border-zinc-900/10'
+        ? 'shrink-0 border-b border-white/15 px-6 py-4 light:border-zinc-900/15'
         : ''}"
     >
       <h2 id={titleId} class="text-lg font-semibold">{title}</h2>

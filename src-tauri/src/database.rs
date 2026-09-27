@@ -5,8 +5,18 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 const THEME_KEY: &str = "theme";
+const STEAM_LIBRARY_POLL_MINUTES_KEY: &str = "steam_library_poll_minutes";
 const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_second";
-const SCHEMA_VERSION: i64 = 15;
+const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
+const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
+const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
+const SCHEMA_VERSION: i64 = 16;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SteamLaunchConfig {
+    pub arguments: Vec<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -153,12 +163,29 @@ impl Theme {
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub theme: Theme,
+    #[serde(default = "default_steam_library_poll_minutes")]
+    pub steam_library_poll_minutes: u32,
+}
+
+fn default_steam_library_poll_minutes() -> u32 {
+    DEFAULT_STEAM_LIBRARY_POLL_MINUTES
+}
+
+fn validate_steam_library_poll_minutes(minutes: u32) -> Result<(), String> {
+    if (MIN_STEAM_LIBRARY_POLL_MINUTES..=MAX_STEAM_LIBRARY_POLL_MINUTES).contains(&minutes) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Steam library poll interval must be between {MIN_STEAM_LIBRARY_POLL_MINUTES} and {MAX_STEAM_LIBRARY_POLL_MINUTES} minutes"
+        ))
+    }
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             theme: Theme::System,
+            steam_library_poll_minutes: DEFAULT_STEAM_LIBRARY_POLL_MINUTES,
         }
     }
 }
@@ -246,6 +273,62 @@ pub struct Database {
 }
 
 impl Database {
+    pub fn steam_launch_config(&self, game_id: &str) -> Result<SteamLaunchConfig, String> {
+        let game = self.game(game_id)?;
+        if game.steam_install_path.is_none() {
+            return Err("Steam launch settings require a Steam-managed game".to_owned());
+        }
+        self.with_connection(|connection| {
+            let arguments: Option<String> = connection
+                .query_row(
+                    "SELECT arguments FROM game_steam_launch_config WHERE game_id = ?1",
+                    [game.id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(database_error)?;
+            arguments.map_or_else(
+                || Ok(SteamLaunchConfig::default()),
+                |arguments| {
+                    serde_json::from_str(&arguments)
+                        .map(|arguments| SteamLaunchConfig { arguments })
+                        .map_err(|error| {
+                            format!("stored Steam launch arguments are invalid: {error}")
+                        })
+                },
+            )
+        })
+    }
+
+    pub fn save_steam_launch_config(
+        &self,
+        game_id: &str,
+        config: SteamLaunchConfig,
+    ) -> Result<SteamLaunchConfig, String> {
+        let game = self.game(game_id)?;
+        if game.steam_install_path.is_none() {
+            return Err("Steam launch settings require a Steam-managed game".to_owned());
+        }
+        if config
+            .arguments
+            .iter()
+            .any(|argument| argument.contains('\0'))
+        {
+            return Err("Steam launch arguments cannot contain null characters".to_owned());
+        }
+        let arguments = encode_json(&config.arguments)?;
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "INSERT INTO game_steam_launch_config (game_id, arguments) VALUES (?1, ?2)
+                     ON CONFLICT(game_id) DO UPDATE SET arguments = excluded.arguments",
+                    params![game.id, arguments],
+                )
+                .map_err(database_error)?;
+            Ok(config)
+        })
+    }
+
     pub fn native_launch_config(&self, game_id: &str) -> Result<NativeLaunchConfig, String> {
         let game_id = parse_game_id(game_id)?;
         self.with_connection(|connection| {
@@ -331,21 +414,47 @@ impl Database {
                 )
                 .optional()
                 .map_err(database_error)?;
-
-            stored_theme.map_or_else(
-                || Ok(Settings::default()),
-                |value| Theme::parse(&value).map(|theme| Settings { theme }),
-            )
+            let stored_poll_minutes: Option<String> = connection
+                .query_row(
+                    "SELECT value FROM settings WHERE key = ?1",
+                    [STEAM_LIBRARY_POLL_MINUTES_KEY],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(database_error)?;
+            let theme = stored_theme.map_or(Ok(Theme::System), |value| Theme::parse(&value))?;
+            let steam_library_poll_minutes =
+                stored_poll_minutes.map_or(Ok(DEFAULT_STEAM_LIBRARY_POLL_MINUTES), |value| {
+                    value.parse::<u32>().map_err(|error| {
+                        format!("stored Steam library poll interval is invalid: {error}")
+                    })
+                })?;
+            validate_steam_library_poll_minutes(steam_library_poll_minutes)?;
+            Ok(Settings {
+                theme,
+                steam_library_poll_minutes,
+            })
         })
     }
 
     pub fn save_settings(&self, settings: Settings) -> Result<Settings, String> {
+        validate_steam_library_poll_minutes(settings.steam_library_poll_minutes)?;
         self.with_connection(|connection| {
             connection
                 .execute(
                     "INSERT INTO settings (key, value) VALUES (?1, ?2)
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                     params![THEME_KEY, settings.theme.as_str()],
+                )
+                .map_err(database_error)?;
+            connection
+                .execute(
+                    "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    params![
+                        STEAM_LIBRARY_POLL_MINUTES_KEY,
+                        settings.steam_library_poll_minutes.to_string()
+                    ],
                 )
                 .map_err(database_error)?;
             Ok(settings)
@@ -1032,6 +1141,25 @@ fn migrate(connection: &Connection) -> Result<(), String> {
                     ADD COLUMN debug_logging INTEGER
                     CHECK (debug_logging IS NULL OR debug_logging IN (0, 1));
                  PRAGMA user_version = 15;",
+            )
+            .map_err(database_error)?;
+    }
+    if version < 16 {
+        transaction
+            .execute_batch(
+                "CREATE TABLE game_steam_launch_config (
+                    game_id TEXT PRIMARY KEY NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                    arguments TEXT NOT NULL DEFAULT '[]'
+                 );
+                 CREATE TABLE steam_details_cache_v16 (
+                    steam_app_id INTEGER PRIMARY KEY CHECK (steam_app_id BETWEEN 1 AND 4294967295),
+                    details TEXT NOT NULL CHECK (length(CAST(details AS BLOB)) BETWEEN 1 AND 524288),
+                    fetched_at INTEGER NOT NULL CHECK (fetched_at >= 0)
+                 );
+                 INSERT INTO steam_details_cache_v16 SELECT * FROM steam_details_cache;
+                 DROP TABLE steam_details_cache;
+                 ALTER TABLE steam_details_cache_v16 RENAME TO steam_details_cache;
+                 PRAGMA user_version = 16;",
             )
             .map_err(database_error)?;
     }
@@ -1731,6 +1859,7 @@ mod tests {
         database
             .save_settings(Settings {
                 theme: Theme::Light,
+                steam_library_poll_minutes: 15,
             })
             .unwrap();
         let game = database
@@ -1754,7 +1883,8 @@ mod tests {
         assert_eq!(
             reopened.settings().unwrap(),
             Settings {
-                theme: Theme::Light
+                theme: Theme::Light,
+                steam_library_poll_minutes: 15,
             }
         );
         assert_eq!(reopened.games().unwrap(), vec![enriched]);
@@ -2319,6 +2449,7 @@ mod tests {
         database
             .save_settings(Settings {
                 theme: Theme::Light,
+                steam_library_poll_minutes: 15,
             })
             .unwrap();
         database

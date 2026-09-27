@@ -1,7 +1,6 @@
 <script lang="ts">
   import { loadSteamDetails, steamDetails } from "../../stores/steam-details";
   import Badge from "../../components/ui/Badge.svelte";
-  import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import ScreenshotGallery from "./ScreenshotGallery.svelte";
@@ -26,12 +25,6 @@
       {#if detailsState?.stale}
         <Badge tone="warning" title="Cache scaduta" />
       {/if}
-      <Button
-        label="Aggiorna"
-        variant="secondary"
-        disabled={detailsState?.status === "loading"}
-        onClick={refresh}
-      />
     </div>
   {/snippet}
 
@@ -48,8 +41,12 @@
       Nessun dato Steam disponibile per questo titolo.
     </p>
   {:else}
+    {#if screenshots.length > 0}
+      <ScreenshotGallery {steamAppId} name={details.name} version={cachedAt} {screenshots} />
+    {/if}
+
     {#if description !== null}
-      <div use:renderSteamDescription={description} class="space-y-3 text-sm leading-relaxed text-zinc-200 [&_a]:text-sky-300 [&_a]:underline [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:font-semibold [&_li]:ml-5 [&_ol]:list-decimal [&_p]:my-2 [&_ul]:list-disc light:text-zinc-800 light:[&_a]:text-sky-700"></div>
+      <div use:renderSteamDescription={description} class="space-y-3 text-sm leading-relaxed text-zinc-200 [&_a]:text-sky-300 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-white/20 [&_blockquote]:pl-4 [&_h1]:text-xl [&_h1]:font-semibold [&_h1]:text-white [&_h2]:mt-5 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-white [&_h3]:font-semibold [&_h3]:text-white [&_hr]:border-white/10 [&_li]:ml-5 [&_ol]:list-decimal [&_p]:my-2 [&_pre]:overflow-x-auto [&_ul]:list-disc light:text-zinc-800 light:[&_a]:text-sky-700 light:[&_h1]:text-zinc-900 light:[&_h2]:text-zinc-900 light:[&_h3]:text-zinc-900"></div>
     {/if}
 
     {#if details.genres.length > 0}
@@ -81,8 +78,5 @@
       {/if}
     </dl>
 
-    {#if screenshots.length > 0}
-      <ScreenshotGallery {steamAppId} name={details.name} version={cachedAt} {screenshots} />
-    {/if}
   {/if}
 </Panel>

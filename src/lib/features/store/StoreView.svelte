@@ -1,9 +1,9 @@
 <script lang="ts">
   import Badge from "../../components/ui/Badge.svelte";
-  import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
   import { catalog, runCatalogSearch } from "../../stores/catalog";
+  import { storeQuery } from "../../stores/library-ui";
   import { openStoreGame, selectedStoreGame } from "../../stores/navigation";
   import type { LoadStatus } from "../../stores/resource";
   import { refreshSource, sourceRefreshError, source } from "../../stores/source";
@@ -17,23 +17,23 @@
     status: SourceStatus;
   }
 
-  let query = $state("");
+  const collator = new Intl.Collator("it", { sensitivity: "base" });
 
   const manifest = $derived($source.data.manifest);
-  const trimmed = $derived(query.trim());
-  const verifiedCount = $derived(manifest?.verified.length ?? 0);
-  const unverifiedCount = $derived(manifest?.unverified.length ?? 0);
+  const trimmed = $derived($storeQuery.trim());
 
   // Without a query the store lists every release the Legio source publishes,
   // otherwise it lists the catalog hits that the source can actually deliver.
   const entries = $derived.by((): StoreEntry[] => {
     if (trimmed.length === 0) {
       if (manifest === null) return [];
-      return [...manifest.verified, ...manifest.unverified].map((entry) => ({
-        steamAppId: entry.steamAppId,
-        name: entry.name,
-        status: sourceStatusFor(manifest, entry.steamAppId),
-      }));
+      return [...manifest.verified, ...manifest.unverified]
+        .map((entry) => ({
+          steamAppId: entry.steamAppId,
+          name: entry.name,
+          status: sourceStatusFor(manifest, entry.steamAppId),
+        }))
+        .sort((left, right) => collator.compare(left.name, right.name));
     }
     return $catalog.results
       .map((result) => ({
@@ -65,7 +65,7 @@
   });
 
   $effect(() => {
-    const value = query;
+    const value = $storeQuery;
     const timer = setTimeout(() => void runCatalogSearch(value), 300);
     return () => clearTimeout(timer);
   });
@@ -82,22 +82,6 @@
     </div>
   </header>
 
-  <section class="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-zinc-400 light:border-zinc-900/10 light:bg-white light:text-zinc-600">
-    {#if manifest === null}
-      <span>Nessun manifest della sorgente Legio disponibile.</span>
-      <Button label="Scarica sorgente" onClick={() => void refreshSource()} />
-    {:else}
-      <span>Sorgente Legio: {verifiedCount} verificate, {unverifiedCount} non verificate</span>
-      {#if $source.data.stale}
-        <Badge tone="warning" title="Cache scaduta" />
-      {/if}
-      <Button label="Aggiorna sorgente" variant="secondary" onClick={() => void refreshSource()} />
-    {/if}
-    {#if $source.data.warning}
-      <span class="text-amber-300 light:text-amber-800">{$source.data.warning}</span>
-    {/if}
-  </section>
-
   {#if $sourceRefreshError}
     <div class="mb-4">
       <ErrorBanner
@@ -108,22 +92,9 @@
     </div>
   {/if}
 
-  <div class="mb-6 flex flex-col gap-2 rounded-xl bg-white/5 p-4 light:bg-white">
-    <label for="store-query" class="text-sm text-zinc-400 light:text-zinc-600">Cerca un titolo</label>
-    <input
-      id="store-query"
-      type="search"
-      bind:value={query}
-      placeholder="Titolo del gioco"
-      class="h-11 w-full rounded-lg border border-white/10 bg-zinc-900/60 px-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-white/40 light:border-zinc-900/10 light:bg-zinc-50 light:text-zinc-900 light:focus:border-zinc-900/40"
-    />
-  </div>
+  {#if $source.data.warning}<p class="mb-4 text-xs text-amber-300 light:text-amber-800">{$source.data.warning}</p>{/if}
 
-  {#if trimmed.length === 0 && entries.length > 0}
-    <p class="mb-4 text-xs text-zinc-500">
-      {entries.length} titoli disponibili nella sorgente Legio
-    </p>
-  {:else if $catalog.results.length > 0}
+  {#if trimmed.length > 0 && $catalog.results.length > 0}
     <div class="mb-4 flex flex-wrap items-center gap-3 text-xs text-zinc-500">
       <span>{$catalog.total} risultati in cache</span>
       {#if $catalog.refreshing}
@@ -144,11 +115,11 @@
     loadingMessage="Ricerca in corso..."
     {emptyMessage}
     error={$catalog.error}
-    onRetry={() => void runCatalogSearch($catalog.query)}
+    onRetry={() => void runCatalogSearch($storeQuery)}
   />
 
   {#if entries.length > 0}
-    <ul class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    <ul class="flex flex-col gap-2">
       {#each entries as entry (entry.steamAppId)}
         <StoreGameCard
           steamAppId={entry.steamAppId}

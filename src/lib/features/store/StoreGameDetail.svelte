@@ -14,6 +14,7 @@
   import ArtworkViewer from "../library/ArtworkViewer.svelte";
   import SteamArtwork from "../library/SteamArtwork.svelte";
   import SteamMetadata from "../library/SteamMetadata.svelte";
+  import SystemRequirements from "../library/SystemRequirements.svelte";
   import { availabilityMeta, sourceStatusFor } from "./source-status";
 
   let {
@@ -40,15 +41,6 @@
     const date = details.releaseDate;
     const release = date === null ? null : date.comingSoon ? "In arrivo" : date.date;
     return [details.appType, release].filter((part) => part !== null).join(" · ");
-  });
-
-  const platforms = $derived.by(() => {
-    if (details?.platforms === null || details?.platforms === undefined) return [];
-    return [
-      details.platforms.windows ? "Windows" : null,
-      details.platforms.mac ? "macOS" : null,
-      details.platforms.linux ? "Linux" : null,
-    ].filter((entryPlatform) => entryPlatform !== null);
   });
 
   let confirmOpen = $state(false);
@@ -82,24 +74,35 @@
 </script>
 
 <div class="flex min-h-full flex-col gap-4">
-  <div class="flex flex-col overflow-hidden rounded-2xl bg-white/5 light:bg-zinc-100 sm:flex-row">
-    <div class="flex min-w-0 flex-1 flex-col gap-3 p-5 sm:justify-center sm:p-6">
-      <div class="flex flex-wrap items-center gap-2">
+  <section class="relative isolate aspect-[3.1/1] w-full min-w-0 overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200">
+    <SteamArtwork
+      {steamAppId}
+      asset="hero"
+      fallbackAsset="header"
+      version={detailsState?.cachedAt ?? null}
+      caption={false}
+      class="absolute inset-0 block size-full object-cover object-center"
+    >
+      {#snippet placeholder()}{@render backdrop()}{/snippet}
+    </SteamArtwork>
+    {#if details !== null}
+      <button type="button" class="absolute inset-0 z-0 cursor-zoom-in" aria-label="Ingrandisci copertina" onclick={() => (artworkOpen = true)}></button>
+    {/if}
+    <div class="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-t from-zinc-950/95 via-zinc-950/35 to-transparent"></div>
+    <div class="absolute inset-x-0 bottom-0 z-10 flex flex-wrap items-end justify-between gap-4 p-5 sm:p-7">
+      <div class="pointer-events-none flex min-w-0 flex-col items-start gap-2">
         <Badge tone={meta.tone} title={meta.label} />
-        {#each platforms as platform (platform)}
-          <Badge tone="neutral" title={platform} />
-        {/each}
+        <h2 class="max-w-full text-2xl font-semibold text-white sm:text-3xl">
+          <SteamArtwork {steamAppId} asset="logo" version={detailsState?.cachedAt ?? null} caption={false} alt="Logo di {name}" class="max-h-20 max-w-80 object-contain object-left">
+            {#snippet placeholder()}<span class="truncate">{name}</span>{/snippet}
+          </SteamArtwork>
+        </h2>
+        {#if headline !== null}<p class="text-sm text-zinc-200">{headline}</p>{/if}
+        {#if job !== null}
+          <p class="text-sm text-zinc-300">{describeDownloadStatus(job.status)} · versione {job.releaseVersion}</p>
+        {/if}
       </div>
-      <h2 class="text-2xl font-semibold text-zinc-50 sm:text-3xl light:text-zinc-900">{name}</h2>
-      {#if headline !== null}
-        <p class="text-sm text-zinc-400 light:text-zinc-600">{headline}</p>
-      {/if}
-      {#if job !== null}
-        <p class="text-sm text-zinc-400 light:text-zinc-600">
-          {describeDownloadStatus(job.status)} · versione {job.releaseVersion}
-        </p>
-      {/if}
-      <div class="mt-1 flex flex-wrap gap-2">
+      <div class="flex flex-wrap gap-2">
         {#if job !== null}
           <Button label="Vai ai download" variant="secondary" onClick={() => selectSection("downloads")} />
         {:else if status.availability === "verified" || status.availability === "unverified"}
@@ -107,32 +110,7 @@
         {/if}
       </div>
     </div>
-    <div class="w-full shrink-0 sm:w-[30rem]">
-      <div
-        class="relative aspect-[2.14/1] w-full overflow-hidden bg-zinc-800 [mask-image:linear-gradient(to_bottom,transparent,#000_4rem)] light:bg-zinc-200 sm:[mask-image:linear-gradient(to_right,transparent,#000_6rem)]"
-      >
-        <SteamArtwork
-          {steamAppId}
-          asset="header"
-          version={detailsState?.cachedAt ?? null}
-          caption={false}
-          class="absolute inset-0 size-full object-cover"
-        >
-          {#snippet placeholder()}
-            {@render backdrop()}
-          {/snippet}
-        </SteamArtwork>
-        {#if details !== null}
-          <button
-            type="button"
-            class="absolute inset-0 cursor-zoom-in"
-            aria-label="Ingrandisci copertina"
-            onclick={() => (artworkOpen = true)}
-          ></button>
-        {/if}
-      </div>
-    </div>
-  </div>
+  </section>
 
   {#if queueError !== null}
     <ErrorBanner message={queueError} />
@@ -145,8 +123,11 @@
     <div class="flex min-w-0 flex-col gap-3">
       <SteamMetadata {steamAppId} />
     </div>
-
     <div class="flex min-w-0 flex-col gap-3">
+      <SystemRequirements
+        requirements={details?.systemRequirements ?? null}
+        loading={detailsState?.status === "loading"}
+      />
       <Panel title="Info gioco">
         <div class="flex flex-col gap-3">
           <p class="text-sm text-zinc-300 light:text-zinc-700">{meta.description}</p>
@@ -182,38 +163,6 @@
           {#if sourceWarning !== null}
             <p class="text-sm text-amber-300 light:text-amber-800">{sourceWarning}</p>
           {/if}
-          <div>
-            <Button label="Aggiorna sorgente" variant="secondary" onClick={() => void refreshSource()} />
-          </div>
-        </div>
-      </Panel>
-
-      <Panel title="Download" class="flex-1">
-        <div class="flex flex-col gap-3 text-sm">
-          {#if job !== null}
-            <div class="flex flex-wrap items-center gap-2">
-              <Badge
-                tone={job.status === "failed" ? "danger" : job.status === "installed" ? "success" : "info"}
-                title={describeDownloadStatus(job.status)}
-              />
-              <span class="text-zinc-300 light:text-zinc-700">
-                {formatBytes(job.downloadedBytes)} / {formatBytes(job.sizeBytes)}
-              </span>
-            </div>
-            {#if job.error !== null}
-              <p class="text-red-300 light:text-red-700" role="alert">{job.error}</p>
-            {/if}
-          {:else if status.availability === "unavailable"}
-            <p class="text-zinc-400 light:text-zinc-600">
-              Nessun download disponibile per questo titolo.
-            </p>
-          {:else if status.availability === "unknown"}
-            <p class="text-zinc-400 light:text-zinc-600">
-              Il download non è disponibile finché la sorgente Legio non è caricata.
-            </p>
-          {:else}
-            <Button label="Scarica" disabled={queueing} onClick={requestDownload} />
-          {/if}
         </div>
       </Panel>
     </div>
@@ -221,7 +170,7 @@
 </div>
 
 {#if artworkOpen && details !== null}
-  <ArtworkViewer {steamAppId} asset="header" alt="Copertina di {name}" onClose={() => (artworkOpen = false)} />
+  <ArtworkViewer {steamAppId} asset="hero" fallbackAsset="header" alt="Copertina di {name}" onClose={() => (artworkOpen = false)} />
 {/if}
 
 <Dialog open={confirmOpen} title="Rilascio non verificato" onClose={() => (confirmOpen = false)}>

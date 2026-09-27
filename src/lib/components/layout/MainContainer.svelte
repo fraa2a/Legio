@@ -8,7 +8,7 @@
 </script>
 
 <main
-  class="min-h-0 min-w-0 flex-1 overflow-y-auto scrollbar-none bg-black light:bg-zinc-50"
+  class="min-h-0 min-w-0 flex-1 overflow-y-auto rounded-xl scrollbar-none bg-black light:bg-zinc-50"
 >
   {#if $activeSection === "home"}
     <HomeView />

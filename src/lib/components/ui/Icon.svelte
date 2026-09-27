@@ -5,10 +5,17 @@
     | "store"
     | "downloads"
     | "settings"
+    | "folder"
+    | "image"
+    | "wrench"
+    | "warning"
     | "play"
     | "close"
     | "previous"
-    | "next";
+    | "next"
+    | "reload"
+    | "search"
+    | "plus";
 
   let {
     name,
@@ -24,6 +31,9 @@
   };
 
   const iconPaths: Record<IconName, IconPath[]> = {
+    search: [{ d: "M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.71.71l.27.28v.78l5 5 1.5-1.5-5-5Zm-5 0A4.5 4.5 0 1 1 10.5 5a4.5 4.5 0 0 1 0 9Z" }],
+    plus: [{ d: "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2Z" }],
+    reload: [{ d: "M17.65 6.35A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.76-4.24L13 11h7V4l-2.35 2.35Z" }],
     play: [{ d: "M8 5v14l11-7L8 5z" }],
     close: [{ d: "M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41Z" }],
     previous: [{ d: "M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12l4.58-4.59Z" }],
@@ -80,6 +90,10 @@
         evenodd: true,
       },
     ],
+    folder: [{ d: "M10 4H2v16h20V6H12l-2-2Zm10 14H4V6h5.17l2 2H20v10Z" }],
+    image: [{ d: "M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2ZM5 5h14v9l-3.5-3.5-4 5L9 13l-4 5V5Zm3 4a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" }],
+    wrench: [{ d: "M22.7 19 13.6 9.9a6 6 0 0 0-7.7-7.1l3.5 3.5-3 3-3.5-3.5A6 6 0 0 0 10 13.5l9.1 9.1a2.5 2.5 0 0 0 3.5-3.6Z" }],
+    warning: [{ d: "M12 2 1 21h22L12 2Zm0 4 7.5 13h-15L12 6Zm-1 4v5h2v-5h-2Zm0 7v2h2v-2h-2Z" }],
   };
 </script>
 

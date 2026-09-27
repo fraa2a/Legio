@@ -25,6 +25,8 @@ export const selectedStoreGame = writable<StoreGameSelection | null>(null);
 export const settingsOpen = writable(false);
 
 export function selectSection(section: Section): void {
+  selectedGameId.set(null);
+  selectedStoreGame.set(null);
   activeSection.set(section);
 }
 

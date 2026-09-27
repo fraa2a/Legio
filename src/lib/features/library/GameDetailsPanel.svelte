@@ -9,7 +9,11 @@
   import TextField from "../../components/ui/TextField.svelte";
   import type { SteamIdentityCandidate, SteamIdentificationResult } from "../../services/manual-import";
 
-  let { game, onRemoved }: { game: Game; onRemoved: () => void } = $props();
+  let { game, onRemoved, section = "general" }: {
+    game: Game;
+    onRemoved: () => void;
+    section?: "general" | "danger";
+  } = $props();
 
   let nameDraft = $state<string | null>(null);
   let pending = $state(false);
@@ -112,6 +116,7 @@
   });
 </script>
 
+{#if section === "general"}
 <Panel title="Impostazioni">
   <TextField
     id="game-name"
@@ -185,6 +190,7 @@
   </Panel>
 {/if}
 
+{:else}
 <Panel title="Rimuovi dalla libreria">
   {#if actionError !== null}
     <ErrorBanner message={actionError} />
@@ -206,3 +212,4 @@
     </div>
   {/if}
 </Panel>
+{/if}

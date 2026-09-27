@@ -148,8 +148,8 @@ export async function detectManualGameSteamAppId(gameId: string): Promise<SteamI
   return result;
 }
 
-export async function saveExecutableForGame(gameId: string): Promise<Game> {
-  const game = await setGameExecutable(gameId, selectedExecutable());
+export async function saveExecutableForGame(gameId: string, executablePath: string): Promise<Game> {
+  const game = await setGameExecutable(gameId, executablePath);
   reconcileGame(game);
   return game;
 }

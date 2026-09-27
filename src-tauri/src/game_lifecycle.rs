@@ -426,7 +426,7 @@ impl GameLaunchManager {
     ) -> Result<(), String> {
         let database = app.state::<DatabaseState>().shared_database()?;
         let game = database.game(&game_id)?;
-        if game.steam_app_id.is_some() || game.steam_install_path.is_some() {
+        if game.steam_install_path.is_some() {
             return Err("Compatibility runners can only launch manually imported games".to_owned());
         }
         let executable_path = game

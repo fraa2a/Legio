@@ -28,6 +28,8 @@ pub enum AssetKind {
     Header,
     Capsule,
     Screenshot,
+    Hero,
+    Logo,
 }
 
 #[derive(Debug, Serialize)]
@@ -215,7 +217,18 @@ fn selected_url(
     asset: AssetKind,
     index: Option<usize>,
     full: bool,
-) -> Result<&str, String> {
+) -> Result<String, String> {
+    if matches!(asset, AssetKind::Hero | AssetKind::Logo) && index.is_none() {
+        let filename = if matches!(asset, AssetKind::Hero) {
+            "library_hero.jpg"
+        } else {
+            "logo.png"
+        };
+        return Ok(format!(
+            "https://cdn.cloudflare.steamstatic.com/steam/apps/{}/{filename}",
+            details.steam_app_id
+        ));
+    }
     let url = match (asset, index) {
         (AssetKind::Header, None) => details.assets.header.as_deref(),
         (AssetKind::Capsule, None) => details.assets.capsule.as_deref(),
@@ -236,7 +249,7 @@ fn selected_url(
     if url.len() > 2048 || url.chars().any(char::is_control) || !is_steam_asset_url(&parsed) {
         return Err("Cached image URL is invalid.".to_owned());
     }
-    Ok(url)
+    Ok(url.to_owned())
 }
 
 async fn load_asset(
@@ -328,10 +341,12 @@ pub async fn get_asset(
         let details = cached_details(database, app_id)
             .map_err(|error| error.message)?
             .ok_or_else(|| "No cached Steam details are available for this App ID.".to_owned())?;
-        let url = selected_url(&details, asset, index, full)?.to_owned();
+        let url = selected_url(&details, asset, index, full)?;
         let key = match asset {
             AssetKind::Header => format!("{app_id}-header"),
             AssetKind::Capsule => format!("{app_id}-capsule"),
+            AssetKind::Hero => format!("{app_id}-hero"),
+            AssetKind::Logo => format!("{app_id}-logo"),
             AssetKind::Screenshot => {
                 let suffix = if full { "-full" } else { "" };
                 format!("{app_id}-screenshot-{}{suffix}", index.unwrap_or_default())

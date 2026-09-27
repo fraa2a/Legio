@@ -94,6 +94,8 @@ pub fn run() -> tauri::Result<()> {
             commands::save_game_compatibility_overrides,
             commands::get_native_launch_config,
             commands::save_native_launch_config,
+            commands::get_steam_launch_config,
+            commands::save_steam_launch_config,
             commands::list_games,
             commands::get_playtime_summaries,
             commands::create_game,

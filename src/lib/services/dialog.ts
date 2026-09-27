@@ -21,3 +21,12 @@ export function pickExecutableFile(startPath?: string | null): Promise<string | 
     defaultPath: defaultPath(startPath),
   });
 }
+
+export function pickGameArtworkFile(): Promise<string | null> {
+  return open({
+    title: "Seleziona un'immagine",
+    directory: false,
+    multiple: false,
+    filters: [{ name: "Immagini", extensions: ["png", "jpg", "jpeg", "webp"] }],
+  });
+}

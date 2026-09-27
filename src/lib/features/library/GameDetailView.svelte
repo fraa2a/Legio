@@ -19,14 +19,15 @@
   import Dialog from "../../components/ui/Dialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
-  import GameDetailsPanel from "./GameDetailsPanel.svelte";
+  import GameSettingsDialog from "./GameSettingsDialog.svelte";
   import GameLaunchControls from "./GameLaunchControls.svelte";
   import ArtworkViewer from "./ArtworkViewer.svelte";
-  import ExecutablePanel from "./ExecutablePanel.svelte";
-  import SteamAccountPanel from "./SteamAccountPanel.svelte";
   import SteamMetadata from "./SteamMetadata.svelte";
   import SteamArtwork from "./SteamArtwork.svelte";
-  import GameSettingsPanel from "./GameSettingsPanel.svelte";
+  import SystemRequirements from "./SystemRequirements.svelte";
+  import Icon from "../../components/ui/Icon.svelte";
+  import { getGameBanner, getGameIcon, gameArtworkRevision } from "../../services/game-artwork";
+  import { toMessage } from "../../utils/errors";
 
   const game = $derived($games.data.find((entry) => entry.id === $selectedGameId) ?? null);
   const steamAppId = $derived(game?.steamAppId ?? null);
@@ -40,18 +41,13 @@
     const release = date === null ? null : date.comingSoon ? "In arrivo" : date.date;
     return [details.appType, release].filter((part) => part !== null).join(" · ");
   });
-  const platforms = $derived.by(() => {
-    if (details?.platforms === null || details?.platforms === undefined) return [];
-    return [
-      details.platforms.windows ? "Windows" : null,
-      details.platforms.mac ? "macOS" : null,
-      details.platforms.linux ? "Linux" : null,
-    ].filter((entry) => entry !== null);
-  });
   const location = $derived(game?.steamInstallPath ?? game?.executablePath ?? null);
 
   let artworkOpen = $state(false);
-  let activeTab = $state<"overview" | "settings">("overview");
+  let gameSettingsOpen = $state(false);
+  let customBannerUrl = $state<string | null>(null);
+  let customIconUrl = $state<string | null>(null);
+  let artworkError = $state<string | null>(null);
 
   $effect(() => {
     if ($selectedGameId !== null && game === null) closeGame();
@@ -59,6 +55,40 @@
 
   $effect(() => {
     if (steamAppId !== null) ensureSteamDetails(steamAppId);
+  });
+
+  $effect(() => {
+    const currentGame = game;
+    void $gameArtworkRevision;
+    if (currentGame === null) return;
+
+    let cancelled = false;
+    let bannerObjectUrl: string | null = null;
+    let iconObjectUrl: string | null = null;
+    customBannerUrl = null;
+    customIconUrl = null;
+    artworkError = null;
+
+    const asUrl = (bytes: number[], contentType: string): string =>
+      URL.createObjectURL(new Blob([Uint8Array.from(bytes)], { type: contentType }));
+    void Promise.all([getGameBanner(currentGame.id), getGameIcon(currentGame.id)]).then(
+      ([banner, icon]) => {
+        if (cancelled) return;
+        bannerObjectUrl = banner === null ? null : asUrl(banner.bytes, banner.contentType);
+        iconObjectUrl = icon === null ? null : asUrl(icon.bytes, icon.contentType);
+        customBannerUrl = bannerObjectUrl;
+        customIconUrl = iconObjectUrl;
+      },
+      (cause: unknown) => {
+        if (!cancelled) artworkError = toMessage(cause);
+      },
+    );
+
+    return () => {
+      cancelled = true;
+      if (bannerObjectUrl !== null) URL.revokeObjectURL(bannerObjectUrl);
+      if (iconObjectUrl !== null) URL.revokeObjectURL(iconObjectUrl);
+    };
   });
 </script>
 
@@ -68,36 +98,53 @@
   </p>
 {:else}
   <div class="flex min-h-full flex-col gap-4">
-    <div class="flex flex-col overflow-hidden rounded-2xl bg-white/5 light:bg-zinc-100 sm:flex-row">
-      <div class="flex min-w-0 flex-1 flex-col gap-3 p-5 sm:justify-center sm:p-6">
-        <div class="flex flex-wrap items-center gap-2">
-          {#if !isSteamGame}
-            <Badge tone="neutral" title="Manuale" />
-          {/if}
-          {#if game.nameOverride !== null}
-            <Badge tone="warning" title="Nome personalizzato" />
-          {/if}
+    <section class="relative isolate w-full min-w-0 overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200 {customBannerUrl !== null ? 'aspect-[2.2/1]' : 'aspect-[3.1/1]'}">
+      {#if customBannerUrl !== null}
+        <img src={customBannerUrl} alt="Banner personalizzato di {game.name}" class="absolute inset-0 block size-full object-cover object-center" />
+      {:else if details !== null}
+        <SteamArtwork
+          steamAppId={details.steamAppId}
+          asset="hero"
+          fallbackAsset="header"
+          version={detailsState?.cachedAt ?? null}
+          caption={false}
+          class="absolute inset-0 block size-full object-cover object-center"
+        >
+          {#snippet placeholder()}{@render backdrop()}{/snippet}
+        </SteamArtwork>
+      {:else}
+        {@render backdrop()}
+      {/if}
+      {#if details !== null && customBannerUrl === null}
+        <button type="button" class="absolute inset-0 z-0 cursor-zoom-in" aria-label="Ingrandisci copertina" onclick={() => (artworkOpen = true)}></button>
+      {/if}
+      <div class="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-t from-zinc-950/95 via-zinc-950/35 to-transparent"></div>
+      <div class="absolute inset-x-0 bottom-0 z-10 flex flex-wrap items-end justify-between gap-4 p-5 sm:p-7">
+        <div class="pointer-events-none flex min-w-0 flex-col items-start gap-2">
           {#if launch?.status === "running"}
             <Badge tone="success" title="In esecuzione" />
           {:else if launch?.status === "launching"}
             <Badge tone="warning" title="Avvio in corso" />
           {/if}
-          {#each platforms as platform (platform)}
-            <Badge tone="neutral" title={platform} />
-          {/each}
+          <h2 class="max-w-full text-2xl font-semibold text-white sm:text-3xl">
+            {#if customIconUrl !== null}
+              <img src={customIconUrl} alt="Icona personalizzata di {game.name}" class="max-h-20 max-w-80 object-contain object-left" />
+            {:else if steamAppId !== null}
+              <SteamArtwork {steamAppId} asset="logo" version={detailsState?.cachedAt ?? null} caption={false} alt="Logo di {game.name}" class="max-h-20 max-w-80 object-contain object-left">
+                {#snippet placeholder()}<span class="truncate">{game.name}</span>{/snippet}
+              </SteamArtwork>
+            {:else}
+              {game.name}
+            {/if}
+          </h2>
+          {#if headline !== null}
+            <p class="text-sm text-zinc-200">{headline}</p>
+          {:else if location !== null}
+            <p class="max-w-full truncate text-sm text-zinc-300" title={location}>{location}</p>
+          {/if}
+          {#if launch?.error}<p class="text-sm text-red-300" role="alert">{launch.error}</p>{/if}
         </div>
-        <h2 class="text-2xl font-semibold text-zinc-50 sm:text-3xl light:text-zinc-900">
-          {game.name}
-        </h2>
-        {#if headline !== null}
-          <p class="text-sm text-zinc-400 light:text-zinc-600">{headline}</p>
-        {:else if location !== null}
-          <p class="truncate text-sm text-zinc-400 light:text-zinc-600" title={location}>{location}</p>
-        {/if}
-        {#if launch?.error}
-          <p class="text-sm text-red-300 light:text-red-700" role="alert">{launch.error}</p>
-        {/if}
-        <div class="mt-1 flex flex-wrap gap-2">
+        <div class="flex flex-wrap gap-2">
           <GameLaunchControls
             {game}
             {launch}
@@ -108,54 +155,32 @@
             onCancel={abortGameLaunch}
             onStop={stopGameProcess}
           />
+          <Button label="Impostazioni del gioco" variant="secondary" onClick={() => (gameSettingsOpen = true)}>
+            <Icon name="settings" size="h-4 w-4" />
+          </Button>
         </div>
       </div>
-      <div class="w-full shrink-0 sm:w-[30rem]">
-        <div
-          class="relative aspect-[2.14/1] w-full overflow-hidden bg-zinc-800 [mask-image:linear-gradient(to_bottom,transparent,#000_4rem)] light:bg-zinc-200 sm:[mask-image:linear-gradient(to_right,transparent,#000_6rem)]"
-        >
-          {#if details !== null}
-            <SteamArtwork
-              steamAppId={details.steamAppId}
-              asset="header"
-              version={detailsState?.cachedAt ?? null}
-              caption={false}
-              class="absolute inset-0 size-full object-cover"
-            >
-              {#snippet placeholder()}
-                {@render backdrop()}
-              {/snippet}
-            </SteamArtwork>
-          {:else}
-            {@render backdrop()}
-          {/if}
-          {#if details !== null}
-            <button
-              type="button"
-              class="absolute inset-0 cursor-zoom-in"
-              aria-label="Ingrandisci copertina"
-              onclick={() => (artworkOpen = true)}
-            ></button>
-          {/if}
-        </div>
-      </div>
-    </div>
+    </section>
+
+    {#if artworkError !== null}
+      <ErrorBanner message={artworkError} />
+    {/if}
 
     {#if $launchError !== null}
       <ErrorBanner message={$launchError} />
     {/if}
 
-    <nav class="flex gap-1 border-b border-white/10 light:border-zinc-900/10" aria-label="Pagina del gioco">
-      <button type="button" aria-current={activeTab === "overview" ? "page" : undefined} onclick={() => (activeTab = "overview")} class="border-b-2 px-4 py-3 text-sm font-medium transition-colors {activeTab === 'overview' ? 'border-white text-white light:border-zinc-900 light:text-zinc-900' : 'border-transparent text-zinc-400 hover:text-white light:text-zinc-600 light:hover:text-zinc-900'}">Panoramica</button>
-      <button type="button" aria-current={activeTab === "settings" ? "page" : undefined} onclick={() => (activeTab = "settings")} class="border-b-2 px-4 py-3 text-sm font-medium transition-colors {activeTab === 'settings' ? 'border-white text-white light:border-zinc-900 light:text-zinc-900' : 'border-transparent text-zinc-400 hover:text-white light:text-zinc-600 light:hover:text-zinc-900'}">Impostazioni del gioco</button>
-    </nav>
-
-    {#if activeTab === "overview"}
-      <div class="flex min-w-0 max-w-5xl flex-col gap-4">
-        {#if steamAppId !== null}
-          <SteamMetadata {steamAppId} />
-        {/if}
-        <Panel title="Installazione">
+    <div class="grid flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <div class="min-w-0">
+        {#if steamAppId !== null}<SteamMetadata {steamAppId} />{/if}
+      </div>
+      <div class="flex min-w-0 flex-col gap-4">
+        <SystemRequirements
+          requirements={details?.systemRequirements ?? null}
+          loading={detailsState?.status === "loading"}
+          hasSteamAppId={steamAppId !== null}
+        />
+        <Panel title="Info gioco">
           <dl class="grid gap-2 text-sm">
             <div class="flex flex-wrap gap-x-3">
               <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">Origine</dt>
@@ -186,34 +211,31 @@
           </dl>
         </Panel>
       </div>
-    {:else}
-      <div class="mx-auto flex w-full max-w-4xl flex-col gap-4">
-        {#if isSteamGame}
-          {#key game.id}<SteamAccountPanel {game} />{/key}
-        {/if}
-        <GameDetailsPanel {game} onRemoved={closeGame} />
-        {#if !isSteamGame}
-          <ExecutablePanel game={game} />
-          {#if game.executablePath !== null}
-            {#key game.id}<GameSettingsPanel {game} />{/key}
-          {/if}
-        {/if}
-      </div>
-    {/if}
+    </div>
   </div>
+{/if}
+
+{#if gameSettingsOpen && game !== null}
+  <GameSettingsDialog
+    {game}
+    onClose={() => (gameSettingsOpen = false)}
+    onRemoved={() => { gameSettingsOpen = false; closeGame(); }}
+  />
 {/if}
 
 {#if artworkOpen && details !== null}
   <ArtworkViewer
     steamAppId={details.steamAppId}
-    asset="header"
+    asset="hero"
+    fallbackAsset="header"
     alt="Copertina di {game?.name ?? details.name}"
     onClose={() => (artworkOpen = false)}
   />
 {/if}
 
+{#if $accountSwitchGame !== null}
 <Dialog
-  open={$accountSwitchGame !== null}
+  open
   title="Cambio account Steam"
   onClose={dismissAccountSwitch}
 >
@@ -226,6 +248,7 @@
     <Button label="Riavvia e avvia" onClick={() => void confirmAccountSwitch()} />
   </div>
 </Dialog>
+{/if}
 
 {#snippet backdrop()}
   <div

@@ -5,10 +5,12 @@
   import CompatibilitySettings from "./CompatibilitySettings.svelte";
   import NetworkSettings from "./NetworkSettings.svelte";
   import ThemeSettings from "./ThemeSettings.svelte";
+  import GeneralSettings from "./GeneralSettings.svelte";
 
   let { onClose }: { onClose: () => void } = $props();
 
   const categories = [
+    { id: "general", label: "Generali" },
     { id: "appearance", label: "Aspetto" },
     { id: "network", label: "Rete" },
     { id: "downloads", label: "Download" },
@@ -17,7 +19,7 @@
 
   type Category = (typeof categories)[number]["id"];
 
-  let active = $state<Category>("appearance");
+  let active = $state<Category>("general");
 
   function categoryClass(isActive: boolean): string {
     return isActive
@@ -40,7 +42,7 @@
 
   <div class="flex min-h-0 flex-1">
     <nav
-      class="flex w-52 shrink-0 flex-col gap-1 overflow-y-auto border-r border-white/5 p-2 light:border-zinc-900/10"
+      class="flex w-52 shrink-0 flex-col gap-1 overflow-y-auto border-r border-white/15 p-2 light:border-zinc-900/15"
       aria-label="Categorie delle impostazioni"
     >
       {#each categories as category (category.id)}
@@ -58,7 +60,9 @@
     </nav>
 
     <div class="min-w-0 flex-1 overflow-y-auto p-6">
-      {#if active === "appearance"}
+      {#if active === "general"}
+        <GeneralSettings />
+      {:else if active === "appearance"}
         <ThemeSettings />
       {:else if active === "network"}
         <NetworkSettings />

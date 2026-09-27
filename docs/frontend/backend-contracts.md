@@ -21,13 +21,15 @@ Call these through `invoke` wrappers:
 | Command | Arguments | Result |
 | --- | --- | --- |
 | `get_app_info` | none | `{ name, version, platform, desktopEnvironment }` |
-| `get_settings` | none | `{ theme: "system" | "dark" | "light" }` |
-| `save_settings` | `{ settings: { theme } }` | saved settings |
+| `get_settings` | none | `{ theme: "system" | "dark" | "light", steamLibraryPollMinutes: number }` |
+| `save_settings` | `{ settings: { theme, steamLibraryPollMinutes } }` | saved settings |
 | `get_network_status` | none | `"unknown" | "online"` |
 | `check_steam_connectivity` | none | `{ status, detail }` |
 | `get_network_log_status` | none | `{ directory, lastError, droppedRecords, pendingRecords }` |
 
 Suggested startup hydration: load app info, settings, `list_games`, `list_downloads`, cached `get_legio_source`, and `get_playtime_summaries`; show cached/local content immediately, then refresh connectivity and remote metadata in the background. `desktopEnvironment` is optional and is currently used only for platform-specific presentation such as Hyprland window controls.
+
+`steamLibraryPollMinutes` defaults to `30` and accepts values from `5` to `120`. Steam library detection always runs once after startup, then repeats at the saved interval.
 
 ## Library and game settings
 

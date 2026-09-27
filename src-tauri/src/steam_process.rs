@@ -100,6 +100,7 @@ fn wait_for_client_interface(
 pub(crate) fn request_game_launch(
     steam_root: &Path,
     app_id: u32,
+    arguments: &[String],
     cancel: &AtomicBool,
 ) -> Result<(), String> {
     if app_id == 0 {
@@ -111,6 +112,7 @@ pub(crate) fn request_game_launch(
     Command::new(executable)
         .arg("-applaunch")
         .arg(app_id.to_string())
+        .args(arguments)
         .spawn()
         .map_err(|error| format!("Could not ask Steam to launch the game: {error}"))?;
     Ok(())
@@ -537,7 +539,7 @@ mod tests {
     fn game_launch_rejects_invalid_app_id() {
         let cancel = AtomicBool::new(false);
         assert_eq!(
-            request_game_launch(Path::new("/missing-steam"), 0, &cancel).unwrap_err(),
+            request_game_launch(Path::new("/missing-steam"), 0, &[], &cancel).unwrap_err(),
             "Steam App ID is invalid"
         );
     }

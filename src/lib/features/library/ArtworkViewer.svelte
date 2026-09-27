@@ -9,6 +9,7 @@
   let {
     steamAppId,
     asset,
+    fallbackAsset = null,
     index = null,
     count = 1,
     version = null,
@@ -18,6 +19,7 @@
   }: {
     steamAppId: number;
     asset: SteamAssetKind;
+    fallbackAsset?: SteamAssetKind | null;
     index?: number | null;
     count?: number;
     version?: number | null;
@@ -93,6 +95,7 @@
           <SteamArtwork
             {steamAppId}
             {asset}
+            {fallbackAsset}
             {index}
             {version}
             full

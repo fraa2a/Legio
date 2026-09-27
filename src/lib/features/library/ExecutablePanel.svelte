@@ -1,46 +1,35 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import type { Game } from "../../services/local-state";
+  import { pickExecutableFile } from "../../services/dialog";
   import { toMessage } from "../../utils/errors";
-  import {
-    browseGameDirectory,
-    manualImport,
-    resetManualImport,
-    saveExecutableForGame,
-    setScanGameName,
-  } from "../../stores/manual-import";
+  import { saveExecutableForGame } from "../../stores/manual-import";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
-  import ExecutableScanPanel from "./ExecutableScanPanel.svelte";
+  import TextField from "../../components/ui/TextField.svelte";
 
   let { game }: { game: Game } = $props();
 
-  // A game without an executable needs the scan panel open right away.
-  let scanning = $state(untrack(() => game.executablePath === null));
+  let executablePath = $state(untrack(() => game.executablePath ?? ""));
   let pending = $state(false);
   let actionError = $state<string | null>(null);
 
-  $effect(() => resetManualImport);
-
-  function startScan(): void {
+  async function browse(): Promise<void> {
     actionError = null;
-    scanning = true;
-    setScanGameName(game.name);
-    void browseGameDirectory(game.executablePath);
-  }
-
-  function stopScan(): void {
-    resetManualImport();
-    scanning = false;
+    try {
+      executablePath = (await pickExecutableFile(game.executablePath)) ?? executablePath;
+    } catch (error) {
+      actionError = toMessage(error);
+    }
   }
 
   async function save(): Promise<void> {
     actionError = null;
     pending = true;
     try {
-      await saveExecutableForGame(game.id);
-      resetManualImport();
+      const updated = await saveExecutableForGame(game.id, executablePath.trim());
+      executablePath = updated.executablePath ?? "";
     } catch (error) {
       actionError = toMessage(error);
     } finally {
@@ -53,28 +42,9 @@
   {#if actionError !== null}
     <ErrorBanner message={actionError} />
   {/if}
-  <p class="text-sm text-zinc-400 light:text-zinc-600">
-    Eseguibile salvato: <span class="break-all">{game.executablePath ?? "nessuno"}</span>. La
-    scansione non modifica nulla finché non confermi la scelta.
-  </p>
-  {#if scanning}
-    <ExecutableScanPanel
-      hint="Scegli la cartella da cui cercare l'eseguibile. La scansione è indipendente da quella già salvata."
-      nameLabel="Nome per la scansione"
-      startPath={game.executablePath}
-      disabled={pending}
-    />
-    <div class="flex flex-wrap justify-end gap-2">
-      <Button label="Annulla scansione" variant="secondary" onClick={stopScan} />
-      <Button
-        label="Salva eseguibile scelto"
-        disabled={pending || $manualImport.selectedPath === null}
-        onClick={() => void save()}
-      />
-    </div>
-  {:else}
-    <div>
-      <Button label="Nuova scansione" variant="secondary" onClick={startScan} />
-    </div>
-  {/if}
+  <TextField id="game-executable" label="Percorso eseguibile (.exe)" value={executablePath} disabled={pending} placeholder="Seleziona o inserisci un file .exe" oninput={(value) => (executablePath = value)} />
+  <div class="flex flex-wrap gap-2">
+    <Button label="Scegli eseguibile..." variant="secondary" disabled={pending} onClick={() => void browse()} />
+    <Button label={pending ? "Salvataggio..." : "Salva eseguibile"} disabled={pending || executablePath.trim().length === 0 || executablePath.trim() === game.executablePath} onClick={() => void save()} />
+  </div>
 </Panel>
