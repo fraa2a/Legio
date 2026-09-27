@@ -16,6 +16,7 @@ mod game_artwork;
 mod game_lifecycle;
 mod game_process;
 mod image_format;
+mod installed_folder;
 pub mod legio_source;
 mod legio_source_cache;
 mod manual_import;
@@ -36,6 +37,7 @@ pub fn run() -> tauri::Result<()> {
         .map_err(std::io::Error::other)?;
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
             let database = database::DatabaseState::new(app.path().app_data_dir());
             let bandwidth_limit = database
@@ -135,6 +137,10 @@ pub fn run() -> tauri::Result<()> {
             download_queue::retry_download,
             download_queue::cancel_download,
             download_queue::set_download_bandwidth_limit,
+            download_queue::get_download_bandwidth_limit,
+            download_queue::remove_download,
+            download_queue::remove_finished_downloads,
+            installed_folder::open_installed_folder,
             commands::refresh_legio_source,
             commands::check_steam_connectivity,
             commands::search_catalog,
