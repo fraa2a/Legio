@@ -22,7 +22,7 @@ Shared launch lifecycle, Steam-managed launch, optional per-game Steam account s
 
 ### 06A: Shared launch lifecycle
 
-Status: Completed for the Linux controlled-process path.
+Status: Completed for controlled Linux and Windows process paths.
 
 - Define Rust-owned `prepare`, `launch`, `monitor`, `terminate`, and `collect diagnostics` stages.
 - Represent stage failures as typed, actionable results.
@@ -33,11 +33,14 @@ Verification: a controlled executable traverses every stage, termination is obse
 - **Platform:** Linux.
 - **Command or scenario:** `cargo test --manifest-path src-tauri/Cargo.toml --locked manager_ -- --nocapture`.
 - **Observable result:** `GameLaunchManager` prepares a database-backed manual game, starts a controlled Wine-kind runner stub, observes `Launching` and `Running`, stops the detected child process, returns to `Idle`, and preserves a closed session after reopening SQLite. Preparation and runner-exit failures return stage-specific errors.
-- **Remaining blockers:** Real Steam behavior, native Windows process tracking, and launching a real game remain unverified under 06B. A controlled native Windows manager lifecycle check is added to CI in this change; its result is pending.
+- **Platform:** Windows Server 2025 on GitHub Actions.
+- **Command or scenario:** CI run [36282524661](https://github.com/fraa2a/Legio/actions/runs/36282524661), step `Test Windows native lifecycle manager`.
+- **Observable result:** The application `GameLaunchManager` prepares a database-backed manual game, launches a controlled child, detects it as running, records an active session, stops it, returns to idle, and preserves a closed session after reopening SQLite.
+- **Remaining blockers:** Real Steam behavior and a real-game launch remain unverified under 06B.
 
 ### 06B: Steam and native Windows launch
 
-Status: Steam-managed launch, account overrides, and a native Windows launch backend are implemented. Existing targeted Windows checks pass; this change adds an end-to-end controlled native manager test, with CI evidence pending. Real Steam and real-game verification remain.
+Status: Steam-managed launch, account overrides, and a native Windows launch backend are implemented. Controlled Windows native manager lifecycle and platform helper checks pass in CI. Real Steam and real-game verification remain.
 
 - Launch Steam-managed games through Steam.
 - Enumerate locally saved Steam account IDs and display names using bounded, read-only parsing of Steam-owned local metadata. Do not expose login names, passwords, tokens, or the raw source file.
@@ -51,8 +54,8 @@ Status: Steam-managed launch, account overrides, and a native Windows launch bac
 Verification: Steam ownership remains intact and helper-exit scenarios do not prematurely end monitoring. Fixture tests cover missing or malformed account metadata, duplicate display names, stale selections, matching and mismatched active IDs, unknown active identity, confirmation cancellation, switch failure, backups, rollback, unknown-field preservation, and no sensitive fields in errors or logs. Native Linux and Windows checks cover saved-session, password/Steam Guard, and active-account verification. Steam and running games remain open when confirmation is declined. Steam account-file formats and switch behavior require revalidation after client updates.
 
 - **Platform:** Windows Server 2025 on GitHub Actions.
-- **Command or scenario:** CI run [36265763292](https://github.com/fraa2a/Legio/actions/runs/36265763292) ran Windows Steam-root discovery, process-control, staged-finalization, and database-reopen recovery tests, then built the Tauri application.
-- **Observable result:** All four targeted Windows test commands and the Tauri build passed.
+- **Command or scenario:** CI run [36282524661](https://github.com/fraa2a/Legio/actions/runs/36282524661) ran Windows Steam-root discovery, process-control, controlled native manager lifecycle, staged-finalization, and database-reopen recovery tests, then built the Tauri application.
+- **Observable result:** All five targeted Windows test commands and the Tauri build passed.
 - **Remaining blockers:** These checks do not start the Steam client or a real game. Steam account selection and Steam-managed process tracking still lack an end-to-end run against the real Steam client.
 
 ### 06C: Sessions, product surfaces, and offline behavior
