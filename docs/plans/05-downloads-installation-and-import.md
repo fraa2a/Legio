@@ -20,7 +20,7 @@ Persistent queue control, restart recovery, bandwidth and progress reporting, SH
 
 ### 05A: Persistent download queue
 
-Status: Queue backend implemented; bandwidth limit now persists and restores at startup. Frontend controls and manual restart verification remain.
+Status: Queue backend implemented; bandwidth limit now persists and restores at startup. The Downloads screen shows the queue, controls pause/resume/retry/cancel, and Settings applies the persisted limit through `set_download_bandwidth_limit` with `get_download_bandwidth_limit` for read-back. Manual restart verification remains.
 
 - Implement queue, pause, resume, retry, cancel, and waiting states.
 - Use HTTP Range when supported and restart safely when it is not.
@@ -53,7 +53,7 @@ Verification: clear candidates auto-select, ambiguous candidates require choice,
 
 ### 05D: Atomic finalization
 
-Status: Backend implementation, including a staged executable scan returning relative candidate paths, is in place. Frontend executable confirmation and manual conflict recovery remain.
+Status: Backend implementation, including a staged executable scan returning relative candidate paths, is in place. The Downloads screen stages a download, requires an explicit candidate when ranking is ambiguous, and finalizes with the selected relative path. Manual conflict recovery and end-to-end verification remain.
 
 - Move staged content safely across filesystems.
 - Make filesystem and database finalization recoverable as one user-visible operation.
@@ -72,7 +72,7 @@ The queue is persistent and controllable, supported archives are verified and ex
 
 ## Open technical decisions
 
-- Define frontend handling for irrecoverable finalization conflicts and stage cleanup errors.
+- None open for the frontend flow. Irrecoverable finalization conflicts and stage cleanup errors are presented per status, as recorded in the Downloads UI follow-up note below.
 
 ## Update notes
 
@@ -84,7 +84,7 @@ Encrypted archives, multipart archives, self-extracting archives, links, special
 
 05C backend: executable scanning ranks candidates by game name and directory location, filters common installers and helpers, and returns choices when ranking is ambiguous. Manual import validates a user-selected executable and stores its path in a local library entry. The selected path can be changed later. Manual import UI remains open; native Windows launch is tracked in Phase 06B.
 
-05D backend: `scan_staged_executables` accepts a download ID, checks that its status is `staged` and its stored path matches the app-owned staging directory, then returns relative executable candidates. `finalize_download` accepts one selected relative path and repeats containment, file-type, and symlink checks before installation. Schema v10 stores the finalization intent before copying into an app-owned `installed/<download-id>` directory. The copy uses a token-marked sibling temporary directory and a no-replace atomic rename. Linux uses `renameat2` with `RENAME_NOREPLACE`; Windows uses `MoveFileW`. The game entry and `installed` download state commit in one SQLite transaction. Startup resumes interrupted copies or an already-published install, then retries staged-file cleanup after commit. Conflicting existing paths are preserved with an error on the download. The frontend still needs to confirm the candidate and present recovery guidance for conflicts.
+05D backend: `scan_staged_executables` accepts a download ID, checks that its status is `staged` and its stored path matches the app-owned staging directory, then returns relative executable candidates. `finalize_download` accepts one selected relative path and repeats containment, file-type, and symlink checks before installation. Schema v10 stores the finalization intent before copying into an app-owned `installed/<download-id>` directory. The copy uses a token-marked sibling temporary directory and a no-replace atomic rename. Linux uses `renameat2` with `RENAME_NOREPLACE`; Windows uses `MoveFileW`. The game entry and `installed` download state commit in one SQLite transaction. Startup resumes interrupted copies or an already-published install, then retries staged-file cleanup after commit. Conflicting existing paths are preserved with an error on the download. The frontend confirms the candidate and lets the download row carry the backend error verbatim.
 
 05D path contract: staged executable candidates use forward slashes on every platform, matching the finalizer's portable relative-path validation. A regression test scans a staged fixture and finalizes using the returned candidate without frontend path conversion.
 
@@ -93,3 +93,11 @@ Windows CI runs `finalize_install::tests::finalizes_with_a_candidate_from_the_st
 Windows CI also runs `finalize_install::tests::recovers_after_database_commit_fails_and_database_reopens`, verifying recovery from a durable `finalizing` state after dropping and reopening the database, including a single installed game, preserved executable bytes, and staging cleanup.
 
 05A backend follow-up (2026-09-24): `set_download_bandwidth_limit` now stores bytes per second in the existing SQLite settings table and applies the value to the live queue only after persistence succeeds. Startup reads the saved value before starting queue recovery. Zero continues to mean unlimited. Rust database coverage checks the default, persistence across reopen, clearing to unlimited, and rejection above `i64::MAX`; the local workspace used for this change does not have the Rust toolchain installed, so that test still needs to run in CI.
+
+Queue cleanup follow-up: cancelling a download only rewrites its status, so `cancelled` rows and their partial files would otherwise accumulate. `remove_download` deletes the row and its `.part`, `.archive`, and `.stage` content for `cancelled`, `failed`, and `installed`, refuses every other status, removes files before the row so a cleanup failure stays visible, reuses the finalizer's staged-directory safety check, and leaves `installed/<id>` plus the library entry alone. `remove_finished_downloads` clears all `cancelled` and `installed` rows while keeping retryable `failed` rows.
+
+Queue UI copy: a download row shows the state label and, when present, the backend error verbatim. Explanatory lines per state and duplicate recovery copy are intentionally avoided so the enabled actions and backend error remain the source of truth.
+
+Downloads UI follow-up: `get_download_bandwidth_limit` exposes the stored value so Settings reports the persisted limit after restart. The Downloads screen drives the install flow with `stage_download`, `scan_staged_executables`, explicit candidate choice when needed, then `finalize_download` with the returned `relativePath` unchanged. The frontend performs no path conversion or containment checks.
+
+Install folder access: `open_installed_folder` opens the app-owned `installed` directory in the platform file manager and is surfaced from Settings. It takes no path argument, so the frontend cannot request an arbitrary location. The command reuses `finalize_install::install_root` and platform-specific structured process arguments rather than granting broad shell or path-opening permissions.
