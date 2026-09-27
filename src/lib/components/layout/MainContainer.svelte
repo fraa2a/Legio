@@ -7,7 +7,7 @@
   import { activeSection, selectedGameId } from "../../stores/navigation";
 </script>
 
-<main class="min-h-0 min-w-0 flex-1 overflow-y-auto rounded-2xl bg-zinc-900 p-4 light:bg-zinc-50">
+<main class="min-h-0 min-w-0 flex-1 overflow-y-auto rounded-2xl bg-black p-4 light:bg-zinc-50">
   {#if $activeSection === "home"}
     <HomeView />
   {:else if $activeSection === "library"}

@@ -23,6 +23,7 @@
   import GameLaunchControls from "./GameLaunchControls.svelte";
   import ArtworkViewer from "./ArtworkViewer.svelte";
   import ExecutablePanel from "./ExecutablePanel.svelte";
+  import SteamAccountPanel from "./SteamAccountPanel.svelte";
   import SteamMetadata from "./SteamMetadata.svelte";
   import SteamArtwork from "./SteamArtwork.svelte";
 
@@ -154,6 +155,12 @@
       </div>
 
       <div class="flex min-w-0 flex-col gap-3">
+        {#if isSteamGame}
+          {#key game.id}
+            <SteamAccountPanel {game} />
+          {/key}
+        {/if}
+
         <GameDetailsPanel {game} onRemoved={closeGame} />
 
         <Panel title="Installazione" class="flex-1">
@@ -178,14 +185,6 @@
                 {location ?? "non impostato"}
               </dd>
             </div>
-            {#if game.steamAccountId !== null}
-              <div class="flex flex-wrap gap-x-3">
-                <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">Account Steam</dt>
-                <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">
-                  {game.steamAccountId}
-                </dd>
-              </div>
-            {/if}
             <div class="flex flex-wrap gap-x-3">
               <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">Nome rilevato</dt>
               <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">

@@ -51,7 +51,7 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 - [x] Poll lifecycle state while a game is launching or running. Show Play for idle, Cancel while launching, and Stop while running. A successful launch command means accepted/requested, not that the game is running.
 - [x] Keep cancellation pending in local UI state until the backend reports idle or an error. The backend status enum currently has `idle`, `launching`, and `running`, with no `cancelling` value.
 - [x] Surface per-game launch errors next to the affected game and provide a retry path. Do not add frontend helper-process timing or Steam startup delays; the shared backend lifecycle and explicit-overlay Steam readiness gate own that behavior.
-- [ ] Add the per-game saved Steam account selector. Populate it with `list_saved_steam_accounts`; save through `set_game_steam_account_preference`. The account list exposes display names and Steam IDs, not private account login names.
+- [x] Add the per-game saved Steam account selector. Populate it with `list_saved_steam_accounts`; save through `set_game_steam_account_preference`. The account list exposes display names and Steam IDs, not private account login names.
 - [ ] Before launch, call `inspect_steam_game_launch`. On `mismatch`, ask the user before closing and restarting Steam, then launch with `confirmAccountSwitch: true`. Treat `unknown` as uncertain, never as a verified account match. Allow canceling the dialog without launching.
 - [ ] Add account health using `check_game_steam_account`, including missing saved account, mismatch, and uncertain states.
 

@@ -4,8 +4,7 @@
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
-  import ArtworkViewer from "./ArtworkViewer.svelte";
-  import SteamArtwork from "./SteamArtwork.svelte";
+  import ScreenshotGallery from "./ScreenshotGallery.svelte";
 
   let { steamAppId }: { steamAppId: number } = $props();
 
@@ -13,9 +12,6 @@
   const details = $derived(detailsState?.details ?? null);
   const cachedAt = $derived(detailsState?.cachedAt ?? null);
   const screenshots = $derived(details?.assets.screenshots.slice(0, 6) ?? []);
-
-  let openShot = $state<number | null>(null);
-  const openIndex = $derived(openShot !== null && openShot < screenshots.length ? openShot : null);
 
   function refresh(): void {
     void loadSteamDetails(steamAppId, true).catch(() => undefined);
@@ -86,40 +82,8 @@
     </dl>
 
     {#if screenshots.length > 0}
-      <ul class="grid min-h-32 flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {#each screenshots as screenshot, position (screenshot.thumbnail ?? screenshot.full)}
-          <li>
-            <button
-              type="button"
-              class="relative block size-full cursor-zoom-in"
-              aria-label="Ingrandisci immagine {position + 1} di {screenshots.length}"
-              onclick={() => (openShot = position)}
-            >
-              <SteamArtwork
-                {steamAppId}
-                asset="screenshot"
-                index={position}
-                version={cachedAt}
-                alt=""
-                class="absolute inset-0 size-full rounded-lg bg-white/5 object-cover light:bg-zinc-200"
-              />
-            </button>
-          </li>
-        {/each}
-      </ul>
+      <ScreenshotGallery {steamAppId} name={details.name} version={cachedAt} {screenshots} />
     {/if}
   {/if}
 </Panel>
 
-{#if openIndex !== null}
-  <ArtworkViewer
-    {steamAppId}
-    asset="screenshot"
-    index={openIndex}
-    count={screenshots.length}
-    version={cachedAt}
-    alt="Schermata {openIndex + 1} di {screenshots.length}"
-    onSelect={(next) => (openShot = next)}
-    onClose={() => (openShot = null)}
-  />
-{/if}
