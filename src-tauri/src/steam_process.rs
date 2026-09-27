@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -30,11 +30,11 @@ fn executable_candidates(steam_root: &Path, windows: bool) -> Vec<PathBuf> {
 }
 
 pub(crate) fn is_running() -> Result<bool, String> {
-    running_processes(true)
+    Ok(running_processes()?.is_running())
 }
 
 fn client_is_running() -> Result<bool, String> {
-    running_processes(false)
+    Ok(running_processes()?.client)
 }
 
 pub(crate) fn ensure_running(
@@ -43,32 +43,55 @@ pub(crate) fn ensure_running(
     cancel: &AtomicBool,
 ) -> Result<(), String> {
     check_cancelled(cancel)?;
-    if client_is_running()? {
+    let processes = running_processes()?;
+    if processes.is_ready() {
         check_cancelled(cancel)?;
         return Ok(());
     }
 
-    let executable = steam_executable(steam_root)?;
-    check_cancelled(cancel)?;
-    let mut request = Command::new(executable)
-        .spawn()
-        .map_err(|error| format!("Could not start Steam: {error}"))?;
+    let request = if processes.client {
+        None
+    } else {
+        let executable = steam_executable(steam_root)?;
+        check_cancelled(cancel)?;
+        Some(
+            Command::new(executable)
+                .spawn()
+                .map_err(|error| format!("Could not start Steam: {error}"))?,
+        )
+    };
+    wait_for_client_interface(timeout, cancel, running_processes, request)
+}
+
+fn wait_for_client_interface(
+    timeout: Duration,
+    cancel: &AtomicBool,
+    mut inspect: impl FnMut() -> Result<SteamProcesses, String>,
+    mut request: Option<Child>,
+) -> Result<(), String> {
     let start = Instant::now();
     loop {
         check_cancelled(cancel)?;
-        if client_is_running()? {
+        if inspect()?.is_ready() {
             check_cancelled(cancel)?;
             return Ok(());
         }
-        if let Some(status) = request
-            .try_wait()
-            .map_err(|error| format!("Could not wait for Steam startup: {error}"))?
-            && !status.success()
-        {
-            return Err(format!("Steam startup exited with {status}"));
+        let startup_status = match request.as_mut() {
+            Some(request) => request
+                .try_wait()
+                .map_err(|error| format!("Could not wait for Steam startup: {error}"))?,
+            None => None,
+        };
+        if let Some(status) = startup_status {
+            if !status.success() {
+                return Err(format!("Steam startup exited with {status}"));
+            }
+            request = None;
         }
         if start.elapsed() >= timeout {
-            return Err("Timed out while waiting for Steam to start".to_owned());
+            return Err(
+                "Timed out while waiting for the Steam client and interface to start".to_owned(),
+            );
         }
         thread::sleep(POLL_INTERVAL.min(timeout.saturating_sub(start.elapsed())));
     }
@@ -210,8 +233,24 @@ fn check_cancelled(cancel: &AtomicBool) -> Result<(), String> {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct SteamProcesses {
+    client: bool,
+    web_helper: bool,
+}
+
+impl SteamProcesses {
+    fn is_running(self) -> bool {
+        self.client || self.web_helper
+    }
+
+    fn is_ready(self) -> bool {
+        self.client && self.web_helper
+    }
+}
+
 #[cfg(windows)]
-fn running_processes(include_helpers: bool) -> Result<bool, String> {
+fn running_processes() -> Result<SteamProcesses, String> {
     let output = Command::new("tasklist")
         .args(["/FO", "CSV", "/NH"])
         .output()
@@ -223,22 +262,28 @@ fn running_processes(include_helpers: bool) -> Result<bool, String> {
         ));
     }
     let output = String::from_utf8_lossy(&output.stdout);
-    Ok(output.lines().any(|line| {
+    let mut processes = SteamProcesses::default();
+    for line in output.lines() {
         let name = line
             .trim()
             .trim_start_matches('"')
             .split('"')
             .next()
             .unwrap_or("");
-        name.eq_ignore_ascii_case("steam.exe")
-            || (include_helpers && name.eq_ignore_ascii_case("steamwebhelper.exe"))
-    }))
+        if name.eq_ignore_ascii_case("steam.exe") {
+            processes.client = true;
+        } else if name.eq_ignore_ascii_case("steamwebhelper.exe") {
+            processes.web_helper = true;
+        }
+    }
+    Ok(processes)
 }
 
 #[cfg(target_os = "linux")]
-fn running_processes(include_helpers: bool) -> Result<bool, String> {
+fn running_processes() -> Result<SteamProcesses, String> {
     let entries = std::fs::read_dir("/proc")
         .map_err(|error| format!("Could not inspect running processes: {error}"))?;
+    let mut processes = SteamProcesses::default();
     for entry in entries {
         let entry =
             entry.map_err(|error| format!("Could not inspect running processes: {error}"))?;
@@ -256,15 +301,20 @@ fn running_processes(include_helpers: bool) -> Result<bool, String> {
             Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => continue,
             Err(error) => return Err(format!("Could not inspect a running process: {error}")),
         };
-        if comm.trim() == "steam" || (include_helpers && comm.trim() == "steamwebhelper") {
-            return Ok(true);
+        match comm.trim() {
+            "steam" => processes.client = true,
+            "steamwebhelper" => processes.web_helper = true,
+            _ => {}
+        }
+        if processes.is_ready() {
+            break;
         }
     }
-    Ok(false)
+    Ok(processes)
 }
 
 #[cfg(not(any(windows, target_os = "linux")))]
-fn running_processes(_include_helpers: bool) -> Result<bool, String> {
+fn running_processes() -> Result<SteamProcesses, String> {
     Err("Steam process inspection is unsupported on this platform".to_owned())
 }
 
@@ -340,6 +390,93 @@ mod tests {
         assert_eq!(
             executable_candidates(root, false),
             vec![root.join("steam"), root.join("steam.sh")]
+        );
+    }
+
+    #[test]
+    fn steam_is_ready_only_when_client_and_web_helper_are_running() {
+        assert!(
+            !SteamProcesses {
+                client: true,
+                web_helper: false,
+            }
+            .is_ready()
+        );
+        assert!(
+            !SteamProcesses {
+                client: false,
+                web_helper: true,
+            }
+            .is_ready()
+        );
+        assert!(
+            SteamProcesses {
+                client: true,
+                web_helper: true,
+            }
+            .is_ready()
+        );
+    }
+
+    #[test]
+    fn steam_is_running_while_either_client_process_exists() {
+        assert!(
+            SteamProcesses {
+                client: true,
+                web_helper: false,
+            }
+            .is_running()
+        );
+        assert!(
+            SteamProcesses {
+                client: false,
+                web_helper: true,
+            }
+            .is_running()
+        );
+        assert!(!SteamProcesses::default().is_running());
+    }
+
+    #[test]
+    fn client_interface_waits_for_web_helper_before_returning() {
+        let cancel = AtomicBool::new(false);
+        let mut calls = 0;
+        wait_for_client_interface(
+            Duration::from_secs(1),
+            &cancel,
+            || {
+                calls += 1;
+                Ok(SteamProcesses {
+                    client: true,
+                    web_helper: calls > 1,
+                })
+            },
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(calls, 2);
+    }
+
+    #[test]
+    fn client_interface_wait_timeout_reports_missing_readiness() {
+        let cancel = AtomicBool::new(false);
+        let error = wait_for_client_interface(
+            Duration::ZERO,
+            &cancel,
+            || {
+                Ok(SteamProcesses {
+                    client: true,
+                    web_helper: false,
+                })
+            },
+            None,
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error,
+            "Timed out while waiting for the Steam client and interface to start"
         );
     }
 
