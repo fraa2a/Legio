@@ -32,7 +32,7 @@ Verification: available runners are detected without false success and a basic W
 
 ### 07B: Compatibility configuration
 
-Status: Completed for backend configuration and process-level effects. Persistent global defaults, per-game overrides, effective-value merging, validation, diagnostics, Steam Runtime, Steam overlay, WineD3D, and GE-Proton Wayland options are implemented and verified with installed Windows games. The overlay renderer was observed in the game process; its visible UI behavior was not visually verified.
+Status: Completed for backend configuration and process-level effects. Persistent global defaults, per-game overrides, effective-value merging, validation, diagnostics, Steam Runtime, Steam overlay, WineD3D, and GE-Proton Wayland options are implemented and verified with installed Windows games. When manual Proton launching explicitly enables Steam overlay, Legio checks for the Steam client and starts it if needed before launching the runner. The overlay renderer was observed in the game process; its visible UI behavior was not visually verified.
 
 - Persist runner selection, global defaults, per-game overrides, prefix roots and paths, environment variables, DLL overrides, arguments, and working directories.
 - Validate and apply the effective configuration immediately before launching a manually imported Windows game.
@@ -54,14 +54,14 @@ Status: the revision-specific behavior inventory and canonical conflict audit ar
 
 Reviewed upstream: [Online Fix Linux Launcher v2.7.1 at commit `86528986f71c3da0972a670c08feb0bb70a3dbe2`](https://github.com/ZzEdovec/onlinefix-linux/tree/86528986f71c3da0972a670c08feb0bb70a3dbe2). The local `/home/fraa/Documents/OFLL` source was compared with a detached checkout of this exact commit; its `src/app` tree matched. The audit covered the tracked application modules and forms, including [FilesWorker](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/modules/FilesWorker.php), [FixParser](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/modules/FixParser.php), [game settings](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/forms/gameSettings.php), [launcher settings](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/forms/launcherSettings.php), [game import](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/forms/newGameConfigurator.php), [game management](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/forms/MainForm.php), [RAR handling](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/modules/RarExtractor.php), [FreeTP installer](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/src/app/modules/ftpInstaller.php), and [README claims](https://github.com/ZzEdovec/onlinefix-linux/blob/86528986f71c3da0972a670c08feb0bb70a3dbe2/README.md). Upstream claims below describe its documented behavior; they are not independent compatibility tests.
 
-| Upstream responsibility | Legio implementation and evidence against `main` baseline `80f9572` | State |
+| Upstream responsibility | Legio implementation and evidence against `main` baseline `959b91c` | State |
 | --- | --- | --- |
 | Discover Proton, GE-Proton, and Wine | `runner_discovery.rs` discovers local Proton-named tools, GE-Proton, and validated Wine executables. Discovery reports diagnostics. | Implemented for local installations |
 | Install, update, remove, and select Proton versions | The compatibility schema persists global and per-game runner selections. Launch revalidates an installed path. There is no release catalogue, download, install, or removal service. | Partial; runner management remains |
 | Create per-game prefixes and configure a prefix path | `game_lifecycle.rs` creates isolated per-game prefixes and validates custom roots or exact paths. It does not relocate, reset, or remove an existing prefix. | Backend implemented; management remains |
 | Configure environment, DLL overrides, arguments before and after the executable, and working directory | Schema v14 persists global defaults and nullable per-game overrides. Effective configuration merges, validates, and applies structured process arguments and environment values. | Backend implemented |
 | Select Steam Runtime | Typed global and per-game values select an installed local Steam Linux Runtime wrapper. Proton 11+ maps to Runtime 4, Proton 8-10 to sniper, and Proton 5.13-7 to soldier. Unsupported versions or missing runtimes fail with diagnostics; Legio does not download runtimes. A GE-Proton 10.33 game launch through sniper was observed. | Implemented; real-game launch verified |
-| Detect Steam and start it when a compatibility launch needs it | The Steam-managed launch and account-switch path can detect and start Steam. A manual Proton launch resolves the Steam client path but does not ensure that Steam is running or wait for sign-in. | Partial; lifecycle decision remains |
+| Detect Steam and start it when a compatibility launch needs it | Steam-managed launches and account switching detect and start Steam. For manually imported games, explicit `steamOverlay: enabled` now checks the client and starts it before the Proton runner if needed. `runner_default` and `disabled` do not start Steam. This supports the explicit overlay request without starting the client for every Proton launch. | Implemented for explicit overlay requests |
 | Configure Steam overlay | Typed overlay configuration validates both renderer libraries, sets the overlay layer and default fake App ID 480 for manual games, and merges or removes `LD_PRELOAD` entries. A GE-Proton game process contained both overlay variables and mapped the 64-bit Steam renderer, including during a Steam Runtime launch. Visible overlay UI behavior was not verified. | Implemented; process-level effect verified |
 | Configure graphics, WineD3D, and Wayland | Typed renderer and Wayland modes set Proton options and reject unsupported runner combinations. Wayland is currently limited to GE-Proton. ROUNDS logs showed Proton's `wined3d` and `wayland` options and loaded WineD3D and D3D11 built-in modules. A BOMBANANA! process mapped GE-Proton's Wayland driver and `libwayland-client.so`. | Implemented; process and runner-log effects verified |
 | Apply per-game settings and global defaults | Database inheritance and reset are implemented for typed compatibility settings and the other launch fields. Tauri backend commands expose persistence; frontend controls are Phase 08. | Backend implemented |
@@ -123,6 +123,8 @@ Runner discovery and configuration are reliable, supported Windows games launch 
 - Define runner download, installation, update, and removal behavior, including integrity metadata and installation locations.
 - Automatic invocation of the embedded PE icon extraction command during import remains frontend wiring for Phase 08. Supported game/fix behavior remains unresolved. Manual raster icon selection and explicit executable icon extraction are available through the backend. Prefix and banner cleanup still need a safe filesystem contract. Exact prefix utilities also remain open.
 - Verify visual rendering quality, gameplay input, and visible Steam overlay behavior. 07B verifies the effective options, process environment, renderer mapping, GE-Proton Wayland libraries, and WineD3D module loading, but did not inspect rendered output or input.
+
+Steam's [overlay requirements](https://partner.steamgames.com/doc/features/overlay) say the overlay is activated for games launched through the Steam client. Legio therefore ensures the client is running only when a manual game explicitly enables the overlay. It does not start Steam for `runner_default` or `disabled` overlay modes.
 
 ## Update notes
 
@@ -236,6 +238,24 @@ LEGIO_TEST_WINDOWS_GAME_EXE='/mnt/HDD/Games/Steam/steamapps/common/BOMBANANA! De
 The full suite passed with 229 tests passed and three ignored, and Clippy completed with warnings denied. The ignored game smokes above were each run separately and passed.
 
 Remaining blockers: automatic invocation after manual import and the frontend picker remain Phase 08 work.
+
+#### Steam overlay startup evidence, 2026-09-27
+
+When compatibility configuration explicitly enables the Steam overlay, the launch lifecycle checks for the Steam client and starts it with the detected local client executable if it is absent. It waits up to 60 seconds for the client process and reports startup or timeout failures through the launch state. `runner_default` and `disabled` leave Steam startup unchanged. Unit tests verify those mode decisions, that the configured Steam root is passed to the startup operation, the missing-client diagnostic, and propagation of Steam startup failures.
+
+The local Linux smoke used BOMBANANA! Demo with GE-Proton 10.33 and the explicit overlay profile. Steam was already running before the test. Legio observed the game process in Running state, confirmed the Steam overlay renderer was mapped, stopped the game through its lifecycle, and closed the persisted play session. This exercises the existing-client path. Starting Steam from a stopped state was not separately smoke-tested.
+
+Commands:
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml --all-features --locked overlay
+LEGIO_PHASE07_TYPED_OPTIONS=direct_overlay LEGIO_PHASE07_GAME_EXE='/mnt/HDD/Games/Steam/steamapps/common/BOMBANANA! Demo/BOMBANANA.exe' LEGIO_PHASE07_RUNNER='/home/fraa/.local/share/Steam/compatibilitytools.d/GE-Proton10-33-rtsp24-1' cargo test --manifest-path src-tauri/Cargo.toml --all-features game_lifecycle::tests::installed_proton_game_launch_tracks_and_stops -- --ignored --exact --nocapture
+cargo test --manifest-path src-tauri/Cargo.toml --all-features --locked
+cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --locked -- -D warnings
+```
+
+The full Rust suite passed with 232 tests passed and three ignored.
 
 #### Compatibility diagnostics smoke evidence, 2026-09-26
 
