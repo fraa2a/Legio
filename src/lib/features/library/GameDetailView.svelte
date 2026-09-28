@@ -145,7 +145,6 @@
       {#if details !== null && customBannerUrl === null}
         <button type="button" class="absolute inset-0 z-0 cursor-zoom-in" aria-label="Ingrandisci copertina" onclick={() => (artworkOpen = true)}></button>
       {/if}
-      <div class="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-t from-zinc-950/95 via-zinc-950/35 to-transparent"></div>
       <div class="absolute inset-x-0 bottom-0 z-10 flex flex-nowrap items-end justify-between gap-4 pb-5 pl-5 pr-7">
         <div class="flex flex-nowrap items-end gap-2">
           {#if storeGame !== null}
@@ -175,25 +174,25 @@
             type="button"
             disabled
             aria-label={`Versione ${versionName}${lastPlayedLabel === null ? "" : `, ${lastPlayedLabel}`}`}
-            class="flex h-11 w-[230px] shrink-0 items-center gap-2 rounded-[10px] border border-white/10 bg-white/15 px-2.5 text-left text-zinc-100 light:bg-zinc-200"
+            class="flex h-[60px] w-[260px] shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-zinc-950/60 px-3 text-left text-zinc-100 light:border-zinc-900/10 light:bg-zinc-100/70 light:text-zinc-900"
           >
             {#if customIconUrl !== null}
-              <img src={customIconUrl} alt="" class="size-8 shrink-0 rounded-md object-cover" />
+              <img src={customIconUrl} alt="" class="size-10 shrink-0 rounded-md object-cover" />
             {:else if steamAppId !== null}
-              <SteamArtwork {steamAppId} asset="capsule" version={detailsState?.cachedAt ?? null} caption={false} alt="" class="size-8 shrink-0 rounded-md object-cover">
-                {#snippet placeholder()}<span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold text-zinc-300">{name.trim().charAt(0).toUpperCase() || "?"}</span>{/snippet}
+              <SteamArtwork {steamAppId} asset="capsule" version={detailsState?.cachedAt ?? null} caption={false} alt="" class="size-10 shrink-0 rounded-md object-cover">
+                {#snippet placeholder()}<span class="flex size-10 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold text-zinc-300">{name.trim().charAt(0).toUpperCase() || "?"}</span>{/snippet}
               </SteamArtwork>
             {:else}
-              <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold text-zinc-300">{name.trim().charAt(0).toUpperCase() || "?"}</span>
+              <span class="flex size-10 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold text-zinc-300">{name.trim().charAt(0).toUpperCase() || "?"}</span>
             {/if}
             <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span class="truncate text-base font-semibold leading-5">{versionName}</span>
-              {#if lastPlayedLabel !== null}<span class="truncate text-[11px] leading-[14px] text-zinc-400">{lastPlayedLabel}</span>{/if}
+              <span class="truncate text-lg leading-6 font-semibold">{versionName}</span>
+              {#if lastPlayedLabel !== null}<span class="truncate text-xs leading-4 text-zinc-400 light:text-zinc-600">{lastPlayedLabel}</span>{/if}
             </span>
-            <Icon name="chevron-down" size="h-4 w-4 shrink-0 text-zinc-400" />
+            <Icon name="chevron-down" size="h-4 w-4 shrink-0 text-zinc-400 light:text-zinc-600" />
           </button>
           {#if game !== null}
-            <Button label="Impostazioni del gioco" square variant="secondary" class="shrink-0 border border-white/10 !bg-white/15 hover:!bg-white/20 light:!bg-zinc-200 light:hover:!bg-zinc-300" onClick={() => (gameSettingsOpen = true)}>
+            <Button label="Impostazioni del gioco" square variant="secondary" class="h-[60px] w-[60px] shrink-0 rounded-xl border border-white/10 !bg-zinc-950/60 hover:!bg-zinc-950/75 light:!border-zinc-900/10 light:!bg-zinc-100/70 light:hover:!bg-zinc-200" onClick={() => (gameSettingsOpen = true)}>
               <Icon name="settings" size="h-6 w-6" />
             </Button>
           {/if}
@@ -204,13 +203,13 @@
               <img src={customIconUrl} alt="Icona personalizzata di {name}" class="size-full object-contain object-right" />
             {:else if steamAppId !== null}
               <SteamArtwork {steamAppId} asset="logo" version={detailsState?.cachedAt ?? null} caption={false} alt="Logo di {name}" class="size-full object-contain object-right">
-                {#snippet placeholder()}<span class="block max-w-full truncate text-right">{name}</span>{/snippet}
+                {#snippet placeholder()}{@render nameText()}{/snippet}
               </SteamArtwork>
             {:else}
-              <span class="block max-w-full truncate text-right">{name}</span>
+              {@render nameText()}
             {/if}
           </h2>
-          {#if storeGame === null && launch?.error}<p class="mt-1 max-w-full truncate text-right text-sm text-red-300" role="alert">{launch.error}</p>{/if}
+          {#if storeGame === null && launch?.error}<p class="mt-1 max-w-full truncate rounded-lg bg-zinc-950/60 px-3 py-1.5 text-right text-sm text-red-300 light:bg-zinc-100/70 light:text-red-700" role="alert">{launch.error}</p>{/if}
         </div>
       </div>
     </section>
@@ -319,6 +318,10 @@
   </div>
 </Dialog>
 {/if}
+
+{#snippet nameText()}
+  <span class="block max-w-full truncate rounded-lg bg-zinc-950/60 px-3 py-1.5 text-right text-zinc-100 light:bg-zinc-100/70 light:text-zinc-900">{name}</span>
+{/snippet}
 
 {#snippet backdrop()}
   <div

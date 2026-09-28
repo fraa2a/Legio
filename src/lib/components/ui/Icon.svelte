@@ -12,6 +12,7 @@
     | "play"
     | "download"
     | "stop"
+    | "clock"
     | "close"
     | "previous"
     | "next"
@@ -48,6 +49,12 @@
     play: [{ d: "M8 5v14l11-7L8 5z" }],
     download: [{ d: "M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }],
     stop: [{ d: "M6 6h12v12H6z" }],
+    clock: [
+      {
+        d: "M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2Zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16Zm1-13h-2v6l4.75 2.85 1-1.64L13 10.7V7Z",
+        evenodd: true,
+      },
+    ],
     close: [{ d: "M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41Z" }],
     "chevron-down": [{ d: "m6 9 6 6 6-6", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }],
     previous: [{ d: "M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12l4.58-4.59Z" }],

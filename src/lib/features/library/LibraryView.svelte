@@ -4,15 +4,7 @@
   import StateBlock from "../../components/ui/StateBlock.svelte";
   import { games } from "../../stores/games";
   import { addGameDialogOpen, libraryQuery } from "../../stores/library-ui";
-  import {
-    abortGameLaunch,
-    cancelPendingGameId,
-    launchError,
-    launchStateByGame,
-    pendingGameId,
-    playGame,
-    stopGameProcess,
-  } from "../../stores/launch";
+  import { launchError, launchStateByGame } from "../../stores/launch";
   import { openGame } from "../../stores/navigation";
   import { playtime } from "../../stores/playtime";
   import { importSteamLibrary, steamLibrary } from "../../stores/steam-library";
@@ -67,11 +59,6 @@
           {game}
           playtimeMilliseconds={$playtime.data.find((summary) => summary.gameId === game.id)?.totalMilliseconds ?? 0}
           launch={$launchStateByGame.get(game.id)}
-          cancelPending={$cancelPendingGameId === game.id}
-          actionPending={$pendingGameId === game.id}
-          onPlay={playGame}
-          onCancel={abortGameLaunch}
-          onStop={stopGameProcess}
           onOpen={() => openGame(game.id)}
         />
       {/each}

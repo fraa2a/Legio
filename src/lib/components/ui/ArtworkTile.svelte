@@ -33,7 +33,7 @@
 </script>
 
 <li
-  class="group relative flex aspect-[2.14/1] min-h-max flex-col overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200 {className}"
+  class="tile group relative flex aspect-[2.14/1] min-h-max flex-col overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200 {className}"
 >
   <div
     bind:this={tile}
@@ -54,11 +54,6 @@
     {/if}
   </div>
 
-  <div
-    class="pointer-events-none absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/40 to-zinc-950/20 transition-opacity duration-300 group-hover:opacity-0 light:from-zinc-100/80 light:via-transparent light:to-transparent"
-    aria-hidden="true"
-  ></div>
-
   <div class="relative flex min-h-0 flex-1 flex-col">
     {@render children()}
   </div>
@@ -72,3 +67,14 @@
     <span class="text-4xl font-semibold text-zinc-400/80 light:text-zinc-500">{monogram}</span>
   </div>
 {/snippet}
+
+<style>
+  /* The hover zoom promotes the artwork to its own composited layer, and
+     WebKitGTK on Hyprland does not apply the card's rounded overflow clip to it.
+     The zoomed artwork then leaks into the corners with no overlay on top.
+     An explicit clip-path is honoured on the promoted layer, so it restores the
+     rounded shape; the card keeps overflow-hidden as the fallback elsewhere. */
+  .tile {
+    clip-path: inset(0 round 1rem);
+  }
+</style>
