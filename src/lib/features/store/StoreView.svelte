@@ -74,56 +74,48 @@
 {#if $selectedStoreGame !== null}
   <GameDetailView storeGame={$selectedStoreGame} />
 {:else}
-  <header class="mb-5 flex flex-wrap items-end justify-between gap-3">
-    <div>
-      <p class="text-xs font-medium uppercase tracking-wider text-zinc-500">Catalogo Legio</p>
-      <h2 class="mt-1 text-2xl font-semibold text-zinc-50 light:text-zinc-900">Store</h2>
-      <p class="mt-1 text-sm text-zinc-400 light:text-zinc-600">Sfoglia i titoli disponibili e controlla i dettagli prima di scaricare.</p>
-    </div>
-  </header>
-
-  {#if $sourceRefreshError}
-    <div class="mb-4">
+  <div class="flex min-h-full flex-col gap-4">
+    {#if $sourceRefreshError}
       <ErrorBanner
         message={$sourceRefreshError}
         onRetry={() => void refreshSource()}
         retryLabel="Riprova"
       />
-    </div>
-  {/if}
+    {/if}
 
-  {#if $source.data.warning}<p class="mb-4 text-xs text-amber-300 light:text-amber-800">{$source.data.warning}</p>{/if}
+    {#if $source.data.warning}<p class="text-xs text-amber-300 light:text-amber-800">{$source.data.warning}</p>{/if}
 
-  {#if trimmed.length > 0 && $catalog.results.length > 0}
-    <div class="mb-4 flex flex-wrap items-center gap-3 text-xs text-zinc-500">
-      {#if $catalog.refreshing}
-        <span role="status">Aggiornamento in corso...</span>
-      {/if}
-      {#if $catalog.sourceStale}
-        <Badge tone="warning" title="Sorgente non aggiornata" />
-      {/if}
-    </div>
-  {/if}
+    {#if trimmed.length > 0 && $catalog.results.length > 0}
+      <div class="flex flex-wrap items-center gap-3 text-xs text-zinc-500">
+        {#if $catalog.refreshing}
+          <span role="status">Aggiornamento in corso...</span>
+        {/if}
+        {#if $catalog.sourceStale}
+          <Badge tone="warning" title="Sorgente non aggiornata" />
+        {/if}
+      </div>
+    {/if}
 
-  <StateBlock
-    status={listStatus}
-    hasData={entries.length > 0}
-    loadingMessage="Ricerca in corso..."
-    {emptyMessage}
-    error={$catalog.error}
-    onRetry={() => void runCatalogSearch($storeQuery)}
-  />
+    <StateBlock
+      status={listStatus}
+      hasData={entries.length > 0}
+      loadingMessage="Ricerca in corso..."
+      {emptyMessage}
+      error={$catalog.error}
+      onRetry={() => void runCatalogSearch($storeQuery)}
+    />
 
-  {#if entries.length > 0}
-    <ul class="flex flex-col gap-2">
-      {#each entries as entry (entry.steamAppId)}
-        <StoreGameCard
-          steamAppId={entry.steamAppId}
-          name={entry.name}
-          status={entry.status}
-          onOpen={() => openStoreGame(entry)}
-        />
-      {/each}
-    </ul>
-  {/if}
+    {#if entries.length > 0}
+      <ul class="flex flex-col gap-2">
+        {#each entries as entry (entry.steamAppId)}
+          <StoreGameCard
+            steamAppId={entry.steamAppId}
+            name={entry.name}
+            status={entry.status}
+            onOpen={() => openStoreGame(entry)}
+          />
+        {/each}
+      </ul>
+    {/if}
+  </div>
 {/if}
