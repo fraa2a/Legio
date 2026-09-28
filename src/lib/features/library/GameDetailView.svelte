@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatBytes, formatDate, formatDateTime } from "../../utils/format";
   import { games } from "../../stores/games";
   import {
     abortGameLaunch,
@@ -12,9 +13,10 @@
     playGame,
     stopGameProcess,
   } from "../../stores/launch";
-  import { closeGame, selectedGameId } from "../../stores/navigation";
+  import { closeGame, selectSection, selectedGameId, type StoreGameSelection } from "../../stores/navigation";
+  import { downloads, queueJob } from "../../stores/downloads";
+  import { refreshSource, source, sourceRefreshError } from "../../stores/source";
   import { ensureSteamDetails, steamDetails } from "../../stores/steam-details";
-  import Badge from "../../components/ui/Badge.svelte";
   import Button from "../../components/ui/Button.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
@@ -28,29 +30,33 @@
   import Icon from "../../components/ui/Icon.svelte";
   import { getGameBanner, getGameIcon, gameArtworkRevision } from "../../services/game-artwork";
   import { toMessage } from "../../utils/errors";
+  import { sourceStatusFor } from "../store/source-status";
 
-  const game = $derived($games.data.find((entry) => entry.id === $selectedGameId) ?? null);
-  const steamAppId = $derived(game?.steamAppId ?? null);
-  const isSteamGame = $derived(game !== null && game.steamInstallPath !== null);
+  let { storeGame = null }: { storeGame?: StoreGameSelection | null } = $props();
+
+  const game = $derived(storeGame === null ? ($games.data.find((entry) => entry.id === $selectedGameId) ?? null) : null);
+  const steamAppId = $derived(storeGame?.steamAppId ?? game?.steamAppId ?? null);
+  const name = $derived(storeGame?.name ?? game?.name ?? "");
   const launch = $derived(game === null ? undefined : $launchStateByGame.get(game.id));
   const detailsState = $derived(steamAppId === null ? null : ($steamDetails[steamAppId] ?? null));
   const details = $derived(detailsState?.details ?? null);
-  const headline = $derived.by(() => {
-    if (details === null) return null;
-    const date = details.releaseDate;
-    const release = date === null ? null : date.comingSoon ? "In arrivo" : date.date;
-    return [details.appType, release].filter((part) => part !== null).join(" · ");
-  });
-  const location = $derived(game?.steamInstallPath ?? game?.executablePath ?? null);
+  const status = $derived(steamAppId === null ? null : sourceStatusFor($source.data.manifest, steamAppId));
+  const entry = $derived(status?.entry ?? null);
+  const job = $derived(storeGame === null ? null : ($downloads.data.find((candidate) => candidate.steamAppId === steamAppId) ?? null));
+  const versionName = $derived(storeGame !== null || (game !== null && game.steamInstallPath !== null) ? "Steam" : "Legio");
+  const lastPlayedLabel = $derived(storeGame === null && game !== null ? "Last played: Non disponibile" : null);
 
   let artworkOpen = $state(false);
   let gameSettingsOpen = $state(false);
   let customBannerUrl = $state<string | null>(null);
   let customIconUrl = $state<string | null>(null);
   let artworkError = $state<string | null>(null);
+  let confirmOpen = $state(false);
+  let queueing = $state(false);
+  let queueError = $state<string | null>(null);
 
   $effect(() => {
-    if ($selectedGameId !== null && game === null) closeGame();
+    if (storeGame === null && $selectedGameId !== null && game === null) closeGame();
   });
 
   $effect(() => {
@@ -90,20 +96,41 @@
       if (iconObjectUrl !== null) URL.revokeObjectURL(iconObjectUrl);
     };
   });
+
+  async function startDownload(acceptUnverified: boolean): Promise<void> {
+    if (steamAppId === null) return;
+    queueError = null;
+    queueing = true;
+    try {
+      await queueJob(steamAppId, acceptUnverified);
+    } catch (error) {
+      queueError = toMessage(error);
+    } finally {
+      queueing = false;
+    }
+  }
+
+  function requestDownload(): void {
+    if (status?.availability === "unverified") {
+      confirmOpen = true;
+      return;
+    }
+    void startDownload(false);
+  }
 </script>
 
-{#if game === null}
+{#if storeGame === null && game === null}
   <p class="rounded-xl bg-white/5 p-6 text-zinc-400 light:bg-zinc-100 light:text-zinc-600">
     Il gioco non è più disponibile.
   </p>
 {:else}
   <div class="flex min-h-full flex-col gap-4">
-    <section class="relative isolate w-full min-w-0 overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200 {customBannerUrl !== null ? 'aspect-[2.2/1]' : 'aspect-[3.1/1]'}">
+    <section class="relative isolate w-full min-w-[1024px] overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200 {customBannerUrl !== null ? 'aspect-[2.2/1]' : 'aspect-[3.1/1]'}">
       {#if customBannerUrl !== null}
-        <img src={customBannerUrl} alt="Banner personalizzato di {game.name}" class="absolute inset-0 block size-full object-cover object-center" />
-      {:else if details !== null}
+        <img src={customBannerUrl} alt="Banner personalizzato di {name}" class="absolute inset-0 block size-full object-cover object-center" />
+      {:else if steamAppId !== null && (storeGame !== null || details !== null)}
         <SteamArtwork
-          steamAppId={details.steamAppId}
+          {steamAppId}
           asset="hero"
           fallbackAsset="header"
           version={detailsState?.cachedAt ?? null}
@@ -119,54 +146,86 @@
         <button type="button" class="absolute inset-0 z-0 cursor-zoom-in" aria-label="Ingrandisci copertina" onclick={() => (artworkOpen = true)}></button>
       {/if}
       <div class="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-t from-zinc-950/95 via-zinc-950/35 to-transparent"></div>
-      <div class="absolute inset-x-0 bottom-0 z-10 flex flex-wrap items-end justify-between gap-4 p-5 sm:p-7">
-        <div class="pointer-events-none flex min-w-0 flex-col items-start gap-2">
-          {#if launch?.status === "running"}
-            <Badge tone="success" title="In esecuzione" />
-          {:else if launch?.status === "launching"}
-            <Badge tone="warning" title="Avvio in corso" />
+      <div class="absolute inset-x-0 bottom-0 z-10 flex flex-nowrap items-end justify-between gap-4 pb-5 pl-5 pr-7">
+        <div class="flex flex-nowrap items-end gap-2">
+          {#if storeGame !== null}
+            {#if job !== null}
+              <Button label="VAI AI DOWNLOAD" variant="download" class="h-[60px] w-[240px] shrink-0 rounded-xl px-4 text-xl font-bold" onClick={() => selectSection("downloads")}>
+                <Icon name="download" size="h-6 w-6" />
+              </Button>
+            {:else if status?.availability === "verified" || status?.availability === "unverified"}
+              <Button label="SCARICA" variant="download" class="h-[60px] w-[240px] shrink-0 rounded-xl px-4 text-xl font-bold" disabled={queueing} onClick={requestDownload}>
+                <Icon name="download" size="h-6 w-6" />
+              </Button>
+            {/if}
+          {:else if game !== null}
+            <GameLaunchControls
+              {game}
+              {launch}
+              variant="primary"
+              class="h-[60px] w-[240px] shrink-0 rounded-xl px-4 text-xl font-bold"
+              actionPending={$pendingGameId === game.id}
+              cancelPending={$cancelPendingGameId === game.id}
+              onPlay={playGame}
+              onCancel={abortGameLaunch}
+              onStop={stopGameProcess}
+            />
           {/if}
-          <h2 class="max-w-full text-2xl font-semibold text-white sm:text-3xl">
+          <button
+            type="button"
+            disabled
+            aria-label={`Versione ${versionName}${lastPlayedLabel === null ? "" : `, ${lastPlayedLabel}`}`}
+            class="flex h-11 w-[230px] shrink-0 items-center gap-2 rounded-[10px] border border-white/10 bg-white/15 px-2.5 text-left text-zinc-100 light:bg-zinc-200"
+          >
             {#if customIconUrl !== null}
-              <img src={customIconUrl} alt="Icona personalizzata di {game.name}" class="max-h-20 max-w-80 object-contain object-left" />
+              <img src={customIconUrl} alt="" class="size-8 shrink-0 rounded-md object-cover" />
             {:else if steamAppId !== null}
-              <SteamArtwork {steamAppId} asset="logo" version={detailsState?.cachedAt ?? null} caption={false} alt="Logo di {game.name}" class="max-h-20 max-w-80 object-contain object-left">
-                {#snippet placeholder()}<span class="truncate">{game.name}</span>{/snippet}
+              <SteamArtwork {steamAppId} asset="capsule" version={detailsState?.cachedAt ?? null} caption={false} alt="" class="size-8 shrink-0 rounded-md object-cover">
+                {#snippet placeholder()}<span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold text-zinc-300">{name.trim().charAt(0).toUpperCase() || "?"}</span>{/snippet}
               </SteamArtwork>
             {:else}
-              {game.name}
+              <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold text-zinc-300">{name.trim().charAt(0).toUpperCase() || "?"}</span>
+            {/if}
+            <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span class="truncate text-base font-semibold leading-5">{versionName}</span>
+              {#if lastPlayedLabel !== null}<span class="truncate text-[11px] leading-[14px] text-zinc-400">{lastPlayedLabel}</span>{/if}
+            </span>
+            <Icon name="chevron-down" size="h-4 w-4 shrink-0 text-zinc-400" />
+          </button>
+          {#if game !== null}
+            <Button label="Impostazioni del gioco" square variant="secondary" class="shrink-0 border border-white/10 !bg-white/15 hover:!bg-white/20 light:!bg-zinc-200 light:hover:!bg-zinc-300" onClick={() => (gameSettingsOpen = true)}>
+              <Icon name="settings" size="h-6 w-6" />
+            </Button>
+          {/if}
+        </div>
+        <div class="pointer-events-none flex h-[120px] w-[420px] shrink-0 flex-col items-end justify-end">
+          <h2 class="flex h-full w-full items-end justify-end text-[22px] font-semibold leading-tight text-white">
+            {#if customIconUrl !== null}
+              <img src={customIconUrl} alt="Icona personalizzata di {name}" class="size-full object-contain object-right" />
+            {:else if steamAppId !== null}
+              <SteamArtwork {steamAppId} asset="logo" version={detailsState?.cachedAt ?? null} caption={false} alt="Logo di {name}" class="size-full object-contain object-right">
+                {#snippet placeholder()}<span class="block max-w-full truncate text-right">{name}</span>{/snippet}
+              </SteamArtwork>
+            {:else}
+              <span class="block max-w-full truncate text-right">{name}</span>
             {/if}
           </h2>
-          {#if headline !== null}
-            <p class="text-sm text-zinc-200">{headline}</p>
-          {:else if location !== null}
-            <p class="max-w-full truncate text-sm text-zinc-300" title={location}>{location}</p>
-          {/if}
-          {#if launch?.error}<p class="text-sm text-red-300" role="alert">{launch.error}</p>{/if}
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <GameLaunchControls
-            {game}
-            {launch}
-            variant="primary"
-            actionPending={$pendingGameId === game.id}
-            cancelPending={$cancelPendingGameId === game.id}
-            onPlay={playGame}
-            onCancel={abortGameLaunch}
-            onStop={stopGameProcess}
-          />
-          <Button label="Impostazioni del gioco" variant="secondary" onClick={() => (gameSettingsOpen = true)}>
-            <Icon name="settings" size="h-4 w-4" />
-          </Button>
+          {#if storeGame === null && launch?.error}<p class="mt-1 max-w-full truncate text-right text-sm text-red-300" role="alert">{launch.error}</p>{/if}
         </div>
       </div>
     </section>
 
-    {#if artworkError !== null}
+    {#if storeGame !== null && queueError !== null}
+      <ErrorBanner message={queueError} />
+    {/if}
+    {#if storeGame !== null && $sourceRefreshError !== null}
+      <ErrorBanner message={$sourceRefreshError} onRetry={() => void refreshSource()} retryLabel="Riprova" />
+    {/if}
+    {#if storeGame === null && artworkError !== null}
       <ErrorBanner message={artworkError} />
     {/if}
 
-    {#if $launchError !== null}
+    {#if storeGame === null && $launchError !== null}
       <ErrorBanner message={$launchError} />
     {/if}
 
@@ -181,34 +240,32 @@
           hasSteamAppId={steamAppId !== null}
         />
         <Panel title="Info gioco">
-          <dl class="grid gap-2 text-sm">
-            <div class="flex flex-wrap gap-x-3">
-              <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">Origine</dt>
-              <dd class="min-w-0 flex-1 text-zinc-100 light:text-zinc-900">
-                {isSteamGame ? "Libreria Steam" : "Voce manuale"}
-              </dd>
-            </div>
-            <div class="flex flex-wrap gap-x-3">
-              <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">Steam App ID</dt>
-              <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">
-                {game.steamAppId ?? "nessuno"}
-              </dd>
-            </div>
-            <div class="flex flex-wrap gap-x-3">
-              <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">
-                {isSteamGame ? "Cartella" : "Eseguibile"}
-              </dt>
-              <dd class="min-w-0 flex-1 break-all text-zinc-100 light:text-zinc-900">
-                {location ?? "non impostato"}
-              </dd>
-            </div>
-            <div class="flex flex-wrap gap-x-3">
-              <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">Nome rilevato</dt>
-              <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">
-                {game.automaticName ?? "nessuno"}
-              </dd>
-            </div>
-          </dl>
+          <div class="flex flex-col gap-3">
+            <dl class="grid gap-2 text-sm">
+              <div class="flex flex-wrap gap-x-3">
+                <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">Versione</dt>
+                <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">{entry?.release.version ?? "non pubblicata"}</dd>
+              </div>
+              <div class="flex flex-wrap gap-x-3">
+                <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">Pubblicato</dt>
+                <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">{entry === null ? "non pubblicato" : formatDate(entry.release.publishedAt)}</dd>
+              </div>
+              <div class="flex flex-wrap gap-x-3">
+                <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">Dimensione</dt>
+                <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">{entry === null ? "non disponibile" : formatBytes(entry.download.sizeBytes)}</dd>
+              </div>
+              <div class="flex flex-wrap gap-x-3">
+                <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">Manifest</dt>
+                <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">
+                  {entry === null || $source.data.cachedAt === null ? "non disponibile" : formatDateTime($source.data.cachedAt)}
+                  {#if entry !== null && $source.data.stale}<span class="text-amber-300 light:text-amber-800"> · cache scaduta</span>{/if}
+                </dd>
+              </div>
+            </dl>
+            {#if storeGame !== null && $source.data.warning !== null}
+              <p class="text-sm text-amber-300 light:text-amber-800">{$source.data.warning}</p>
+            {/if}
+          </div>
         </Panel>
       </div>
     </div>
@@ -223,17 +280,30 @@
   />
 {/if}
 
-{#if artworkOpen && details !== null}
+{#if artworkOpen && details !== null && steamAppId !== null}
   <ArtworkViewer
-    steamAppId={details.steamAppId}
+    {steamAppId}
     asset="hero"
     fallbackAsset="header"
-    alt="Copertina di {game?.name ?? details.name}"
+    alt="Copertina di {name}"
     onClose={() => (artworkOpen = false)}
   />
 {/if}
 
-{#if $accountSwitchGame !== null}
+{#if storeGame !== null}
+  <Dialog open={confirmOpen} title="Rilascio non verificato" onClose={() => (confirmOpen = false)}>
+    <p class="text-sm text-zinc-300 light:text-zinc-700">
+      Il rilascio di {name} non è stato verificato dallo staff Legio. Un archivio non verificato può contenere
+      programmi dannosi. Procedere con il download e l'installazione?
+    </p>
+    <div class="flex justify-end gap-2">
+      <Button label="Annulla" variant="secondary" onClick={() => (confirmOpen = false)} />
+      <Button label="Scarica comunque" variant="danger" disabled={queueing} onClick={() => { confirmOpen = false; void startDownload(true); }} />
+    </div>
+  </Dialog>
+{/if}
+
+{#if storeGame === null && $accountSwitchGame !== null}
 <Dialog
   open
   title="Cambio account Steam"

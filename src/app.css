@@ -4,6 +4,14 @@
 
 @theme {
   --font-sans: "Motiva Sans", ui-sans-serif, system-ui, sans-serif;
+  --color-legio-download: #2563eb;
+  --color-legio-download-hover: #1d4ed8;
+  --color-legio-play: #008038;
+  --color-legio-play-hover: #006b2b;
+  --color-legio-launching: #a16207;
+  --color-legio-launching-hover: #854d0e;
+  --color-legio-running: #b91c1c;
+  --color-legio-running-hover: #991b1b;
 }
 
 @utility scrollbar-none {

@@ -7,7 +7,7 @@
   import { openStoreGame, selectedStoreGame } from "../../stores/navigation";
   import type { LoadStatus } from "../../stores/resource";
   import { refreshSource, sourceRefreshError, source } from "../../stores/source";
-  import StoreGameDetail from "./StoreGameDetail.svelte";
+  import GameDetailView from "../library/GameDetailView.svelte";
   import StoreGameCard from "./StoreGameCard.svelte";
   import { sourceStatusFor, type SourceStatus } from "./source-status";
 
@@ -72,7 +72,7 @@
 </script>
 
 {#if $selectedStoreGame !== null}
-  <StoreGameDetail steamAppId={$selectedStoreGame.steamAppId} name={$selectedStoreGame.name} />
+  <GameDetailView storeGame={$selectedStoreGame} />
 {:else}
   <header class="mb-5 flex flex-wrap items-end justify-between gap-3">
     <div>
@@ -96,12 +96,8 @@
 
   {#if trimmed.length > 0 && $catalog.results.length > 0}
     <div class="mb-4 flex flex-wrap items-center gap-3 text-xs text-zinc-500">
-      <span>{$catalog.total} risultati in cache</span>
       {#if $catalog.refreshing}
         <span role="status">Aggiornamento in corso...</span>
-      {/if}
-      {#if $catalog.stale}
-        <Badge tone="warning" title="Dati in cache" />
       {/if}
       {#if $catalog.sourceStale}
         <Badge tone="warning" title="Sorgente non aggiornata" />

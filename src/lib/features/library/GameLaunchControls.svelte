@@ -31,35 +31,38 @@
   } = $props();
 
   const status = $derived(launch?.status ?? "idle");
+  const actionVariant = $derived(
+    status === "launching" ? "launching" : status === "running" ? "running" : variant === "primary" ? "play" : "secondary",
+  );
 </script>
 
 {#if game.steamInstallPath !== null || game.executablePath !== null}
   {#if status === "idle"}
-    {#if circle}
-      <Button
-        label="Gioca"
-        {variant}
-        {circle}
-        disabled={actionPending}
-        onClick={() => onPlay(game)}
-        class={revealOnHover
-          ? "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-          : className}
-      >
-        <Icon name="play" size="h-5 w-5 translate-x-px" />
-      </Button>
-    {:else}
-      <Button label="Gioca" {variant} class={className} disabled={actionPending} onClick={() => onPlay(game)} />
-    {/if}
+    <Button
+      label="GIOCA"
+      variant={actionVariant}
+      {circle}
+      class={revealOnHover
+        ? "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+        : className}
+      disabled={actionPending}
+      onClick={() => onPlay(game)}
+    >
+      <Icon name="play" size="h-6 w-6" />
+    </Button>
   {:else if status === "launching"}
     <Button
-      label={cancelPending ? "Annullamento..." : "Annulla avvio"}
-      {variant}
+      label={cancelPending ? "ANNULLAMENTO..." : "LAUNCHING..."}
+      variant={actionVariant}
       class={className}
       disabled={cancelPending}
       onClick={() => onCancel(game)}
-    />
+    >
+      <Icon name="close" size="h-6 w-6" />
+    </Button>
   {:else}
-    <Button label="Arresta" {variant} class={className} disabled={actionPending} onClick={() => onStop(game)} />
+    <Button label="STOP" variant={actionVariant} class={className} disabled={actionPending} onClick={() => onStop(game)}>
+      <Icon name="stop" size="h-6 w-6" />
+    </Button>
   {/if}
 {/if}

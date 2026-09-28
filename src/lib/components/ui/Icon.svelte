@@ -10,11 +10,14 @@
     | "wrench"
     | "warning"
     | "play"
+    | "download"
+    | "stop"
     | "close"
     | "previous"
     | "next"
     | "reload"
     | "search"
+    | "chevron-down"
     | "plus";
 
   let {
@@ -28,14 +31,25 @@
   type IconPath = {
     d: string;
     evenodd?: boolean;
+    fill?: string;
+    stroke?: string;
+    strokeWidth?: number;
+    strokeLinecap?: "round" | "square" | "butt";
+    strokeLinejoin?: "round" | "miter" | "bevel";
   };
 
   const iconPaths: Record<IconName, IconPath[]> = {
-    search: [{ d: "M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.71.71l.27.28v.78l5 5 1.5-1.5-5-5Zm-5 0A4.5 4.5 0 1 1 10.5 5a4.5 4.5 0 0 1 0 9Z" }],
+    search: [
+      { d: "M11 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16Z", fill: "none", stroke: "currentColor", strokeWidth: 2 },
+      { d: "m21 21-4.35-4.35", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" },
+    ],
     plus: [{ d: "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2Z" }],
     reload: [{ d: "M17.65 6.35A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.76-4.24L13 11h7V4l-2.35 2.35Z" }],
     play: [{ d: "M8 5v14l11-7L8 5z" }],
+    download: [{ d: "M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }],
+    stop: [{ d: "M6 6h12v12H6z" }],
     close: [{ d: "M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41Z" }],
+    "chevron-down": [{ d: "m6 9 6 6 6-6", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }],
     previous: [{ d: "M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12l4.58-4.59Z" }],
     next: [{ d: "M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6-6-6Z" }],
     home: [
@@ -101,8 +115,13 @@
   {#each iconPaths[name] as p (p.d)}
     <path
       d={p.d}
+      fill={p.fill ?? "currentColor"}
       fill-rule={p.evenodd ? "evenodd" : undefined}
       clip-rule={p.evenodd ? "evenodd" : undefined}
+      stroke={p.stroke}
+      stroke-width={p.strokeWidth}
+      stroke-linecap={p.strokeLinecap}
+      stroke-linejoin={p.strokeLinejoin}
     />
   {/each}
 </svg>

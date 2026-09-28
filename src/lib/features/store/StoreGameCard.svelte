@@ -21,10 +21,8 @@
   let row: HTMLLIElement | undefined = $state();
   let visible = $state(false);
   const detailsState = $derived($steamDetails[steamAppId] ?? null);
-  const details = $derived(detailsState?.details ?? null);
   const entry = $derived(status.entry);
   const meta = $derived(availabilityMeta[status.availability]);
-  const genres = $derived(details?.genres.slice(0, 4).join(", ") ?? "");
 
   $effect(() => {
     if (visible) return;
@@ -64,7 +62,6 @@
     <div class="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1 sm:pr-3">
       <div class="flex min-w-0 flex-1 flex-col justify-center gap-1">
         <span class="truncate text-base font-semibold text-zinc-100 light:text-zinc-900">{name}</span>
-        {#if genres}<span class="truncate text-sm text-zinc-300 light:text-zinc-600">{genres}</span>{/if}
         {#if entry !== null}
           <span class="text-xs text-zinc-400 light:text-zinc-500">Versione {entry.release.version} · {formatBytes(entry.download.sizeBytes)}</span>
         {/if}
