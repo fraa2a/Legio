@@ -2,7 +2,6 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
   import Button from "../../components/ui/Button.svelte";
-  import TextField from "../../components/ui/TextField.svelte";
   import { pickGameDirectory } from "../../services/dialog";
   import { saveSettings, type Settings } from "../../services/local-state";
   import { configureSteamScanInterval } from "../../stores/bootstrap";
@@ -21,7 +20,6 @@
   ];
   let saving = $state(false);
   let saved = $state(false);
-  let downloadPathDraft = $state<string | null>(null);
 
   async function selectInterval(value: string): Promise<void> {
     const minutes = Number(value);
@@ -57,16 +55,13 @@
     }
   }
 
-  async function browseDownloadPath(): Promise<void> {
+  async function setDownloadPath(): Promise<void> {
     try {
-      downloadPathDraft = (await pickGameDirectory(downloadPathDraft ?? $settings.data.downloadPath)) ?? downloadPathDraft;
+      const path = await pickGameDirectory($settings.data.downloadPath, "Imposta la cartella per download e installazioni");
+      if (path !== null) await update({ downloadPath: path });
     } catch (error) {
       settingsError.set(toMessage(error));
     }
-  }
-
-  async function saveDownloadPath(): Promise<void> {
-    if (await update({ downloadPath: downloadPathDraft?.trim() || null })) downloadPathDraft = null;
   }
 </script>
 
@@ -76,14 +71,13 @@
     <p class="mt-1 text-sm text-zinc-400 light:text-zinc-600">Configura l'avvio e il comportamento della finestra.</p>
   </div>
   <div class="max-w-xl flex flex-col gap-2">
-    <TextField id="default-download-path" label="Cartella predefinita per download e installazioni"
-      value={downloadPathDraft ?? $settings.data.downloadPath ?? ""}
-      placeholder="Cartella predefinita di Legio"
-      oninput={(value) => (downloadPathDraft = value)} />
+    <p class="text-sm font-medium text-zinc-200 light:text-zinc-800">Cartella per download e installazioni</p>
+    <p class="break-all text-sm text-zinc-400 light:text-zinc-600">{$settings.data.downloadPath ?? "Cartella predefinita di Legio"}</p>
     <div class="flex gap-2">
-      <Button label="Sfoglia..." variant="secondary" disabled={saving} onClick={() => void browseDownloadPath()} />
-      <Button label="Salva cartella" disabled={saving || downloadPathDraft === null}
-        onClick={() => void saveDownloadPath()} />
+      <Button label="Imposta cartella..." variant="secondary" disabled={saving} onClick={() => void setDownloadPath()} />
+      {#if $settings.data.downloadPath !== null}
+        <Button label="Usa cartella predefinita" variant="secondary" disabled={saving} onClick={() => void update({ downloadPath: null })} />
+      {/if}
     </div>
   </div>
   <div class="flex flex-col gap-3">
