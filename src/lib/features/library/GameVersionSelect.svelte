@@ -63,11 +63,20 @@
         <button
           type="button"
           aria-current={option.id === selectedId ? "true" : undefined}
-          class="flex w-full flex-col rounded-lg px-3 py-2 text-left hover:bg-white/10 focus-visible:bg-white/10 light:hover:bg-zinc-100 light:focus-visible:bg-zinc-100"
+          class="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-white/10 focus-visible:bg-white/10 light:hover:bg-zinc-100 light:focus-visible:bg-zinc-100"
           onclick={() => choose(option.id)}
         >
-          <span class="w-full truncate text-sm font-semibold text-zinc-100 light:text-zinc-900">{option.name}</span>
-          <span class="w-full truncate text-xs text-zinc-400 light:text-zinc-600">{option.subtitle}</span>
+          {#if steamAppId !== null}
+            <SteamArtwork {steamAppId} asset="logo" caption={false} alt="" class="size-9 shrink-0 object-contain">
+              {#snippet placeholder()}<span class="flex size-9 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold">{option.name.charAt(0).toUpperCase()}</span>{/snippet}
+            </SteamArtwork>
+          {:else}
+            <span class="flex size-9 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold">{option.name.charAt(0).toUpperCase()}</span>
+          {/if}
+          <span class="flex min-w-0 flex-col">
+            <span class="truncate text-sm font-semibold text-zinc-100 light:text-zinc-900">{option.name}</span>
+            <span class="truncate text-xs text-zinc-400 light:text-zinc-600">{option.subtitle}</span>
+          </span>
         </button>
       {/each}
     </div>

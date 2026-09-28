@@ -16,6 +16,7 @@
   } from "../../stores/launch";
   import { closeGame, openGame, selectSection, selectedGameId, type StoreGameSelection } from "../../stores/navigation";
   import { downloads, queueJob } from "../../stores/downloads";
+  import { describeDownloadStatus, isActiveDownloadStatus } from "../../services/downloads";
   import { playtime } from "../../stores/playtime";
   import { refreshSource, source, sourceRefreshError } from "../../stores/source";
   import { ensureSteamDetails, steamDetails } from "../../stores/steam-details";
@@ -48,6 +49,7 @@
   const entry = $derived(status?.entry ?? null);
   const name = $derived(storeGame !== null ? (entry?.name ?? storeGame.name) : (game?.name ?? ""));
   const job = $derived(storeGame === null || entry === null ? null : ($downloads.data.find((candidate) => candidate.steamAppId === steamAppId && candidate.sha256 === entry.download.sha256 && candidate.status !== "installed" && candidate.status !== "cancelled") ?? null));
+  const downloadProgress = $derived(job === null || job.sizeBytes === 0 ? 0 : Math.min(100, Math.max(0, job.downloadedBytes / job.sizeBytes * 100)));
   const libraryVersions = $derived(game === null ? [] : $games.data.filter((candidate) => candidate.steamAppId === null ? candidate.id === game.id : candidate.steamAppId === game.steamAppId));
   const versionOptions = $derived(storeGame !== null
     ? releases.map((release) => ({ id: release.entry.download.sha256, name: release.entry.name, subtitle: `Versione ${release.entry.release.version}` }))
@@ -71,6 +73,12 @@
     if (storeGame !== null) return;
     void playtime.load();
     const timer = setInterval(() => void playtime.load(), 30000);
+    return () => clearInterval(timer);
+  });
+
+  $effect(() => {
+    if (storeGame === null || job === null || !isActiveDownloadStatus(job.status)) return;
+    const timer = setInterval(() => void downloads.load(), 2000);
     return () => clearInterval(timer);
   });
 
@@ -177,9 +185,13 @@
         <div class="flex flex-nowrap items-end gap-2">
           {#if storeGame !== null}
             {#if job !== null}
-              <Button label="VAI AI DOWNLOAD" variant="download" class="h-[60px] w-[240px] shrink-0 rounded-xl px-4 text-xl font-bold" onClick={() => selectSection("downloads")}>
+              <button type="button" class="relative flex h-[60px] w-[240px] shrink-0 items-center justify-center gap-2 overflow-hidden rounded-xl bg-legio-download px-4 text-xl font-bold text-white hover:bg-legio-download-hover" onclick={() => selectSection("downloads")}>
                 <Icon name="download" size="h-6 w-6" />
-              </Button>
+                {job.status === "queued" || job.status === "downloading" ? "DOWNLOADING" : describeDownloadStatus(job.status).toUpperCase()}
+                <span class="absolute inset-x-0 bottom-0 h-2 bg-white/30" role="progressbar" aria-label="Avanzamento download" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(downloadProgress)}>
+                  <span class="block h-full bg-white" style:width={`${downloadProgress}%`}></span>
+                </span>
+              </button>
             {:else if status?.availability === "verified" || status?.availability === "unverified"}
               <Button label="SCARICA" variant="download" class="h-[60px] w-[240px] shrink-0 rounded-xl px-4 text-xl font-bold" disabled={queueing} onClick={requestDownload}>
                 <Icon name="download" size="h-6 w-6" />
