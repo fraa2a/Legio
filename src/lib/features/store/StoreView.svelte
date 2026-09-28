@@ -22,17 +22,13 @@
   const manifest = $derived($source.data.manifest);
   const trimmed = $derived($storeQuery.trim());
 
-  // Without a query the store lists every release the Legio source publishes,
-  // otherwise it lists the catalog hits that the source can actually deliver.
+  // Each title appears once; its releases are selected on the detail page.
   const entries = $derived.by((): StoreEntry[] => {
     if (trimmed.length === 0) {
       if (manifest === null) return [];
-      return [...manifest.verified, ...manifest.unverified]
-        .map((entry) => ({
-          steamAppId: entry.steamAppId,
-          name: entry.name,
-          status: sourceStatusFor(manifest, entry.steamAppId),
-        }))
+      return [...new Map([...manifest.verified, ...manifest.unverified].reverse()
+        .map((entry) => [entry.steamAppId, entry] as const)).values()]
+        .map((entry) => ({ steamAppId: entry.steamAppId, name: entry.name, status: sourceStatusFor(manifest, entry.steamAppId) }))
         .sort((left, right) => collator.compare(left.name, right.name));
     }
     return $catalog.results

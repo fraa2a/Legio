@@ -4,9 +4,9 @@ function defaultPath(value: string | null | undefined): string | undefined {
   return value !== null && value !== undefined && value.length > 0 ? value : undefined;
 }
 
-export function pickGameDirectory(startPath?: string | null): Promise<string | null> {
+export function pickGameDirectory(startPath?: string | null, title = "Seleziona la cartella del gioco"): Promise<string | null> {
   return open({
-    title: "Seleziona la cartella del gioco",
+    title,
     directory: true,
     multiple: false,
     defaultPath: defaultPath(startPath),

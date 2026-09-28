@@ -24,6 +24,7 @@
   import SelectField from "../../components/ui/SelectField.svelte";
   import TextField from "../../components/ui/TextField.svelte";
   import { toMessage } from "../../utils/errors";
+  import { pickGameDirectory } from "../../services/dialog";
   import { formatLaunchArguments, parseLaunchArguments } from "../../utils/launch-arguments";
 
   let { game, section }: { game: Game; section: "locations" | "launch" | "compatibility" } = $props();
@@ -150,6 +151,15 @@
     setOverride("prefixPath", enabled ? "" : null);
   }
 
+  async function browsePrefix(): Promise<void> {
+    try {
+      const path = await pickGameDirectory(overrides.prefixPath, "Seleziona la cartella del prefix");
+      if (path !== null) setOverride("prefixPath", path);
+    } catch (error) {
+      saveError = toMessage(error);
+    }
+  }
+
   function toggleWorkingDirectory(enabled: boolean): void {
     setOverride("workingDirectory", enabled ? "" : null);
   }
@@ -216,6 +226,9 @@
     saveError = null;
     saved = false;
     try {
+      if (overrides.prefixPath !== null && overrides.prefixPath.trim().length === 0) {
+        throw new Error("Seleziona una cartella per il prefix personalizzato.");
+      }
       overrides = await saveGameCompatibilityOverrides(game.id, {
         ...overrides,
         argumentsBefore: overrides.argumentsBefore === null ? null : parseLaunchArguments(argumentsBefore),
@@ -275,14 +288,17 @@
   {:else if loadError !== null}
     <ErrorBanner message={loadError} onRetry={() => void load()} />
   {:else if $appInfo.data.platform === "linux" && section === "locations"}
-    <p class="text-sm text-zinc-400 light:text-zinc-600">Imposta le cartelle usate da questo gioco. I valori vuoti ereditano i default globali.</p>
+    <p class="text-sm text-zinc-400 light:text-zinc-600">Il prefix predefinito è una cartella distinta per questo gioco sotto la radice globale. Avvio con Steam usa lo stesso percorso.</p>
     <div class="grid gap-4">
       <div class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
         <span class="flex items-center gap-2">
           <input type="checkbox" checked={overrides.prefixPath !== null} onchange={(event) => togglePrefix(event.currentTarget.checked)} />
-          Prefix dedicato
+          Percorso del prefix personalizzato
         </span>
-        <TextField id="game-compat-prefix" label="Cartella del prefix" value={overrides.prefixPath ?? ""} disabled={overrides.prefixPath === null} placeholder="Percorso opzionale" oninput={(value) => setOverride("prefixPath", value)} />
+        <div class="flex gap-2">
+          <div class="min-w-0 flex-1"><TextField id="game-compat-prefix" label="Cartella del prefix" value={overrides.prefixPath ?? ""} disabled={overrides.prefixPath === null} placeholder="Percorso assoluto" oninput={(value) => setOverride("prefixPath", value)} /></div>
+          <Button label="Sfoglia..." variant="secondary" disabled={overrides.prefixPath === null} onClick={() => void browsePrefix()} />
+        </div>
       </div>
       <div class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
         <span class="flex items-center gap-2">
@@ -296,6 +312,14 @@
     {#if saved}<p class="text-sm text-emerald-300 light:text-emerald-700" role="status">Percorsi salvati.</p>{/if}
     <div><Button label={saving ? "Salvataggio..." : "Salva percorsi"} disabled={saving} onClick={() => void saveCompatibility()} /></div>
   {:else if $appInfo.data.platform === "linux" && section === "compatibility"}
+    {#if game.steamAppId !== null}
+      <label class="flex items-center gap-2 text-sm text-zinc-200 light:text-zinc-800">
+        <input type="checkbox" checked={overrides.launchViaSteam ?? true}
+          onchange={(event) => setOverride("launchViaSteam", event.currentTarget.checked)} />
+        Avvio con Steam
+      </label>
+      <p class="text-xs text-zinc-500">Richiede Steam aperto e avvia direttamente il gioco con Proton usando il prefix della sezione Posizioni. Runtime e overlay seguono le rispettive impostazioni.</p>
+    {/if}
     <p class="text-sm text-zinc-400 light:text-zinc-600">
       Ogni campo eredita il default globale finché il relativo override resta disattivato. Una lista o una mappa vuota cancella il valore ereditato.
     </p>

@@ -12,6 +12,7 @@ use reqwest::{
 use rusqlite::{OptionalExtension, params};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
+use tauri_plugin_notification::NotificationExt;
 use uuid::Uuid;
 
 use crate::{
@@ -27,6 +28,7 @@ pub struct DownloadJob {
     steam_app_id: u32,
     name: String,
     release_version: String,
+    sha256: String,
     size_bytes: u64,
     downloaded_bytes: u64,
     speed_bps: u64,
@@ -38,13 +40,14 @@ pub struct DownloadJob {
 #[derive(Debug)]
 struct Transfer {
     id: String,
+    name: String,
     url: String,
     size: u64,
     etag: Option<String>,
 }
 
 pub struct DownloadQueueState {
-    directory: Result<PathBuf, String>,
+    directory: std::sync::Mutex<PathBuf>,
     client: reqwest::Client,
     running: AtomicBool,
     bandwidth_limit: AtomicU64,
@@ -61,9 +64,11 @@ impl DownloadQueueState {
             .build()
             .map_err(|error| format!("Could not initialize download client: {error}"))?;
         Ok(Self {
-            directory: data_dir
-                .map(|path| path.join("downloads"))
-                .map_err(|error| format!("Could not locate download directory: {error}")),
+            directory: std::sync::Mutex::new(
+                data_dir
+                    .map(|path| path.join("downloads"))
+                    .map_err(|error| format!("Could not locate download directory: {error}"))?,
+            ),
             client,
             running: AtomicBool::new(false),
             bandwidth_limit: AtomicU64::new(0),
@@ -71,16 +76,29 @@ impl DownloadQueueState {
         })
     }
 
-    fn directory(&self) -> Result<&Path, String> {
-        let path = self.directory.as_ref().map_err(Clone::clone)?;
-        fs::create_dir_all(path)
+    fn directory(&self) -> Result<PathBuf, String> {
+        let path = self
+            .directory
+            .lock()
+            .map_err(|_| "Download directory state is unavailable".to_owned())?
+            .clone();
+        fs::create_dir_all(&path)
             .map_err(|error| format!("Could not create download directory: {error}"))?;
-        let metadata = fs::symlink_metadata(path)
+        let metadata = fs::symlink_metadata(&path)
             .map_err(|error| format!("Could not inspect download directory: {error}"))?;
         if !metadata.is_dir() || metadata.file_type().is_symlink() {
             return Err("Download directory is not a regular directory".to_owned());
         }
         Ok(path)
+    }
+
+    pub(crate) fn set_storage_root(&self, root: &Path) -> Result<(), String> {
+        let mut directory = self
+            .directory
+            .lock()
+            .map_err(|_| "Download directory state is unavailable".to_owned())?;
+        *directory = root.join("downloads");
+        Ok(())
     }
 
     pub(crate) fn set_bandwidth_limit(&self, bytes_per_second: u64) {
@@ -118,6 +136,7 @@ fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DownloadJob> {
             .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(1, app_id))?,
         name: row.get(2)?,
         release_version: row.get(3)?,
+        sha256: row.get(10)?,
         size_bytes: u64::try_from(size)
             .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(4, size))?,
         downloaded_bytes: u64::try_from(downloaded)
@@ -139,7 +158,7 @@ fn list(database: &Database) -> Result<Vec<DownloadJob>, String> {
         let mut statement = connection
             .prepare(
                 "SELECT id, steam_app_id, name, release_version, size_bytes, downloaded_bytes,
-                    speed_bps, eta_seconds, status, error FROM downloads ORDER BY created_at, id",
+                    speed_bps, eta_seconds, status, error, sha256 FROM downloads ORDER BY created_at, id",
             )
             .map_err(db_error)?;
         statement
@@ -174,6 +193,7 @@ fn change_status(database: &Database, id: &str, from: &[&str], to: &str) -> Resu
 pub fn enqueue(
     database: &Database,
     app_id: u32,
+    sha256: &str,
     accept_unverified: bool,
 ) -> Result<DownloadJob, String> {
     let cache = legio_source_cache::cached(database)?
@@ -182,13 +202,13 @@ pub fn enqueue(
         .manifest
         .verified
         .iter()
-        .find(|entry| entry.steam_app_id == app_id);
+        .find(|entry| entry.steam_app_id == app_id && entry.download.sha256 == sha256);
     let unverified = cache
         .manifest
         .unverified
         .iter()
-        .find(|entry| entry.steam_app_id == app_id);
-    if unverified.is_some() && !accept_unverified {
+        .find(|entry| entry.steam_app_id == app_id && entry.download.sha256 == sha256);
+    if verified.is_none() && unverified.is_some() && !accept_unverified {
         return Err("Confirm the unverified source before downloading".to_owned());
     }
     let entry = verified
@@ -212,6 +232,7 @@ pub fn enqueue(
         steam_app_id: app_id,
         name: entry.name.clone(),
         release_version: entry.release.version.clone(),
+        sha256: entry.download.sha256.clone(),
         size_bytes: entry.download.size_bytes,
         downloaded_bytes: 0,
         speed_bps: 0,
@@ -223,16 +244,16 @@ pub fn enqueue(
 
 fn claim(database: &Database) -> Result<Option<Transfer>, String> {
     database.with_connection(|connection| {
-        let row: Option<(String, String, i64, Option<String>)> = connection.query_row(
-            "SELECT id, url, size_bytes, etag FROM downloads WHERE status = 'queued' ORDER BY created_at, id LIMIT 1",
-            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        let row: Option<(String, String, String, i64, Option<String>)> = connection.query_row(
+            "SELECT id, name, url, size_bytes, etag FROM downloads WHERE status = 'queued' ORDER BY created_at, id LIMIT 1",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
         ).optional().map_err(db_error)?;
-        let Some((id, url, size, etag)) = row else { return Ok(None); };
+        let Some((id, name, url, size, etag)) = row else { return Ok(None); };
         connection.execute(
             "UPDATE downloads SET status = 'downloading', updated_at = ?2 WHERE id = ?1",
             params![id, now()?],
         ).map_err(db_error)?;
-        Ok(Some(Transfer { id, url, size: u64::try_from(size).map_err(|_| "Invalid stored download size".to_owned())?, etag }))
+        Ok(Some(Transfer { id, name, url, size: u64::try_from(size).map_err(|_| "Invalid stored download size".to_owned())?, etag }))
     })
 }
 
@@ -531,7 +552,26 @@ async fn run_queue<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         };
         let outcome = transfer(&app.state::<DownloadQueueState>(), database, &job).await;
         match outcome {
-            Ok(()) => finish(database, &job.id, "downloaded", None)?,
+            Ok(()) => {
+                finish(database, &job.id, "downloaded", None)?;
+                match database.settings() {
+                    Ok(settings) if settings.download_notifications => {
+                        if let Err(error) = app
+                            .notification()
+                            .builder()
+                            .title("Download completato")
+                            .body(&job.name)
+                            .show()
+                        {
+                            eprintln!("Could not show download notification: {error}");
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        eprintln!("Could not read download notification setting: {error}")
+                    }
+                }
+            }
             Err(error) => {
                 if status(database, &job.id)? == "downloading" {
                     let waiting = error.starts_with("Network:") || error.starts_with("HTTP 5");
@@ -735,6 +775,7 @@ pub async fn stage_download(app: AppHandle, id: String) -> Result<String, String
 pub async fn queue_download(
     app: AppHandle,
     steam_app_id: u32,
+    sha256: String,
     accept_unverified: bool,
 ) -> Result<DownloadJob, String> {
     let worker_app = app.clone();
@@ -743,6 +784,7 @@ pub async fn queue_download(
         enqueue(
             app.state::<DatabaseState>().database()?,
             steam_app_id,
+            &sha256,
             accept_unverified,
         )
     })
@@ -930,7 +972,7 @@ pub fn start(app: AppHandle) -> Result<(), String> {
         .path()
         .app_data_dir()
         .map_err(|error| format!("Could not locate app data: {error}"))?;
-    finalize_install::recover(database, &data_dir)?;
+    finalize_install::recover(database, &database.storage_root(&data_dir)?)?;
     recover(database)?;
     kick(app);
     Ok(())
@@ -946,6 +988,8 @@ mod tests {
         sync::mpsc,
         thread,
     };
+
+    const TEST_HASH: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     fn test_app(directory: &Path) -> tauri::App<tauri::test::MockRuntime> {
         let mut context = tauri::test::mock_context(tauri::test::noop_assets());
@@ -984,9 +1028,49 @@ mod tests {
         (database, directory)
     }
 
+    #[test]
+    fn queues_exact_release_for_shared_app_id() {
+        let (database, directory) = database_with_source();
+        let second_hash = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+        let manifest = format!(
+            "{{\"schemaVersion\":1,\"generatedAt\":\"2026-09-22T00:00:00Z\",\"verified\":[{{\"steamAppId\":400,\"name\":\"Portal\",\"release\":{{\"version\":\"1\",\"publishedAt\":\"2026-09-22T00:00:00Z\"}},\"download\":{{\"url\":\"https://example.invalid/one.zip\",\"sha256\":\"{TEST_HASH}\",\"sizeBytes\":10}}}},{{\"steamAppId\":400,\"name\":\"Portal moddato\",\"release\":{{\"version\":\"2\",\"publishedAt\":\"2026-09-22T00:00:00Z\"}},\"download\":{{\"url\":\"https://example.invalid/two.zip\",\"sha256\":\"{second_hash}\",\"sizeBytes\":20}}}}],\"unverified\":[]}}"
+        );
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE legio_source_cache SET manifest = ?1 WHERE id = 1",
+                        [manifest.as_bytes()],
+                    )
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+
+        let second = enqueue(&database, 400, second_hash, false).unwrap();
+        let first = enqueue(&database, 400, TEST_HASH, false).unwrap();
+        assert_ne!(first.id, second.id);
+        assert_eq!(
+            (
+                second.name.as_str(),
+                second.release_version.as_str(),
+                second.sha256.as_str()
+            ),
+            ("Portal moddato", "2", second_hash)
+        );
+        assert_eq!(
+            (first.name.as_str(), first.release_version.as_str()),
+            ("Portal", "1")
+        );
+        assert!(enqueue(&database, 400, "deadbeef", false).is_err());
+
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
     fn downloaded_fixture() -> (Database, DownloadQueueState, DownloadJob, PathBuf) {
         let (database, directory) = database_with_source();
-        let job = enqueue(&database, 400, false).unwrap();
+        let job = enqueue(&database, 400, TEST_HASH, false).unwrap();
         let bytes = include_bytes!("../test-fixtures/archive/safe.zip");
         let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
         fs::write(queue.path(&job.id, "archive").unwrap(), bytes).unwrap();
@@ -1115,7 +1199,7 @@ mod tests {
     #[test]
     fn queue_survives_reopen_and_recovers_interrupted_transfer() {
         let (database, directory) = database_with_source();
-        let job = enqueue(&database, 400, false).unwrap();
+        let job = enqueue(&database, 400, TEST_HASH, false).unwrap();
         assert_eq!(claim(&database).unwrap().unwrap().id, job.id);
         drop(database);
         let reopened = Database::open(&directory).unwrap();
@@ -1155,7 +1239,7 @@ mod tests {
 
         let (database, directory) = database_with_source();
         let app = test_app(&directory);
-        let job = enqueue(&database, 400, false).unwrap();
+        let job = enqueue(&database, 400, TEST_HASH, false).unwrap();
         database
             .with_connection(|connection| {
                 connection
@@ -1243,7 +1327,7 @@ mod tests {
 
         let (database, directory) = database_with_source();
         let app = test_app(&directory);
-        let job = enqueue(&database, 400, false).unwrap();
+        let job = enqueue(&database, 400, TEST_HASH, false).unwrap();
         database
             .with_connection(|connection| {
                 connection
@@ -1337,7 +1421,7 @@ mod tests {
             String::from_utf8(request).unwrap()
         });
         let (database, directory) = database_with_source();
-        let job = enqueue(&database, 400, false).unwrap();
+        let job = enqueue(&database, 400, TEST_HASH, false).unwrap();
         database
             .with_connection(|connection| {
                 connection
@@ -1391,7 +1475,7 @@ mod tests {
             requests
         });
         let (database, directory) = database_with_source();
-        let job = enqueue(&database, 400, false).unwrap();
+        let job = enqueue(&database, 400, TEST_HASH, false).unwrap();
         database
             .with_connection(|connection| {
                 connection
@@ -1517,7 +1601,7 @@ mod tests {
         let (database, _queue, cancelled, directory) = downloaded_fixture();
         let mut ids = vec![cancelled.id.clone()];
         for _ in 0..2 {
-            ids.push(enqueue(&database, 400, false).unwrap().id);
+            ids.push(enqueue(&database, 400, TEST_HASH, false).unwrap().id);
         }
         let installed = ids[1].clone();
         let failed = ids[2].clone();

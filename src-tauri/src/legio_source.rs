@@ -48,7 +48,7 @@ pub enum ManifestErrorKind {
     InvalidDocument,
     UnsupportedVersion,
     InvalidField,
-    DuplicateAppId,
+    DuplicateRelease,
     InvalidUrl,
 }
 
@@ -122,13 +122,6 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {
                     "must be positive",
                 ));
             }
-            if !seen.insert(entry.steam_app_id) {
-                return Err(ManifestError::new(
-                    ManifestErrorKind::DuplicateAppId,
-                    format!("{prefix}.steamAppId"),
-                    format!("Steam App ID {} appears more than once", entry.steam_app_id),
-                ));
-            }
             validate_nonempty(&entry.name, format!("{prefix}.name"))?;
             validate_nonempty(&entry.release.version, format!("{prefix}.release.version"))?;
             validate_utc_timestamp(
@@ -152,6 +145,16 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {
                 return Err(invalid_field(
                     format!("{prefix}.download.sizeBytes"),
                     "must be positive",
+                ));
+            }
+            if !seen.insert((entry.steam_app_id, entry.download.sha256.as_str())) {
+                return Err(ManifestError::new(
+                    ManifestErrorKind::DuplicateRelease,
+                    format!("{prefix}.download.sha256"),
+                    format!(
+                        "archive {} is published more than once for Steam App ID {}",
+                        entry.download.sha256, entry.steam_app_id
+                    ),
                 ));
             }
         }
@@ -263,7 +266,16 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_versions_and_conflicting_ids() {
+    fn accepts_multiple_releases_for_one_app_and_rejects_duplicate_archive() {
+        let mut document = valid();
+        let mut second = document["verified"][0].clone();
+        second["name"] = json!("Portal moddato");
+        second["release"]["version"] = json!("2.0.0");
+        second["download"]["sha256"] =
+            json!("abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789");
+        document["unverified"] = json!([second]);
+        assert_eq!(parse(document).unwrap().unverified[0].steam_app_id, 400);
+
         let mut document = valid();
         document["schemaVersion"] = json!(2);
         assert_eq!(
@@ -275,7 +287,7 @@ mod tests {
         document["unverified"] = json!([document["verified"][0].clone()]);
         assert_eq!(
             parse(document).unwrap_err().kind,
-            ManifestErrorKind::DuplicateAppId
+            ManifestErrorKind::DuplicateRelease
         );
 
         let mut document = valid();
@@ -283,7 +295,7 @@ mod tests {
         document["verified"].as_array_mut().unwrap().push(duplicate);
         assert_eq!(
             parse(document).unwrap_err().kind,
-            ManifestErrorKind::DuplicateAppId
+            ManifestErrorKind::DuplicateRelease
         );
     }
 

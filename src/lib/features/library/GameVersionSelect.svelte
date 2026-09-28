@@ -1,0 +1,75 @@
+<script lang="ts">
+  import Icon from "../../components/ui/Icon.svelte";
+  import SteamArtwork from "./SteamArtwork.svelte";
+
+  interface VersionOption {
+    id: string;
+    name: string;
+    subtitle: string;
+  }
+
+  let {
+    steamAppId,
+    options,
+    selectedId,
+    onSelect,
+  }: {
+    steamAppId: number | null;
+    options: VersionOption[];
+    selectedId: string;
+    onSelect: (id: string) => void;
+  } = $props();
+
+  let open = $state(false);
+  let root: HTMLDivElement;
+  const selected = $derived(options.find((option) => option.id === selectedId) ?? options[0]);
+
+  function outside(event: PointerEvent): void {
+    if (root && !root.contains(event.target as Node)) open = false;
+  }
+
+  function choose(id: string): void {
+    onSelect(id);
+    open = false;
+  }
+</script>
+
+<svelte:window onpointerdown={outside} onkeydown={(event) => { if (event.key === "Escape") open = false; }} />
+
+<div bind:this={root} class="relative z-20 h-[60px] w-[260px] shrink-0">
+  <button
+    type="button"
+    aria-label={`Seleziona versione: ${selected.name}, ${selected.subtitle}`}
+    aria-expanded={open}
+    class="flex size-full items-center gap-2 border border-white/10 bg-zinc-950/60 px-3 text-left text-zinc-100 light:border-zinc-900/10 light:bg-zinc-100/70 light:text-zinc-900 {open ? 'rounded-t-xl border-b-0' : 'rounded-xl hover:bg-zinc-950/75 light:hover:bg-zinc-200'}"
+    onclick={() => (open = !open)}
+  >
+    {#if steamAppId !== null}
+      <SteamArtwork {steamAppId} asset="logo" caption={false} alt="" class="size-10 shrink-0 object-contain">
+        {#snippet placeholder()}<span class="flex size-10 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold">{selected.name.charAt(0).toUpperCase()}</span>{/snippet}
+      </SteamArtwork>
+    {:else}
+      <span class="flex size-10 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold">{selected.name.charAt(0).toUpperCase()}</span>
+    {/if}
+    <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+      <span class="truncate text-lg leading-6 font-semibold">{selected.name}</span>
+      <span class="truncate text-xs leading-4 text-zinc-400 light:text-zinc-600">{selected.subtitle}</span>
+    </span>
+    <Icon name="chevron-down" size="h-4 w-4 shrink-0 text-zinc-400 light:text-zinc-600" />
+  </button>
+  {#if open}
+    <div class="absolute left-0 top-full max-h-48 w-full overflow-y-auto rounded-b-xl border border-t-0 border-white/10 bg-zinc-950/60 p-1 light:border-zinc-900/10 light:bg-zinc-100/70">
+      {#each options as option (option.id)}
+        <button
+          type="button"
+          aria-current={option.id === selectedId ? "true" : undefined}
+          class="flex w-full flex-col rounded-lg px-3 py-2 text-left hover:bg-white/10 focus-visible:bg-white/10 light:hover:bg-zinc-100 light:focus-visible:bg-zinc-100"
+          onclick={() => choose(option.id)}
+        >
+          <span class="w-full truncate text-sm font-semibold text-zinc-100 light:text-zinc-900">{option.name}</span>
+          <span class="w-full truncate text-xs text-zinc-400 light:text-zinc-600">{option.subtitle}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
+</div>

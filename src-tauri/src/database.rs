@@ -10,7 +10,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 16;
+const SCHEMA_VERSION: i64 = 17;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -85,6 +85,7 @@ pub struct CompatibilityDefaults {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct GameCompatibilityOverrides {
+    pub launch_via_steam: Option<bool>,
     pub runner_path: Option<String>,
     /// Exact prefix directory for this game, overriding the global prefix root.
     pub prefix_path: Option<String>,
@@ -165,6 +166,24 @@ pub struct Settings {
     pub theme: Theme,
     #[serde(default = "default_steam_library_poll_minutes")]
     pub steam_library_poll_minutes: u32,
+    #[serde(default)]
+    pub download_path: Option<String>,
+    #[serde(default = "default_true")]
+    pub close_to_tray: bool,
+    #[serde(default = "default_true")]
+    pub hide_on_game_start: bool,
+    #[serde(default)]
+    pub launch_on_system_start: bool,
+    #[serde(default)]
+    pub launch_minimized: bool,
+    #[serde(default)]
+    pub launch_in_library: bool,
+    #[serde(default = "default_true")]
+    pub download_notifications: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_steam_library_poll_minutes() -> u32 {
@@ -186,6 +205,13 @@ impl Default for Settings {
         Self {
             theme: Theme::System,
             steam_library_poll_minutes: DEFAULT_STEAM_LIBRARY_POLL_MINUTES,
+            download_path: None,
+            close_to_tray: true,
+            hide_on_game_start: true,
+            launch_on_system_start: false,
+            launch_minimized: false,
+            launch_in_library: false,
+            download_notifications: true,
         }
     }
 }
@@ -225,6 +251,7 @@ pub struct PlaytimeSummary {
     pub game_id: String,
     pub total_milliseconds: i64,
     pub active_sessions: u32,
+    pub last_played_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -273,6 +300,13 @@ pub struct Database {
 }
 
 impl Database {
+    pub(crate) fn storage_root(&self, data_dir: &Path) -> Result<std::path::PathBuf, String> {
+        Ok(self
+            .settings()?
+            .download_path
+            .map_or_else(|| data_dir.to_path_buf(), std::path::PathBuf::from))
+    }
+
     pub fn steam_launch_config(&self, game_id: &str) -> Result<SteamLaunchConfig, String> {
         let game = self.game(game_id)?;
         if game.steam_install_path.is_none() {
@@ -406,6 +440,14 @@ impl Database {
 
     pub fn settings(&self) -> Result<Settings, String> {
         self.with_connection(|connection| {
+            let stored_preferences: Option<String> = connection
+                .query_row(
+                    "SELECT value FROM settings WHERE key = 'app_preferences'",
+                    [],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(database_error)?;
             let stored_theme: Option<String> = connection
                 .query_row(
                     "SELECT value FROM settings WHERE key = ?1",
@@ -430,24 +472,69 @@ impl Database {
                     })
                 })?;
             validate_steam_library_poll_minutes(steam_library_poll_minutes)?;
-            Ok(Settings {
-                theme,
-                steam_library_poll_minutes,
-            })
+            let mut settings = stored_preferences.map_or_else(
+                || Ok(Settings::default()),
+                |value| {
+                    serde_json::from_str::<Settings>(&value).map_err(|error| {
+                        format!("stored application preferences are invalid: {error}")
+                    })
+                },
+            )?;
+            settings.theme = theme;
+            settings.steam_library_poll_minutes = steam_library_poll_minutes;
+            Ok(settings)
         })
     }
 
     pub fn save_settings(&self, settings: Settings) -> Result<Settings, String> {
         validate_steam_library_poll_minutes(settings.steam_library_poll_minutes)?;
+        if settings.launch_minimized && !settings.launch_on_system_start {
+            return Err("Launch minimized requires launch on system startup".to_owned());
+        }
+        if let Some(path) = &settings.download_path {
+            let path = Path::new(path);
+            if !path.is_absolute()
+                || path.to_str().is_none()
+                || path.to_string_lossy().chars().any(char::is_control)
+            {
+                return Err(
+                    "Download path must be an absolute directory without control characters"
+                        .to_owned(),
+                );
+            }
+            fs::create_dir_all(path)
+                .map_err(|error| format!("Could not create download directory: {error}"))?;
+            let metadata = fs::symlink_metadata(path)
+                .map_err(|error| format!("Could not inspect download directory: {error}"))?;
+            if !metadata.is_dir() || metadata.file_type().is_symlink() {
+                return Err("Download path is not a directory".to_owned());
+            }
+        }
+        let preferences = encode_json(&settings)?;
         self.with_connection(|connection| {
-            connection
+            let transaction = connection.unchecked_transaction().map_err(database_error)?;
+            let current: Option<String> = transaction.query_row(
+                "SELECT value FROM settings WHERE key = 'app_preferences'", [], |row| row.get(0)
+            ).optional().map_err(database_error)?;
+            let old_path = current.map(|value| serde_json::from_str::<Settings>(&value)
+                .map(|stored| stored.download_path)
+                .map_err(|error| format!("stored application preferences are invalid: {error}")))
+                .transpose()?.flatten();
+            if old_path != settings.download_path {
+                let active: bool = transaction.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM downloads WHERE status NOT IN ('installed', 'cancelled') OR (status = 'installed' AND staged_path IS NOT NULL))",
+                    [], |row| row.get(0)
+                ).map_err(database_error)?;
+                if active { return Err("Finish or remove active downloads before changing the download directory".to_owned()); }
+            }
+            transaction
                 .execute(
                     "INSERT INTO settings (key, value) VALUES (?1, ?2)
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                     params![THEME_KEY, settings.theme.as_str()],
                 )
                 .map_err(database_error)?;
-            connection
+            transaction
                 .execute(
                     "INSERT INTO settings (key, value) VALUES (?1, ?2)
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -457,6 +544,11 @@ impl Database {
                     ],
                 )
                 .map_err(database_error)?;
+            transaction.execute(
+                "INSERT INTO settings (key, value) VALUES ('app_preferences', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [preferences],
+            ).map_err(database_error)?;
+            transaction.commit().map_err(database_error)?;
             Ok(settings)
         })
     }
@@ -590,7 +682,19 @@ impl Database {
         game_id: &str,
         overrides: GameCompatibilityOverrides,
     ) -> Result<GameCompatibilityOverrides, String> {
+        #[cfg(not(target_os = "linux"))]
+        if overrides.launch_via_steam == Some(true) {
+            return Err("Launch via Steam is available on Linux only".to_owned());
+        }
         let game_id = parse_game_id(game_id)?;
+        if overrides.launch_via_steam == Some(true) {
+            let game = self.game(&game_id)?;
+            if game.steam_install_path.is_some() || game.steam_app_id.is_none() {
+                return Err(
+                    "Launch via Steam requires a manual game with a Steam App ID".to_owned(),
+                );
+            }
+        }
         let arguments_before = encode_optional_json(&overrides.arguments_before)?;
         let arguments_after = encode_optional_json(&overrides.arguments_after)?;
         let environment = encode_optional_json(&overrides.environment)?;
@@ -605,8 +709,8 @@ impl Database {
                     "INSERT INTO game_compatibility_overrides
                         (game_id, runner_path, prefix_path, arguments_before,
                          arguments_after, working_directory, environment, dll_overrides,
-                         steam_runtime, steam_overlay, graphics_renderer, wayland, debug_logging)
-                     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13
+                         steam_runtime, steam_overlay, graphics_renderer, wayland, debug_logging, launch_via_steam)
+                     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14
                      WHERE EXISTS (SELECT 1 FROM games WHERE id = ?1)
                      ON CONFLICT(game_id) DO UPDATE SET
                         runner_path = excluded.runner_path,
@@ -620,7 +724,8 @@ impl Database {
                         steam_overlay = excluded.steam_overlay,
                         graphics_renderer = excluded.graphics_renderer,
                         wayland = excluded.wayland,
-                        debug_logging = excluded.debug_logging",
+                        debug_logging = excluded.debug_logging,
+                        launch_via_steam = excluded.launch_via_steam",
                     params![
                         game_id,
                         overrides.runner_path,
@@ -634,7 +739,8 @@ impl Database {
                         steam_overlay,
                         graphics_renderer,
                         wayland,
-                        overrides.debug_logging
+                        overrides.debug_logging,
+                        overrides.launch_via_steam
                     ],
                 )
                 .map_err(database_error)?;
@@ -829,7 +935,8 @@ impl Database {
                          COALESCE(SUM(CASE WHEN s.ended_at IS NULL
                              THEN MAX(0, ?1 - s.started_at)
                              ELSE MAX(0, s.ended_at - s.started_at) END), 0),
-                         SUM(CASE WHEN s.id IS NOT NULL AND s.ended_at IS NULL THEN 1 ELSE 0 END)
+                         SUM(CASE WHEN s.id IS NOT NULL AND s.ended_at IS NULL THEN 1 ELSE 0 END),
+                         MAX(s.started_at)
                      FROM games g LEFT JOIN game_sessions s ON s.game_id = g.id
                      GROUP BY g.id ORDER BY g.id",
                 )
@@ -840,6 +947,7 @@ impl Database {
                         game_id: row.get(0)?,
                         total_milliseconds: row.get(1)?,
                         active_sessions: row.get::<_, Option<u32>>(2)?.unwrap_or(0),
+                        last_played_at: row.get(3)?,
                     })
                 })
                 .map_err(database_error)?;
@@ -1147,7 +1255,7 @@ fn migrate(connection: &Connection) -> Result<(), String> {
     if version < 16 {
         transaction
             .execute_batch(
-                "CREATE TABLE game_steam_launch_config (
+                "CREATE TABLE IF NOT EXISTS game_steam_launch_config (
                     game_id TEXT PRIMARY KEY NOT NULL REFERENCES games(id) ON DELETE CASCADE,
                     arguments TEXT NOT NULL DEFAULT '[]'
                  );
@@ -1161,6 +1269,23 @@ fn migrate(connection: &Connection) -> Result<(), String> {
                  ALTER TABLE steam_details_cache_v16 RENAME TO steam_details_cache;
                  PRAGMA user_version = 16;",
             )
+            .map_err(database_error)?;
+    }
+    if version < 17 {
+        let existing: i64 = transaction
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('game_compatibility_overrides') WHERE name = 'launch_via_steam'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(database_error)?;
+        if existing == 0 {
+            transaction.execute_batch(
+                "ALTER TABLE game_compatibility_overrides ADD COLUMN launch_via_steam INTEGER CHECK (launch_via_steam IS NULL OR launch_via_steam IN (0, 1));"
+            ).map_err(database_error)?;
+        }
+        transaction
+            .execute_batch("PRAGMA user_version = 17;")
             .map_err(database_error)?;
     }
     transaction.commit().map_err(database_error)
@@ -1238,7 +1363,7 @@ fn load_game_compatibility_overrides(
             "SELECT o.runner_path, o.prefix_path, o.arguments_before,
                     o.arguments_after, o.working_directory, o.environment, o.dll_overrides,
                     o.steam_runtime, o.steam_overlay, o.graphics_renderer, o.wayland,
-                    o.debug_logging
+                    o.debug_logging, o.launch_via_steam
              FROM games AS g
              LEFT JOIN game_compatibility_overrides AS o ON o.game_id = g.id
              WHERE g.id = ?1",
@@ -1257,6 +1382,7 @@ fn load_game_compatibility_overrides(
                     row.get::<_, Option<String>>(9)?,
                     row.get::<_, Option<String>>(10)?,
                     row.get::<_, Option<bool>>(11)?,
+                    row.get::<_, Option<bool>>(12)?,
                 ))
             },
         )
@@ -1275,6 +1401,7 @@ fn load_game_compatibility_overrides(
         graphics_renderer,
         wayland,
         debug_logging,
+        launch_via_steam,
     )) = stored
     else {
         return Err("game was not found".to_owned());
@@ -1292,6 +1419,7 @@ fn load_game_compatibility_overrides(
         graphics_renderer: decode_optional_json(graphics_renderer)?,
         wayland: decode_optional_json(wayland)?,
         debug_logging,
+        launch_via_steam,
     })
 }
 
@@ -1792,6 +1920,84 @@ mod tests {
     }
 
     #[test]
+    fn shared_app_id_keeps_names_settings_and_playtime_separate() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let first = database
+            .create_game(CreateGameInput {
+                name: "Original".to_owned(),
+                steam_app_id: Some(400),
+            })
+            .unwrap();
+        let second = database
+            .create_game(CreateGameInput {
+                name: "Moddato".to_owned(),
+                steam_app_id: Some(400),
+            })
+            .unwrap();
+        database
+            .save_game_compatibility_overrides(
+                &first.id,
+                GameCompatibilityOverrides {
+                    prefix_path: Some("/games/original-prefix".to_owned()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        database
+            .save_game_compatibility_overrides(
+                &second.id,
+                GameCompatibilityOverrides {
+                    prefix_path: Some("/games/modded-prefix".to_owned()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        database.start_game_session(&second.id, 1_000).unwrap();
+        database.end_game_session(&second.id, 3_000).unwrap();
+
+        assert_eq!(database.games().unwrap().len(), 2);
+        assert_eq!(database.game(&first.id).unwrap().name, "Original");
+        assert_eq!(database.game(&second.id).unwrap().name, "Moddato");
+        assert_eq!(
+            database
+                .game_compatibility_overrides(&first.id)
+                .unwrap()
+                .prefix_path
+                .as_deref(),
+            Some("/games/original-prefix")
+        );
+        assert_eq!(
+            database
+                .game_compatibility_overrides(&second.id)
+                .unwrap()
+                .prefix_path
+                .as_deref(),
+            Some("/games/modded-prefix")
+        );
+        let summaries = database.playtime_summaries(4_000).unwrap();
+        assert_eq!(
+            summaries
+                .iter()
+                .find(|summary| summary.game_id == first.id)
+                .unwrap()
+                .last_played_at,
+            None
+        );
+        assert_eq!(
+            summaries
+                .iter()
+                .find(|summary| summary.game_id == second.id)
+                .unwrap()
+                .last_played_at,
+            Some(1_000)
+        );
+
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn native_launch_config_persists_and_rejects_null_arguments() {
         let directory = temporary_directory();
         let database = Database::open(&directory).unwrap();
@@ -1860,6 +2066,7 @@ mod tests {
             .save_settings(Settings {
                 theme: Theme::Light,
                 steam_library_poll_minutes: 15,
+                ..Settings::default()
             })
             .unwrap();
         let game = database
@@ -1885,6 +2092,7 @@ mod tests {
             Settings {
                 theme: Theme::Light,
                 steam_library_poll_minutes: 15,
+                ..Settings::default()
             }
         );
         assert_eq!(reopened.games().unwrap(), vec![enriched]);
@@ -1958,10 +2166,13 @@ mod tests {
             .unwrap();
         assert_eq!(first_summary.total_milliseconds, 8_000);
         assert_eq!(first_summary.active_sessions, 1);
+        assert_eq!(first_summary.last_played_at, Some(4_000));
         assert_eq!(second_summary.total_milliseconds, 5_500);
         assert_eq!(second_summary.active_sessions, 1);
+        assert_eq!(second_summary.last_played_at, Some(4_500));
         assert_eq!(untouched_summary.total_milliseconds, 0);
         assert_eq!(untouched_summary.active_sessions, 0);
+        assert_eq!(untouched_summary.last_played_at, None);
 
         drop(database);
         fs::remove_dir_all(directory).unwrap();
@@ -2450,6 +2661,7 @@ mod tests {
             .save_settings(Settings {
                 theme: Theme::Light,
                 steam_library_poll_minutes: 15,
+                ..Settings::default()
             })
             .unwrap();
         database

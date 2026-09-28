@@ -41,16 +41,21 @@ const LOG_READ_LIMIT: u64 = 128 * 1024;
 const LOG_LINE_LIMIT: usize = 8 * 1024;
 
 #[cfg(target_os = "linux")]
-fn ensure_steam_for_overlay(
+fn ensure_steam_for_launch(
+    launch_via_steam: bool,
     overlay: SteamOverlayMode,
     steam_root: Option<&Path>,
     ensure_running: impl FnOnce(&Path) -> Result<(), String>,
 ) -> Result<(), String> {
-    if overlay != SteamOverlayMode::Enabled {
+    if !launch_via_steam && overlay != SteamOverlayMode::Enabled {
         return Ok(());
     }
     let steam_root = steam_root.ok_or_else(|| {
-        "Steam overlay was enabled but no Steam installation was found".to_owned()
+        if launch_via_steam {
+            "Launch via Steam requires a Steam installation".to_owned()
+        } else {
+            "Steam overlay was enabled but no Steam installation was found".to_owned()
+        }
     })?;
     ensure_running(steam_root)
 }
@@ -429,6 +434,13 @@ impl GameLaunchManager {
         if game.steam_install_path.is_some() {
             return Err("Compatibility runners can only launch manually imported games".to_owned());
         }
+        let launch_via_steam = database
+            .game_compatibility_overrides(&game_id)?
+            .launch_via_steam
+            .unwrap_or(game.steam_app_id.is_some());
+        if launch_via_steam && game.steam_app_id.is_none() {
+            return Err("Launch via Steam requires a Steam App ID".to_owned());
+        }
         let executable_path = game
             .executable_path
             .as_deref()
@@ -448,6 +460,9 @@ impl GameLaunchManager {
             .filter(|path| !path.is_empty())
             .ok_or_else(|| "No compatibility runner is selected".to_owned())?;
         let runner = resolve_runner(runner_path)?;
+        if launch_via_steam && !matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton) {
+            return Err("Launch via Steam requires a Proton runner".to_owned());
+        }
         let data_dir = app
             .path()
             .app_data_dir()
@@ -488,6 +503,12 @@ impl GameLaunchManager {
         );
         command.current_dir(working_directory).stdin(Stdio::null());
         options.apply(&mut command, &config)?;
+        if matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton)
+            && !config.environment.contains_key("WINEDEBUG")
+            && !config.debug_logging
+        {
+            command.env("WINEDEBUG", "-all");
+        }
         if !config.dll_overrides.is_empty() {
             command.env(
                 "WINEDLLOVERRIDES",
@@ -574,9 +595,12 @@ impl GameLaunchManager {
                         ..LaunchContext::default()
                     },
                     move |cancel| {
-                        ensure_steam_for_overlay(steam_overlay, steam_root.as_deref(), |root| {
-                            steam_process::ensure_running(root, STEAM_START_TIMEOUT, cancel)
-                        })?;
+                        ensure_steam_for_launch(
+                            launch_via_steam,
+                            steam_overlay,
+                            steam_root.as_deref(),
+                            |root| steam_process::ensure_running(root, STEAM_START_TIMEOUT, cancel),
+                        )?;
                         command.spawn().map(Some).map_err(|error| {
                             format!("Could not start compatibility runner: {error}")
                         })
@@ -1408,23 +1432,32 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn steam_starts_only_for_explicit_overlay_mode() {
+    fn steam_starts_for_launch_via_steam_or_explicit_overlay() {
         let steam_root = Path::new("/steam");
         let mut started = false;
 
-        ensure_steam_for_overlay(SteamOverlayMode::RunnerDefault, None, |_| {
+        ensure_steam_for_launch(false, SteamOverlayMode::RunnerDefault, None, |_| {
             started = true;
             Ok(())
         })
         .unwrap();
-        ensure_steam_for_overlay(SteamOverlayMode::Disabled, None, |_| {
+        ensure_steam_for_launch(false, SteamOverlayMode::Disabled, None, |_| {
             started = true;
             Ok(())
         })
         .unwrap();
         assert!(!started);
 
-        ensure_steam_for_overlay(SteamOverlayMode::Enabled, Some(steam_root), |root| {
+        ensure_steam_for_launch(false, SteamOverlayMode::Enabled, Some(steam_root), |root| {
+            assert_eq!(root, steam_root);
+            started = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(started);
+
+        started = false;
+        ensure_steam_for_launch(true, SteamOverlayMode::Disabled, Some(steam_root), |root| {
             assert_eq!(root, steam_root);
             started = true;
             Ok(())
@@ -1435,21 +1468,26 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn explicit_overlay_requires_a_steam_installation() {
-        let error =
-            ensure_steam_for_overlay(SteamOverlayMode::Enabled, None, |_| Ok(())).unwrap_err();
+    fn launch_via_steam_and_explicit_overlay_require_a_steam_installation() {
+        let error = ensure_steam_for_launch(false, SteamOverlayMode::Enabled, None, |_| Ok(()))
+            .unwrap_err();
 
         assert!(error.contains("no Steam installation was found"));
+        let error = ensure_steam_for_launch(true, SteamOverlayMode::Disabled, None, |_| Ok(()))
+            .unwrap_err();
+        assert!(error.contains("Launch via Steam requires a Steam installation"));
     }
 
     #[cfg(target_os = "linux")]
     #[test]
     fn steam_start_failure_is_reported_before_runner_launch() {
-        let error =
-            ensure_steam_for_overlay(SteamOverlayMode::Enabled, Some(Path::new("/steam")), |_| {
-                Err("Could not start Steam: permission denied".to_owned())
-            })
-            .unwrap_err();
+        let error = ensure_steam_for_launch(
+            true,
+            SteamOverlayMode::RunnerDefault,
+            Some(Path::new("/steam")),
+            |_| Err("Could not start Steam: permission denied".to_owned()),
+        )
+        .unwrap_err();
 
         assert!(error.contains("Could not start Steam: permission denied"));
     }

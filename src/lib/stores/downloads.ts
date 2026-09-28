@@ -67,8 +67,8 @@ export const bandwidthLimitError = writable<string | null>(null);
 
 export const installedFolderError = writable<string | null>(null);
 
-export async function queueJob(steamAppId: number, acceptUnverified: boolean): Promise<void> {
-  await queueDownload(steamAppId, acceptUnverified);
+export async function queueJob(steamAppId: number, sha256: string, acceptUnverified: boolean): Promise<void> {
+  await queueDownload(steamAppId, sha256, acceptUnverified);
   await downloads.load();
 }
 

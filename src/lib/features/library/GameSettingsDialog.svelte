@@ -1,5 +1,11 @@
 <script lang="ts">
-  import type { Game } from "../../services/local-state";
+  import { createDesktopShortcut, transferGame, type Game } from "../../services/local-state";
+  import { pickGameDirectory } from "../../services/dialog";
+  import { reconcileGame } from "../../stores/games";
+  import TextField from "../../components/ui/TextField.svelte";
+  import Button from "../../components/ui/Button.svelte";
+  import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
+  import { toMessage } from "../../utils/errors";
   import Dialog from "../../components/ui/Dialog.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import Panel from "../../components/ui/Panel.svelte";
@@ -26,6 +32,54 @@
     { id: "danger", label: "Zona pericolosa", icon: "warning" },
   ] satisfies { id: string; label: string; icon: "settings" | "folder" | "image" | "wrench" | "downloads" | "warning" }[];
   let active = $state("general");
+  let shortcutError = $state<string | null>(null);
+  let shortcutPath = $state<string | null>(null);
+  let shortcutPending = $state(false);
+  const suggestedSource = $derived.by(() => {
+    const path = game.executablePath ?? "";
+    const separator = path.includes("\\") ? "\\" : "/";
+    const marker = `${separator}installed${separator}${game.id}${separator}`;
+    const markerAt = path.toLowerCase().indexOf(marker.toLowerCase());
+    return markerAt < 0 ? path.replace(/[\\/][^\\/]+$/, "") : path.slice(0, markerAt + marker.length - 1);
+  });
+  let sourceDraft = $state<string | null>(null);
+  let destinationDraft = $state("");
+  let transferPending = $state(false);
+  let transferError = $state<string | null>(null);
+  let transferDone = $state(false);
+
+  async function browseTransfer(which: "source" | "destination"): Promise<void> {
+    try {
+      const selected = await pickGameDirectory(which === "source" ? (sourceDraft ?? suggestedSource) : destinationDraft);
+      if (selected !== null) {
+        if (which === "source") sourceDraft = selected;
+        else destinationDraft = `${selected}${selected.includes("\\") ? "\\" : "/"}${game.id}`;
+      }
+    } catch (error) { transferError = toMessage(error); }
+  }
+
+  async function moveGame(): Promise<void> {
+    transferPending = true;
+    transferError = null;
+    transferDone = false;
+    try {
+      const result = await transferGame(game.id, sourceDraft ?? suggestedSource, destinationDraft.trim());
+      reconcileGame(result.game);
+      transferError = result.warning;
+      sourceDraft = null;
+      destinationDraft = "";
+      transferDone = true;
+    } catch (error) { transferError = toMessage(error); }
+    finally { transferPending = false; }
+  }
+
+  async function addDesktopShortcut(): Promise<void> {
+    shortcutPending = true;
+    shortcutError = null;
+    try { shortcutPath = await createDesktopShortcut(game.id); }
+    catch (error) { shortcutError = toMessage(error); }
+    finally { shortcutPending = false; }
+  }
 
   function categoryClass(selected: boolean): string {
     return selected
@@ -54,9 +108,15 @@
       {#if active === "general"}
         <div class="flex flex-col gap-4">
           <GameDetailsPanel {game} {onRemoved} />
+          <Panel title="Collegamento">
+            <Button label={shortcutPending ? "Creazione..." : "Aggiungi collegamento desktop"}
+              disabled={shortcutPending} onClick={() => void addDesktopShortcut()} />
+            {#if shortcutPath}<p class="mt-2 break-all text-sm text-emerald-300" role="status">Collegamento creato: {shortcutPath}</p>{/if}
+            {#if shortcutError}<ErrorBanner message={shortcutError} />{/if}
+          </Panel>
           {#if steamManaged}
             {#key game.id}<SteamAccountPanel {game} />{/key}
-            {#key game.id}<SteamLaunchSettings {game} />{/key}
+            {#key `${game.id}:${shortcutPath ?? ""}`}<SteamLaunchSettings {game} />{/key}
           {:else if game.executablePath !== null}
             {#key game.id}<GameSettingsPanel {game} section="launch" />{/key}
           {:else}
@@ -75,6 +135,24 @@
           {/if}
           {#if game.executablePath !== null}
             {#key game.id}<GameSettingsPanel {game} section="locations" />{/key}
+          {/if}
+          {#if !steamManaged && game.executablePath !== null}
+            <Panel title="Trasferisci gioco">
+              <div class="flex flex-col gap-3">
+                <TextField id="transfer-source" label="Cartella del gioco" value={sourceDraft ?? suggestedSource}
+                  oninput={(value) => (sourceDraft = value)} />
+                <Button label="Sfoglia origine..." variant="secondary" disabled={transferPending}
+                  onClick={() => void browseTransfer("source")} />
+                <TextField id="transfer-destination" label="Nuova cartella del gioco" value={destinationDraft}
+                  placeholder="Percorso completo di una cartella nuova" oninput={(value) => (destinationDraft = value)} />
+                <Button label="Sfoglia destinazione..." variant="secondary" disabled={transferPending}
+                  onClick={() => void browseTransfer("destination")} />
+                <Button label={transferPending ? "Trasferimento..." : "Trasferisci gioco"}
+                  disabled={transferPending || destinationDraft.trim().length === 0} onClick={() => void moveGame()} />
+                {#if transferDone}<p class="text-sm text-emerald-300" role="status">Gioco trasferito.</p>{/if}
+                {#if transferError}<ErrorBanner message={transferError} />{/if}
+              </div>
+            </Panel>
           {/if}
         </div>
       {:else if active === "customization"}

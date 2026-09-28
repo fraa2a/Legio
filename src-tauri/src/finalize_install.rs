@@ -557,12 +557,19 @@ pub async fn finalize_download(
             .path()
             .app_data_dir()
             .map_err(|error| format!("Could not locate app data: {error}"))?;
-        finalize(
-            app.state::<DatabaseState>().database()?,
-            &data_dir,
-            &id,
-            &executable_relative,
-        )
+        let database = app.state::<DatabaseState>();
+        let database = database.database()?;
+        let root = database.storage_root(&data_dir)?;
+        finalize(database, &root, &id, &executable_relative)?;
+        let game = database.game(&id)?;
+        if let Err(error) = crate::desktop_shortcuts::create(
+            &game,
+            crate::desktop_shortcuts::ShortcutLocation::ApplicationsMenu,
+            None,
+        ) {
+            eprintln!("Could not create application-menu shortcut: {error}");
+        }
+        Ok(())
     })
     .await
     .map_err(|error| format!("Finalization task failed: {error}"))?
@@ -579,8 +586,10 @@ pub async fn scan_staged_executables(
             .path()
             .app_data_dir()
             .map_err(|error| format!("Could not locate app data: {error}"))?;
-        let (stage, name) =
-            staged_download_directory(app.state::<DatabaseState>().database()?, &data_dir, &id)?;
+        let database = app.state::<DatabaseState>();
+        let database = database.database()?;
+        let root = database.storage_root(&data_dir)?;
+        let (stage, name) = staged_download_directory(database, &root, &id)?;
         manual_import::scan_staged_directory(&stage, game_name.as_deref().or(Some(name.as_str())))
     })
     .await

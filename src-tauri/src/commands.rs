@@ -18,6 +18,8 @@ pub struct AppInfo {
     version: String,
     platform: String,
     desktop_environment: Option<String>,
+    startup_launch_game_id: Option<String>,
+    startup_launch_error: Option<String>,
 }
 
 #[tauri::command]
@@ -29,6 +31,8 @@ pub fn get_app_info(app: AppHandle) -> AppInfo {
         version: package_info.version.to_string(),
         platform: std::env::consts::OS.to_owned(),
         desktop_environment: desktop_environment(),
+        startup_launch_game_id: app.state::<crate::StartupLaunch>().game_id.clone(),
+        startup_launch_error: app.state::<crate::StartupLaunch>().error.clone(),
     }
 }
 
@@ -59,11 +63,24 @@ pub fn get_settings(state: State<'_, DatabaseState>) -> Result<Settings, String>
 }
 
 #[tauri::command]
-pub fn save_settings(
-    state: State<'_, DatabaseState>,
-    settings: Settings,
-) -> Result<Settings, String> {
-    database::save_settings(&state, settings)
+pub fn save_settings(app: AppHandle, settings: Settings) -> Result<Settings, String> {
+    let state = app.state::<DatabaseState>();
+    let previous = state.database()?.settings()?;
+    let saved = database::save_settings(&state, settings)?;
+    if saved.launch_on_system_start != previous.launch_on_system_start {
+        if let Err(error) = crate::startup::set_enabled(saved.launch_on_system_start) {
+            state.database()?.save_settings(previous)?;
+            return Err(error);
+        }
+    }
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
+    let root = state.database()?.storage_root(&data_dir)?;
+    app.state::<crate::download_queue::DownloadQueueState>()
+        .set_storage_root(&root)?;
+    Ok(saved)
 }
 
 #[tauri::command]
@@ -166,10 +183,29 @@ pub fn create_game_shortcut(
     location: crate::desktop_shortcuts::ShortcutLocation,
 ) -> Result<String, String> {
     let game = state.database()?.game(&game_id)?;
+    let steam_managed = game.steam_install_path.is_some();
+    let imported_arguments = if steam_managed {
+        crate::desktop_shortcuts::steam_shortcut_arguments(&game)?
+    } else {
+        None
+    };
     let icon = app
         .state::<crate::game_artwork::GameArtworkStore>()
         .path(&game.id, crate::game_artwork::ArtworkKind::Icon)?;
     let path = crate::desktop_shortcuts::create(&game, location, icon.as_deref())?;
+    if steam_managed {
+        crate::desktop_shortcuts::create(
+            &game,
+            crate::desktop_shortcuts::ShortcutLocation::ApplicationsMenu,
+            icon.as_deref(),
+        )?;
+        if let Some(arguments) = imported_arguments {
+            state
+                .database()?
+                .save_steam_launch_config(&game.id, database::SteamLaunchConfig { arguments })?;
+        }
+        crate::desktop_shortcuts::remove_steam_shortcuts(&game)?;
+    }
     path.to_str()
         .map(str::to_owned)
         .ok_or_else(|| "The desktop shortcut path is not valid UTF-8".to_owned())
@@ -559,7 +595,15 @@ pub async fn import_manual_game(
     input: manual_import::ManualImportInput,
 ) -> Result<Game, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        manual_import::import(&app.state::<DatabaseState>(), input)
+        let game = manual_import::import(&app.state::<DatabaseState>(), input)?;
+        if let Err(error) = crate::desktop_shortcuts::create(
+            &game,
+            crate::desktop_shortcuts::ShortcutLocation::ApplicationsMenu,
+            None,
+        ) {
+            eprintln!("Could not create application-menu shortcut: {error}");
+        }
+        Ok(game)
     })
     .await
     .map_err(|error| format!("Manual import task failed: {error}"))?
@@ -590,7 +634,19 @@ pub async fn set_game_executable(
     executable_path: String,
 ) -> Result<Game, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        manual_import::set_executable(&app.state::<DatabaseState>(), &game_id, &executable_path)
+        let game = manual_import::set_executable(
+            &app.state::<DatabaseState>(),
+            &game_id,
+            &executable_path,
+        )?;
+        if let Err(error) = crate::desktop_shortcuts::create(
+            &game,
+            crate::desktop_shortcuts::ShortcutLocation::ApplicationsMenu,
+            None,
+        ) {
+            eprintln!("Could not create application-menu shortcut: {error}");
+        }
+        Ok(game)
     })
     .await
     .map_err(|error| format!("Executable selection task failed: {error}"))?

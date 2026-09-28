@@ -45,7 +45,11 @@ pub fn open_installed_folder(app: AppHandle) -> Result<(), String> {
         .path()
         .app_data_dir()
         .map_err(|error| format!("Could not locate app data: {error}"))?;
-    open_directory(&finalize_install::install_root(&data_dir)?)
+    let root = app
+        .state::<crate::database::DatabaseState>()
+        .database()?
+        .storage_root(&data_dir)?;
+    open_directory(&finalize_install::install_root(&root)?)
 }
 
 #[cfg(target_os = "linux")]

@@ -13,6 +13,8 @@ import { createResource } from "./resource";
 import { appInfo } from "./app-info";
 import { launchConfiguredGameWithRunner, launchNativeGame } from "../services/launch";
 import { getCompatibilityLogsDirectory } from "../services/game-settings";
+import { settings } from "./settings";
+import { hideWindow } from "../services/window";
 
 export const launchStates = createResource<GameLaunchState[]>([], listGameLaunchStates);
 
@@ -32,6 +34,19 @@ export const cancelPendingGameId = writable<string | null>(null);
 export const accountSwitchGame = writable<Game | null>(null);
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
+const hiddenForSession = new Set<string>();
+
+launchStates.subscribe((state) => {
+  for (const launch of state.data) {
+    if (launch.status === "idle") hiddenForSession.delete(launch.gameId);
+    else if (launch.status === "running" && !hiddenForSession.has(launch.gameId)) {
+      hiddenForSession.add(launch.gameId);
+      if (get(settings).data.hideOnGameStart) {
+        void hideWindow().catch((error) => launchError.set(toMessage(error)));
+      }
+    }
+  }
+});
 
 hasPendingLaunch.subscribe((pending) => {
   if (pending && pollTimer === null) {

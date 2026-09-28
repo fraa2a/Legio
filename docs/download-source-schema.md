@@ -2,9 +2,9 @@
 
 ## Status
 
-This document defines the external, versioned JSON contract Legio will consume for download source metadata. It is independent from Hydra catalog data and Steam Store metadata.
+This document defines the external, versioned JSON contract Legio consumes for download source metadata. It is independent from Hydra catalog data and Steam Store metadata.
 
-The parser and installer integration are Phase 04 and Phase 05 work. This document defines the provider contract only. A source entry never makes a game catalog entry, download, or installation appear verified by itself.
+A source entry never makes a game catalog entry, download, or installation appear verified by itself.
 
 ## Transport and cache
 
@@ -32,7 +32,7 @@ The parser and installer integration are Phase 04 and Phase 05 work. This docume
 | `verified` | array of source entries | Required. Entries reviewed by Legio staff. |
 | `unverified` | array of source entries | Required. Entries that users may choose to install despite a warning. |
 
-`verified` and `unverified` are distinct lists. A Steam App ID may appear in at most one list. `verified` means `Verified by Legio Staff`; it is not a safety guarantee.
+`verified` and `unverified` are distinct lists. A Steam App ID may appear multiple times, including across the two lists, when each entry describes a different archive. Trust applies to the selected release. `verified` means `Verified by Legio Staff`; it is not a safety guarantee.
 
 ## Source entry
 
@@ -54,12 +54,12 @@ The parser and installer integration are Phase 04 and Phase 05 work. This docume
 
 | Field | Type | Requirement |
 | --- | --- | --- |
-| `steamAppId` | positive integer | Required. Steam identity used to merge the source with catalog metadata. |
+| `steamAppId` | positive integer | Required. Steam identity used to merge the source with catalog metadata. It is not a unique release ID. |
 | `name` | nonempty string | Required. Release display name. |
 | `release.version` | nonempty string | Required. Source release version. Ordering rules are a later update-policy decision. |
 | `release.publishedAt` | RFC 3339 UTC string | Required. Publication timestamp. |
 | `download.url` | URL string | Required. Direct HTTP or HTTPS archive URL. Redirect handling remains bounded by Legio. |
-| `download.sha256` | 64 lowercase hexadecimal characters | Required. Archive integrity hash checked before extraction. |
+| `download.sha256` | 64 lowercase hexadecimal characters | Required. Archive integrity hash checked before extraction. Together with `steamAppId`, identifies the selectable release. |
 | `download.sizeBytes` | positive integer | Required. Expected archive size for progress and disk-space checks. |
 
 No arbitrary script, executable command, torrent, encrypted archive password, multipart archive description, or installation instruction is permitted in this contract.
@@ -69,11 +69,10 @@ No arbitrary script, executable command, torrent, encrypted archive password, mu
 Legio rejects the whole refresh when any rule fails:
 
 1. Unknown `schemaVersion`.
-2. Duplicate `steamAppId` within either list or across both lists.
+2. Duplicate `steamAppId` and `download.sha256` pair within either list or across both lists.
 3. Missing required field, incorrect type, empty required string, invalid timestamp, or invalid SHA-256 encoding.
 4. Non-positive App ID or size.
 5. Download URL outside HTTP or HTTPS.
-6. Conflicting entries for the same App ID.
 
 Legio must preserve the previous valid cache when a refresh is rejected and surface a useful diagnostics message without disclosing sensitive local data.
 
@@ -83,6 +82,7 @@ Legio must preserve the previous valid cache when a refresh is rejected and surf
 - Steam Store provides individual-game details and Steam-hosted artwork only.
 - This manifest provides Legio download source metadata only.
 - The UI presents verified and unverified source status separately.
+- The store lists a title once per Steam App ID and lets the user choose its release by name and version. The queue stores the selected archive metadata, so later source refreshes cannot change a queued download.
 - An unverified entry presents an actionable warning but may still be installed after user choice.
 - A catalog game without a valid matching entry displays `Download unavailable`.
 
@@ -107,6 +107,20 @@ Legio must preserve the previous valid cache when a refresh is rejected and surf
       }
     }
   ],
-  "unverified": []
+  "unverified": [
+    {
+      "steamAppId": 400,
+      "name": "Portal moddato",
+      "release": {
+        "version": "2.0.0-mod",
+        "publishedAt": "2026-09-29T00:00:00Z"
+      },
+      "download": {
+        "url": "https://downloads.example.invalid/portal-modded.zip",
+        "sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+        "sizeBytes": 234567890
+      }
+    }
+  ]
 }
 ```

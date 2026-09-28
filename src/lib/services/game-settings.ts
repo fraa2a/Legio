@@ -21,6 +21,7 @@ export interface CompatibilityDefaults {
 }
 
 export interface GameCompatibilityOverrides {
+  launchViaSteam: boolean | null;
   runnerPath: string | null;
   prefixPath: string | null;
   argumentsBefore: string[] | null;
@@ -72,6 +73,7 @@ export const emptyCompatibilityDefaults: CompatibilityDefaults = {
 };
 
 export const emptyGameCompatibilityOverrides: GameCompatibilityOverrides = {
+  launchViaSteam: null,
   runnerPath: null,
   prefixPath: null,
   argumentsBefore: null,

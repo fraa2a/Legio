@@ -10,6 +10,11 @@ export interface SourceStatus {
   entry: SourceEntry | null;
 }
 
+export interface SourceReleaseStatus {
+  availability: "verified" | "unverified";
+  entry: SourceEntry;
+}
+
 export const availabilityMeta: Record<
   SourceAvailability,
   { label: string; tone: SourceTone; description: string }
@@ -48,4 +53,15 @@ export function sourceStatusFor(
   const unverified = manifest.unverified.find((entry) => entry.steamAppId === steamAppId);
   if (unverified !== undefined) return { availability: "unverified", entry: unverified };
   return { availability: "unavailable", entry: null };
+}
+
+export function sourceReleasesFor(
+  manifest: SourceManifest | null,
+  steamAppId: number,
+): SourceReleaseStatus[] {
+  if (manifest === null) return [];
+  return [
+    ...manifest.verified.filter((entry) => entry.steamAppId === steamAppId).map((entry) => ({ availability: "verified" as const, entry })),
+    ...manifest.unverified.filter((entry) => entry.steamAppId === steamAppId).map((entry) => ({ availability: "unverified" as const, entry })),
+  ];
 }

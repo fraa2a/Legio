@@ -3,7 +3,11 @@ import { toMessage } from "../utils/errors";
 import { get, writable } from "svelte/store";
 import { createResource } from "./resource";
 
-const fallback: Settings = { theme: "system", steamLibraryPollMinutes: 30 };
+const fallback: Settings = {
+  theme: "system", steamLibraryPollMinutes: 30, downloadPath: null,
+  closeToTray: true, hideOnGameStart: true, launchOnSystemStart: false,
+  launchMinimized: false, launchInLibrary: false, downloadNotifications: true,
+};
 
 export const settings = createResource<Settings>(fallback, getSettings);
 

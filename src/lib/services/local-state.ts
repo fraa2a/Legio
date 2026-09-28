@@ -5,6 +5,13 @@ export type Theme = "system" | "dark" | "light";
 export interface Settings {
   theme: Theme;
   steamLibraryPollMinutes: number;
+  downloadPath: string | null;
+  closeToTray: boolean;
+  hideOnGameStart: boolean;
+  launchOnSystemStart: boolean;
+  launchMinimized: boolean;
+  launchInLibrary: boolean;
+  downloadNotifications: boolean;
 }
 
 export interface Game {
@@ -52,4 +59,12 @@ export function updateGame(input: UpdateGameInput): Promise<Game> {
 
 export function removeGame(id: string): Promise<void> {
   return invoke<void>("remove_game", { id });
+}
+
+export function createDesktopShortcut(gameId: string): Promise<string> {
+  return invoke<string>("create_game_shortcut", { gameId, location: "desktop" });
+}
+
+export function transferGame(gameId: string, sourceDirectory: string, destinationDirectory: string): Promise<{ game: Game; warning: string | null }> {
+  return invoke("transfer_game", { gameId, sourceDirectory, destinationDirectory });
 }

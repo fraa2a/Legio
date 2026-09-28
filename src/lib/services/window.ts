@@ -10,6 +10,10 @@ export function closeWindow(): Promise<void> {
   return appWindow.close();
 }
 
+export function hideWindow(): Promise<void> {
+  return appWindow.hide();
+}
+
 export function toggleMaximizeWindow(): Promise<void> {
   return appWindow.toggleMaximize();
 }

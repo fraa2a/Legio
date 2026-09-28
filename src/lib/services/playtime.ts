@@ -4,6 +4,7 @@ export interface PlaytimeSummary {
   gameId: string;
   totalMilliseconds: number;
   activeSessions: number;
+  lastPlayedAt: number | null;
 }
 
 export function getPlaytimeSummaries(): Promise<PlaytimeSummary[]> {

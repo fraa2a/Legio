@@ -4,9 +4,10 @@ import { games } from "./games";
 import { bandwidthLimit, downloads } from "./downloads";
 import { source, refreshSource } from "./source";
 import { checkConnectivity, network } from "./network";
-import { launchStates } from "./launch";
+import { launchError, launchStates } from "./launch";
 import { importSteamLibrary } from "./steam-library";
 import { get } from "svelte/store";
+import { activeSection, openGame } from "./navigation";
 
 let steamScanTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -16,9 +17,9 @@ export function configureSteamScanInterval(minutes: number): void {
 }
 
 export async function hydrateApp(): Promise<void> {
+  await settings.load();
   await Promise.all([
     appInfo.load(),
-    settings.load(),
     games.load(),
     downloads.load(),
     bandwidthLimit.load(),
@@ -26,6 +27,12 @@ export async function hydrateApp(): Promise<void> {
     network.load(),
     launchStates.load(),
   ]);
+  if (get(settings).data.launchInLibrary) activeSection.set("library");
+  const startup = get(appInfo).data;
+  if (startup.startupLaunchGameId !== null) {
+    openGame(startup.startupLaunchGameId);
+    if (startup.startupLaunchError !== null) launchError.set(startup.startupLaunchError);
+  }
   if (steamScanTimer === null) {
     void importSteamLibrary();
     configureSteamScanInterval(get(settings).data.steamLibraryPollMinutes);

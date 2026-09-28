@@ -32,6 +32,7 @@
 - Keep functions and modules focused; keep async boundaries explicit and never block an async executor with expensive synchronous work.
 - Validate external input at boundaries; treat paths, downloaded data and process output as untrusted.
 - Avoid `unsafe`; when unavoidable, keep its scope minimal and document the concrete safety constraint.
+- Skill rust-best-practices for rust's best development pratices (do not overuse)
 
 ## Svelte and TypeScript
 
