@@ -391,7 +391,7 @@ fn spawn_reader<R: Read + Send + 'static>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::{GraphicsRenderer, SteamOverlayMode, SteamRuntimeMode, WaylandMode};
+    use crate::database::{GraphicsRenderer, WaylandMode};
     use std::process::Stdio;
 
     fn test_log(root: &Path, config: &EffectiveCompatibilityConfig) -> CompatibilityLog {
@@ -404,8 +404,7 @@ mod tests {
         let options = AppliedCompatibilityOptions {
             runner: runner.name.clone(),
             version: runner.version.clone(),
-            steam_runtime: SteamRuntimeMode::RunnerDefault,
-            steam_overlay: SteamOverlayMode::RunnerDefault,
+            launch_via_steam: false,
             graphics_renderer: GraphicsRenderer::RunnerDefault,
             wayland: WaylandMode::RunnerDefault,
             debug_logging: true,
@@ -523,8 +522,7 @@ mod tests {
         let options = AppliedCompatibilityOptions {
             runner: "Wine".to_owned(),
             version: "test".to_owned(),
-            steam_runtime: SteamRuntimeMode::RunnerDefault,
-            steam_overlay: SteamOverlayMode::RunnerDefault,
+            launch_via_steam: false,
             graphics_renderer: GraphicsRenderer::RunnerDefault,
             wayland: WaylandMode::RunnerDefault,
             debug_logging: true,

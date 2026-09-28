@@ -13,8 +13,6 @@
     type GameCompatibilityOverrides,
     type GraphicsRenderer,
     type NativeLaunchConfig,
-    type SteamOverlayMode,
-    type SteamRuntimeMode,
     type WaylandMode,
   } from "../../services/game-settings";
   import { appInfo } from "../../stores/app-info";
@@ -188,14 +186,6 @@
     dllOverridesText = mapToText(value ?? {});
   }
 
-  function setSteamRuntime(value: string): void {
-    setOverride("steamRuntime", value === "inherit" ? null : (value as SteamRuntimeMode));
-  }
-
-  function setSteamOverlay(value: string): void {
-    setOverride("steamOverlay", value === "inherit" ? null : (value as SteamOverlayMode));
-  }
-
   function setGraphicsRenderer(value: string): void {
     setOverride("graphicsRenderer", value === "inherit" ? null : (value as GraphicsRenderer));
   }
@@ -292,7 +282,7 @@
     <div class="grid gap-4">
       <div class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
         <span class="flex items-center gap-2">
-          <input type="checkbox" checked={overrides.prefixPath !== null} onchange={(event) => togglePrefix(event.currentTarget.checked)} />
+          <input type="checkbox" class="size-4 accent-white" checked={overrides.prefixPath !== null} onchange={(event) => togglePrefix(event.currentTarget.checked)} />
           Percorso del prefix personalizzato
         </span>
         <div class="flex gap-2">
@@ -302,7 +292,7 @@
       </div>
       <div class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
         <span class="flex items-center gap-2">
-          <input type="checkbox" checked={overrides.workingDirectory !== null} onchange={(event) => toggleWorkingDirectory(event.currentTarget.checked)} />
+          <input type="checkbox" class="size-4 accent-white" checked={overrides.workingDirectory !== null} onchange={(event) => toggleWorkingDirectory(event.currentTarget.checked)} />
           Cartella di lavoro personalizzata
         </span>
         <TextField id="game-compat-working-directory" label="Cartella di lavoro" value={overrides.workingDirectory ?? ""} disabled={overrides.workingDirectory === null} placeholder="Predefinita: cartella dell'eseguibile" oninput={(value) => setOverride("workingDirectory", value)} />
@@ -314,11 +304,11 @@
   {:else if $appInfo.data.platform === "linux" && section === "compatibility"}
     {#if game.steamAppId !== null}
       <label class="flex items-center gap-2 text-sm text-zinc-200 light:text-zinc-800">
-        <input type="checkbox" checked={overrides.launchViaSteam ?? true}
+        <input type="checkbox" class="size-4 accent-white" checked={overrides.launchViaSteam ?? true}
           onchange={(event) => setOverride("launchViaSteam", event.currentTarget.checked)} />
         Avvio con Steam
       </label>
-      <p class="text-xs text-zinc-500">Richiede Steam aperto e avvia direttamente il gioco con Proton usando il prefix della sezione Posizioni. Runtime e overlay seguono le rispettive impostazioni.</p>
+      <p class="text-xs text-zinc-500">Avvia Steam e il gioco con Proton usando il prefix della sezione Posizioni. Runtime e overlay vengono applicati automaticamente quando disponibili.</p>
     {/if}
     <p class="text-sm text-zinc-400 light:text-zinc-600">
       Ogni campo eredita il default globale finché il relativo override resta disattivato. Una lista o una mappa vuota cancella il valore ereditato.
@@ -349,7 +339,7 @@
       <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
         Variabili ambiente
         <span class="flex items-center gap-2 text-xs">
-          <input type="checkbox" checked={overrides.environment !== null} onchange={(event) => toggleEnvironment(event.currentTarget.checked)} />
+          <input type="checkbox" class="size-4 accent-white" checked={overrides.environment !== null} onchange={(event) => toggleEnvironment(event.currentTarget.checked)} />
           Personalizza le variabili
         </span>
         <textarea bind:value={environmentText} disabled={overrides.environment === null} rows="5" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 disabled:opacity-50 light:bg-white light:text-zinc-900"></textarea>
@@ -358,7 +348,7 @@
       <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
         Override DLL
         <span class="flex items-center gap-2 text-xs">
-          <input type="checkbox" checked={overrides.dllOverrides !== null} onchange={(event) => toggleDllOverrides(event.currentTarget.checked)} />
+          <input type="checkbox" class="size-4 accent-white" checked={overrides.dllOverrides !== null} onchange={(event) => toggleDllOverrides(event.currentTarget.checked)} />
           Personalizza gli override
         </span>
         <textarea bind:value={dllOverridesText} disabled={overrides.dllOverrides === null} rows="5" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 disabled:opacity-50 light:bg-white light:text-zinc-900"></textarea>
@@ -367,8 +357,6 @@
     </div>
 
     <div class="grid gap-4 md:grid-cols-2">
-      <SelectField id="game-compat-runtime" label="Steam Linux Runtime" value={overrides.steamRuntime ?? "inherit"} options={[{ value: "inherit", label: "Eredita default" }, { value: "runner_default", label: "Predefinito del runner" }, { value: "steam_linux_runtime", label: "Steam Linux Runtime" }]} onChange={setSteamRuntime} />
-      <SelectField id="game-compat-overlay" label="Overlay Steam" value={overrides.steamOverlay ?? "inherit"} options={[{ value: "inherit", label: "Eredita default" }, { value: "runner_default", label: "Predefinito del runner" }, { value: "enabled", label: "Attivo" }, { value: "disabled", label: "Disattivo" }]} onChange={setSteamOverlay} />
       <SelectField id="game-compat-renderer" label="Renderer grafico" value={overrides.graphicsRenderer ?? "inherit"} options={[{ value: "inherit", label: "Eredita default" }, { value: "runner_default", label: "Predefinito del runner" }, { value: "wine_d3d", label: "WineD3D" }]} onChange={setGraphicsRenderer} />
       <SelectField id="game-compat-wayland" label="Wayland" value={overrides.wayland ?? "inherit"} options={[{ value: "inherit", label: "Eredita default" }, { value: "runner_default", label: "Predefinito del runner" }, { value: "disabled", label: "Disattivato" }, { value: "native", label: "Nativo, solo GE-Proton" }]} onChange={setWayland} />
       <SelectField id="game-compat-debug" label="Log di debug" value={overrides.debugLogging === null ? "inherit" : String(overrides.debugLogging)} options={[{ value: "inherit", label: "Eredita default" }, { value: "true", label: "Attivi" }, { value: "false", label: "Disattivi" }]} onChange={setDebugLogging} />
@@ -385,14 +373,14 @@
     <div class="grid gap-4 md:grid-cols-2">
       <div class="flex flex-col gap-2">
         <label class="flex items-center gap-2 text-sm text-zinc-300 light:text-zinc-700">
-          <input type="checkbox" checked={overrides.argumentsBefore !== null} onchange={(event) => toggleArgumentsBefore(event.currentTarget.checked)} />
+          <input type="checkbox" class="size-4 accent-white" checked={overrides.argumentsBefore !== null} onchange={(event) => toggleArgumentsBefore(event.currentTarget.checked)} />
           Prima dell'eseguibile
         </label>
         <TextField id="arguments-before" label="Launch Options" value={argumentsBefore} disabled={overrides.argumentsBefore === null} placeholder="-windowed -novid" oninput={(value) => (argumentsBefore = value)} />
       </div>
       <div class="flex flex-col gap-2">
         <label class="flex items-center gap-2 text-sm text-zinc-300 light:text-zinc-700">
-          <input type="checkbox" checked={overrides.argumentsAfter !== null} onchange={(event) => toggleArgumentsAfter(event.currentTarget.checked)} />
+          <input type="checkbox" class="size-4 accent-white" checked={overrides.argumentsAfter !== null} onchange={(event) => toggleArgumentsAfter(event.currentTarget.checked)} />
           Dopo l'eseguibile
         </label>
         <TextField id="arguments-after" label="Launch Options" value={argumentsAfter} disabled={overrides.argumentsAfter === null} placeholder="-windowed -novid" oninput={(value) => (argumentsAfter = value)} />

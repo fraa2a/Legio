@@ -83,7 +83,7 @@
   <div class="flex flex-col gap-3">
     {#each behaviors as option (option.key)}
       <label class="flex items-center gap-3 text-sm text-zinc-200 light:text-zinc-800">
-        <input type="checkbox" class="accent-emerald-500" checked={Boolean($settings.data[option.key])}
+        <input type="checkbox" class="size-4 accent-white" checked={Boolean($settings.data[option.key])}
           disabled={saving || (option.key === "launchMinimized" && !$settings.data.launchOnSystemStart)}
           onchange={(event) => void update({ [option.key]: event.currentTarget.checked,
             ...(option.key === "launchOnSystemStart" && !event.currentTarget.checked ? { launchMinimized: false } : {}) })} />

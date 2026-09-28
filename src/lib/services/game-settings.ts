@@ -1,7 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type SteamRuntimeMode = "runner_default" | "steam_linux_runtime";
-export type SteamOverlayMode = "runner_default" | "enabled" | "disabled";
 export type GraphicsRenderer = "runner_default" | "wine_d3d";
 export type WaylandMode = "runner_default" | "disabled" | "native";
 
@@ -13,8 +11,6 @@ export interface CompatibilityDefaults {
   workingDirectory: string | null;
   environment: Record<string, string>;
   dllOverrides: Record<string, string>;
-  steamRuntime: SteamRuntimeMode;
-  steamOverlay: SteamOverlayMode;
   graphicsRenderer: GraphicsRenderer;
   wayland: WaylandMode;
   debugLogging: boolean;
@@ -29,8 +25,6 @@ export interface GameCompatibilityOverrides {
   workingDirectory: string | null;
   environment: Record<string, string> | null;
   dllOverrides: Record<string, string> | null;
-  steamRuntime: SteamRuntimeMode | null;
-  steamOverlay: SteamOverlayMode | null;
   graphicsRenderer: GraphicsRenderer | null;
   wayland: WaylandMode | null;
   debugLogging: boolean | null;
@@ -65,8 +59,6 @@ export const emptyCompatibilityDefaults: CompatibilityDefaults = {
   workingDirectory: null,
   environment: {},
   dllOverrides: {},
-  steamRuntime: "runner_default",
-  steamOverlay: "runner_default",
   graphicsRenderer: "runner_default",
   wayland: "runner_default",
   debugLogging: false,
@@ -81,8 +73,6 @@ export const emptyGameCompatibilityOverrides: GameCompatibilityOverrides = {
   workingDirectory: null,
   environment: null,
   dllOverrides: null,
-  steamRuntime: null,
-  steamOverlay: null,
   graphicsRenderer: null,
   wayland: null,
   debugLogging: null,

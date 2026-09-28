@@ -160,7 +160,7 @@
           <legend class="sr-only">Eseguibili trovati</legend>
           {#each $manualImport.candidates as candidate (candidate.path)}
             <label class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-zinc-200 hover:bg-white/10 light:text-zinc-800 light:hover:bg-zinc-200">
-              <input type="radio" name="add-game-executable" checked={selectedPath === candidate.path} onchange={() => chooseCandidate(candidate.path)} />
+              <input type="radio" name="add-game-executable" checked={selectedPath === candidate.path} onchange={() => chooseCandidate(candidate.path)} class="size-4 accent-white" />
               <span class="min-w-0 truncate" title={candidate.path}>{candidate.path}</span>
             </label>
           {/each}

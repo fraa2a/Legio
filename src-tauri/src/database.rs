@@ -10,7 +10,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 17;
+const SCHEMA_VERSION: i64 = 18;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -23,23 +23,6 @@ pub struct SteamLaunchConfig {
 pub struct NativeLaunchConfig {
     pub arguments: Vec<String>,
     pub working_directory: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum SteamRuntimeMode {
-    #[default]
-    RunnerDefault,
-    SteamLinuxRuntime,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum SteamOverlayMode {
-    #[default]
-    RunnerDefault,
-    Enabled,
-    Disabled,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -71,8 +54,6 @@ pub struct CompatibilityDefaults {
     pub working_directory: Option<String>,
     pub environment: BTreeMap<String, String>,
     pub dll_overrides: BTreeMap<String, String>,
-    pub steam_runtime: SteamRuntimeMode,
-    pub steam_overlay: SteamOverlayMode,
     pub graphics_renderer: GraphicsRenderer,
     pub wayland: WaylandMode,
     pub debug_logging: bool,
@@ -94,8 +75,6 @@ pub struct GameCompatibilityOverrides {
     pub working_directory: Option<String>,
     pub environment: Option<BTreeMap<String, String>>,
     pub dll_overrides: Option<BTreeMap<String, String>>,
-    pub steam_runtime: Option<SteamRuntimeMode>,
-    pub steam_overlay: Option<SteamOverlayMode>,
     pub graphics_renderer: Option<GraphicsRenderer>,
     pub wayland: Option<WaylandMode>,
     pub debug_logging: Option<bool>,
@@ -114,8 +93,6 @@ pub struct EffectiveCompatibilityConfig {
     pub working_directory: Option<String>,
     pub environment: BTreeMap<String, String>,
     pub dll_overrides: BTreeMap<String, String>,
-    pub steam_runtime: SteamRuntimeMode,
-    pub steam_overlay: SteamOverlayMode,
     pub graphics_renderer: GraphicsRenderer,
     pub wayland: WaylandMode,
     pub debug_logging: bool,
@@ -126,8 +103,7 @@ pub struct EffectiveCompatibilityConfig {
 pub struct AppliedCompatibilityOptions {
     pub runner: String,
     pub version: String,
-    pub steam_runtime: SteamRuntimeMode,
-    pub steam_overlay: SteamOverlayMode,
+    pub launch_via_steam: bool,
     pub graphics_renderer: GraphicsRenderer,
     pub wayland: WaylandMode,
     pub debug_logging: bool,
@@ -621,8 +597,6 @@ impl Database {
         let arguments_after = encode_json(&defaults.arguments_after)?;
         let environment = encode_json(&defaults.environment)?;
         let dll_overrides = encode_json(&defaults.dll_overrides)?;
-        let steam_runtime = encode_json(&defaults.steam_runtime)?;
-        let steam_overlay = encode_json(&defaults.steam_overlay)?;
         let graphics_renderer = encode_json(&defaults.graphics_renderer)?;
         let wayland = encode_json(&defaults.wayland)?;
         self.with_connection(|connection| {
@@ -631,8 +605,8 @@ impl Database {
                     "INSERT INTO compatibility_defaults
                         (id, runner_path, prefix_root, arguments_before,
                          arguments_after, working_directory, environment, dll_overrides,
-                         steam_runtime, steam_overlay, graphics_renderer, wayland, debug_logging)
-                     VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                         graphics_renderer, wayland, debug_logging)
+                     VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
                      ON CONFLICT(id) DO UPDATE SET
                         runner_path = excluded.runner_path,
                         prefix_root = excluded.prefix_root,
@@ -641,8 +615,6 @@ impl Database {
                         working_directory = excluded.working_directory,
                         environment = excluded.environment,
                         dll_overrides = excluded.dll_overrides,
-                        steam_runtime = excluded.steam_runtime,
-                        steam_overlay = excluded.steam_overlay,
                         graphics_renderer = excluded.graphics_renderer,
                         wayland = excluded.wayland,
                         debug_logging = excluded.debug_logging",
@@ -654,8 +626,6 @@ impl Database {
                         defaults.working_directory,
                         environment,
                         dll_overrides,
-                        steam_runtime,
-                        steam_overlay,
                         graphics_renderer,
                         wayland,
                         defaults.debug_logging
@@ -699,8 +669,6 @@ impl Database {
         let arguments_after = encode_optional_json(&overrides.arguments_after)?;
         let environment = encode_optional_json(&overrides.environment)?;
         let dll_overrides = encode_optional_json(&overrides.dll_overrides)?;
-        let steam_runtime = encode_optional_json(&overrides.steam_runtime)?;
-        let steam_overlay = encode_optional_json(&overrides.steam_overlay)?;
         let graphics_renderer = encode_optional_json(&overrides.graphics_renderer)?;
         let wayland = encode_optional_json(&overrides.wayland)?;
         self.with_connection(|connection| {
@@ -709,8 +677,8 @@ impl Database {
                     "INSERT INTO game_compatibility_overrides
                         (game_id, runner_path, prefix_path, arguments_before,
                          arguments_after, working_directory, environment, dll_overrides,
-                         steam_runtime, steam_overlay, graphics_renderer, wayland, debug_logging, launch_via_steam)
-                     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14
+                         graphics_renderer, wayland, debug_logging, launch_via_steam)
+                     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12
                      WHERE EXISTS (SELECT 1 FROM games WHERE id = ?1)
                      ON CONFLICT(game_id) DO UPDATE SET
                         runner_path = excluded.runner_path,
@@ -720,8 +688,6 @@ impl Database {
                         working_directory = excluded.working_directory,
                         environment = excluded.environment,
                         dll_overrides = excluded.dll_overrides,
-                        steam_runtime = excluded.steam_runtime,
-                        steam_overlay = excluded.steam_overlay,
                         graphics_renderer = excluded.graphics_renderer,
                         wayland = excluded.wayland,
                         debug_logging = excluded.debug_logging,
@@ -735,8 +701,6 @@ impl Database {
                         overrides.working_directory,
                         environment,
                         dll_overrides,
-                        steam_runtime,
-                        steam_overlay,
                         graphics_renderer,
                         wayland,
                         overrides.debug_logging,
@@ -1288,6 +1252,17 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             .execute_batch("PRAGMA user_version = 17;")
             .map_err(database_error)?;
     }
+    if version < 18 {
+        transaction
+            .execute_batch(
+                "ALTER TABLE compatibility_defaults DROP COLUMN steam_runtime;
+                 ALTER TABLE compatibility_defaults DROP COLUMN steam_overlay;
+                 ALTER TABLE game_compatibility_overrides DROP COLUMN steam_runtime;
+                 ALTER TABLE game_compatibility_overrides DROP COLUMN steam_overlay;
+                 PRAGMA user_version = 18;",
+            )
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }
 
@@ -1308,8 +1283,6 @@ fn load_compatibility_defaults(connection: &Connection) -> Result<CompatibilityD
         working_directory,
         environment,
         dll_overrides,
-        steam_runtime,
-        steam_overlay,
         graphics_renderer,
         wayland,
         debug_logging,
@@ -1317,7 +1290,7 @@ fn load_compatibility_defaults(connection: &Connection) -> Result<CompatibilityD
         .query_row(
             "SELECT runner_path, prefix_root, arguments_before,
                     arguments_after, working_directory, environment, dll_overrides,
-                    steam_runtime, steam_overlay, graphics_renderer, wayland, debug_logging
+                    graphics_renderer, wayland, debug_logging
              FROM compatibility_defaults WHERE id = 1",
             [],
             |row| {
@@ -1331,9 +1304,7 @@ fn load_compatibility_defaults(connection: &Connection) -> Result<CompatibilityD
                     row.get::<_, String>(6)?,
                     row.get::<_, String>(7)?,
                     row.get::<_, String>(8)?,
-                    row.get::<_, String>(9)?,
-                    row.get::<_, String>(10)?,
-                    row.get::<_, bool>(11)?,
+                    row.get::<_, bool>(9)?,
                 ))
             },
         )
@@ -1346,8 +1317,6 @@ fn load_compatibility_defaults(connection: &Connection) -> Result<CompatibilityD
         working_directory,
         environment: decode_json(&environment)?,
         dll_overrides: decode_json(&dll_overrides)?,
-        steam_runtime: decode_json(&steam_runtime)?,
-        steam_overlay: decode_json(&steam_overlay)?,
         graphics_renderer: decode_json(&graphics_renderer)?,
         wayland: decode_json(&wayland)?,
         debug_logging,
@@ -1362,7 +1331,7 @@ fn load_game_compatibility_overrides(
         .query_row(
             "SELECT o.runner_path, o.prefix_path, o.arguments_before,
                     o.arguments_after, o.working_directory, o.environment, o.dll_overrides,
-                    o.steam_runtime, o.steam_overlay, o.graphics_renderer, o.wayland,
+                    o.graphics_renderer, o.wayland,
                     o.debug_logging, o.launch_via_steam
              FROM games AS g
              LEFT JOIN game_compatibility_overrides AS o ON o.game_id = g.id
@@ -1379,10 +1348,8 @@ fn load_game_compatibility_overrides(
                     row.get::<_, Option<String>>(6)?,
                     row.get::<_, Option<String>>(7)?,
                     row.get::<_, Option<String>>(8)?,
-                    row.get::<_, Option<String>>(9)?,
-                    row.get::<_, Option<String>>(10)?,
-                    row.get::<_, Option<bool>>(11)?,
-                    row.get::<_, Option<bool>>(12)?,
+                    row.get::<_, Option<bool>>(9)?,
+                    row.get::<_, Option<bool>>(10)?,
                 ))
             },
         )
@@ -1396,8 +1363,6 @@ fn load_game_compatibility_overrides(
         working_directory,
         environment,
         dll_overrides,
-        steam_runtime,
-        steam_overlay,
         graphics_renderer,
         wayland,
         debug_logging,
@@ -1414,8 +1379,6 @@ fn load_game_compatibility_overrides(
         working_directory,
         environment: decode_optional_json(environment)?,
         dll_overrides: decode_optional_json(dll_overrides)?,
-        steam_runtime: decode_optional_json(steam_runtime)?,
-        steam_overlay: decode_optional_json(steam_overlay)?,
         graphics_renderer: decode_optional_json(graphics_renderer)?,
         wayland: decode_optional_json(wayland)?,
         debug_logging,
@@ -1463,8 +1426,6 @@ fn merge_compatibility_config(
             .filter(|value| !value.is_empty()),
         environment,
         dll_overrides,
-        steam_runtime: overrides.steam_runtime.unwrap_or(defaults.steam_runtime),
-        steam_overlay: overrides.steam_overlay.unwrap_or(defaults.steam_overlay),
         graphics_renderer: overrides
             .graphics_renderer
             .unwrap_or(defaults.graphics_renderer),
@@ -1680,7 +1641,7 @@ mod tests {
     }
 
     #[test]
-    fn migration_14_adds_typed_options_without_changing_compatibility_values() {
+    fn migration_adds_typed_options_and_removes_steam_fragments() {
         let connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
         connection
@@ -1705,13 +1666,9 @@ mod tests {
             .unwrap();
         connection
             .execute_batch(
-                "ALTER TABLE compatibility_defaults DROP COLUMN steam_runtime;
-                 ALTER TABLE compatibility_defaults DROP COLUMN steam_overlay;
-                 ALTER TABLE compatibility_defaults DROP COLUMN graphics_renderer;
+                "ALTER TABLE compatibility_defaults DROP COLUMN graphics_renderer;
                  ALTER TABLE compatibility_defaults DROP COLUMN wayland;
                  ALTER TABLE compatibility_defaults DROP COLUMN debug_logging;
-                 ALTER TABLE game_compatibility_overrides DROP COLUMN steam_runtime;
-                 ALTER TABLE game_compatibility_overrides DROP COLUMN steam_overlay;
                  ALTER TABLE game_compatibility_overrides DROP COLUMN graphics_renderer;
                  ALTER TABLE game_compatibility_overrides DROP COLUMN wayland;
                  ALTER TABLE game_compatibility_overrides DROP COLUMN debug_logging;
@@ -1720,26 +1677,17 @@ mod tests {
             .unwrap();
 
         migrate(&connection).unwrap();
-        let defaults: (String, String, String, String, String) = connection
+        let defaults: (String, String, String) = connection
             .query_row(
-                "SELECT arguments_before, steam_runtime, steam_overlay,
-                        graphics_renderer, wayland
+                "SELECT arguments_before, graphics_renderer, wayland
                  FROM compatibility_defaults WHERE id = 1",
                 [],
-                |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                    ))
-                },
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .unwrap();
         let overrides: (String, Option<String>) = connection
             .query_row(
-                "SELECT arguments_before, steam_runtime FROM game_compatibility_overrides
+                "SELECT arguments_before, graphics_renderer FROM game_compatibility_overrides
                  WHERE game_id = ?1",
                 ["00000000-0000-0000-0000-000000000001"],
                 |row| Ok((row.get(0)?, row.get(1)?)),
@@ -1751,11 +1699,18 @@ mod tests {
                 "[\"--keep\"]".to_owned(),
                 "\"runner_default\"".to_owned(),
                 "\"runner_default\"".to_owned(),
-                "\"runner_default\"".to_owned(),
-                "\"runner_default\"".to_owned(),
             )
         );
         assert_eq!(overrides, ("[\"--game\"]".to_owned(), None));
+        let steam_columns: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('compatibility_defaults')
+                 WHERE name IN ('steam_runtime', 'steam_overlay')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(steam_columns, 0);
         let debug_defaults: bool = connection
             .query_row(
                 "SELECT debug_logging FROM compatibility_defaults WHERE id = 1",
@@ -1776,8 +1731,6 @@ mod tests {
 
     #[test]
     fn typed_compatibility_enums_reject_unknown_values() {
-        assert!(serde_json::from_str::<SteamRuntimeMode>("\"download_runtime\"").is_err());
-        assert!(serde_json::from_str::<SteamOverlayMode>("\"automatic\"").is_err());
         assert!(serde_json::from_str::<GraphicsRenderer>("\"vulkan\"").is_err());
         assert!(serde_json::from_str::<WaylandMode>("\"enabled\"").is_err());
     }
@@ -2233,8 +2186,6 @@ mod tests {
             working_directory: Some("/games/default".to_owned()),
             environment,
             dll_overrides: BTreeMap::new(),
-            steam_runtime: SteamRuntimeMode::SteamLinuxRuntime,
-            steam_overlay: SteamOverlayMode::Enabled,
             graphics_renderer: GraphicsRenderer::WineD3d,
             wayland: WaylandMode::Native,
             debug_logging: true,
@@ -2249,8 +2200,6 @@ mod tests {
         let overrides = GameCompatibilityOverrides {
             arguments_before: Some(Vec::new()),
             environment: Some(BTreeMap::new()),
-            steam_runtime: Some(SteamRuntimeMode::RunnerDefault),
-            steam_overlay: Some(SteamOverlayMode::Disabled),
             graphics_renderer: Some(GraphicsRenderer::RunnerDefault),
             wayland: Some(WaylandMode::Disabled),
             debug_logging: Some(false),
@@ -2271,8 +2220,6 @@ mod tests {
         assert_eq!(stored.runner_path, None);
         assert_eq!(stored.arguments_before, Some(Vec::new()));
         assert_eq!(stored.environment, Some(BTreeMap::new()));
-        assert_eq!(stored.steam_runtime, Some(SteamRuntimeMode::RunnerDefault));
-        assert_eq!(stored.steam_overlay, Some(SteamOverlayMode::Disabled));
         assert_eq!(
             stored.graphics_renderer,
             Some(GraphicsRenderer::RunnerDefault)
@@ -2328,8 +2275,6 @@ mod tests {
                 working_directory: Some("/games/default".to_owned()),
                 environment: default_environment,
                 dll_overrides: default_dlls,
-                steam_runtime: SteamRuntimeMode::SteamLinuxRuntime,
-                steam_overlay: SteamOverlayMode::Enabled,
                 graphics_renderer: GraphicsRenderer::WineD3d,
                 wayland: WaylandMode::Native,
                 debug_logging: true,
@@ -2351,7 +2296,6 @@ mod tests {
                     working_directory: Some(String::new()),
                     environment: Some(environment),
                     dll_overrides: Some(dlls),
-                    steam_overlay: Some(SteamOverlayMode::Disabled),
                     wayland: Some(WaylandMode::Disabled),
                     debug_logging: Some(false),
                     ..GameCompatibilityOverrides::default()
@@ -2386,8 +2330,6 @@ mod tests {
             effective.dll_overrides.get("dxgi").map(String::as_str),
             Some("native")
         );
-        assert_eq!(effective.steam_runtime, SteamRuntimeMode::SteamLinuxRuntime);
-        assert_eq!(effective.steam_overlay, SteamOverlayMode::Disabled);
         assert_eq!(effective.graphics_renderer, GraphicsRenderer::WineD3d);
         assert_eq!(effective.wayland, WaylandMode::Disabled);
         fs::remove_dir_all(directory).unwrap();
@@ -2446,8 +2388,6 @@ mod tests {
                 working_directory: None,
                 environment: BTreeMap::new(),
                 dll_overrides: BTreeMap::new(),
-                steam_runtime: SteamRuntimeMode::RunnerDefault,
-                steam_overlay: SteamOverlayMode::RunnerDefault,
                 graphics_renderer: GraphicsRenderer::RunnerDefault,
                 wayland: WaylandMode::RunnerDefault,
                 debug_logging: false,
@@ -2468,8 +2408,6 @@ mod tests {
             .unwrap();
         database
             .save_compatibility_defaults(CompatibilityDefaults {
-                steam_runtime: SteamRuntimeMode::SteamLinuxRuntime,
-                steam_overlay: SteamOverlayMode::Enabled,
                 graphics_renderer: GraphicsRenderer::WineD3d,
                 wayland: WaylandMode::Native,
                 debug_logging: true,
@@ -2479,8 +2417,6 @@ mod tests {
         assert_eq!(
             database.effective_compatibility_config(&game.id).unwrap(),
             EffectiveCompatibilityConfig {
-                steam_runtime: SteamRuntimeMode::SteamLinuxRuntime,
-                steam_overlay: SteamOverlayMode::Enabled,
                 graphics_renderer: GraphicsRenderer::WineD3d,
                 wayland: WaylandMode::Native,
                 debug_logging: true,
@@ -2498,8 +2434,6 @@ mod tests {
             .save_game_compatibility_overrides(
                 &game.id,
                 GameCompatibilityOverrides {
-                    steam_runtime: Some(SteamRuntimeMode::RunnerDefault),
-                    steam_overlay: Some(SteamOverlayMode::Disabled),
                     wayland: Some(WaylandMode::Disabled),
                     debug_logging: Some(false),
                     ..GameCompatibilityOverrides::default()
@@ -2507,8 +2441,6 @@ mod tests {
             )
             .unwrap();
         let overridden = database.effective_compatibility_config(&game.id).unwrap();
-        assert_eq!(overridden.steam_runtime, SteamRuntimeMode::RunnerDefault);
-        assert_eq!(overridden.steam_overlay, SteamOverlayMode::Disabled);
         assert_eq!(overridden.graphics_renderer, GraphicsRenderer::WineD3d);
         assert_eq!(overridden.wayland, WaylandMode::Disabled);
         assert!(!overridden.debug_logging);
@@ -2517,8 +2449,6 @@ mod tests {
             .save_game_compatibility_overrides(&game.id, GameCompatibilityOverrides::default())
             .unwrap();
         let reset = database.effective_compatibility_config(&game.id).unwrap();
-        assert_eq!(reset.steam_runtime, SteamRuntimeMode::SteamLinuxRuntime);
-        assert_eq!(reset.steam_overlay, SteamOverlayMode::Enabled);
         assert_eq!(reset.graphics_renderer, GraphicsRenderer::WineD3d);
         assert_eq!(reset.wayland, WaylandMode::Native);
         assert!(reset.debug_logging);

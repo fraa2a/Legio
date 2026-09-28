@@ -12,8 +12,6 @@
     saveCompatibilityDefaults,
     type CompatibilityDefaults,
     type GraphicsRenderer,
-    type SteamOverlayMode,
-    type SteamRuntimeMode,
     type WaylandMode,
   } from "../../services/game-settings";
   import { appInfo } from "../../stores/app-info";
@@ -157,14 +155,6 @@
     })),
   ]);
 
-  function setSteamRuntime(value: string): void {
-    defaults = { ...defaults, steamRuntime: value as SteamRuntimeMode };
-  }
-
-  function setSteamOverlay(value: string): void {
-    defaults = { ...defaults, steamOverlay: value as SteamOverlayMode };
-  }
-
   function setGraphicsRenderer(value: string): void {
     defaults = { ...defaults, graphicsRenderer: value as GraphicsRenderer };
   }
@@ -228,6 +218,7 @@
       <label class="flex items-center gap-2 text-sm text-zinc-300 light:text-zinc-700">
         <input
           type="checkbox"
+          class="size-4 accent-white"
           checked={defaults.debugLogging}
           onchange={(event) => (defaults = { ...defaults, debugLogging: event.currentTarget.checked })}
         />
@@ -236,8 +227,6 @@
     </div>
 
     <div class="grid gap-4 md:grid-cols-2">
-      <SelectField id="compat-runtime" label="Steam Linux Runtime" value={defaults.steamRuntime} options={[{ value: "runner_default", label: "Predefinito del runner" }, { value: "steam_linux_runtime", label: "Usa Steam Linux Runtime installato" }]} onChange={setSteamRuntime} />
-      <SelectField id="compat-overlay" label="Overlay Steam" value={defaults.steamOverlay} options={[{ value: "runner_default", label: "Predefinito del runner" }, { value: "enabled", label: "Attivo" }, { value: "disabled", label: "Disattivo" }]} onChange={setSteamOverlay} />
       <SelectField id="compat-renderer" label="Renderer grafico" value={defaults.graphicsRenderer} options={[{ value: "runner_default", label: "Predefinito del runner" }, { value: "wine_d3d", label: "WineD3D" }]} onChange={setGraphicsRenderer} />
       <SelectField id="compat-wayland" label="Wayland" value={defaults.wayland} options={[{ value: "runner_default", label: "Predefinito del runner" }, { value: "disabled", label: "Disattivato" }, { value: "native", label: "Nativo, solo GE-Proton" }]} onChange={setWayland} />
     </div>
