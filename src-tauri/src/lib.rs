@@ -112,10 +112,8 @@ pub fn run() -> tauri::Result<()> {
                     .is_ok_and(|settings| {
                         settings.launch_on_system_start && settings.launch_minimized
                     });
-                if minimized {
-                    if let Some(window) = app.get_webview_window("main") {
-                        window.hide()?;
-                    }
+                if minimized && let Some(window) = app.get_webview_window("main") {
+                    window.hide()?;
                 }
             }
             let open = MenuItem::with_id(app, "open", "Apri", true, None::<&str>)?;
@@ -146,11 +144,10 @@ pub fn run() -> tauri::Result<()> {
                         button_state: MouseButtonState::Up,
                         ..
                     } = event
+                        && let Some(window) = tray.app_handle().get_webview_window("main")
                     {
-                        if let Some(window) = tray.app_handle().get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                        let _ = window.show();
+                        let _ = window.set_focus();
                     }
                 })
                 .build(app);

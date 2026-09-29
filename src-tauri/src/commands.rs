@@ -67,11 +67,11 @@ pub fn save_settings(app: AppHandle, settings: Settings) -> Result<Settings, Str
     let state = app.state::<DatabaseState>();
     let previous = state.database()?.settings()?;
     let saved = database::save_settings(&state, settings)?;
-    if saved.launch_on_system_start != previous.launch_on_system_start {
-        if let Err(error) = crate::startup::set_enabled(saved.launch_on_system_start) {
-            state.database()?.save_settings(previous)?;
-            return Err(error);
-        }
+    if saved.launch_on_system_start != previous.launch_on_system_start
+        && let Err(error) = crate::startup::set_enabled(saved.launch_on_system_start)
+    {
+        state.database()?.save_settings(previous)?;
+        return Err(error);
     }
     let data_dir = app
         .path()

@@ -357,7 +357,7 @@
     </div>
 
     <label class="flex items-center gap-2 text-sm text-zinc-200 light:text-zinc-800">
-      <input type="checkbox" class="size-4 accent-white" checked={overrides.onlineFix ?? true}
+      <input type="checkbox" class="size-4 accent-white" checked={overrides.onlineFix ?? false}
         onchange={(event) => setOverride("onlineFix", event.currentTarget.checked)} />
       Avvia con OnlineFix
     </label>

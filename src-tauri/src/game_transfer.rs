@@ -179,8 +179,8 @@ fn transfer(
         }
     };
     let mut warnings = Vec::new();
-    if installed_path.is_some() {
-        if let Err(error) = database.database()?.with_connection(|connection| {
+    if installed_path.is_some()
+        && let Err(error) = database.database()?.with_connection(|connection| {
             connection
                 .execute(
                     "UPDATE downloads SET final_path = ?2 WHERE id = ?1 AND status = 'installed'",
@@ -188,11 +188,11 @@ fn transfer(
                 )
                 .map_err(database_error)?;
             Ok(())
-        }) {
-            warnings.push(format!(
-                "Could not update installed download location: {error}"
-            ));
-        }
+        })
+    {
+        warnings.push(format!(
+            "Could not update installed download location: {error}"
+        ));
     }
     let cleanup_warning = if moved {
         None

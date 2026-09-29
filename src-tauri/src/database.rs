@@ -83,7 +83,7 @@ pub struct GameCompatibilityOverrides {
 
 /// Compatibility values after applying a game's overrides to global defaults.
 /// Prefixes use the global root unless `prefix_path` names a game-specific path.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct EffectiveCompatibilityConfig {
     pub runner_path: Option<String>,
@@ -98,25 +98,6 @@ pub struct EffectiveCompatibilityConfig {
     pub wayland: WaylandMode,
     pub debug_logging: bool,
     pub online_fix: bool,
-}
-
-impl Default for EffectiveCompatibilityConfig {
-    fn default() -> Self {
-        Self {
-            runner_path: None,
-            prefix_root: None,
-            prefix_path: None,
-            arguments_before: Vec::new(),
-            arguments_after: Vec::new(),
-            working_directory: None,
-            environment: BTreeMap::new(),
-            dll_overrides: BTreeMap::new(),
-            graphics_renderer: GraphicsRenderer::RunnerDefault,
-            wayland: WaylandMode::RunnerDefault,
-            debug_logging: false,
-            online_fix: true,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1478,7 +1459,7 @@ fn merge_compatibility_config(
             .unwrap_or(defaults.graphics_renderer),
         wayland: overrides.wayland.unwrap_or(defaults.wayland),
         debug_logging: overrides.debug_logging.unwrap_or(defaults.debug_logging),
-        online_fix: overrides.online_fix.unwrap_or(true),
+        online_fix: overrides.online_fix.unwrap_or(false),
     }
 }
 
@@ -2439,7 +2420,7 @@ mod tests {
                 graphics_renderer: GraphicsRenderer::RunnerDefault,
                 wayland: WaylandMode::RunnerDefault,
                 debug_logging: false,
-                online_fix: true,
+                online_fix: false,
             }
         );
         fs::remove_dir_all(directory).unwrap();
@@ -2485,7 +2466,7 @@ mod tests {
                 GameCompatibilityOverrides {
                     wayland: Some(WaylandMode::Disabled),
                     debug_logging: Some(false),
-                    online_fix: Some(false),
+                    online_fix: Some(true),
                     ..GameCompatibilityOverrides::default()
                 },
             )
@@ -2494,13 +2475,13 @@ mod tests {
         assert_eq!(overridden.graphics_renderer, GraphicsRenderer::WineD3d);
         assert_eq!(overridden.wayland, WaylandMode::Disabled);
         assert!(!overridden.debug_logging);
-        assert!(!overridden.online_fix);
+        assert!(overridden.online_fix);
         assert_eq!(
             database
                 .game_compatibility_overrides(&game.id)
                 .unwrap()
                 .online_fix,
-            Some(false)
+            Some(true)
         );
 
         database
@@ -2510,7 +2491,7 @@ mod tests {
         assert_eq!(reset.graphics_renderer, GraphicsRenderer::WineD3d);
         assert_eq!(reset.wayland, WaylandMode::Native);
         assert!(reset.debug_logging);
-        assert!(reset.online_fix);
+        assert!(!reset.online_fix);
         fs::remove_dir_all(directory).unwrap();
     }
 
