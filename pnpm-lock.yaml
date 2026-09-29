@@ -167,8 +167,8 @@ importers:
   .:
     dependencies:
       '@tauri-apps/api':
-        specifier: ^2.0.0
-        version: 2.11.1
+        specifier: ^2.12.0
+        version: 2.12.0
       '@tauri-apps/plugin-dialog':
         specifier: ^2.7.3
         version: 2.7.3

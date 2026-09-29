@@ -11,4 +11,4 @@ Il pacchetto Arch `legio-launcher-bin` usa l'AppImage pubblicata su GitHub. La p
 - `TAURI_SIGNING_PRIVATE_KEY` contiene la chiave privata Tauri per firmare gli installer. La chiave pubblica è in `src-tauri/tauri.conf.json`. Conservare una copia privata sicura: perderla impedisce di aggiornare le installazioni esistenti.
 - `AUR_SSH_PRIVATE_KEY` contiene una chiave SSH dedicata. La relativa chiave pubblica va aggiunta al profilo AUR che pubblica `legio-launcher-bin`.
 
-Le due chiavi sono nei secret GitHub del repository. Le copie locali sono in `~/.config/legio-release/` e non vanno committate. Una release stabile fallisce nel job AUR finché la chiave pubblica SSH non è registrata nel profilo AUR.
+Le due chiavi sono nei secret GitHub del repository. La copia locale della chiave Tauri è in `~/.config/legio-release/updater.key`; quella AUR è in `~/.ssh/AUR_Github`. Non vanno committate.
