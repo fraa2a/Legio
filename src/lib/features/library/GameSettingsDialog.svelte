@@ -28,11 +28,10 @@
     { id: "locations", label: "Posizioni", icon: "folder" },
     { id: "customization", label: "Personalizzazione", icon: "image" },
     { id: "compatibility", label: "Compatibilità", icon: "wrench" },
-    { id: "downloads", label: "Download", icon: "downloads" },
     { id: "danger", label: "Zona pericolosa", icon: "warning" },
-  ] satisfies { id: string; label: string; icon: "settings" | "folder" | "image" | "wrench" | "downloads" | "warning" }[];
+  ] satisfies { id: string; label: string; icon: "settings" | "folder" | "image" | "wrench" | "warning" }[];
   const categories = $derived(steamManaged
-    ? allCategories.filter((category) => category.id !== "compatibility" && category.id !== "downloads")
+    ? allCategories.filter((category) => category.id !== "compatibility")
     : allCategories);
   let active = $state("general");
   let shortcutError = $state<string | null>(null);
@@ -168,10 +167,6 @@
             <p class="text-sm text-zinc-400 light:text-zinc-600">Seleziona prima un eseguibile per configurare il runner e gli argomenti di avvio.</p>
           </Panel>
         {/if}
-      {:else if active === "downloads"}
-        <Panel title="Download">
-          <p class="text-sm text-zinc-400 light:text-zinc-600">I download e la gestione dei file del gioco sono disponibili nelle pagine Store e Download.</p>
-        </Panel>
       {:else}
         <GameDetailsPanel {game} {onRemoved} section="danger" />
       {/if}
