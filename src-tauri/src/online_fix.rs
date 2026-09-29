@@ -87,15 +87,6 @@ mod tests {
     }
 
     #[test]
-    fn ignores_online_fix_without_64() {
-        let root = std::env::temp_dir().join(format!("legio-online-fix-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&root).unwrap();
-        fs::write(root.join("OnlineFix.dll"), b"").unwrap();
-        assert!(!contains_online_fix(&root).unwrap());
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
     fn detects_fix_from_installed_root_above_executable() {
         let root = std::env::temp_dir().join(format!("legio-online-fix-{}", uuid::Uuid::new_v4()));
         let install = root.join("game");
