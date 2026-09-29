@@ -367,7 +367,7 @@
         onchange={(event) => setOverride("onlineFix", event.currentTarget.checked ? (onlineFixDetected ? null : true) : false)} />
       Avvia con OnlineFix
     </label>
-    {#if onlineFixDetected}<p class="text-xs text-zinc-500">OnlineFix.dll rilevato nella cartella del gioco.</p>{/if}
+    {#if onlineFixDetected}<p class="text-xs text-zinc-500">OnlineFix64.dll rilevato nella cartella del gioco.</p>{/if}
 
     <div class="grid gap-4 md:grid-cols-2">
       <SelectField id="game-compat-renderer" label="Renderer grafico" value={overrides.graphicsRenderer ?? "inherit"} options={[{ value: "inherit", label: "Eredita default" }, { value: "runner_default", label: "Predefinito del runner" }, { value: "wine_d3d", label: "WineD3D" }]} onChange={setGraphicsRenderer} />

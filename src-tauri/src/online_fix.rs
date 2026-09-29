@@ -56,7 +56,7 @@ fn contains_online_fix(root: &Path) -> Result<bool, String> {
                 && entry
                     .file_name()
                     .to_str()
-                    .is_some_and(|name| name.eq_ignore_ascii_case("OnlineFix.dll"))
+                    .is_some_and(|name| name.eq_ignore_ascii_case("OnlineFix64.dll"))
             {
                 return Ok(true);
             }
@@ -81,8 +81,17 @@ mod tests {
         let root = std::env::temp_dir().join(format!("legio-online-fix-{}", uuid::Uuid::new_v4()));
         let nested = root.join("bin").join("fix");
         fs::create_dir_all(&nested).unwrap();
-        fs::write(nested.join("ONLINEFIX.DLL"), b"").unwrap();
+        fs::write(nested.join("ONLINEFIX64.DLL"), b"").unwrap();
         assert!(contains_online_fix(&root).unwrap());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn ignores_online_fix_without_64() {
+        let root = std::env::temp_dir().join(format!("legio-online-fix-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("OnlineFix.dll"), b"").unwrap();
+        assert!(!contains_online_fix(&root).unwrap());
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -93,7 +102,7 @@ mod tests {
         let executable = install.join("bin").join("game.exe");
         fs::create_dir_all(executable.parent().unwrap()).unwrap();
         fs::write(&executable, b"").unwrap();
-        fs::write(install.join("OnlineFix.dll"), b"").unwrap();
+        fs::write(install.join("OnlineFix64.dll"), b"").unwrap();
         let database = Database::open(&root.join("data")).unwrap();
         let game = database
             .create_game(CreateGameInput {
