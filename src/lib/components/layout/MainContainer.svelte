@@ -4,10 +4,18 @@
   import GameDetailView from "../../features/library/GameDetailView.svelte";
   import LibraryView from "../../features/library/LibraryView.svelte";
   import StoreView from "../../features/store/StoreView.svelte";
-  import { activeSection, selectedGameId } from "../../stores/navigation";
+  import { activeSection, selectedGameId, selectedStoreGame } from "../../stores/navigation";
+
+  let container: HTMLElement;
+  const page = $derived(`${$activeSection}:${$selectedGameId ?? ""}:${$selectedStoreGame?.steamAppId ?? ""}`);
+
+  $effect(() => {
+    if (page) container?.scrollTo(0, 0);
+  });
 </script>
 
 <main
+  bind:this={container}
   class="min-h-0 min-w-0 flex-1 overflow-y-auto rounded-xl scrollbar-none bg-black light:bg-zinc-50"
 >
   {#if $activeSection === "home"}
