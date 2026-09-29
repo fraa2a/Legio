@@ -753,3 +753,7 @@ pub async fn get_steam_asset(
     )
     .await
 }
+#[tauri::command]
+pub fn is_aur_package() -> bool {
+    std::env::var_os("LEGIO_AUR_PACKAGE").is_some()
+}
