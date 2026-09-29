@@ -13,6 +13,7 @@
     setScanGameName,
   } from "../../stores/manual-import";
   import { ensureSteamDetails, steamDetails } from "../../stores/steam-details";
+  import { refreshCatalog, searchCatalog, type CatalogGame } from "../../services/catalog";
   import { previewManualGameSteamAppId, type SteamIdentificationPreview } from "../../services/manual-import";
   import Button from "../../components/ui/Button.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
@@ -22,7 +23,11 @@
 
   let { onClose }: { onClose: () => void } = $props();
 
-  let steamAppId = $state("");
+  let selectedSteamGame = $state<{ steamAppId: number; name: string } | null>(null);
+  let steamQuery = $state("");
+  let searchResults = $state<CatalogGame[]>([]);
+  let searchStatus = $state<"idle" | "loading" | "ready" | "empty">("idle");
+  let searchError = $state<string | null>(null);
   let showSteamOnly = $state(false);
   let preview = $state<SteamIdentificationPreview | null>(null);
   let previewPending = $state(false);
@@ -31,26 +36,28 @@
   let added = $state(false);
   let actionError = $state<string | null>(null);
   let previewRequest = 0;
+  let searchRequest = 0;
 
   const selectedPath = $derived($manualImport.selectedPath);
-  const parsedAppId = $derived(parseAppId(steamAppId));
+  const parsedAppId = $derived(selectedSteamGame?.steamAppId ?? null);
   const detailsState = $derived(parsedAppId === null ? null : ($steamDetails[parsedAppId] ?? null));
   const details = $derived(detailsState?.details ?? null);
-  const selectedCandidate = $derived(preview?.candidates.find((candidate) => candidate.steamAppId === parsedAppId) ?? null);
   const canAdd = $derived(
     $manualImport.gameName.trim().length > 0 && (selectedPath !== null || parsedAppId !== null) &&
-    (steamAppId.trim().length === 0 || parsedAppId !== null) && !previewPending && !pending && !added,
+    !previewPending && !pending && !added,
   );
-
-  function parseAppId(value: string): number | null {
-    const trimmed = value.trim();
-    if (!/^[1-9]\d*$/.test(trimmed)) return null;
-    const parsed = Number(trimmed);
-    return Number.isSafeInteger(parsed) && parsed <= 4_294_967_295 ? parsed : null;
-  }
 
   function fileStem(path: string): string {
     return path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") ?? "";
+  }
+
+  function selectSteamGame(game: { steamAppId: number; name: string }): void {
+    const currentName = $manualImport.gameName.trim();
+    if (currentName.length === 0 || (selectedPath !== null && currentName === fileStem(selectedPath))) {
+      setScanGameName(game.name);
+    }
+    selectedSteamGame = { steamAppId: game.steamAppId, name: game.name };
+    steamQuery = "";
   }
 
   $effect(() => {
@@ -58,7 +65,8 @@
     const request = ++previewRequest;
     preview = null;
     previewError = null;
-    steamAppId = "";
+    selectedSteamGame = null;
+    steamQuery = "";
     if (path === null) {
       previewPending = false;
       return;
@@ -72,8 +80,7 @@
         preview = result;
         if (result.status === "matched") {
           const candidate = result.candidates[0];
-          if (steamAppId.trim().length === 0) steamAppId = String(candidate.steamAppId);
-          if (untrack(() => $manualImport.gameName) === fallbackName) setScanGameName(candidate.name);
+          if (candidate !== undefined && selectedSteamGame === null) selectSteamGame(candidate);
         }
       },
       (error: unknown) => {
@@ -88,6 +95,37 @@
     if (parsedAppId !== null) ensureSteamDetails(parsedAppId);
   });
 
+  $effect(() => {
+    const query = steamQuery.trim();
+    const request = ++searchRequest;
+    searchResults = [];
+    searchError = null;
+    if (query.length < 2) {
+      searchStatus = "idle";
+      return;
+    }
+    searchStatus = "loading";
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const cached = await searchCatalog(query);
+          if (request !== searchRequest) return;
+          searchResults = cached.games;
+          searchStatus = cached.games.length > 0 ? "ready" : "empty";
+          const fresh = await refreshCatalog(query);
+          if (request !== searchRequest) return;
+          searchResults = fresh.games;
+          searchStatus = fresh.games.length > 0 ? "ready" : "empty";
+        } catch (error) {
+          if (request !== searchRequest) return;
+          searchError = toMessage(error);
+          if (searchResults.length === 0) searchStatus = "empty";
+        }
+      })();
+    }, 300);
+    return () => clearTimeout(timer);
+  });
+
   async function add(): Promise<void> {
     if (!canAdd) return;
     actionError = null;
@@ -97,7 +135,7 @@
       if (selectedPath !== null) {
         const identity = parsedAppId === null ? null : {
           steamAppId: parsedAppId,
-          name: details?.name ?? selectedCandidate?.name ?? name,
+          name: details?.name ?? selectedSteamGame?.name ?? name,
         };
         const result = await importScannedGame(name, identity);
         if (result.linkingError !== null) {
@@ -170,38 +208,52 @@
 
     {#if selectedPath !== null || showSteamOnly}
       <div class="flex flex-col gap-2">
-        <TextField id="add-steam-app-id" label="Steam App ID" value={steamAppId} inputmode="numeric" placeholder="Opzionale" disabled={pending || added} oninput={(value) => (steamAppId = value)} />
+        <TextField id="add-steam-game-search" label="Cerca gioco su Steam" type="search" value={steamQuery} placeholder="Cerca per nome" disabled={pending || added}
+          oninput={(value) => { steamQuery = value; selectedSteamGame = null; }} />
+        {#if searchStatus === "loading"}
+          <p class="text-xs text-zinc-400" role="status">Ricerca in corso...</p>
+        {:else if searchStatus === "empty" && searchError === null}
+          <p class="text-xs text-zinc-500">Nessun risultato per questa ricerca.</p>
+        {/if}
+        {#if searchError !== null}<p class="text-xs text-amber-300 light:text-amber-800">Ricerca non disponibile: {searchError}</p>{/if}
+        {#if searchResults.length > 0 && steamQuery.trim().length >= 2}
+          <ul class="max-h-36 overflow-y-auto rounded-lg border border-white/10 bg-white/5 light:border-zinc-900/10 light:bg-white" aria-label="Risultati Steam">
+            {#each searchResults as result (result.steamAppId)}
+              <li>
+                <button type="button" class="flex h-12 w-full items-center px-3 text-left text-sm text-zinc-200 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white light:text-zinc-800 light:hover:bg-zinc-900/5 light:focus-visible:outline-zinc-900"
+                  disabled={pending || added} onclick={() => selectSteamGame(result)}>
+                  <span class="truncate">{result.name}</span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
         {#if previewPending}
           <p class="text-xs text-zinc-400" role="status">Rilevamento del gioco su Steam...</p>
         {:else if previewError !== null}
           <p class="text-xs text-amber-300 light:text-amber-800">Rilevamento non disponibile: {previewError}</p>
         {:else if preview?.status === "no_match"}
-          <p class="text-xs text-zinc-500">Nessuna corrispondenza esatta. Puoi inserire l'App ID manualmente.</p>
+          <p class="text-xs text-zinc-500">Nessuna corrispondenza esatta. Cerca il gioco per nome.</p>
         {:else if preview?.status === "unavailable"}
           <p class="text-xs text-amber-300 light:text-amber-800">Rilevamento non disponibile: {preview.message ?? "riprova più tardi"}.</p>
         {:else if preview?.status === "matched"}
-          <p class="text-xs text-emerald-300 light:text-emerald-700">App ID rilevato automaticamente. Puoi correggerlo prima di aggiungere il gioco.</p>
-        {/if}
-        {#if steamAppId.trim().length > 0 && parsedAppId === null}
-          <p class="text-xs text-red-300 light:text-red-700">Inserisci un App ID Steam valido.</p>
+          <p class="text-xs text-emerald-300 light:text-emerald-700">Gioco Steam rilevato automaticamente. Puoi cambiarlo con la ricerca.</p>
         {/if}
         {#if preview?.status === "ambiguous"}
           <div class="flex flex-wrap gap-2" aria-label="Corrispondenze Steam">
             {#each preview.candidates as candidate (candidate.steamAppId)}
-              <Button label={`${candidate.name} (${candidate.steamAppId})`} variant="secondary" disabled={pending || added} onClick={() => { steamAppId = String(candidate.steamAppId); setScanGameName(candidate.name); }} />
+              <Button label={candidate.name} variant="secondary" disabled={pending || added} onClick={() => selectSteamGame(candidate)} />
             {/each}
           </div>
         {/if}
         {#if parsedAppId !== null}
           <div class="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-2 light:border-zinc-900/10 light:bg-white">
             <div class="h-16 w-32 shrink-0 overflow-hidden rounded-lg bg-zinc-800 light:bg-zinc-200">
-              {#if details !== null}
-                <SteamArtwork steamAppId={parsedAppId} asset="header" version={detailsState?.cachedAt ?? null} caption={false} class="size-full object-cover" />
-              {/if}
+              <SteamArtwork steamAppId={parsedAppId} asset="header" version={detailsState?.cachedAt ?? null} caption={false} alt="" class="size-full object-cover" />
             </div>
             <div class="min-w-0">
-              <p class="truncate text-sm font-medium text-zinc-100 light:text-zinc-900">{details?.name ?? selectedCandidate?.name ?? "Anteprima Steam"}</p>
-              <p class="text-xs text-zinc-500">App ID {parsedAppId}</p>
+              <p class="truncate text-sm font-medium text-zinc-100 light:text-zinc-900">{details?.name ?? selectedSteamGame?.name ?? "Gioco Steam"}</p>
+              <p class="text-xs text-zinc-500">Gioco selezionato</p>
               {#if detailsState?.status === "error"}<p class="text-xs text-amber-300 light:text-amber-800">Copertina non disponibile.</p>{/if}
             </div>
           </div>
@@ -209,7 +261,7 @@
       </div>
     {:else}
       <button type="button" class="self-start text-sm text-zinc-400 underline-offset-2 hover:text-zinc-100 hover:underline light:text-zinc-600 light:hover:text-zinc-900" onclick={() => (showSteamOnly = true)}>
-        Non hai un eseguibile? Aggiungi tramite App ID Steam
+        Non hai un eseguibile? Cerca il gioco su Steam
       </button>
     {/if}
 
