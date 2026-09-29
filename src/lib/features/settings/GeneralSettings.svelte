@@ -9,6 +9,7 @@
   import { configureSteamScanInterval } from "../../stores/bootstrap";
   import { settings, settingsError } from "../../stores/settings";
   import { toMessage } from "../../utils/errors";
+  import { checkForAppUpdate, installAppUpdate, updateState } from "../../services/app-updater";
 
   const intervals = [5, 10, 15, 30, 60, 120];
   const options = intervals.map((minutes) => ({ value: String(minutes), label: `${minutes} minuti` }));
@@ -86,6 +87,21 @@
         />
       </label>
     {/each}
+  </SettingsGroup>
+
+  <SettingsGroup title="Aggiornamenti" description="Controlla automaticamente all'avvio se è disponibile una nuova versione di Legio.">
+    <div class="flex flex-wrap items-center gap-3">
+      <Button label={$updateState.checking ? "Controllo..." : "Controlla aggiornamenti"} variant="secondary" disabled={$updateState.checking || $updateState.installing} onClick={() => void checkForAppUpdate()} />
+      {#if $updateState.version}
+        <span class="text-sm text-zinc-300 light:text-zinc-700">Versione {$updateState.version} disponibile.{#if $updateState.aur} Aggiorna tramite AUR.{/if}</span>
+        {#if !$updateState.aur}
+          <Button label={$updateState.installing ? "Installazione..." : "Installa e riavvia"} disabled={$updateState.installing} onClick={() => void installAppUpdate()} />
+        {/if}
+      {:else if $updateState.checked}
+        <span class="text-sm text-zinc-300 light:text-zinc-700">Legio è aggiornato.</span>
+      {/if}
+    </div>
+    {#if $updateState.error}<ErrorBanner message={$updateState.error} />{/if}
   </SettingsGroup>
 
   <SettingsGroup title="Cartella per download e installazioni">

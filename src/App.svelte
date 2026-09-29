@@ -7,9 +7,13 @@
   import { hydrateApp } from "./lib/stores/bootstrap";
   import { closeSettings, settingsOpen } from "./lib/stores/navigation";
   import { resolvedTheme, settings } from "./lib/stores/settings";
+  import { checkForAppUpdate, installAppUpdate, updateState } from "./lib/services/app-updater";
+
+  let updateDismissed = $state(false);
 
   onMount(() => {
     void hydrateApp().catch((reason) => console.error(reason));
+    if (import.meta.env.PROD) void checkForAppUpdate();
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const applyTheme = () => {
@@ -52,4 +56,16 @@
 
 {#if $settingsOpen}
   <SettingsDialog onClose={closeSettings} />
+{/if}
+
+{#if $updateState.version && !updateDismissed}
+  <div class="fixed right-5 bottom-5 z-50 flex max-w-sm items-center gap-3 rounded-xl bg-zinc-800 p-4 text-sm text-white shadow-xl light:bg-white light:text-zinc-900" role="status">
+    <span>Legio {$updateState.version} disponibile.{#if $updateState.aur} Aggiorna tramite AUR.{/if}</span>
+    {#if !$updateState.aur}
+      <button type="button" class="rounded-lg bg-white px-3 py-2 text-zinc-900 disabled:opacity-50 light:bg-zinc-900 light:text-white" disabled={$updateState.installing} onclick={() => void installAppUpdate()}>
+        {$updateState.installing ? "Installazione..." : "Aggiorna"}
+      </button>
+    {/if}
+    <button type="button" class="text-zinc-400 hover:text-white light:hover:text-zinc-900" aria-label="Chiudi avviso aggiornamento" onclick={() => (updateDismissed = true)}>Chiudi</button>
+  </div>
 {/if}

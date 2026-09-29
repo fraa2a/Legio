@@ -30,6 +30,14 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": []
+    "createUpdaterArtifacts": true,
+    "resources": ["../src/assets/fonts/OFL.txt"],
+    "icon": ["icons/icon.png", "icons/icon.ico"]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY3MDhBQjRFMDQ4RDkyRjQKUldUMGtvMEVUcXNJOXk2d1lMblVlT1pHTU5uaWI5b0N1SkRBbzE1OCs0NTlGR1JZT2U2L1Jya1IK",
+      "endpoints": ["https://github.com/fraa2a/Legio/releases/latest/download/latest.json"]
+    }
   }
 }

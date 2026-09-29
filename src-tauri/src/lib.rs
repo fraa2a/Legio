@@ -53,6 +53,8 @@ pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(move |app| {
             let database = database::DatabaseState::new(app.path().app_data_dir());
             let bandwidth_limit = database
@@ -207,6 +209,7 @@ pub fn run() -> tauri::Result<()> {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            commands::is_aur_package,
             commands::get_app_info,
             commands::get_settings,
             commands::save_settings,
