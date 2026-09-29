@@ -277,6 +277,7 @@ jobs:
           mkdir release-publish
           for asset in "${assets[@]}"; do
             name="${asset##*/}"
+            name="${name// /.}"
             target="release-publish/$name"
             if [[ -e "$target" ]]; then
               echo "Duplicate release asset name: $name"
