@@ -23,7 +23,7 @@
   } = $props();
 
   const steamManaged = $derived(game.steamInstallPath !== null);
-  const categories = [
+  const allCategories = [
     { id: "general", label: "Generali", icon: "settings" },
     { id: "locations", label: "Posizioni", icon: "folder" },
     { id: "customization", label: "Personalizzazione", icon: "image" },
@@ -31,6 +31,9 @@
     { id: "downloads", label: "Download", icon: "downloads" },
     { id: "danger", label: "Zona pericolosa", icon: "warning" },
   ] satisfies { id: string; label: string; icon: "settings" | "folder" | "image" | "wrench" | "downloads" | "warning" }[];
+  const categories = $derived(steamManaged
+    ? allCategories.filter((category) => category.id !== "compatibility" && category.id !== "downloads")
+    : allCategories);
   let active = $state("general");
   let shortcutError = $state<string | null>(null);
   let shortcutPath = $state<string | null>(null);
@@ -158,15 +161,11 @@
       {:else if active === "customization"}
         <GameArtworkPanel {game} />
       {:else if active === "compatibility"}
-        {#if !steamManaged && game.executablePath !== null}
+        {#if game.executablePath !== null}
           {#key game.id}<GameSettingsPanel {game} section="compatibility" />{/key}
         {:else}
           <Panel title="Compatibilità">
-            <p class="text-sm text-zinc-400 light:text-zinc-600">
-              {steamManaged
-                ? "Steam gestisce la compatibilità per questo titolo. Le opzioni di avvio Steam sono disponibili in Generali."
-                : "Seleziona prima un eseguibile per configurare il runner e gli argomenti di avvio."}
-            </p>
+            <p class="text-sm text-zinc-400 light:text-zinc-600">Seleziona prima un eseguibile per configurare il runner e gli argomenti di avvio.</p>
           </Panel>
         {/if}
       {:else if active === "downloads"}

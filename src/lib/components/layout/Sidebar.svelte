@@ -1,16 +1,25 @@
 <script lang="ts">
   import { activeDownloadCount } from "../../stores/downloads";
+  import { games } from "../../stores/games";
+  import { playtime } from "../../stores/playtime";
   import {
     activeSection,
     openSettings,
     sectionLabels,
     sections,
     selectSection,
+    selectedGameId,
     type Section,
   } from "../../stores/navigation";
+  import { fade } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
   import Icon from "../ui/Icon.svelte";
   import Logo from "../ui/Logo.svelte";
   import SidebarButton from "../ui/SidebarButton.svelte";
+  import SidebarGameItem from "./SidebarGameItem.svelte";
+  import { fadeDuration } from "../../utils/motion";
+
+  const fadeMs = fadeDuration > 0 ? 100 : 0;
 
   const icons: Record<Section, "home" | "library" | "store" | "downloads"> = {
     home: "home",
@@ -20,6 +29,26 @@
   };
 
   let expanded = $state(true);
+
+  const collator = new Intl.Collator("it", { sensitivity: "base" });
+
+  const gamesList = $derived.by(() => {
+    const lastPlayed = new Map($playtime.data.map((entry) => [entry.gameId, entry.lastPlayedAt]));
+    const groups: Record<string, typeof $games.data> = Object.create(null);
+    for (const game of $games.data) {
+      const key = game.steamAppId === null ? game.id : `steam:${game.steamAppId}`;
+      const group = groups[key] ?? [];
+      group.push(game);
+      groups[key] = group;
+    }
+    return Object.values(groups)
+      .map((group) => group.find((game) => game.steamInstallPath !== null) ?? group[0])
+      .map((game) => ({ game, playedAt: lastPlayed.get(game.id) ?? -1 }))
+      .filter((entry) => entry.playedAt >= 0)
+      .sort((left, right) => right.playedAt - left.playedAt || collator.compare(left.game.name, right.game.name))
+      .slice(0, 5)
+      .map((entry) => entry.game);
+  });
 </script>
 
 <aside
@@ -56,6 +85,26 @@
         <Icon name={icons[section]} />
       </SidebarButton>
     {/each}
+    {#if gamesList.length > 0}
+      <div class="flex h-4 items-center px-2">
+        <div
+          transition:fade={{ duration: fadeMs, easing: cubicOut }}
+          class="h-px w-full rounded-full bg-zinc-700/50 light:bg-zinc-400/30"
+          aria-hidden="true"
+        ></div>
+      </div>
+      <section
+        transition:fade={{ duration: fadeMs, easing: cubicOut }}
+        class="mt-2 flex flex-col gap-1.5"
+        aria-label="Recenti"
+      >
+        <ul class="flex flex-col gap-1.5">
+          {#each gamesList as game (game.id)}
+            <SidebarGameItem game={game} selected={$selectedGameId === game.id} expanded={expanded} />
+          {/each}
+        </ul>
+      </section>
+    {/if}
     <div class="mt-auto flex flex-col gap-1">
       <SidebarButton
         label="Comprimi"

@@ -30,6 +30,12 @@
     if (open && !dialog.open) dialog.showModal();
     if (!open && dialog.open) dialog.close();
   });
+
+  function handleKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    event.preventDefault();
+    onClose();
+  }
 </script>
 
 <dialog
@@ -42,6 +48,7 @@
     event.preventDefault();
     onClose();
   }}
+  onkeydown={handleKeydown}
   onclick={(event) => {
     if (event.target === dialog) onClose();
   }}

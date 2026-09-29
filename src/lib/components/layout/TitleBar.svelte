@@ -88,7 +88,20 @@
       console.error(reason);
     }
   }
+
+  function navigateBack(): void {
+    if (storeGame !== null) closeStoreGame();
+    else closeGame();
+  }
+
+  function handleKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" || event.defaultPrevented || detail === null) return;
+    if (document.querySelector("dialog[open], [aria-modal='true']") !== null) return;
+    navigateBack();
+  }
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <div class="my-1.5 grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2" data-tauri-drag-region>
   <div class="col-start-1 flex items-center">
@@ -109,7 +122,7 @@
         <button
           type="button"
           class="flex h-9 items-center gap-1.5 rounded-xl px-3 text-sm text-zinc-400 transition-colors duration-200 hover:bg-white/10 hover:text-zinc-100 light:hover:bg-zinc-900/10 light:hover:text-zinc-900"
-          onclick={storeGame !== null ? closeStoreGame : closeGame}
+          onclick={navigateBack}
         >
           <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
             <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2Z" />

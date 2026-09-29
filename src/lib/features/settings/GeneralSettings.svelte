@@ -1,6 +1,8 @@
 <script lang="ts">
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
+  import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
+  import SettingsRow from "../../components/ui/SettingsRow.svelte";
   import Button from "../../components/ui/Button.svelte";
   import { pickGameDirectory } from "../../services/dialog";
   import { saveSettings, type Settings } from "../../services/local-state";
@@ -66,42 +68,57 @@
 </script>
 
 <section class="flex flex-col gap-4">
-  <div>
-    <h3 class="text-xl font-semibold text-zinc-100 light:text-zinc-900">Generali</h3>
-    <p class="mt-1 text-sm text-zinc-400 light:text-zinc-600">Configura l'avvio e il comportamento della finestra.</p>
-  </div>
-  <div class="max-w-xl flex flex-col gap-2">
-    <p class="text-sm font-medium text-zinc-200 light:text-zinc-800">Cartella per download e installazioni</p>
-    <p class="break-all text-sm text-zinc-400 light:text-zinc-600">{$settings.data.downloadPath ?? "Cartella predefinita di Legio"}</p>
-    <div class="flex gap-2">
-      <Button label="Imposta cartella..." variant="secondary" disabled={saving} onClick={() => void setDownloadPath()} />
-      {#if $settings.data.downloadPath !== null}
-        <Button label="Usa cartella predefinita" variant="secondary" disabled={saving} onClick={() => void update({ downloadPath: null })} />
-      {/if}
-    </div>
-  </div>
-  <div class="flex flex-col gap-3">
+  {#if $settingsError}
+    <ErrorBanner message={$settingsError} />
+  {/if}
+
+  <SettingsGroup title="Comportamento">
     {#each behaviors as option (option.key)}
-      <label class="flex items-center gap-3 text-sm text-zinc-200 light:text-zinc-800">
-        <input type="checkbox" class="size-4 accent-white" checked={Boolean($settings.data[option.key])}
+      <label class="flex cursor-pointer items-center justify-between gap-6">
+        <span class="text-sm text-zinc-100 light:text-zinc-900">{option.label}</span>
+        <input
+          type="checkbox"
+          class="size-4 accent-white"
+          checked={Boolean($settings.data[option.key])}
           disabled={saving || (option.key === "launchMinimized" && !$settings.data.launchOnSystemStart)}
           onchange={(event) => void update({ [option.key]: event.currentTarget.checked,
-            ...(option.key === "launchOnSystemStart" && !event.currentTarget.checked ? { launchMinimized: false } : {}) })} />
-        {option.label}
+            ...(option.key === "launchOnSystemStart" && !event.currentTarget.checked ? { launchMinimized: false } : {}) })}
+        />
       </label>
     {/each}
-  </div>
-  {#if $settingsError}<ErrorBanner message={$settingsError} />{/if}
-  <div class="max-w-xl">
-    <SelectField
-      id="steam-library-poll-interval"
-      label="Intervallo di controllo Steam"
-      value={String($settings.data.steamLibraryPollMinutes)}
-      {options}
-      disabled={saving || $settings.status === "loading" || $settings.status === "idle"}
-      onChange={(value) => void selectInterval(value)}
-    />
-    <p class="mt-2 text-xs text-zinc-500">Legio controlla Steam all'avvio e ripete il controllo all'intervallo scelto.</p>
-  </div>
-  {#if saved}<p class="text-sm text-emerald-300 light:text-emerald-700" role="status">Impostazioni salvate.</p>{/if}
+  </SettingsGroup>
+
+  <SettingsGroup title="Cartella per download e installazioni">
+    <SettingsRow
+      label="Percorso di destinazione"
+      description={$settings.data.downloadPath ?? "Cartella predefinita di Legio"}
+    >
+      <div class="flex flex-col gap-2 sm:flex-row">
+        <Button label="Imposta cartella..." variant="secondary" disabled={saving} onClick={() => void setDownloadPath()} />
+        {#if $settings.data.downloadPath !== null}
+          <Button label="Usa cartella predefinita" variant="secondary" disabled={saving} onClick={() => void update({ downloadPath: null })} />
+        {/if}
+      </div>
+    </SettingsRow>
+  </SettingsGroup>
+
+  <SettingsGroup
+    title="Controllo Steam"
+    description="Legio controlla Steam all'avvio e ripete il controllo all'intervallo scelto."
+  >
+    <div class="max-w-56">
+      <SelectField
+        id="steam-library-poll-interval"
+        label="Intervallo di controllo"
+        value={String($settings.data.steamLibraryPollMinutes)}
+        {options}
+        disabled={saving || $settings.status === "loading" || $settings.status === "idle"}
+        onChange={(value) => void selectInterval(value)}
+      />
+    </div>
+  </SettingsGroup>
+
+  {#if saved}
+    <p class="text-sm text-emerald-300 light:text-emerald-700" role="status">Impostazioni salvate.</p>
+  {/if}
 </section>

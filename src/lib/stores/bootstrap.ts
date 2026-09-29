@@ -5,6 +5,7 @@ import { bandwidthLimit, downloads } from "./downloads";
 import { source, refreshSource } from "./source";
 import { checkConnectivity, network } from "./network";
 import { launchError, launchStates } from "./launch";
+import { playtime } from "./playtime";
 import { importSteamLibrary } from "./steam-library";
 import { get } from "svelte/store";
 import { activeSection, openGame } from "./navigation";
@@ -26,6 +27,7 @@ export async function hydrateApp(): Promise<void> {
     source.load(),
     network.load(),
     launchStates.load(),
+    playtime.load(),
   ]);
   if (get(settings).data.launchInLibrary) activeSection.set("library");
   const startup = get(appInfo).data;
@@ -34,8 +36,8 @@ export async function hydrateApp(): Promise<void> {
     if (startup.startupLaunchError !== null) launchError.set(startup.startupLaunchError);
   }
   if (steamScanTimer === null) {
-    void importSteamLibrary();
     configureSteamScanInterval(get(settings).data.steamLibraryPollMinutes);
+    await importSteamLibrary();
   }
   await Promise.all([checkConnectivity(), refreshSource()]);
 }

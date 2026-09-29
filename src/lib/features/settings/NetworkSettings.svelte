@@ -2,6 +2,8 @@
   import { onMount } from "svelte";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
+  import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
+  import SettingsRow from "../../components/ui/SettingsRow.svelte";
   import { getNetworkLogStatus, type NetworkLogStatus } from "../../services/network";
   import { checkConnectivity, connectivityError, networkSummary } from "../../stores/network";
 
@@ -24,40 +26,48 @@
       loadingDiagnostics = false;
     }
   }
+
+  const statusDotClass = $derived(
+    $networkSummary.status === "Online"
+      ? "bg-emerald-400"
+      : $networkSummary.status === "Non verificato"
+        ? "bg-zinc-400"
+        : "bg-red-400",
+  );
 </script>
 
 <section class="flex flex-col gap-4">
-  <div>
-    <h3 class="text-xl font-semibold text-zinc-100 light:text-zinc-900">Rete</h3>
-    <p class="mt-1 text-sm text-zinc-400 light:text-zinc-600">
-      Stato della connessione e raggiungibilità dei server usati dallo store.
-    </p>
-  </div>
-
-  <div class="flex flex-wrap items-center gap-3 text-sm text-zinc-300 light:text-zinc-700">
-    <span>Stato: {$networkSummary.status}</span>
-    <span class="text-zinc-400 light:text-zinc-600">Steam: {$networkSummary.steam}</span>
-  </div>
-
-  {#if $networkSummary.detail}
-    <p class="text-xs text-zinc-500">Dettaglio: {$networkSummary.detail}</p>
-  {/if}
-
   {#if $connectivityError}
     <ErrorBanner message={$connectivityError} onRetry={() => void checkConnectivity()} />
   {/if}
 
-  <div>
-    <Button label="Verifica connettività" variant="secondary" onClick={() => void checkConnectivity()} />
-  </div>
-
-  <div class="mt-3 flex flex-col gap-3 border-t border-white/10 pt-4 light:border-zinc-900/10">
+  <SettingsGroup
+    title="Connessione"
+    description="Stato della connessione e raggiungibilità dei server usati dallo store."
+  >
+    <SettingsRow label="Connessione">
+      <span class="flex items-center gap-2 text-sm text-zinc-300 light:text-zinc-700">
+        <span class="size-2 rounded-full {statusDotClass}" aria-hidden="true"></span>
+        {$networkSummary.status}
+      </span>
+    </SettingsRow>
+    <SettingsRow label="Server Steam">
+      <span class="text-sm text-zinc-300 light:text-zinc-700">{$networkSummary.steam}</span>
+    </SettingsRow>
+    {#if $networkSummary.detail}
+      <SettingsRow label="Dettaglio">
+        <span class="max-w-72 text-right text-sm text-zinc-400 light:text-zinc-600">{$networkSummary.detail}</span>
+      </SettingsRow>
+    {/if}
     <div>
-      <h4 class="font-medium text-zinc-100 light:text-zinc-900">Diagnostica di rete</h4>
-      <p class="mt-1 text-sm text-zinc-400 light:text-zinc-600">
-        Ultimo errore registrato e stato della coda diagnostica locale.
-      </p>
+      <Button label="Verifica connettività" variant="secondary" onClick={() => void checkConnectivity()} />
     </div>
+  </SettingsGroup>
+
+  <SettingsGroup
+    title="Diagnostica di rete"
+    description="Ultimo errore registrato e stato della coda diagnostica locale."
+  >
     {#if diagnosticsError !== null}
       <ErrorBanner message={diagnosticsError} onRetry={() => void refreshDiagnostics()} />
     {:else if diagnostics !== null}
@@ -66,30 +76,25 @@
       {:else}
         <p class="text-sm text-emerald-300 light:text-emerald-700">Nessun errore di rete registrato.</p>
       {/if}
-      <dl class="grid gap-2 text-sm text-zinc-300 light:text-zinc-700">
-        <div class="flex flex-wrap gap-2">
-          <dt class="text-zinc-500">Record in attesa</dt>
-          <dd>{diagnostics.pendingRecords}</dd>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <dt class="text-zinc-500">Record scartati</dt>
-          <dd>{diagnostics.droppedRecords}</dd>
-        </div>
-        {#if diagnostics.directory}
-          <div class="flex flex-col gap-1">
-            <dt class="text-zinc-500">Cartella diagnostica</dt>
-            <dd class="break-all">{diagnostics.directory}</dd>
-          </div>
-        {/if}
-      </dl>
+      <SettingsRow label="Record in attesa">
+        <span class="text-sm text-zinc-300 light:text-zinc-700">{diagnostics.pendingRecords}</span>
+      </SettingsRow>
+      <SettingsRow label="Record scartati">
+        <span class="text-sm text-zinc-300 light:text-zinc-700">{diagnostics.droppedRecords}</span>
+      </SettingsRow>
+      {#if diagnostics.directory}
+        <SettingsRow label="Cartella diagnostica">
+          <span class="max-w-72 break-all text-right text-xs text-zinc-400 light:text-zinc-600">{diagnostics.directory}</span>
+        </SettingsRow>
+      {/if}
+      <div>
+        <Button
+          label={loadingDiagnostics ? "Aggiornamento..." : "Aggiorna diagnostica"}
+          variant="secondary"
+          disabled={loadingDiagnostics}
+          onClick={() => void refreshDiagnostics()}
+        />
+      </div>
     {/if}
-    <div>
-      <Button
-        label={loadingDiagnostics ? "Aggiornamento..." : "Aggiorna diagnostica"}
-        variant="secondary"
-        disabled={loadingDiagnostics}
-        onClick={() => void refreshDiagnostics()}
-      />
-    </div>
-  </div>
+  </SettingsGroup>
 </section>

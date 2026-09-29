@@ -32,15 +32,22 @@
     onSelect(id);
     open = false;
   }
+
+  function handleKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" || !open) return;
+    event.preventDefault();
+    open = false;
+  }
 </script>
 
-<svelte:window onpointerdown={outside} onkeydown={(event) => { if (event.key === "Escape") open = false; }} />
+<svelte:window onpointerdown={outside} />
 
 <div bind:this={root} class="relative z-20 h-[60px] w-[260px] shrink-0">
   <button
     type="button"
     aria-label={`Seleziona versione: ${selected.name}, ${selected.subtitle}`}
     aria-expanded={open}
+    onkeydown={handleKeydown}
     class="flex size-full items-center gap-2 border border-white/10 bg-zinc-950/60 px-3 text-left text-zinc-100 light:border-zinc-900/10 light:bg-zinc-100/70 light:text-zinc-900 {open ? 'rounded-t-xl border-b-0' : 'rounded-xl hover:bg-zinc-950/75 light:hover:bg-zinc-200'}"
     onclick={() => (open = !open)}
   >
@@ -63,6 +70,7 @@
         <button
           type="button"
           aria-current={option.id === selectedId ? "true" : undefined}
+          onkeydown={handleKeydown}
           class="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-white/10 focus-visible:bg-white/10 light:hover:bg-zinc-100 light:focus-visible:bg-zinc-100"
           onclick={() => choose(option.id)}
         >
