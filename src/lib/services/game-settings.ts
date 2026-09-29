@@ -28,6 +28,7 @@ export interface GameCompatibilityOverrides {
   graphicsRenderer: GraphicsRenderer | null;
   wayland: WaylandMode | null;
   debugLogging: boolean | null;
+  onlineFix: boolean | null;
 }
 
 export interface NativeLaunchConfig {
@@ -76,6 +77,7 @@ export const emptyGameCompatibilityOverrides: GameCompatibilityOverrides = {
   graphicsRenderer: null,
   wayland: null,
   debugLogging: null,
+  onlineFix: null,
 };
 
 export function getCompatibilityDefaults(): Promise<CompatibilityDefaults> {

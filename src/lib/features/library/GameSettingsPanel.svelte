@@ -356,6 +356,12 @@
       </label>
     </div>
 
+    <label class="flex items-center gap-2 text-sm text-zinc-200 light:text-zinc-800">
+      <input type="checkbox" class="size-4 accent-white" checked={overrides.onlineFix ?? true}
+        onchange={(event) => setOverride("onlineFix", event.currentTarget.checked)} />
+      Avvia con OnlineFix
+    </label>
+
     <div class="grid gap-4 md:grid-cols-2">
       <SelectField id="game-compat-renderer" label="Renderer grafico" value={overrides.graphicsRenderer ?? "inherit"} options={[{ value: "inherit", label: "Eredita default" }, { value: "runner_default", label: "Predefinito del runner" }, { value: "wine_d3d", label: "WineD3D" }]} onChange={setGraphicsRenderer} />
       <SelectField id="game-compat-wayland" label="Wayland" value={overrides.wayland ?? "inherit"} options={[{ value: "inherit", label: "Eredita default" }, { value: "runner_default", label: "Predefinito del runner" }, { value: "disabled", label: "Disattivato" }, { value: "native", label: "Nativo, solo GE-Proton" }]} onChange={setWayland} />

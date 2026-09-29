@@ -5,10 +5,10 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Child;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
+use std::process::Command;
+#[cfg(any(target_os = "linux", windows))]
 use std::process::Stdio;
-#[cfg(windows)]
-use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -501,12 +501,7 @@ impl GameLaunchManager {
         {
             command.env("WINEDEBUG", "-all");
         }
-        if !config.dll_overrides.is_empty() {
-            command.env(
-                "WINEDLLOVERRIDES",
-                format_dll_overrides(&config.dll_overrides),
-            );
-        }
+        apply_dll_overrides(&mut command, &config);
         if matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton) {
             let steam_root = steam_root
                 .as_ref()
@@ -1204,6 +1199,44 @@ fn validate_dll_overrides(
 }
 
 #[cfg(target_os = "linux")]
+fn apply_dll_overrides(command: &mut Command, config: &EffectiveCompatibilityConfig) {
+    let overrides = if config.online_fix {
+        baseline_dll_overrides(&config.dll_overrides)
+    } else {
+        config.dll_overrides.clone()
+    };
+    if !overrides.is_empty() {
+        command.env("WINEDLLOVERRIDES", format_dll_overrides(&overrides));
+    }
+}
+
+#[cfg(target_os = "linux")]
+const BASELINE_DLL_OVERRIDES: &[(&str, &str)] = &[
+    ("OnlineFix64", "n"),
+    ("SteamOverlay64", "n"),
+    ("winmm", "n,b"),
+    ("dnet", "n"),
+    ("steam_api64", "n"),
+    ("winhttp", "n,b"),
+];
+
+#[cfg(target_os = "linux")]
+fn baseline_dll_overrides(
+    configured: &std::collections::BTreeMap<String, String>,
+) -> std::collections::BTreeMap<String, String> {
+    let mut merged: std::collections::BTreeMap<String, String> = BASELINE_DLL_OVERRIDES
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+        .collect();
+    merged.extend(
+        configured
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone())),
+    );
+    merged
+}
+
+#[cfg(target_os = "linux")]
 fn format_dll_overrides(overrides: &std::collections::BTreeMap<String, String>) -> String {
     overrides
         .iter()
@@ -1731,6 +1764,66 @@ mod tests {
             "anything;STEAM_COMPAT_DATA_PATH=/tmp".to_owned(),
         );
         assert!(validate_dll_overrides(&overrides).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn online_fix_toggle_controls_whether_baseline_overrides_are_exported() {
+        fn exported(online_fix: bool, configured: &[(&str, &str)]) -> Option<String> {
+            let dll_overrides = configured
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                .collect();
+            let mut command = Command::new("true");
+            apply_dll_overrides(
+                &mut command,
+                &EffectiveCompatibilityConfig {
+                    online_fix,
+                    dll_overrides,
+                    ..EffectiveCompatibilityConfig::default()
+                },
+            );
+            command
+                .get_envs()
+                .find(|(key, _)| *key == "WINEDLLOVERRIDES")
+                .and_then(|(_, value)| value.map(|value| value.to_string_lossy().into_owned()))
+        }
+
+        assert_eq!(
+            exported(true, &[]).as_deref(),
+            Some("OnlineFix64=n;SteamOverlay64=n;dnet=n;steam_api64=n;winhttp=n,b;winmm=n,b")
+        );
+        assert_eq!(exported(false, &[]), None);
+        assert_eq!(
+            exported(false, &[("d3d11", "n,b")]).as_deref(),
+            Some("d3d11=n,b")
+        );
+        assert_eq!(
+            exported(true, &[("winmm", "b")]).as_deref(),
+            Some("OnlineFix64=n;SteamOverlay64=n;dnet=n;steam_api64=n;winhttp=n,b;winmm=b")
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn baseline_dll_overrides_apply_to_every_launch_and_yield_to_configured_values() {
+        let baseline = baseline_dll_overrides(&std::collections::BTreeMap::new());
+        assert_eq!(
+            format_dll_overrides(&baseline),
+            "OnlineFix64=n;SteamOverlay64=n;dnet=n;steam_api64=n;winhttp=n,b;winmm=n,b"
+        );
+        assert!(validate_dll_overrides(&baseline).is_ok());
+
+        let mut configured = std::collections::BTreeMap::new();
+        configured.insert("winmm".to_owned(), "b".to_owned());
+        configured.insert("d3d11".to_owned(), "n,b".to_owned());
+        let merged = baseline_dll_overrides(&configured);
+        assert_eq!(merged.get("winmm").map(String::as_str), Some("b"));
+        assert_eq!(merged.get("OnlineFix64").map(String::as_str), Some("n"));
+        assert_eq!(
+            format_dll_overrides(&merged),
+            "OnlineFix64=n;SteamOverlay64=n;d3d11=n,b;dnet=n;steam_api64=n;winhttp=n,b;winmm=b"
+        );
     }
 
     #[cfg(target_os = "linux")]

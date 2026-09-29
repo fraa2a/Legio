@@ -10,7 +10,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 18;
+const SCHEMA_VERSION: i64 = 19;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -78,11 +78,12 @@ pub struct GameCompatibilityOverrides {
     pub graphics_renderer: Option<GraphicsRenderer>,
     pub wayland: Option<WaylandMode>,
     pub debug_logging: Option<bool>,
+    pub online_fix: Option<bool>,
 }
 
 /// Compatibility values after applying a game's overrides to global defaults.
 /// Prefixes use the global root unless `prefix_path` names a game-specific path.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct EffectiveCompatibilityConfig {
     pub runner_path: Option<String>,
@@ -96,6 +97,26 @@ pub struct EffectiveCompatibilityConfig {
     pub graphics_renderer: GraphicsRenderer,
     pub wayland: WaylandMode,
     pub debug_logging: bool,
+    pub online_fix: bool,
+}
+
+impl Default for EffectiveCompatibilityConfig {
+    fn default() -> Self {
+        Self {
+            runner_path: None,
+            prefix_root: None,
+            prefix_path: None,
+            arguments_before: Vec::new(),
+            arguments_after: Vec::new(),
+            working_directory: None,
+            environment: BTreeMap::new(),
+            dll_overrides: BTreeMap::new(),
+            graphics_renderer: GraphicsRenderer::RunnerDefault,
+            wayland: WaylandMode::RunnerDefault,
+            debug_logging: false,
+            online_fix: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -677,8 +698,8 @@ impl Database {
                     "INSERT INTO game_compatibility_overrides
                         (game_id, runner_path, prefix_path, arguments_before,
                          arguments_after, working_directory, environment, dll_overrides,
-                         graphics_renderer, wayland, debug_logging, launch_via_steam)
-                     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12
+                         graphics_renderer, wayland, debug_logging, launch_via_steam, online_fix)
+                     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13
                      WHERE EXISTS (SELECT 1 FROM games WHERE id = ?1)
                      ON CONFLICT(game_id) DO UPDATE SET
                         runner_path = excluded.runner_path,
@@ -691,7 +712,8 @@ impl Database {
                         graphics_renderer = excluded.graphics_renderer,
                         wayland = excluded.wayland,
                         debug_logging = excluded.debug_logging,
-                        launch_via_steam = excluded.launch_via_steam",
+                        launch_via_steam = excluded.launch_via_steam,
+                        online_fix = excluded.online_fix",
                     params![
                         game_id,
                         overrides.runner_path,
@@ -704,7 +726,8 @@ impl Database {
                         graphics_renderer,
                         wayland,
                         overrides.debug_logging,
-                        overrides.launch_via_steam
+                        overrides.launch_via_steam,
+                        overrides.online_fix
                     ],
                 )
                 .map_err(database_error)?;
@@ -1263,6 +1286,27 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             )
             .map_err(database_error)?;
     }
+    if version < 19 {
+        let existing: i64 = transaction
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('game_compatibility_overrides') WHERE name = 'online_fix'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(database_error)?;
+        if existing == 0 {
+            transaction
+                .execute_batch(
+                    "ALTER TABLE game_compatibility_overrides
+                        ADD COLUMN online_fix INTEGER
+                        CHECK (online_fix IS NULL OR online_fix IN (0, 1));",
+                )
+                .map_err(database_error)?;
+        }
+        transaction
+            .execute_batch("PRAGMA user_version = 19;")
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }
 
@@ -1332,7 +1376,7 @@ fn load_game_compatibility_overrides(
             "SELECT o.runner_path, o.prefix_path, o.arguments_before,
                     o.arguments_after, o.working_directory, o.environment, o.dll_overrides,
                     o.graphics_renderer, o.wayland,
-                    o.debug_logging, o.launch_via_steam
+                    o.debug_logging, o.launch_via_steam, o.online_fix
              FROM games AS g
              LEFT JOIN game_compatibility_overrides AS o ON o.game_id = g.id
              WHERE g.id = ?1",
@@ -1350,6 +1394,7 @@ fn load_game_compatibility_overrides(
                     row.get::<_, Option<String>>(8)?,
                     row.get::<_, Option<bool>>(9)?,
                     row.get::<_, Option<bool>>(10)?,
+                    row.get::<_, Option<bool>>(11)?,
                 ))
             },
         )
@@ -1367,6 +1412,7 @@ fn load_game_compatibility_overrides(
         wayland,
         debug_logging,
         launch_via_steam,
+        online_fix,
     )) = stored
     else {
         return Err("game was not found".to_owned());
@@ -1383,6 +1429,7 @@ fn load_game_compatibility_overrides(
         wayland: decode_optional_json(wayland)?,
         debug_logging,
         launch_via_steam,
+        online_fix,
     })
 }
 
@@ -1431,6 +1478,7 @@ fn merge_compatibility_config(
             .unwrap_or(defaults.graphics_renderer),
         wayland: overrides.wayland.unwrap_or(defaults.wayland),
         debug_logging: overrides.debug_logging.unwrap_or(defaults.debug_logging),
+        online_fix: overrides.online_fix.unwrap_or(true),
     }
 }
 
@@ -2391,6 +2439,7 @@ mod tests {
                 graphics_renderer: GraphicsRenderer::RunnerDefault,
                 wayland: WaylandMode::RunnerDefault,
                 debug_logging: false,
+                online_fix: true,
             }
         );
         fs::remove_dir_all(directory).unwrap();
@@ -2436,6 +2485,7 @@ mod tests {
                 GameCompatibilityOverrides {
                     wayland: Some(WaylandMode::Disabled),
                     debug_logging: Some(false),
+                    online_fix: Some(false),
                     ..GameCompatibilityOverrides::default()
                 },
             )
@@ -2444,6 +2494,14 @@ mod tests {
         assert_eq!(overridden.graphics_renderer, GraphicsRenderer::WineD3d);
         assert_eq!(overridden.wayland, WaylandMode::Disabled);
         assert!(!overridden.debug_logging);
+        assert!(!overridden.online_fix);
+        assert_eq!(
+            database
+                .game_compatibility_overrides(&game.id)
+                .unwrap()
+                .online_fix,
+            Some(false)
+        );
 
         database
             .save_game_compatibility_overrides(&game.id, GameCompatibilityOverrides::default())
@@ -2452,6 +2510,7 @@ mod tests {
         assert_eq!(reset.graphics_renderer, GraphicsRenderer::WineD3d);
         assert_eq!(reset.wayland, WaylandMode::Native);
         assert!(reset.debug_logging);
+        assert!(reset.online_fix);
         fs::remove_dir_all(directory).unwrap();
     }
 
