@@ -45,7 +45,7 @@ fn timestamp() -> Result<i64, String> {
         .ok_or_else(|| "System clock is outside the supported date range".to_owned())
 }
 
-fn install_root(data_dir: &Path) -> Result<PathBuf, String> {
+pub(crate) fn install_root(data_dir: &Path) -> Result<PathBuf, String> {
     let root = data_dir.join("installed");
     fs::create_dir_all(&root)
         .map_err(|error| format!("Could not create install directory: {error}"))?;
@@ -408,20 +408,24 @@ fn cleanup_stage(database: &Database, id: &str, stage: &Path) -> Result<(), Stri
     {
         return clear_staged_path(database, id);
     }
+    remove_stage_directory(stage)?;
+    clear_staged_path(database, id)
+}
+
+/// Removes an app-owned staging directory. A path that is not a regular
+/// directory is never deleted so unexpected content stays available.
+pub(crate) fn remove_stage_directory(stage: &Path) -> Result<(), String> {
     match fs::symlink_metadata(stage) {
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
             fs::remove_dir_all(stage)
-                .map_err(|error| format!("Could not remove staged files: {error}"))?;
+                .map_err(|error| format!("Could not remove staged files: {error}"))
         }
         Ok(_) => {
-            return Err(
-                "Staged path is no longer a regular directory; preserved for inspection".to_owned(),
-            );
+            Err("Staged path is no longer a regular directory; preserved for inspection".to_owned())
         }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(format!("Could not inspect staged files: {error}")),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("Could not inspect staged files: {error}")),
     }
-    clear_staged_path(database, id)
 }
 
 fn clear_staged_path(database: &Database, id: &str) -> Result<(), String> {
@@ -553,12 +557,19 @@ pub async fn finalize_download(
             .path()
             .app_data_dir()
             .map_err(|error| format!("Could not locate app data: {error}"))?;
-        finalize(
-            app.state::<DatabaseState>().database()?,
-            &data_dir,
-            &id,
-            &executable_relative,
-        )
+        let database = app.state::<DatabaseState>();
+        let database = database.database()?;
+        let root = database.storage_root(&data_dir)?;
+        finalize(database, &root, &id, &executable_relative)?;
+        let game = database.game(&id)?;
+        if let Err(error) = crate::desktop_shortcuts::create(
+            &game,
+            crate::desktop_shortcuts::ShortcutLocation::ApplicationsMenu,
+            None,
+        ) {
+            eprintln!("Could not create application-menu shortcut: {error}");
+        }
+        Ok(())
     })
     .await
     .map_err(|error| format!("Finalization task failed: {error}"))?
@@ -575,8 +586,10 @@ pub async fn scan_staged_executables(
             .path()
             .app_data_dir()
             .map_err(|error| format!("Could not locate app data: {error}"))?;
-        let (stage, name) =
-            staged_download_directory(app.state::<DatabaseState>().database()?, &data_dir, &id)?;
+        let database = app.state::<DatabaseState>();
+        let database = database.database()?;
+        let root = database.storage_root(&data_dir)?;
+        let (stage, name) = staged_download_directory(database, &root, &id)?;
         manual_import::scan_staged_directory(&stage, game_name.as_deref().or(Some(name.as_str())))
     })
     .await

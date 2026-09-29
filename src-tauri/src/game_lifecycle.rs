@@ -5,10 +5,10 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Child;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
+use std::process::Command;
+#[cfg(any(target_os = "linux", windows))]
 use std::process::Stdio;
-#[cfg(windows)]
-use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -19,8 +19,6 @@ use crate::compatibility_logs::{CompatibilityLog, CompatibilityLogState};
 use crate::database::AppliedCompatibilityOptions;
 #[cfg(target_os = "linux")]
 use crate::database::EffectiveCompatibilityConfig;
-#[cfg(target_os = "linux")]
-use crate::database::SteamOverlayMode;
 use crate::database::{Database, DatabaseState};
 #[cfg(target_os = "linux")]
 use crate::runner_discovery::RunnerKind;
@@ -41,17 +39,16 @@ const LOG_READ_LIMIT: u64 = 128 * 1024;
 const LOG_LINE_LIMIT: usize = 8 * 1024;
 
 #[cfg(target_os = "linux")]
-fn ensure_steam_for_overlay(
-    overlay: SteamOverlayMode,
+fn ensure_steam_for_launch(
+    launch_via_steam: bool,
     steam_root: Option<&Path>,
     ensure_running: impl FnOnce(&Path) -> Result<(), String>,
 ) -> Result<(), String> {
-    if overlay != SteamOverlayMode::Enabled {
+    if !launch_via_steam {
         return Ok(());
     }
-    let steam_root = steam_root.ok_or_else(|| {
-        "Steam overlay was enabled but no Steam installation was found".to_owned()
-    })?;
+    let steam_root =
+        steam_root.ok_or_else(|| "Launch via Steam requires a Steam installation".to_owned())?;
     ensure_running(steam_root)
 }
 
@@ -421,13 +418,20 @@ impl GameLaunchManager {
         &self,
         app: AppHandle<R>,
         game_id: String,
-        config: EffectiveCompatibilityConfig,
+        mut config: EffectiveCompatibilityConfig,
         resolve_runner: impl FnOnce(&str) -> Result<runner_discovery::InstalledRunner, String>,
     ) -> Result<(), String> {
         let database = app.state::<DatabaseState>().shared_database()?;
         let game = database.game(&game_id)?;
-        if game.steam_app_id.is_some() || game.steam_install_path.is_some() {
+        if game.steam_install_path.is_some() {
             return Err("Compatibility runners can only launch manually imported games".to_owned());
+        }
+        let overrides = database.game_compatibility_overrides(&game_id)?;
+        let launch_via_steam = overrides
+            .launch_via_steam
+            .unwrap_or(game.steam_app_id.is_some());
+        if launch_via_steam && game.steam_app_id.is_none() {
+            return Err("Launch via Steam requires a Steam App ID".to_owned());
         }
         let executable_path = game
             .executable_path
@@ -442,12 +446,25 @@ impl GameLaunchManager {
         {
             return Err("Selected file is not a Windows executable".to_owned());
         }
+        let detected_online_fix = if overrides.online_fix.is_some() {
+            false
+        } else {
+            crate::online_fix::detected(&database, &game)?
+        };
+        config.online_fix = crate::online_fix::enabled(
+            game.steam_install_path.is_some(),
+            overrides.online_fix,
+            detected_online_fix,
+        );
         let runner_path = config
             .runner_path
             .as_deref()
             .filter(|path| !path.is_empty())
             .ok_or_else(|| "No compatibility runner is selected".to_owned())?;
         let runner = resolve_runner(runner_path)?;
+        if launch_via_steam && !matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton) {
+            return Err("Launch via Steam requires a Proton runner".to_owned());
+        }
         let data_dir = app
             .path()
             .app_data_dir()
@@ -477,8 +494,8 @@ impl GameLaunchManager {
             &config,
             &runner,
             steam_root.as_deref(),
+            launch_via_steam,
         )?;
-        let steam_overlay = config.steam_overlay;
         let mut command = runner_discovery::launch_command(
             &runner,
             &executable_path,
@@ -488,12 +505,13 @@ impl GameLaunchManager {
         );
         command.current_dir(working_directory).stdin(Stdio::null());
         options.apply(&mut command, &config)?;
-        if !config.dll_overrides.is_empty() {
-            command.env(
-                "WINEDLLOVERRIDES",
-                format_dll_overrides(&config.dll_overrides),
-            );
+        if matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton)
+            && !config.environment.contains_key("WINEDEBUG")
+            && !config.debug_logging
+        {
+            command.env("WINEDEBUG", "-all");
         }
+        apply_dll_overrides(&mut command, &config);
         if matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton) {
             let steam_root = steam_root
                 .as_ref()
@@ -512,8 +530,11 @@ impl GameLaunchManager {
             executable_path,
             launcher_pid: None,
         };
-        let applied_options =
-            crate::compatibility_options::PreparedOptions::diagnostic(&runner, &config);
+        let applied_options = crate::compatibility_options::PreparedOptions::diagnostic(
+            &runner,
+            &config,
+            launch_via_steam,
+        );
         let cancel = self.reserve_launch(
             &game_id,
             None,
@@ -574,7 +595,7 @@ impl GameLaunchManager {
                         ..LaunchContext::default()
                     },
                     move |cancel| {
-                        ensure_steam_for_overlay(steam_overlay, steam_root.as_deref(), |root| {
+                        ensure_steam_for_launch(launch_via_steam, steam_root.as_deref(), |root| {
                             steam_process::ensure_running(root, STEAM_START_TIMEOUT, cancel)
                         })?;
                         command.spawn().map(Some).map_err(|error| {
@@ -724,6 +745,16 @@ impl GameLaunchManager {
         let mut steam_progress = SteamLaunchProgress::default();
         let mut cancelled_without_process_since = None;
         loop {
+            #[cfg(windows)]
+            // CIM enumeration can lag behind a live native child.
+            if native_launch
+                && !cancel.load(Ordering::Acquire)
+                && child
+                    .as_mut()
+                    .is_some_and(|child| matches!(child.try_wait(), Ok(None)))
+            {
+                break;
+            }
             match game_process::matching_pids(&process_target) {
                 Ok(pids) if !pids.is_empty() => {
                     if cancel.load(Ordering::Acquire) {
@@ -1188,6 +1219,44 @@ fn validate_dll_overrides(
 }
 
 #[cfg(target_os = "linux")]
+fn apply_dll_overrides(command: &mut Command, config: &EffectiveCompatibilityConfig) {
+    let overrides = if config.online_fix {
+        baseline_dll_overrides(&config.dll_overrides)
+    } else {
+        config.dll_overrides.clone()
+    };
+    if !overrides.is_empty() {
+        command.env("WINEDLLOVERRIDES", format_dll_overrides(&overrides));
+    }
+}
+
+#[cfg(target_os = "linux")]
+const BASELINE_DLL_OVERRIDES: &[(&str, &str)] = &[
+    ("OnlineFix64", "n"),
+    ("SteamOverlay64", "n"),
+    ("winmm", "n,b"),
+    ("dnet", "n"),
+    ("steam_api64", "n"),
+    ("winhttp", "n,b"),
+];
+
+#[cfg(target_os = "linux")]
+fn baseline_dll_overrides(
+    configured: &std::collections::BTreeMap<String, String>,
+) -> std::collections::BTreeMap<String, String> {
+    let mut merged: std::collections::BTreeMap<String, String> = BASELINE_DLL_OVERRIDES
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+        .collect();
+    merged.extend(
+        configured
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone())),
+    );
+    merged
+}
+
+#[cfg(target_os = "linux")]
 fn format_dll_overrides(overrides: &std::collections::BTreeMap<String, String>) -> String {
     overrides
         .iter()
@@ -1408,23 +1477,18 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn steam_starts_only_for_explicit_overlay_mode() {
+    fn steam_starts_only_for_launch_via_steam() {
         let steam_root = Path::new("/steam");
         let mut started = false;
 
-        ensure_steam_for_overlay(SteamOverlayMode::RunnerDefault, None, |_| {
-            started = true;
-            Ok(())
-        })
-        .unwrap();
-        ensure_steam_for_overlay(SteamOverlayMode::Disabled, None, |_| {
+        ensure_steam_for_launch(false, None, |_| {
             started = true;
             Ok(())
         })
         .unwrap();
         assert!(!started);
 
-        ensure_steam_for_overlay(SteamOverlayMode::Enabled, Some(steam_root), |root| {
+        ensure_steam_for_launch(true, Some(steam_root), |root| {
             assert_eq!(root, steam_root);
             started = true;
             Ok(())
@@ -1435,21 +1499,18 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn explicit_overlay_requires_a_steam_installation() {
-        let error =
-            ensure_steam_for_overlay(SteamOverlayMode::Enabled, None, |_| Ok(())).unwrap_err();
-
-        assert!(error.contains("no Steam installation was found"));
+    fn launch_via_steam_requires_a_steam_installation() {
+        let error = ensure_steam_for_launch(true, None, |_| Ok(())).unwrap_err();
+        assert!(error.contains("Launch via Steam requires a Steam installation"));
     }
 
     #[cfg(target_os = "linux")]
     #[test]
     fn steam_start_failure_is_reported_before_runner_launch() {
-        let error =
-            ensure_steam_for_overlay(SteamOverlayMode::Enabled, Some(Path::new("/steam")), |_| {
-                Err("Could not start Steam: permission denied".to_owned())
-            })
-            .unwrap_err();
+        let error = ensure_steam_for_launch(true, Some(Path::new("/steam")), |_| {
+            Err("Could not start Steam: permission denied".to_owned())
+        })
+        .unwrap_err();
 
         assert!(error.contains("Could not start Steam: permission denied"));
     }
@@ -1555,8 +1616,7 @@ mod tests {
                 Some(AppliedCompatibilityOptions {
                     runner: "GE-Proton10-33".to_owned(),
                     version: "GE-Proton10-33".to_owned(),
-                    steam_runtime: crate::database::SteamRuntimeMode::SteamLinuxRuntime,
-                    steam_overlay: crate::database::SteamOverlayMode::Enabled,
+                    launch_via_steam: true,
                     graphics_renderer: crate::database::GraphicsRenderer::WineD3d,
                     wayland: crate::database::WaylandMode::Native,
                     debug_logging: true,
@@ -1569,14 +1629,7 @@ mod tests {
             serialized["compatibilityOptions"]["runner"],
             "GE-Proton10-33"
         );
-        assert_eq!(
-            serialized["compatibilityOptions"]["steamRuntime"],
-            "steam_linux_runtime"
-        );
-        assert_eq!(
-            serialized["compatibilityOptions"]["steamOverlay"],
-            "enabled"
-        );
+        assert_eq!(serialized["compatibilityOptions"]["launchViaSteam"], true);
         assert_eq!(
             serialized["compatibilityOptions"]["graphicsRenderer"],
             "wine_d3d"
@@ -1731,6 +1784,66 @@ mod tests {
             "anything;STEAM_COMPAT_DATA_PATH=/tmp".to_owned(),
         );
         assert!(validate_dll_overrides(&overrides).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn online_fix_toggle_controls_whether_baseline_overrides_are_exported() {
+        fn exported(online_fix: bool, configured: &[(&str, &str)]) -> Option<String> {
+            let dll_overrides = configured
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                .collect();
+            let mut command = Command::new("true");
+            apply_dll_overrides(
+                &mut command,
+                &EffectiveCompatibilityConfig {
+                    online_fix,
+                    dll_overrides,
+                    ..EffectiveCompatibilityConfig::default()
+                },
+            );
+            command
+                .get_envs()
+                .find(|(key, _)| *key == "WINEDLLOVERRIDES")
+                .and_then(|(_, value)| value.map(|value| value.to_string_lossy().into_owned()))
+        }
+
+        assert_eq!(
+            exported(true, &[]).as_deref(),
+            Some("OnlineFix64=n;SteamOverlay64=n;dnet=n;steam_api64=n;winhttp=n,b;winmm=n,b")
+        );
+        assert_eq!(exported(false, &[]), None);
+        assert_eq!(
+            exported(false, &[("d3d11", "n,b")]).as_deref(),
+            Some("d3d11=n,b")
+        );
+        assert_eq!(
+            exported(true, &[("winmm", "b")]).as_deref(),
+            Some("OnlineFix64=n;SteamOverlay64=n;dnet=n;steam_api64=n;winhttp=n,b;winmm=b")
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn baseline_dll_overrides_apply_to_every_launch_and_yield_to_configured_values() {
+        let baseline = baseline_dll_overrides(&std::collections::BTreeMap::new());
+        assert_eq!(
+            format_dll_overrides(&baseline),
+            "OnlineFix64=n;SteamOverlay64=n;dnet=n;steam_api64=n;winhttp=n,b;winmm=n,b"
+        );
+        assert!(validate_dll_overrides(&baseline).is_ok());
+
+        let mut configured = std::collections::BTreeMap::new();
+        configured.insert("winmm".to_owned(), "b".to_owned());
+        configured.insert("d3d11".to_owned(), "n,b".to_owned());
+        let merged = baseline_dll_overrides(&configured);
+        assert_eq!(merged.get("winmm").map(String::as_str), Some("b"));
+        assert_eq!(merged.get("OnlineFix64").map(String::as_str), Some("n"));
+        assert_eq!(
+            format_dll_overrides(&merged),
+            "OnlineFix64=n;SteamOverlay64=n;d3d11=n,b;dnet=n;steam_api64=n;winhttp=n,b;winmm=b"
+        );
     }
 
     #[cfg(target_os = "linux")]
@@ -1985,14 +2098,11 @@ mod tests {
             .expect("Proton path must be valid UTF-8");
         let runner = runner_discovery::resolve_runner(runner_path).unwrap();
         let option_profile = std::env::var("LEGIO_PHASE07_TYPED_OPTIONS").unwrap_or_default();
-        let typed_options = !option_profile.is_empty();
-        let runtime_enabled = option_profile == "all" || option_profile == "graphics";
-        let overlay_enabled = option_profile == "all" || option_profile == "direct_overlay";
-        let proton_logging = option_profile == "graphics";
+        let typed_options = option_profile == "graphics";
+        let proton_logging = typed_options;
         assert!(
-            !typed_options
-                || ["all", "graphics", "direct_overlay"].contains(&option_profile.as_str()),
-            "set LEGIO_PHASE07_TYPED_OPTIONS to all, graphics, or direct_overlay"
+            option_profile.is_empty() || typed_options,
+            "set LEGIO_PHASE07_TYPED_OPTIONS to graphics"
         );
         assert!(matches!(
             runner.kind,
@@ -2023,16 +2133,6 @@ mod tests {
             runner_path: Some(runner.path.clone()),
             prefix_root: Some(base.join("prefixes").to_string_lossy().into_owned()),
             debug_logging: proton_logging,
-            steam_runtime: if runtime_enabled {
-                crate::database::SteamRuntimeMode::SteamLinuxRuntime
-            } else {
-                Default::default()
-            },
-            steam_overlay: if overlay_enabled {
-                crate::database::SteamOverlayMode::Enabled
-            } else {
-                Default::default()
-            },
             graphics_renderer: if typed_options {
                 crate::database::GraphicsRenderer::WineD3d
             } else {
@@ -2113,13 +2213,8 @@ mod tests {
             launch_error.unwrap_or_default()
         );
 
-        let typed_option_evidence = typed_options.then(|| {
-            if overlay_enabled {
-                wait_for_overlay_evidence(&manager, &game.id, &steam_client_root())
-            } else {
-                game_process_option_evidence(&manager, &game.id, &steam_client_root(), false)
-            }
-        });
+        let typed_option_evidence =
+            typed_options.then(|| game_process_option_evidence(&manager, &game.id));
         let proton_log_evidence = proton_logging.then(|| {
             wait_for_proton_graphics_log(
                 &base
@@ -2156,22 +2251,7 @@ mod tests {
         assert_eq!(diagnostic.runner, expected_runner);
         assert_eq!(diagnostic.debug_logging, proton_logging);
         if typed_options {
-            assert_eq!(
-                diagnostic.steam_runtime,
-                if runtime_enabled {
-                    crate::database::SteamRuntimeMode::SteamLinuxRuntime
-                } else {
-                    Default::default()
-                }
-            );
-            assert_eq!(
-                diagnostic.steam_overlay,
-                if overlay_enabled {
-                    crate::database::SteamOverlayMode::Enabled
-                } else {
-                    Default::default()
-                }
-            );
+            assert!(!diagnostic.launch_via_steam);
             assert_eq!(
                 diagnostic.graphics_renderer,
                 crate::database::GraphicsRenderer::WineD3d
@@ -2206,32 +2286,9 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
-    fn wait_for_overlay_evidence(
-        manager: &GameLaunchManager,
-        game_id: &str,
-        steam_root: &Result<PathBuf, String>,
-    ) -> Result<String, String> {
-        let deadline = Instant::now() + Duration::from_secs(30);
-        loop {
-            match game_process_option_evidence(manager, game_id, steam_root, true) {
-                Ok(evidence) => return Ok(evidence),
-                Err(error) if error.contains("did not map the Steam overlay renderer") => {
-                    if Instant::now() >= deadline {
-                        return Err(error);
-                    }
-                    thread::sleep(Duration::from_millis(500));
-                }
-                Err(error) => return Err(error),
-            }
-        }
-    }
-
-    #[cfg(target_os = "linux")]
     fn game_process_option_evidence(
         manager: &GameLaunchManager,
         game_id: &str,
-        steam_root: &Result<PathBuf, String>,
-        overlay_enabled: bool,
     ) -> Result<String, String> {
         let target = manager
             .lock()?
@@ -2239,11 +2296,6 @@ mod tests {
             .map(|entry| entry.process_target.clone())
             .ok_or_else(|| "Running game process target is unavailable".to_owned())?;
         let pids = game_process::matching_pids(&target)?;
-        let steam_root = steam_root.as_ref().map_err(Clone::clone)?;
-        let overlay_library =
-            fs::canonicalize(steam_root.join("ubuntu12_64/gameoverlayrenderer.so"))
-                .map_err(|error| format!("Could not resolve Steam overlay renderer: {error}"))?;
-        let steam_root = steam_root.to_string_lossy();
         let mut failures = Vec::new();
 
         for pid in pids {
@@ -2251,13 +2303,7 @@ mod tests {
             let environment = fs::read(process.join("environ")).map_err(|error| {
                 format!("Could not read game process {pid} environment: {error}")
             })?;
-            let mut expected = vec!["PROTON_USE_WINED3D=1", "PROTON_ENABLE_WAYLAND=1"];
-            if overlay_enabled {
-                expected.extend([
-                    "ENABLE_VK_LAYER_VALVE_steam_overlay_1=1",
-                    "SteamOverlayGameId=480",
-                ]);
-            }
+            let expected = ["PROTON_USE_WINED3D=1", "PROTON_ENABLE_WAYLAND=1"];
             let missing = expected
                 .iter()
                 .filter(|value| {
@@ -2277,41 +2323,12 @@ mod tests {
 
             let maps = fs::read_to_string(process.join("maps"))
                 .map_err(|error| format!("Could not read game process {pid} mappings: {error}"))?;
-            let preload = environment
-                .split(|byte| *byte == 0)
-                .find_map(|entry| entry.strip_prefix(b"LD_PRELOAD="))
-                .map(String::from_utf8_lossy);
-            let overlay_maps = maps
-                .lines()
-                .filter(|line| line.contains("gameoverlayrenderer.so"))
-                .collect::<Vec<_>>();
-            if overlay_enabled
-                && (preload
-                    .as_deref()
-                    .is_none_or(|value| !value.contains("gameoverlayrenderer.so"))
-                    || !overlay_maps
-                        .iter()
-                        .any(|line| line.contains(steam_root.as_ref())))
-            {
-                failures.push(format!(
-                    "Game process {pid} did not map the Steam overlay renderer from {}; LD_PRELOAD={preload:?}; mappings={overlay_maps:?}; resolved renderer={}",
-                    steam_root,
-                    overlay_library.display(),
-                ));
-                continue;
-            }
             let wined3d_loaded = maps
                 .lines()
                 .any(|line| line.to_ascii_lowercase().contains("wined3d"));
             let wayland_client_loaded = maps
                 .lines()
                 .any(|line| line.contains("libwayland-client.so"));
-            if overlay_enabled && !wayland_client_loaded {
-                failures.push(format!(
-                    "Game process {pid} received native Wayland but did not map libwayland-client.so"
-                ));
-                continue;
-            }
             let graphics_maps = maps
                 .lines()
                 .filter(|line| {
@@ -2322,13 +2339,8 @@ mod tests {
                 })
                 .take(30)
                 .collect::<Vec<_>>();
-            let overlay_evidence = if overlay_enabled {
-                "Steam overlay renderer mapped"
-            } else {
-                "Steam overlay was not requested"
-            };
             return Ok(format!(
-                "Game process {pid} received WineD3D and GE-Proton Wayland settings; WineD3D module mapped: {wined3d_loaded}; Wayland client mapped: {wayland_client_loaded}; {overlay_evidence}; graphics mappings: {graphics_maps:?}"
+                "Game process {pid} received WineD3D and GE-Proton Wayland settings; WineD3D module mapped: {wined3d_loaded}; Wayland client mapped: {wayland_client_loaded}; graphics mappings: {graphics_maps:?}"
             ));
         }
 

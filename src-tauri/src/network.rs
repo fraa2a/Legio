@@ -4,8 +4,9 @@ use serde::Serialize;
 
 use crate::diagnostics::{Diagnostics, Operation, RequestLog};
 
-const CONNECT_TIMEOUT_SECONDS: u64 = 5;
-const REQUEST_TIMEOUT_SECONDS: u64 = 10;
+const CONNECT_TIMEOUT_SECONDS: u64 = 15;
+const READ_TIMEOUT_SECONDS: u64 = 30;
+const REQUEST_TIMEOUT_SECONDS: u64 = 60;
 const CONNECTIVITY_URL: &str = "https://store.steampowered.com/";
 const HYDRA_SEARCH_URL: &str = "https://hydra-api-us-east-1.losbroxas.org/catalogue/search";
 const HYDRA_HOST: &str = "hydra-api-us-east-1.losbroxas.org";
@@ -59,6 +60,7 @@ impl NetworkState {
     pub fn new(version: &str, diagnostics: Diagnostics) -> Result<Self, String> {
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(CONNECT_TIMEOUT_SECONDS))
+            .read_timeout(std::time::Duration::from_secs(READ_TIMEOUT_SECONDS))
             .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
             .redirect(reqwest::redirect::Policy::custom(|attempt| {
                 if attempt.previous().len() < 3
@@ -98,25 +100,41 @@ impl NetworkState {
     }
 
     pub async fn steam_asset(&self, url: &str) -> Result<Vec<u8>, NetworkError> {
-        let mut log = self.diagnostics.request(Operation::SteamAsset);
-        let result = async {
-            let response = self.client.get(url).send().await?;
-            Self::read_bounded_to(response, MAX_ASSET_BYTES, &mut log).await
-        }
-        .await;
-        log.finish(&result);
-        result
+        self.get(url, MAX_ASSET_BYTES, Operation::SteamAsset).await
     }
 
     pub async fn legio_source(&self) -> Result<Vec<u8>, NetworkError> {
-        let mut log = self.diagnostics.request(Operation::LegioSource);
+        self.get(
+            crate::legio_source::SOURCE_URL,
+            crate::legio_source::MAX_MANIFEST_BYTES,
+            Operation::LegioSource,
+        )
+        .await
+    }
+
+    async fn get(
+        &self,
+        url: &str,
+        limit: usize,
+        operation: Operation,
+    ) -> Result<Vec<u8>, NetworkError> {
+        let first = self.get_once(url, limit, operation).await;
+        if !matches!(first, Err(NetworkError::Transport { .. })) {
+            return first;
+        }
+        self.get_once(url, limit, operation).await
+    }
+
+    async fn get_once(
+        &self,
+        url: &str,
+        limit: usize,
+        operation: Operation,
+    ) -> Result<Vec<u8>, NetworkError> {
+        let mut log = self.diagnostics.request(operation);
         let result = async {
-            let response = self
-                .client
-                .get(crate::legio_source::SOURCE_URL)
-                .send()
-                .await?;
-            Self::read_bounded_to(response, crate::legio_source::MAX_MANIFEST_BYTES, &mut log).await
+            let response = self.client.get(url).send().await?;
+            Self::read_bounded_to(response, limit, &mut log).await
         }
         .await;
         log.finish(&result);
@@ -124,18 +142,12 @@ impl NetworkState {
     }
 
     async fn get_steam_details(&self, url: &str, app_id: u32) -> Result<Vec<u8>, NetworkError> {
-        let mut log = self.diagnostics.request(Operation::SteamDetails);
-        let result = async {
-            let response = self
-                .client
-                .get(format!("{url}?appids={app_id}&l=english"))
-                .send()
-                .await?;
-            Self::read_bounded_to(response, MAX_CATALOG_BYTES, &mut log).await
-        }
-        .await;
-        log.finish(&result);
-        result
+        self.get(
+            &format!("{url}?appids={app_id}&l=english"),
+            MAX_CATALOG_BYTES,
+            Operation::SteamDetails,
+        )
+        .await
     }
 
     // Dropping this future cancels the request and body read without background work.
@@ -376,6 +388,55 @@ mod tests {
         assert!(!log.contains("Portal"));
         assert!(!log.contains("catalogue/search"));
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn retries_one_closed_connection_on_gets() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/asset", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let (dropped, _) = listener.accept().unwrap();
+            drop(dropped);
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+                .unwrap();
+        });
+        let (state, directory) = logged_state();
+        let bytes = tauri::async_runtime::block_on(state.steam_asset(&url)).unwrap();
+        assert_eq!(bytes, b"{}");
+        server.join().unwrap();
+        let log = read_log(&state, &directory);
+        let records = log
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0]["outcome"], "transport");
+        assert_eq!(records[1]["outcome"], "success");
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn does_not_retry_an_http_failure() {
+        let (url, server) = server(
+            b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+        );
+        let state = state();
+        assert_eq!(
+            tauri::async_runtime::block_on(state.steam_asset(&url)).unwrap_err(),
+            NetworkError::Http { status: 404 }
+        );
+        server.join().unwrap();
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -13,7 +14,7 @@ use crate::{
 };
 
 const CACHE_LIMIT: u32 = 128;
-const MAX_DETAILS_BYTES: usize = 64 * 1024;
+const MAX_DETAILS_BYTES: usize = 512 * 1024;
 const STALE_SECONDS: i64 = 24 * 60 * 60;
 const MAX_SCREENSHOTS: usize = 8;
 
@@ -24,12 +25,23 @@ pub struct SteamDetails {
     pub name: String,
     pub app_type: String,
     pub short_description: Option<String>,
+    #[serde(default)]
+    pub detailed_description: Option<String>,
+    #[serde(default)]
+    pub system_requirements: Option<SystemRequirements>,
     pub developers: Vec<String>,
     pub publishers: Vec<String>,
     pub genres: Vec<String>,
     pub platforms: Option<Platforms>,
     pub release_date: Option<ReleaseDate>,
     pub assets: Assets,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemRequirements {
+    pub minimum: Option<String>,
+    pub recommended: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -141,6 +153,9 @@ struct SteamData {
     #[serde(rename = "type")]
     app_type: String,
     short_description: Option<String>,
+    detailed_description: Option<String>,
+    #[serde(default)]
+    pc_requirements: Option<serde_json::Value>,
     #[serde(default)]
     developers: Vec<String>,
     #[serde(default)]
@@ -189,6 +204,28 @@ fn steam_image(value: Option<String>) -> Option<String> {
     })
 }
 
+// Steam may key appdetails by a package, sub, or DLC id instead of the
+// requested application id. Match the payload id first and use the map key
+// only as a fallback.
+fn take_entry(response: &mut HashMap<String, SteamResponse>, app_id: u32) -> Option<SteamResponse> {
+    let key = response
+        .iter()
+        .find(|(_, entry)| {
+            entry
+                .data
+                .as_ref()
+                .is_some_and(|data| data.steam_appid == app_id)
+        })
+        .map(|(key, _)| key.clone())
+        .or_else(|| {
+            response
+                .keys()
+                .find(|key| key.parse::<u32>() == Ok(app_id))
+                .cloned()
+        })?;
+    response.remove(&key)
+}
+
 fn decode(bytes: &[u8], app_id: u32) -> Result<SteamDetails, DetailsError> {
     let mut response: HashMap<String, SteamResponse> =
         serde_json::from_slice(bytes).map_err(|error| {
@@ -197,7 +234,7 @@ fn decode(bytes: &[u8], app_id: u32) -> Result<SteamDetails, DetailsError> {
                 format!("Steam returned invalid appdetails JSON: {error}"),
             )
         })?;
-    let entry = response.remove(&app_id.to_string()).ok_or_else(|| {
+    let entry = take_entry(&mut response, app_id).ok_or_else(|| {
         DetailsError::new(
             DetailsErrorKind::InvalidResponse,
             "Steam response did not contain the requested App ID.",
@@ -234,6 +271,26 @@ fn decode(bytes: &[u8], app_id: u32) -> Result<SteamDetails, DetailsError> {
         short_description: data
             .short_description
             .filter(|value| !value.trim().is_empty()),
+        detailed_description: data
+            .detailed_description
+            .filter(|value| !value.trim().is_empty()),
+        system_requirements: data.pc_requirements.and_then(|value| {
+            let value = value.as_object()?;
+            let minimum = value
+                .get("minimum")
+                .and_then(|entry| entry.as_str())
+                .filter(|entry| !entry.trim().is_empty())
+                .map(str::to_owned);
+            let recommended = value
+                .get("recommended")
+                .and_then(|entry| entry.as_str())
+                .filter(|entry| !entry.trim().is_empty())
+                .map(str::to_owned);
+            (minimum.is_some() || recommended.is_some()).then_some(SystemRequirements {
+                minimum,
+                recommended,
+            })
+        }),
         developers: data.developers,
         publishers: data.publishers,
         genres: data
@@ -283,7 +340,7 @@ fn store(database: &Database, details: &SteamDetails, fetched_at: i64) -> Result
     if json.len() > MAX_DETAILS_BYTES {
         return Err(DetailsError::new(
             DetailsErrorKind::TooLarge,
-            "Selected Steam metadata exceeds the 64 KiB cache entry limit.",
+            "Selected Steam metadata exceeds the 512 KiB cache entry limit.",
         ));
     }
     database.with_connection(|connection| {
@@ -318,9 +375,15 @@ fn cached(
             stale: false,
         }),
         Some((json, fetched_at)) => {
-            let mut details: SteamDetails = serde_json::from_str(&json).map_err(|error| {
+            let cached_value: serde_json::Value = serde_json::from_str(&json).map_err(|error| {
                 DetailsError::database(format!("Invalid cached Steam details: {error}"))
             })?;
+            let missing_description = cached_value.get("detailedDescription").is_none();
+            let missing_requirements = cached_value.get("systemRequirements").is_none();
+            let mut details: SteamDetails =
+                serde_json::from_value(cached_value).map_err(|error| {
+                    DetailsError::database(format!("Invalid cached Steam details: {error}"))
+                })?;
             if details.steam_app_id != app_id {
                 return Err(DetailsError::database(
                     "Cached Steam App ID does not match its cache key.".to_owned(),
@@ -337,7 +400,9 @@ fn cached(
             Ok(DetailsResult {
                 details: Some(details),
                 cached_at: Some(fetched_at),
-                stale: current_time < fetched_at
+                stale: missing_description
+                    || missing_requirements
+                    || current_time < fetched_at
                     || current_time.saturating_sub(fetched_at) >= STALE_SECONDS,
             })
         }
@@ -352,6 +417,20 @@ pub(crate) fn cached_details(
     Ok(cached(database, app_id, now()?)?.details)
 }
 
+fn needs_fetch(previous: &DetailsResult, refresh: bool) -> bool {
+    refresh || previous.details.is_none() || previous.stale
+}
+
+async fn blocking<T, F>(task: F) -> Result<T, DetailsError>
+where
+    F: FnOnce() -> Result<T, DetailsError> + Send + 'static,
+    T: Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|error| DetailsError::new(DetailsErrorKind::Internal, error.to_string()))?
+}
+
 pub async fn get_details<R: Runtime>(
     app: tauri::AppHandle<R>,
     network: &NetworkState,
@@ -359,23 +438,41 @@ pub async fn get_details<R: Runtime>(
     refresh: bool,
 ) -> Result<DetailsResult, DetailsError> {
     validate_app_id(app_id)?;
-    let bytes = if refresh {
-        Some(network.steam_details(app_id).await?)
-    } else {
-        None
-    };
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<DatabaseState>();
-        let database = state.database().map_err(DetailsError::database)?;
-        let time = now()?;
-        if let Some(bytes) = bytes {
-            let details = decode(&bytes, app_id)?;
-            store(database, &details, time)?;
+    let (database, time) = blocking({
+        let app = app.clone();
+        move || -> Result<(Arc<Database>, i64), DetailsError> {
+            let state = app.state::<DatabaseState>();
+            let database = state.shared_database().map_err(DetailsError::database)?;
+            Ok((database, now()?))
         }
-        cached(database, app_id, time)
     })
-    .await
-    .map_err(|error| DetailsError::new(DetailsErrorKind::Internal, error.to_string()))?
+    .await?;
+    let previous = blocking({
+        let database = database.clone();
+        move || cached(&database, app_id, time)
+    })
+    .await?;
+    if !needs_fetch(&previous, refresh) {
+        return Ok(previous);
+    }
+    let bytes = match network.steam_details(app_id).await {
+        Ok(bytes) => bytes,
+        // Stale metadata is preferable to an empty panel during an implicit
+        // refresh. An explicit refresh still reports its failure.
+        Err(_error) if !refresh && previous.details.is_some() => return Ok(previous),
+        Err(error) => return Err(error.into()),
+    };
+    let details = blocking(move || {
+        let details = decode(&bytes, app_id)?;
+        store(&database, &details, time)?;
+        Ok::<_, DetailsError>(details)
+    })
+    .await?;
+    Ok(DetailsResult {
+        details: Some(details),
+        cached_at: Some(time),
+        stale: false,
+    })
 }
 
 #[cfg(test)]
@@ -408,6 +505,41 @@ mod tests {
             .manage(DatabaseState::new(Ok(directory.to_path_buf())))
             .build(context)
             .unwrap()
+    }
+
+    #[test]
+    fn fetches_only_when_the_cache_cannot_answer() {
+        let fresh = DetailsResult {
+            details: Some(decode(&fixture(400), 400).unwrap()),
+            cached_at: Some(100),
+            stale: false,
+        };
+        let stale = DetailsResult {
+            details: Some(decode(&fixture(400), 400).unwrap()),
+            cached_at: Some(100),
+            stale: true,
+        };
+        let missing = DetailsResult {
+            details: None,
+            cached_at: None,
+            stale: false,
+        };
+        assert!(!needs_fetch(&fresh, false));
+        assert!(needs_fetch(&fresh, true));
+        assert!(needs_fetch(&stale, false));
+        assert!(needs_fetch(&missing, false));
+    }
+
+    #[test]
+    fn matches_metadata_keyed_by_a_package_id() {
+        let mut value: serde_json::Value = serde_json::from_slice(&fixture(2780980)).unwrap();
+        let data = value["2780980"]["data"].clone();
+        value.as_object_mut().unwrap().clear();
+        value["4177100"] = serde_json::json!({ "success": true, "data": data });
+        let details = decode(&serde_json::to_vec(&value).unwrap(), 2780980).unwrap();
+        assert_eq!(details.steam_app_id, 2780980);
+        assert_eq!(details.name, "Portal");
+        assert!(details.assets.header.is_some());
     }
 
     #[test]
@@ -463,6 +595,7 @@ mod tests {
             br#"{}"#,
             br#"{"400":{"success":true}}"#,
             br#"{"400":{"success":true,"data":{"steam_appid":401,"name":"Wrong","type":"game"}}}"#,
+            br#"{"4177100":{"success":true,"data":{"steam_appid":401,"name":"Wrong","type":"game"}}}"#,
         ] {
             assert_eq!(
                 decode(bytes, 400).unwrap_err().kind,

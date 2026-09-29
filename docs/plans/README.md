@@ -2,6 +2,8 @@
 
 `PLAN.md` is the immutable canonical product specification. `AGENTS.md` is binding for engineering and repository practices. These phase documents turn the canonical requirements into an executable roadmap without replacing or weakening them.
 
+Frontend implementation docs: [TODO](../frontend/TODO.md) and [developer guide/backend contracts](../frontend/backend-contracts.md). Keep both in sync with UI coverage, backend commands, serialized types, and service wrappers.
+
 ## Status vocabulary
 
 - `Planned`: scoped, but implementation has not started.

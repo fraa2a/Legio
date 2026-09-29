@@ -1,4 +1,8 @@
-use tauri::Manager;
+use tauri::{
+    Manager,
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+};
 
 pub mod archive_install;
 mod catalog;
@@ -15,13 +19,24 @@ mod finalize_install;
 mod game_artwork;
 mod game_lifecycle;
 mod game_process;
+mod game_transfer;
 mod image_format;
+mod installed_folder;
 pub mod legio_source;
 mod legio_source_cache;
 mod manual_import;
 mod network;
+mod online_fix;
 mod pe_icons;
 mod runner_discovery;
+mod startup;
+
+struct TrayAvailable(bool);
+#[derive(Default)]
+pub(crate) struct StartupLaunch {
+    pub game_id: Option<String>,
+    pub error: Option<String>,
+}
 mod steam_assets;
 mod steam_details;
 mod steam_import;
@@ -31,11 +46,13 @@ mod steam_switch;
 mod steam_vdf;
 
 pub fn run() -> tauri::Result<()> {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     let shortcut_game_id = desktop_shortcuts::requested_game_id(std::env::args_os().skip(1))
         .map_err(std::io::Error::other)?;
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(move |app| {
             let database = database::DatabaseState::new(app.path().app_data_dir());
             let bandwidth_limit = database
@@ -49,6 +66,20 @@ pub fn run() -> tauri::Result<()> {
             )
             .map_err(std::io::Error::other)?;
             download_queue.set_bandwidth_limit(bandwidth_limit);
+            let storage_root = app
+                .state::<database::DatabaseState>()
+                .database()
+                .and_then(|database| {
+                    database.storage_root(
+                        &app.path()
+                            .app_data_dir()
+                            .map_err(|error| error.to_string())?,
+                    )
+                })
+                .map_err(std::io::Error::other)?;
+            download_queue
+                .set_storage_root(&storage_root)
+                .map_err(std::io::Error::other)?;
             app.manage(download_queue);
             download_queue::start(app.handle().clone()).map_err(std::io::Error::other)?;
             #[cfg(target_os = "linux")]
@@ -74,13 +105,106 @@ pub fn run() -> tauri::Result<()> {
                 .map_err(std::io::Error::other)?,
             );
             app.manage(diagnostics);
-            #[cfg(target_os = "linux")]
-            if let Some(game_id) = shortcut_game_id {
-                app.state::<game_lifecycle::GameLaunchManager>()
-                    .launch_configured(app.handle().clone(), game_id)
-                    .map_err(std::io::Error::other)?;
+            if std::env::args_os().any(|argument| argument == "--minimized") {
+                let minimized = app
+                    .state::<database::DatabaseState>()
+                    .database()
+                    .and_then(database::Database::settings)
+                    .is_ok_and(|settings| {
+                        settings.launch_on_system_start && settings.launch_minimized
+                    });
+                if minimized && let Some(window) = app.get_webview_window("main") {
+                    window.hide()?;
+                }
             }
+            let open = MenuItem::with_id(app, "open", "Apri", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Chiudi", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&open, &quit])?;
+            let icon = image::load_from_memory(include_bytes!("../icons/icon.png"))
+                .map_err(std::io::Error::other)?
+                .to_rgba8();
+            let (width, height) = icon.dimensions();
+            let icon = tauri::image::Image::new_owned(icon.into_raw(), width, height);
+            let tray_result = TrayIconBuilder::new()
+                .icon(icon)
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "open" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                        && let Some(window) = tray.app_handle().get_webview_window("main")
+                    {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                })
+                .build(app);
+            if let Err(error) = &tray_result {
+                eprintln!("Could not create system tray icon: {error}");
+            }
+            app.manage(TrayAvailable(tray_result.is_ok()));
+            let mut startup_launch = StartupLaunch::default();
+            #[cfg(any(target_os = "linux", windows))]
+            if let Some(game_id) = shortcut_game_id {
+                startup_launch.game_id = Some(game_id.clone());
+                let launch_result = app
+                    .state::<database::DatabaseState>()
+                    .database()
+                    .and_then(|database| database.game(&game_id))
+                    .and_then(|game| {
+                        let manager = app.state::<game_lifecycle::GameLaunchManager>();
+                        if game.steam_install_path.is_some() {
+                            manager
+                                .launch(app.handle().clone(), game_id.clone(), false)
+                                .map(|_| ())
+                        } else {
+                            #[cfg(target_os = "linux")]
+                            {
+                                manager.launch_configured(app.handle().clone(), game_id.clone())
+                            }
+                            #[cfg(windows)]
+                            {
+                                manager.launch_native(app.handle().clone(), game_id.clone())
+                            }
+                        }
+                    });
+                if let Err(error) = launch_result {
+                    eprintln!("Could not launch game from shortcut: {error}");
+                    startup_launch.error = Some(error);
+                }
+            }
+            app.manage(startup_launch);
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let close_to_tray = window
+                    .app_handle()
+                    .state::<database::DatabaseState>()
+                    .database()
+                    .and_then(database::Database::settings)
+                    .is_ok_and(|settings| settings.close_to_tray);
+                if close_to_tray && window.app_handle().state::<TrayAvailable>().0 {
+                    api.prevent_close();
+                    let _ = window.hide();
+                } else {
+                    api.prevent_close();
+                    window.app_handle().exit(0);
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
@@ -89,13 +213,17 @@ pub fn run() -> tauri::Result<()> {
             commands::get_compatibility_defaults,
             commands::save_compatibility_defaults,
             commands::get_game_compatibility_overrides,
+            commands::get_game_online_fix_detected,
             commands::save_game_compatibility_overrides,
             commands::get_native_launch_config,
             commands::save_native_launch_config,
+            commands::get_steam_launch_config,
+            commands::save_steam_launch_config,
             commands::list_games,
             commands::get_playtime_summaries,
             commands::create_game,
             commands::create_game_shortcut,
+            game_transfer::transfer_game,
             commands::set_game_icon,
             commands::extract_game_icon,
             commands::get_game_icon,
@@ -121,6 +249,8 @@ pub fn run() -> tauri::Result<()> {
             commands::import_steam_installations,
             commands::scan_game_executables,
             commands::import_manual_game,
+            commands::identify_manual_game_steam_app_id,
+            commands::preview_manual_game_steam_app_id,
             commands::set_game_executable,
             commands::get_network_status,
             commands::get_network_log_status,
@@ -135,6 +265,10 @@ pub fn run() -> tauri::Result<()> {
             download_queue::retry_download,
             download_queue::cancel_download,
             download_queue::set_download_bandwidth_limit,
+            download_queue::get_download_bandwidth_limit,
+            download_queue::remove_download,
+            download_queue::remove_finished_downloads,
+            installed_folder::open_installed_folder,
             commands::refresh_legio_source,
             commands::check_steam_connectivity,
             commands::search_catalog,

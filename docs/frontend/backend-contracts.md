@@ -2,7 +2,7 @@
 
 This is the implementation guide for wiring the Legio UI to the Rust/Tauri backend. Keep it aligned with the registered commands in [`src-tauri/src/lib.rs`](../../src-tauri/src/lib.rs), their request and response types, and the frontend service modules under [`src/lib/services`](../../src/lib/services).
 
-The active frontend integration work is PR #36 (`feat/ui-upgrade`). This document describes the backend contract available on current `main`, not the exact implementation state of that branch. When PR #36 is updated from `main`, reconcile its services and stores against this guide, then update [`TODO.md`](TODO.md) only for flows that are actually wired and verified in the app. Keep product code under `src/lib/features/{home,library,store,downloads,settings}`, shared state under `src/lib/stores`, and all Tauri calls inside typed service modules.
+The active frontend integration work is PR #36 (`feat/ui-upgrade`). The branch now contains the navigable shell, Library, Store, Downloads, basic Home, native picker wiring, staged-install flow, download cleanup, and launch controls. This guide describes the contract after reconciling that work with current `main`. Keep [`TODO.md`](TODO.md) aligned with behavior that is actually wired and verified in the app. Product code belongs under `src/lib/features/{home,library,store,downloads,settings}`, shared state under `src/lib/stores`, and all Tauri calls inside typed service modules.
 
 The UI should call Tauri only from a feature service module. Components should consume typed service functions and own presentation state, not duplicate backend rules. Rust is the source of truth for library records, installation state, queue state, compatibility settings, and process state.
 
@@ -21,13 +21,15 @@ Call these through `invoke` wrappers:
 | Command | Arguments | Result |
 | --- | --- | --- |
 | `get_app_info` | none | `{ name, version, platform, desktopEnvironment }` |
-| `get_settings` | none | `{ theme: "system" | "dark" | "light" }` |
-| `save_settings` | `{ settings: { theme } }` | saved settings |
+| `get_settings` | none | `{ theme: "system" | "dark" | "light", steamLibraryPollMinutes: number }` |
+| `save_settings` | `{ settings: { theme, steamLibraryPollMinutes } }` | saved settings |
 | `get_network_status` | none | `"unknown" | "online"` |
 | `check_steam_connectivity` | none | `{ status, detail }` |
 | `get_network_log_status` | none | `{ directory, lastError, droppedRecords, pendingRecords }` |
 
 Suggested startup hydration: load app info, settings, `list_games`, `list_downloads`, cached `get_legio_source`, and `get_playtime_summaries`; show cached/local content immediately, then refresh connectivity and remote metadata in the background. `desktopEnvironment` is optional and is currently used only for platform-specific presentation such as Hyprland window controls.
+
+`steamLibraryPollMinutes` defaults to `30` and accepts values from `5` to `120`. Steam library detection always runs once after startup, then repeats at the saved interval.
 
 ## Library and game settings
 
@@ -76,11 +78,13 @@ For user-visible Steam redetection, call `scan_steam_installations` to show dete
 | --- | --- | --- |
 | `scan_game_executables` | `{ directory, gameName? }` | `{ candidates: [{ path, score, signals }], selectedPath }` |
 | `import_manual_game` | `{ input: { executablePath, name? } }` | created `Game` |
+| `preview_manual_game_steam_app_id` | `{ executablePath }` | `{ status, candidates, message }` |
+| `identify_manual_game_steam_app_id` | `{ gameId }` | `{ game, status, candidates, message }` |
 | `set_game_executable` | `{ gameId, executablePath }` | updated `Game` |
 
-Present all candidates when `selectedPath` is null. `selectedPath` is a suggestion, not a substitute for a user's explicit choice when the scan is ambiguous. A successful import adds a manual game with a null `steamAppId` and a populated `executablePath`.
+Present all candidates when `selectedPath` is null. `selectedPath` is a suggestion, not a substitute for a user's explicit choice when the scan is ambiguous. A successful import adds a manual game with a populated `executablePath`; the executable stem supplies `automaticName`, and an optional user-entered name is stored in `nameOverride`.
 
-There is currently no backend command that identifies a Steam App ID automatically from a selected executable, folder name, PE metadata, or known executable mapping. This remains a canonical gap from PLAN sections 17 and 18. The frontend must not infer or fabricate the association. Until a backend identification contract exists, keep imported executable games unassociated or let the user explicitly provide/edit a Steam App ID through the existing game update flow.
+Call `preview_manual_game_steam_app_id({ executablePath })` after selecting a file to show the suggested App ID before import. The command validates the executable without creating a game. `identify_manual_game_steam_app_id({ gameId })` remains available for existing imports and saves a unique match. Rust checks exact normalized title matches for the executable name and nearby directory names against the local Hydra catalog, then refreshes Hydra when needed. Multiple exact IDs are returned as `candidates` for explicit selection. `status` is `matched`, `no_match`, `ambiguous`, `unavailable`, `already_linked`, or `not_manual`. Lookup failure never removes an imported game. A manual game stays manual even after it gains a Steam App ID: use `steamInstallPath` to decide Steam ownership and launch behavior, and `steamAppId` only for identity, metadata, artwork, and Store matching.
 
 Use a native file/folder picker service before calling the import commands and pass the selected absolute path to Rust. The backend intentionally does not expose a general filesystem browser command. PR #36 already has a narrowly scoped Tauri dialog wrapper; preserve that boundary when rebasing it onto current `main`.
 
@@ -114,9 +118,9 @@ These commands are available on `main` after PR #35.
 
 `get_playtime_summaries` returns `{ gameId, totalMilliseconds, activeSessions }` for each local game. Active totals are calculated through the request time. The backend starts a session after detecting the game process, closes it after the lifecycle monitor observes exit, and recovers sessions left open by a crash at their last heartbeat. Different games may have overlapping session time.
 
-Defaults have `runnerPath`, `prefixRoot`, `argumentsBefore`, `argumentsAfter`, `workingDirectory`, `environment`, `dllOverrides`, `steamRuntime`, `steamOverlay`, `graphicsRenderer`, `wayland`, and `debugLogging`. Per-game overrides have those settings plus `prefixPath`; each typed option and `debugLogging` is nullable and inherits when null. Enum values are `steamRuntime: "runner_default" | "steam_linux_runtime"`, `steamOverlay: "runner_default" | "enabled" | "disabled"`, `graphicsRenderer: "runner_default" | "wine_d3d"`, and `wayland: "runner_default" | "disabled" | "native"`. For scalar/list values, `null` inherits; an empty string/list clears an inherited value. Environment and DLL maps merge by key; an empty map clears all inherited entries. Saving settings persists them, but the UI should not imply that settings were applied until the save command succeeds.
+Defaults have `runnerPath`, `prefixRoot`, `argumentsBefore`, `argumentsAfter`, `environment`, `dllOverrides`, `graphicsRenderer`, `wayland`, and `debugLogging`. The legacy `workingDirectory` field remains in the defaults response for compatibility but no longer affects launch and is cleared by the Settings UI on save. Per-game overrides have those settings plus `launchViaSteam`, `prefixPath` and `workingDirectory`. A null per-game working directory uses the executable's directory. Each typed option and `debugLogging` is nullable and inherits when null. Enum values are `graphicsRenderer: "runner_default" | "wine_d3d"` and `wayland: "runner_default" | "disabled" | "native"`. For scalar/list values, `null` inherits; an empty string/list clears an inherited value. Environment and DLL maps merge by key; an empty map clears all inherited entries. Saving settings persists them, but the UI should not imply that settings were applied until the save command succeeds.
 
-The backend wraps Proton in a locally installed Steam Linux Runtime only when `steamRuntime` is `steam_linux_runtime`; it does not download runtimes. WineD3D and Wayland set Proton environment options. Native Wayland is accepted only with GE-Proton. Steam overlay enablement requires the two Steam overlay renderer libraries in the detected Steam installation; the backend validates them before launch. When overlay is explicitly enabled and Steam is not ready, the backend starts the local Steam client and waits for both the Steam process and `steamwebhelper` before spawning Proton. The frontend must not add its own fixed delay or second Steam-start sequence. Do not expose arbitrary environment overrides for variables managed by these typed settings.
+`launchViaSteam` is a Linux-only per-game flag. It starts Steam and waits for the client and `steamwebhelper`, injects the Steam overlay when its renderer libraries are available, and wraps Proton in the matching locally installed Steam Linux Runtime when available. If a Runtime or overlay renderer is unavailable, Proton still launches and the reason is logged. WineD3D and Wayland set Proton environment options. Native Wayland is accepted only with GE-Proton. The frontend must not add its own fixed delay or second Steam-start sequence. Do not expose arbitrary environment overrides for variables managed by these launch settings.
 
 When `debugLogging` is true, the backend captures runner stdout and stderr in the local compatibility log directory. Proton and GE-Proton also receive `PROTON_LOG=1`; Wine receives a default `WINEDEBUG` value only when the user has not configured one. Custom values for `PROTON_LOG`, `PROTON_LOG_DIR`, or `SteamGameId` cannot be combined with enabled debug logging because the logger owns those variables. Arbitrary environment values are not copied into the diagnostic report. One latest log set is retained per game.
 
@@ -197,9 +201,11 @@ The source manifest URL is `https://source.taxphobia.top/store.json`. Hydra and 
 | Command | Arguments | Result |
 | --- | --- | --- |
 | `get_steam_details` | `{ steamAppId, refresh }` | `{ details, cachedAt, stale }` |
-| `get_steam_asset` | `{ steamAppId, asset, index? }` | `{ bytes, contentType, stale, cacheWarning }` |
+| `get_steam_asset` | `{ steamAppId, asset, index?, full? }` | `{ bytes, contentType, stale, cacheWarning }` |
 
-Details include name, type, description, developers, publishers, genres, platform flags, release date, and Steam image URLs. Render remote descriptions as text or sanitize HTML before display. Asset kinds are `header`, `capsule`, and `screenshot`; screenshot requires its zero-based `index`. The asset command returns a number array, not a URL or base64 string. Convert it to a `Blob` using `contentType`, create an object URL, and revoke the URL when replaced or unmounted.
+Details include name, type, `shortDescription`, `detailedDescription`, developers, publishers, genres, platform flags, release date, and Steam image URLs. Steam provides the detailed description as HTML. Render it with an allowlist of safe elements and attributes. Older cached details without `detailedDescription` are refreshed on the next request. Asset kinds are `header`, `capsule`, and `screenshot`; screenshot requires its zero-based `index`. The asset command returns a number array, not a URL or base64 string. Convert it to a `Blob` using `contentType`, create an object URL, and revoke the URL when replaced or unmounted.
+
+For screenshots, `full: true` asks the backend for the full-size Steam image when available and falls back to the thumbnail. Header and capsule selection ignore the flag. The cache key distinguishes full screenshots from thumbnails, so fullscreen artwork can coexist with card-sized cached assets.
 
 Cached catalog search, cached Steam details, and the last valid Legio source have app-facing offline read coverage. Steam artwork can return a stale cached image when refresh fails. Preserve those values in the UI and show `stale`, `cacheWarning`, or source warning separately instead of replacing usable content with an error page.
 
@@ -215,10 +221,14 @@ Cached catalog search, cached Steam details, and the last valid Legio source hav
 | `resume_download` | `{ id }` | `void` |
 | `retry_download` | `{ id }` | `void` |
 | `cancel_download` | `{ id }` | `void` |
+| `remove_download` | `{ id }` | `void`; removes a terminal queue row and its queue-owned files |
+| `remove_finished_downloads` | none | removed download IDs; clears `cancelled` and `installed` rows |
 | `set_download_bandwidth_limit` | `{ bytesPerSecond }` | `void`; zero means unlimited. The value persists across application restarts. |
+| `get_download_bandwidth_limit` | none | persisted bytes per second; `0` means unlimited |
 | `stage_download` | `{ id }` | staged directory path |
 | `scan_staged_executables` | `{ id, gameName? }` | `{ candidates: [{ relativePath, score, signals }], selectedRelativePath }` |
 | `finalize_download` | `{ id, executableRelative }` | `void`; creates installed game and library row |
+| `open_installed_folder` | none | `void`; opens Legio's app-owned install directory in the platform file manager |
 
 ```ts
 interface DownloadJob {
@@ -236,6 +246,10 @@ interface DownloadJob {
 ```
 
 Current statuses are `queued`, `downloading`, `waiting`, `paused`, `failed`, `downloaded`, `staging`, `staged`, `finalizing`, `installed`, and `cancelled`. Treat status as an open string for forward compatibility. Typical actions: pause only `queued`/`downloading`/`waiting`; resume `paused`/`waiting`; retry `failed`; cancel active or queued states. The backend enforces valid transitions and reports invalid actions as rejected invokes.
+
+Cancellation only changes the queue status. `remove_download` is the explicit cleanup action and accepts only `cancelled`, `failed`, and `installed`. It removes queue-owned partial/archive/staging files before deleting the row, rejects states that can still progress, preserves unexpected non-directory staging content, and never deletes the finalized installed game. `remove_finished_downloads` clears `cancelled` and `installed` rows while deliberately leaving retryable `failed` rows visible. After either command, reload `list_downloads`.
+
+`get_download_bandwidth_limit` reads the same persisted setting written by `set_download_bandwidth_limit`, so Settings can show the real value after restart. `open_installed_folder` accepts no path from the frontend and only opens Legio's own install root.
 
 `queue_download` requires `acceptUnverified: true` before an unverified source can be queued. Poll `list_downloads` while the queue screen is visible because there is no progress event yet. Refresh the library after a successful `finalize_download`. For install selection, stage the verified archive, call `scan_staged_executables({ id, gameName? })`, let the user select a candidate by `relativePath`, then pass it unchanged as `executableRelative`. Candidate paths use forward slashes on every platform. The command only scans a download whose stored status is `staged` and whose stage path matches the app-owned path. Finalization revalidates the path, containment, and executable file before installing. `stage_download` still returns a path for diagnostics; the UI does not need to inspect it or convert absolute paths.
 
@@ -267,8 +281,7 @@ interface GameLaunchState {
   compatibilityOptions?: {
     runner: string;
     version: string;
-    steamRuntime: "runner_default" | "steam_linux_runtime";
-    steamOverlay: "runner_default" | "enabled" | "disabled";
+    launchViaSteam: boolean;
     graphicsRenderer: "runner_default" | "wine_d3d";
     wayland: "runner_default" | "disabled" | "native";
     debugLogging: boolean;

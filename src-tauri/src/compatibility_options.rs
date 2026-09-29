@@ -3,8 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::database::{
-    AppliedCompatibilityOptions, EffectiveCompatibilityConfig, GraphicsRenderer, SteamOverlayMode,
-    SteamRuntimeMode, WaylandMode,
+    AppliedCompatibilityOptions, EffectiveCompatibilityConfig, GraphicsRenderer, WaylandMode,
 };
 use crate::runner_discovery::{self, InstalledRunner, RunnerKind};
 
@@ -26,22 +25,38 @@ impl PreparedOptions {
         config: &EffectiveCompatibilityConfig,
         runner: &InstalledRunner,
         steam_root: Option<&Path>,
+        launch_via_steam: bool,
     ) -> Result<Self, String> {
         validate(config, runner)?;
+        if launch_via_steam && !matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton) {
+            return Err("Launch via Steam requires a Proton runner".to_owned());
+        }
 
-        let runtime_path = match config.steam_runtime {
-            SteamRuntimeMode::RunnerDefault => None,
-            SteamRuntimeMode::SteamLinuxRuntime => {
-                Some(runner_discovery::steam_runtime_path(runner)?)
+        let runtime_path = if launch_via_steam {
+            match runner_discovery::steam_runtime_path(runner) {
+                Ok(path) => Some(path),
+                Err(error) => {
+                    eprintln!(
+                        "Steam Linux Runtime unavailable, launching Proton directly: {error}"
+                    );
+                    None
+                }
             }
+        } else {
+            None
         };
-        let overlay_libraries = match config.steam_overlay {
-            SteamOverlayMode::Enabled => {
-                Some(load_overlay_libraries(steam_root.ok_or_else(|| {
-                    "Steam overlay was enabled but no Steam installation was found".to_owned()
-                })?)?)
+        let overlay_libraries = if launch_via_steam {
+            let steam_root = steam_root
+                .ok_or_else(|| "Launch via Steam requires a Steam installation".to_owned())?;
+            match load_overlay_libraries(steam_root) {
+                Ok(libraries) => Some(libraries),
+                Err(error) => {
+                    eprintln!("Steam overlay unavailable, launching without it: {error}");
+                    None
+                }
             }
-            SteamOverlayMode::RunnerDefault | SteamOverlayMode::Disabled => None,
+        } else {
+            None
         };
 
         Ok(Self {
@@ -57,12 +72,12 @@ impl PreparedOptions {
     pub(crate) fn diagnostic(
         runner: &InstalledRunner,
         config: &EffectiveCompatibilityConfig,
+        launch_via_steam: bool,
     ) -> AppliedCompatibilityOptions {
         AppliedCompatibilityOptions {
             runner: runner.name.clone(),
             version: runner.version.clone(),
-            steam_runtime: config.steam_runtime,
-            steam_overlay: config.steam_overlay,
+            launch_via_steam,
             graphics_renderer: config.graphics_renderer,
             wayland: config.wayland,
             debug_logging: config.debug_logging,
@@ -124,27 +139,19 @@ impl PreparedOptions {
         command: &mut Command,
         config: &EffectiveCompatibilityConfig,
     ) -> Result<(), String> {
-        match config.steam_overlay {
-            SteamOverlayMode::RunnerDefault => {}
-            SteamOverlayMode::Enabled => {
-                let libraries = self
-                    .overlay_libraries
-                    .as_ref()
-                    .ok_or_else(|| "Steam overlay libraries were not prepared".to_owned())?;
-                let preload = overlay_preload(&config.environment, libraries)?;
-                command
-                    .env("LD_PRELOAD", preload)
-                    .env(STEAM_OVERLAY_LAYER, "1")
-                    .env(STEAM_OVERLAY_GAME_ID, "480");
-            }
-            SteamOverlayMode::Disabled => {
-                command.env(STEAM_OVERLAY_LAYER, "0");
-                command.env_remove(STEAM_OVERLAY_GAME_ID);
-                if let Some(preload) = preload_without_overlay(&config.environment)? {
-                    command.env("LD_PRELOAD", preload);
-                } else {
-                    command.env_remove("LD_PRELOAD");
-                }
+        if let Some(libraries) = self.overlay_libraries.as_ref() {
+            let preload = overlay_preload(&config.environment, libraries)?;
+            command
+                .env("LD_PRELOAD", preload)
+                .env(STEAM_OVERLAY_LAYER, "1")
+                .env(STEAM_OVERLAY_GAME_ID, "480");
+        } else {
+            command.env(STEAM_OVERLAY_LAYER, "0");
+            command.env_remove(STEAM_OVERLAY_GAME_ID);
+            if let Some(preload) = preload_without_overlay(&config.environment)? {
+                command.env("LD_PRELOAD", preload);
+            } else {
+                command.env_remove("LD_PRELOAD");
             }
         }
         Ok(())
@@ -184,25 +191,11 @@ fn validate(config: &EffectiveCompatibilityConfig, runner: &InstalledRunner) -> 
     }
 
     let uses_proton = matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton);
-    if config.steam_runtime == SteamRuntimeMode::SteamLinuxRuntime && !uses_proton {
-        return Err("Steam Linux Runtime requires a Proton runner".to_owned());
-    }
     if config.graphics_renderer == GraphicsRenderer::WineD3d && !uses_proton {
         return Err("WineD3D selection requires a Proton runner".to_owned());
     }
-    if config.steam_overlay == SteamOverlayMode::Enabled && !uses_proton {
-        return Err("Steam overlay integration requires a Proton runner".to_owned());
-    }
     if config.wayland != WaylandMode::RunnerDefault && runner.kind != RunnerKind::GeProton {
         return Err("Native Wayland selection requires a GE-Proton runner".to_owned());
-    }
-    if config.steam_overlay == SteamOverlayMode::Enabled
-        && config
-            .environment
-            .get("LD_PRELOAD")
-            .is_some_and(|value| !value.trim().is_empty())
-    {
-        return Err("Steam overlay cannot be combined with a custom LD_PRELOAD value".to_owned());
     }
     Ok(())
 }
@@ -315,7 +308,7 @@ mod tests {
             ..EffectiveCompatibilityConfig::default()
         };
         let prepared =
-            PreparedOptions::prepare(&config, &runner(RunnerKind::GeProton), None).unwrap();
+            PreparedOptions::prepare(&config, &runner(RunnerKind::GeProton), None, false).unwrap();
         let mut command = Command::new("/usr/bin/env");
         prepared.apply(&mut command, &config).unwrap();
         let output = command.output().unwrap();
@@ -341,7 +334,7 @@ mod tests {
             ..EffectiveCompatibilityConfig::default()
         };
         let runner = runner(RunnerKind::Proton);
-        let prepared = PreparedOptions::prepare(&config, &runner, None).unwrap();
+        let prepared = PreparedOptions::prepare(&config, &runner, None, false).unwrap();
         let mut command = Command::new("/usr/bin/env");
         prepared.apply(&mut command, &config).unwrap();
         PreparedOptions::apply_debug_logging(&mut command, &config, &runner, &log_directory);
@@ -363,7 +356,7 @@ mod tests {
             debug_logging: true,
             ..EffectiveCompatibilityConfig::default()
         };
-        let prepared = PreparedOptions::prepare(&config, &runner, None).unwrap();
+        let prepared = PreparedOptions::prepare(&config, &runner, None, false).unwrap();
         let mut command = Command::new("/usr/bin/env");
         prepared.apply(&mut command, &config).unwrap();
         PreparedOptions::apply_debug_logging(&mut command, &config, &runner, Path::new("/logs"));
@@ -376,7 +369,7 @@ mod tests {
         config
             .environment
             .insert("WINEDEBUG".to_owned(), "+seh".to_owned());
-        let prepared = PreparedOptions::prepare(&config, &runner, None).unwrap();
+        let prepared = PreparedOptions::prepare(&config, &runner, None, false).unwrap();
         let mut command = Command::new("/usr/bin/env");
         prepared.apply(&mut command, &config).unwrap();
         PreparedOptions::apply_debug_logging(&mut command, &config, &runner, Path::new("/logs"));
@@ -396,21 +389,22 @@ mod tests {
             environment,
             ..EffectiveCompatibilityConfig::default()
         };
-        let error =
-            PreparedOptions::prepare(&config, &runner(RunnerKind::Proton), None).unwrap_err();
+        let error = PreparedOptions::prepare(&config, &runner(RunnerKind::Proton), None, false)
+            .unwrap_err();
         assert!(error.contains("PROTON_LOG_DIR is managed by debug logging"));
     }
 
     #[test]
-    fn overlay_options_use_verified_libraries_and_update_preload() {
+    fn launch_via_steam_uses_verified_overlay_libraries() {
         let steam_root = overlay_root();
-        let config = EffectiveCompatibilityConfig {
-            steam_overlay: SteamOverlayMode::Enabled,
-            ..EffectiveCompatibilityConfig::default()
-        };
-        let prepared =
-            PreparedOptions::prepare(&config, &runner(RunnerKind::Proton), Some(&steam_root))
-                .unwrap();
+        let config = EffectiveCompatibilityConfig::default();
+        let prepared = PreparedOptions::prepare(
+            &config,
+            &runner(RunnerKind::Proton),
+            Some(&steam_root),
+            true,
+        )
+        .unwrap();
         let mut command = Command::new("/usr/bin/env");
         prepared.apply(&mut command, &config).unwrap();
         let environment = command
@@ -440,7 +434,7 @@ mod tests {
     }
 
     #[test]
-    fn disabling_overlay_clears_overlay_environment_and_preload() {
+    fn launch_without_steam_clears_overlay_environment_and_preload() {
         let mut environment = BTreeMap::new();
         environment.insert(
             "LD_PRELOAD".to_owned(),
@@ -448,11 +442,10 @@ mod tests {
         );
         let config = EffectiveCompatibilityConfig {
             environment,
-            steam_overlay: SteamOverlayMode::Disabled,
             ..EffectiveCompatibilityConfig::default()
         };
         let prepared =
-            PreparedOptions::prepare(&config, &runner(RunnerKind::Proton), None).unwrap();
+            PreparedOptions::prepare(&config, &runner(RunnerKind::Proton), None, false).unwrap();
         let mut command = Command::new("/usr/bin/env");
         prepared.apply(&mut command, &config).unwrap();
         let environment = command
@@ -483,8 +476,8 @@ mod tests {
             environment,
             ..EffectiveCompatibilityConfig::default()
         };
-        let error =
-            PreparedOptions::prepare(&config, &runner(RunnerKind::GeProton), None).unwrap_err();
+        let error = PreparedOptions::prepare(&config, &runner(RunnerKind::GeProton), None, false)
+            .unwrap_err();
         assert!(error.contains("managed by the typed launch options"));
     }
 
@@ -494,60 +487,56 @@ mod tests {
             wayland: WaylandMode::Native,
             ..EffectiveCompatibilityConfig::default()
         };
-        let error =
-            PreparedOptions::prepare(&config, &runner(RunnerKind::Proton), None).unwrap_err();
+        let error = PreparedOptions::prepare(&config, &runner(RunnerKind::Proton), None, false)
+            .unwrap_err();
         assert!(error.contains("requires a GE-Proton runner"));
     }
 
     #[test]
-    fn proton_only_settings_are_rejected_for_wine() {
-        for config in [
-            EffectiveCompatibilityConfig {
-                steam_runtime: SteamRuntimeMode::SteamLinuxRuntime,
-                ..EffectiveCompatibilityConfig::default()
-            },
-            EffectiveCompatibilityConfig {
-                steam_overlay: SteamOverlayMode::Enabled,
-                ..EffectiveCompatibilityConfig::default()
-            },
-            EffectiveCompatibilityConfig {
-                graphics_renderer: GraphicsRenderer::WineD3d,
-                ..EffectiveCompatibilityConfig::default()
-            },
-        ] {
-            let error =
-                PreparedOptions::prepare(&config, &runner(RunnerKind::Wine), None).unwrap_err();
-            assert!(error.contains("requires a Proton runner"));
-        }
+    fn wine_d3d_is_rejected_for_wine() {
+        let config = EffectiveCompatibilityConfig {
+            graphics_renderer: GraphicsRenderer::WineD3d,
+            ..EffectiveCompatibilityConfig::default()
+        };
+        let error =
+            PreparedOptions::prepare(&config, &runner(RunnerKind::Wine), None, false).unwrap_err();
+        assert!(error.contains("requires a Proton runner"));
     }
 
     #[test]
-    fn custom_preload_and_overlay_fail_with_a_clear_diagnostic() {
+    fn launch_via_steam_preserves_custom_preload() {
         let root = overlay_root();
         let mut environment = BTreeMap::new();
         environment.insert("LD_PRELOAD".to_owned(), "/opt/custom.so".to_owned());
         let config = EffectiveCompatibilityConfig {
             environment,
-            steam_overlay: SteamOverlayMode::Enabled,
             ..EffectiveCompatibilityConfig::default()
         };
-        let error = PreparedOptions::prepare(&config, &runner(RunnerKind::GeProton), Some(&root))
-            .unwrap_err();
-        assert!(error.contains("custom LD_PRELOAD"));
+        let prepared =
+            PreparedOptions::prepare(&config, &runner(RunnerKind::GeProton), Some(&root), true)
+                .unwrap();
+        let mut command = Command::new("/usr/bin/env");
+        prepared.apply(&mut command, &config).unwrap();
+        let preload = command
+            .get_envs()
+            .find(|(key, _)| *key == "LD_PRELOAD")
+            .and_then(|(_, value)| value)
+            .unwrap()
+            .to_string_lossy();
+        assert!(preload.contains("/opt/custom.so"));
+        assert!(preload.contains("gameoverlayrenderer.so"));
         fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn missing_overlay_library_fails_before_process_start() {
+    fn launch_via_steam_continues_without_missing_overlay_libraries() {
         let root = test_dir("missing-overlay");
         fs::create_dir_all(&root).unwrap();
-        let config = EffectiveCompatibilityConfig {
-            steam_overlay: SteamOverlayMode::Enabled,
-            ..EffectiveCompatibilityConfig::default()
-        };
-        let error = PreparedOptions::prepare(&config, &runner(RunnerKind::GeProton), Some(&root))
-            .unwrap_err();
-        assert!(error.contains("renderer library is unavailable"));
+        let config = EffectiveCompatibilityConfig::default();
+        let prepared =
+            PreparedOptions::prepare(&config, &runner(RunnerKind::GeProton), Some(&root), true)
+                .unwrap();
+        assert!(prepared.overlay_libraries.is_none());
         fs::remove_dir_all(root).unwrap();
     }
 }
