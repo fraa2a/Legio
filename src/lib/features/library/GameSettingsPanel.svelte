@@ -5,6 +5,7 @@
     emptyGameCompatibilityOverrides,
     getCompatibilityDefaults,
     getGameCompatibilityOverrides,
+    getGameOnlineFixDetected,
     getNativeLaunchConfig,
     listCompatibilityRunners,
     saveGameCompatibilityOverrides,
@@ -28,6 +29,7 @@
   let { game, section }: { game: Game; section: "locations" | "launch" | "compatibility" } = $props();
 
   let overrides = $state<GameCompatibilityOverrides>({ ...emptyGameCompatibilityOverrides });
+  let onlineFixDetected = $state(false);
   let defaults = $state<CompatibilityDefaults | null>(null);
   let runners = $state<{ kind: string; name: string; version: string; path: string }[]>([]);
   let runnerDiagnostics = $state<string[]>([]);
@@ -60,10 +62,11 @@
     }
     const platform = $appInfo.data.platform;
     if (platform === "linux") {
-      const [overrideResult, defaultsResult, runnersResult] = await Promise.allSettled([
+      const [overrideResult, defaultsResult, runnersResult, onlineFixResult] = await Promise.allSettled([
         getGameCompatibilityOverrides(game.id),
         getCompatibilityDefaults(),
         listCompatibilityRunners(),
+        section === "compatibility" ? getGameOnlineFixDetected(game.id) : Promise.resolve(false),
       ]);
       if (overrideResult.status === "fulfilled") {
         overrides = overrideResult.value;
@@ -82,6 +85,8 @@
       } else if (loadError === null) {
         loadError = toMessage(runnersResult.reason);
       }
+      if (onlineFixResult.status === "fulfilled") onlineFixDetected = onlineFixResult.value;
+      else if (loadError === null) loadError = toMessage(onlineFixResult.reason);
     } else if (platform === "windows") {
       try {
         nativeConfig = await getNativeLaunchConfig(game.id);
@@ -357,10 +362,12 @@
     </div>
 
     <label class="flex items-center gap-2 text-sm text-zinc-200 light:text-zinc-800">
-      <input type="checkbox" class="size-4 accent-white" checked={overrides.onlineFix ?? false}
-        onchange={(event) => setOverride("onlineFix", event.currentTarget.checked)} />
+      <input type="checkbox" class="size-4 accent-white"
+        checked={overrides.onlineFix ?? onlineFixDetected}
+        onchange={(event) => setOverride("onlineFix", event.currentTarget.checked ? (onlineFixDetected ? null : true) : false)} />
       Avvia con OnlineFix
     </label>
+    {#if onlineFixDetected}<p class="text-xs text-zinc-500">OnlineFix.dll rilevato nella cartella del gioco.</p>{/if}
 
     <div class="grid gap-4 md:grid-cols-2">
       <SelectField id="game-compat-renderer" label="Renderer grafico" value={overrides.graphicsRenderer ?? "inherit"} options={[{ value: "inherit", label: "Eredita default" }, { value: "runner_default", label: "Predefinito del runner" }, { value: "wine_d3d", label: "WineD3D" }]} onChange={setGraphicsRenderer} />

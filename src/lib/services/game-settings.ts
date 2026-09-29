@@ -94,6 +94,10 @@ export function getGameCompatibilityOverrides(gameId: string): Promise<GameCompa
   return invoke<GameCompatibilityOverrides>("get_game_compatibility_overrides", { gameId });
 }
 
+export function getGameOnlineFixDetected(gameId: string): Promise<boolean> {
+  return invoke<boolean>("get_game_online_fix_detected", { gameId });
+}
+
 export function saveGameCompatibilityOverrides(
   gameId: string,
   overrides: GameCompatibilityOverrides,

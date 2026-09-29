@@ -26,6 +26,7 @@ pub mod legio_source;
 mod legio_source_cache;
 mod manual_import;
 mod network;
+mod online_fix;
 mod pe_icons;
 mod runner_discovery;
 mod startup;
@@ -212,6 +213,7 @@ pub fn run() -> tauri::Result<()> {
             commands::get_compatibility_defaults,
             commands::save_compatibility_defaults,
             commands::get_game_compatibility_overrides,
+            commands::get_game_online_fix_detected,
             commands::save_game_compatibility_overrides,
             commands::get_native_launch_config,
             commands::save_native_launch_config,

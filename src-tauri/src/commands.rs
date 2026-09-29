@@ -107,6 +107,20 @@ pub fn get_game_compatibility_overrides(
 }
 
 #[tauri::command]
+pub async fn get_game_online_fix_detected(
+    state: State<'_, DatabaseState>,
+    game_id: String,
+) -> Result<bool, String> {
+    let database = state.shared_database()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let game = database.game(&game_id)?;
+        crate::online_fix::detected(&database, &game)
+    })
+    .await
+    .map_err(|error| format!("OnlineFix detection task failed: {error}"))?
+}
+
+#[tauri::command]
 pub fn get_native_launch_config(
     state: State<'_, DatabaseState>,
     game_id: String,

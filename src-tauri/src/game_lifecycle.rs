@@ -418,7 +418,7 @@ impl GameLaunchManager {
         &self,
         app: AppHandle<R>,
         game_id: String,
-        config: EffectiveCompatibilityConfig,
+        mut config: EffectiveCompatibilityConfig,
         resolve_runner: impl FnOnce(&str) -> Result<runner_discovery::InstalledRunner, String>,
     ) -> Result<(), String> {
         let database = app.state::<DatabaseState>().shared_database()?;
@@ -426,8 +426,8 @@ impl GameLaunchManager {
         if game.steam_install_path.is_some() {
             return Err("Compatibility runners can only launch manually imported games".to_owned());
         }
-        let launch_via_steam = database
-            .game_compatibility_overrides(&game_id)?
+        let overrides = database.game_compatibility_overrides(&game_id)?;
+        let launch_via_steam = overrides
             .launch_via_steam
             .unwrap_or(game.steam_app_id.is_some());
         if launch_via_steam && game.steam_app_id.is_none() {
@@ -446,6 +446,16 @@ impl GameLaunchManager {
         {
             return Err("Selected file is not a Windows executable".to_owned());
         }
+        let detected_online_fix = if overrides.online_fix.is_some() {
+            false
+        } else {
+            crate::online_fix::detected(&database, &game)?
+        };
+        config.online_fix = crate::online_fix::enabled(
+            game.steam_install_path.is_some(),
+            overrides.online_fix,
+            detected_online_fix,
+        );
         let runner_path = config
             .runner_path
             .as_deref()
