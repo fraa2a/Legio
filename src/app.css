@@ -1,1 +1,76 @@
 @import "tailwindcss";
+
+@custom-variant light (&:where([data-theme="light"], [data-theme="light"] *));
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-legio-download: #2563eb;
+  --color-legio-download-hover: #1d4ed8;
+  --color-legio-play: #008038;
+  --color-legio-play-hover: #006b2b;
+  --color-legio-launching: #a16207;
+  --color-legio-launching-hover: #854d0e;
+  --color-legio-running: #b91c1c;
+  --color-legio-running-hover: #991b1b;
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("./assets/fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("./assets/fonts/InterVariable-Italic.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+body {
+  background-color: #000;
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+html[data-theme="light"] body {
+  background-color: #e4e4e7;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --legio-focus: #fafafa;
+  }
+
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --legio-focus: #18181b;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--legio-focus);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

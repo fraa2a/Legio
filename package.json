@@ -14,7 +14,8 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.0.0"
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.7.3"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.0.0",

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use rusqlite::{Transaction, TransactionBehavior, params};
 use serde::Serialize;
 use uuid::Uuid;
@@ -36,6 +38,10 @@ fn import_scan(database: &Database, scan: SteamScan) -> Result<SteamImportResult
             removed: 0,
             diagnostics: scan.diagnostics,
         };
+        let mut scanned_counts = HashMap::new();
+        for game in &scan.games {
+            *scanned_counts.entry(game.app_id).or_insert(0usize) += 1;
+        }
         {
             let mut remove = transaction
                 .prepare("DELETE FROM games WHERE steam_app_id = ?1 AND automatic_name = ?2 AND steam_install_path = ?3 AND name_override IS NULL AND steam_account_id IS NULL AND executable_path IS NULL")
@@ -46,7 +52,10 @@ fn import_scan(database: &Database, scan: SteamScan) -> Result<SteamImportResult
                 }
             }
             let mut count = transaction
-                .prepare("SELECT COUNT(*) FROM games WHERE steam_app_id = ?1 AND executable_path IS NULL")
+                .prepare("SELECT COUNT(*) FROM games WHERE steam_app_id = ?1 AND steam_install_path IS NOT NULL AND executable_path IS NULL")
+                .map_err(database_error)?;
+            let mut matching_path = transaction
+                .prepare("SELECT COUNT(*) FROM games WHERE steam_app_id = ?1 AND steam_install_path = ?2 AND executable_path IS NULL")
                 .map_err(database_error)?;
             let mut insert = transaction
                 .prepare(
@@ -57,9 +66,12 @@ fn import_scan(database: &Database, scan: SteamScan) -> Result<SteamImportResult
             let mut update = transaction
                 .prepare(
                     "UPDATE games SET automatic_name = ?2, steam_install_path = ?3
-                     WHERE steam_app_id = ?1 AND executable_path IS NULL
-                       AND (automatic_name IS NOT ?2 OR steam_install_path IS NOT ?3)",
+                     WHERE steam_app_id = ?1 AND executable_path IS NULL AND steam_install_path = ?3
+                       AND automatic_name IS NOT ?2",
                 )
+                .map_err(database_error)?;
+            let mut move_single = transaction
+                .prepare("UPDATE games SET automatic_name = ?2, steam_install_path = ?3 WHERE steam_app_id = ?1 AND steam_install_path IS NOT NULL AND executable_path IS NULL AND (automatic_name IS NOT ?2 OR steam_install_path IS NOT ?3)")
                 .map_err(database_error)?;
             for game in scan.games {
                 let name = required_name(game.name, "automatic name")?;
@@ -68,22 +80,19 @@ fn import_scan(database: &Database, scan: SteamScan) -> Result<SteamImportResult
                     .map_err(database_error)?;
                 let existing = usize::try_from(existing)
                     .map_err(|_| "local database game count exceeds platform limits".to_owned())?;
-                if existing == 0 {
-                    insert
-                        .execute(params![
-                            Uuid::new_v4().to_string(),
-                            game.app_id,
-                            name,
-                            game.install_path
-                        ])
-                        .map_err(database_error)?;
-                    result.inserted += 1;
-                } else {
-                    let changed = update
-                        .execute(params![game.app_id, name, game.install_path])
-                        .map_err(database_error)?;
+                let path_matches: i64 = matching_path.query_row(params![game.app_id, game.install_path], |row| row.get(0)).map_err(database_error)?;
+                let path_matches = usize::try_from(path_matches).map_err(|_| "local database game count exceeds platform limits".to_owned())?;
+                if path_matches > 0 {
+                    let changed = update.execute(params![game.app_id, name, game.install_path]).map_err(database_error)?;
                     result.updated += changed;
-                    result.unchanged += existing - changed;
+                    result.unchanged += path_matches - changed;
+                } else if existing == 1 && scanned_counts[&game.app_id] == 1 {
+                    let changed = move_single.execute(params![game.app_id, name, game.install_path]).map_err(database_error)?;
+                    result.updated += changed;
+                    result.unchanged += 1 - changed;
+                } else {
+                    insert.execute(params![Uuid::new_v4().to_string(), game.app_id, name, game.install_path]).map_err(database_error)?;
+                    result.inserted += 1;
                 }
             }
         }
@@ -179,12 +188,17 @@ mod tests {
                 first.updated,
                 first.unchanged
             ),
-            (2, 1, 1, 0)
+            (2, 2, 0, 0)
         );
         let initial = database.games().unwrap();
-        let portal = initial.iter().find(|game| game.id == manual.id).unwrap();
-        assert_eq!(portal.name, "My Portal");
-        assert_eq!(portal.automatic_name.as_deref(), Some("Portal"));
+        assert_eq!(
+            initial.iter().find(|game| game.id == manual.id).unwrap(),
+            &manual
+        );
+        let portal = initial
+            .iter()
+            .find(|game| game.steam_app_id == Some(400) && game.steam_install_path.is_some())
+            .unwrap();
         assert_eq!(
             portal.steam_install_path.as_deref(),
             fixture
@@ -212,8 +226,12 @@ mod tests {
             (0, 1, 1)
         );
         let games = database.games().unwrap();
-        let portal = games.iter().find(|game| game.id == manual.id).unwrap();
-        assert_eq!(portal.name, "My Portal");
+        assert_eq!(
+            games.iter().find(|game| game.id == manual.id).unwrap(),
+            &manual
+        );
+        let portal = games.iter().find(|game| game.id == portal.id).unwrap();
+        assert_eq!(portal.name, "Portal refreshed");
         assert_eq!(portal.automatic_name.as_deref(), Some("Portal refreshed"));
         assert!(
             std::path::Path::new(portal.steam_install_path.as_deref().unwrap())
@@ -282,6 +300,36 @@ mod tests {
     }
 
     #[test]
+    fn steam_scan_keeps_multiple_locations_for_one_app_id() {
+        let fixture = Fixture::new();
+        let database = Database::open(&fixture.0).unwrap();
+        let scan = SteamScan {
+            games: ["/games/Portal", "/games/Portal-mod"]
+                .into_iter()
+                .map(|path| steam_local::InstalledSteamGame {
+                    app_id: 400,
+                    name: "Portal".to_owned(),
+                    install_dir: "Portal".to_owned(),
+                    install_path: path.to_owned(),
+                })
+                .collect(),
+            diagnostics: vec![],
+            excluded_non_games: vec![],
+        };
+        let first = import_scan(&database, scan.clone()).unwrap();
+        assert_eq!((first.inserted, first.updated), (2, 0));
+        let games = database.games().unwrap();
+        assert_eq!(games.len(), 2);
+        assert_ne!(games[0].id, games[1].id);
+        let second = import_scan(&database, scan).unwrap();
+        assert_eq!(
+            (second.inserted, second.updated, second.unchanged),
+            (0, 0, 2)
+        );
+        assert_eq!(database.games().unwrap(), games);
+    }
+
+    #[test]
     fn removes_only_unchanged_automatic_rows_for_non_games() {
         let fixture = Fixture::new();
         fixture.install(1, "Game", "Game");
@@ -339,7 +387,7 @@ mod tests {
     }
 
     #[test]
-    fn refreshes_all_duplicate_matches_without_merging_manual_rows() {
+    fn imports_steam_install_without_changing_duplicate_manual_rows() {
         let fixture = Fixture::new();
         fixture.install(400, "Portal", "Portal");
         let database = Database::open(&fixture.0).unwrap();
@@ -357,16 +405,23 @@ mod tests {
         let result = import_scan(&database, fixture.scan()).unwrap();
         assert_eq!(
             (result.detected, result.inserted, result.updated),
-            (1, 0, 2)
+            (1, 1, 0)
         );
         let games = database.games().unwrap();
-        assert_eq!(games.len(), 2);
+        assert_eq!(games.len(), 3);
         for original in originals {
             let game = games.iter().find(|game| game.id == original.id).unwrap();
             assert_eq!(game.name, original.name);
             assert_eq!(game.name_override, original.name_override);
-            assert_eq!(game.automatic_name.as_deref(), Some("Portal"));
+            assert_eq!(game.automatic_name.as_deref(), None);
         }
+        assert_eq!(
+            games
+                .iter()
+                .filter(|game| game.steam_install_path.is_some())
+                .count(),
+            1
+        );
     }
 
     #[test]

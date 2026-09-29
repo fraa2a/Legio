@@ -7,13 +7,15 @@ export interface SourceEntry {
   download: { url: string; sha256: string; sizeBytes: number };
 }
 
+export interface SourceManifest {
+  schemaVersion: number;
+  generatedAt: string;
+  verified: SourceEntry[];
+  unverified: SourceEntry[];
+}
+
 export interface SourceSnapshot {
-  manifest: {
-    schemaVersion: number;
-    generatedAt: string;
-    verified: SourceEntry[];
-    unverified: SourceEntry[];
-  } | null;
+  manifest: SourceManifest | null;
   cachedAt: number | null;
   stale: boolean;
   warning: string | null;

@@ -18,7 +18,11 @@ pub(crate) fn create(
     {
         linux::create(game, location, icon_path)
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    {
+        windows::create(game, location, icon_path)
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
     {
         let _ = (game, location, icon_path);
         Err("Game shortcuts are supported on Linux only".to_owned())
@@ -30,10 +34,303 @@ pub(crate) fn remove(game_id: &str) -> Result<(), String> {
     {
         linux::remove(game_id)
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    {
+        windows::remove(game_id)
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
     {
         let _ = game_id;
         Ok(())
+    }
+}
+
+pub(crate) fn steam_shortcut_arguments(game: &Game) -> Result<Option<Vec<String>>, String> {
+    #[cfg(target_os = "linux")]
+    {
+        linux::steam_shortcut_arguments(game)
+    }
+    #[cfg(windows)]
+    {
+        windows::steam_shortcut_arguments(game)
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
+    {
+        let _ = game;
+        Ok(None)
+    }
+}
+
+pub(crate) fn remove_steam_shortcuts(game: &Game) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        linux::remove_steam_shortcuts(game)
+    }
+    #[cfg(windows)]
+    {
+        windows::remove_steam_shortcuts(game)
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
+    {
+        let _ = game;
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+mod windows {
+    use super::{Game, PathBuf, ShortcutLocation};
+    use serde::Deserialize;
+    use std::{path::Path, process::Command};
+
+    const STEAM_SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+$id = $env:LEGIO_STEAM_APP_ID
+$shell = New-Object -ComObject WScript.Shell
+$desktop = [Environment]::GetFolderPath('DesktopDirectory')
+$programs = [Environment]::GetFolderPath('Programs')
+$folders = @($desktop, $programs, (Join-Path $programs 'Steam'))
+$found = @()
+foreach ($folder in $folders) {
+  if (-not [IO.Directory]::Exists($folder)) { continue }
+  foreach ($path in [IO.Directory]::EnumerateFiles($folder)) {
+    $extension = [IO.Path]::GetExtension($path).ToLowerInvariant()
+    $arguments = $null
+    try {
+      if ($extension -eq '.url') {
+        foreach ($line in (Get-Content -LiteralPath $path)) {
+          if ($line -match ('^URL=steam://rungameid/' + $id + '(?://(.*))?$')) {
+            $arguments = if ($Matches[1]) { [Uri]::UnescapeDataString($Matches[1]) } else { '' }
+            break
+          }
+        }
+      } elseif ($extension -eq '.lnk') {
+        $link = $shell.CreateShortcut($path)
+        if ([IO.Path]::GetFileName($link.TargetPath) -ieq 'steam.exe' -and $link.Arguments -match ('(?i)(?:^|\s)-applaunch\s+' + $id + '(?:\s+(.*))?$')) {
+          $arguments = $Matches[1]
+        }
+      }
+    } catch { continue }
+    if ($null -ne $arguments) {
+      if ($env:LEGIO_STEAM_ACTION -eq 'remove') { [IO.File]::Delete($path) }
+      else { $found += @{ path = $path; arguments = $arguments } }
+    }
+  }
+}
+if ($env:LEGIO_STEAM_ACTION -ne 'remove') { [Console]::Out.Write((ConvertTo-Json -InputObject @($found) -Compress)) }
+"#;
+
+    #[derive(Deserialize)]
+    struct SteamShortcut {
+        arguments: String,
+    }
+
+    fn split_arguments(value: &str) -> Result<Vec<String>, String> {
+        let mut arguments = Vec::new();
+        let mut current = String::new();
+        let mut quoted = false;
+        let mut started = false;
+        let mut chars = value.chars().peekable();
+        while let Some(character) = chars.next() {
+            if character == '\\' {
+                let mut count = 1;
+                while chars.peek() == Some(&'\\') {
+                    chars.next();
+                    count += 1;
+                }
+                if chars.peek() == Some(&'"') {
+                    for _ in 0..count / 2 {
+                        current.push('\\');
+                    }
+                    chars.next();
+                    if count % 2 == 0 {
+                        quoted = !quoted;
+                    } else {
+                        current.push('"');
+                    }
+                } else {
+                    for _ in 0..count {
+                        current.push('\\');
+                    }
+                }
+                started = true;
+            } else if character == '"' {
+                quoted = !quoted;
+                started = true;
+            } else if character.is_whitespace() && !quoted {
+                if started {
+                    arguments.push(std::mem::take(&mut current));
+                    started = false;
+                }
+            } else {
+                current.push(character);
+                started = true;
+            }
+        }
+        if quoted {
+            return Err("Steam shortcut has malformed launch arguments".to_owned());
+        }
+        if started {
+            arguments.push(current);
+        }
+        Ok(arguments)
+    }
+
+    const CREATE_SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+$folder = if ($env:LEGIO_LINK_LOCATION -eq 'desktop') { [Environment]::GetFolderPath('DesktopDirectory') } else { [Environment]::GetFolderPath('Programs') }
+if (-not $folder) { throw 'Shortcut folder is unavailable' }
+if ($env:LEGIO_LINK_LOCATION -ne 'desktop') { $folder = Join-Path $folder 'Legio' }
+[IO.Directory]::CreateDirectory($folder) | Out-Null
+$path = Join-Path $folder ($env:LEGIO_LINK_NAME + '.lnk')
+$shell = New-Object -ComObject WScript.Shell
+if ([IO.File]::Exists($path)) {
+  $old = $shell.CreateShortcut($path)
+  if ($old.Description -ne ('Legio game ' + $env:LEGIO_GAME_ID)) { throw 'Refusing to replace a shortcut not owned by Legio' }
+}
+$link = $shell.CreateShortcut($path)
+$link.TargetPath = $env:LEGIO_LAUNCHER
+$link.Arguments = '--launch-game=' + $env:LEGIO_GAME_ID
+$link.Description = 'Legio game ' + $env:LEGIO_GAME_ID
+if ($env:LEGIO_LINK_ICON) { $link.IconLocation = $env:LEGIO_LINK_ICON }
+$link.Save()
+[Console]::Out.Write($path)
+"#;
+
+    const REMOVE_SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+$shell = New-Object -ComObject WScript.Shell
+foreach ($base in @([Environment]::GetFolderPath('DesktopDirectory'), [Environment]::GetFolderPath('Programs'))) {
+  foreach ($folder in @($base, (Join-Path $base 'Legio'))) {
+    if (-not [IO.Directory]::Exists($folder)) { continue }
+    foreach ($path in [IO.Directory]::EnumerateFiles($folder, '*.lnk')) {
+      $link = $shell.CreateShortcut($path)
+      if ($link.Description -eq ('Legio game ' + $env:LEGIO_GAME_ID)) { [IO.File]::Delete($path) }
+    }
+  }
+}
+"#;
+
+    fn run(script: &str, variables: &[(&str, &str)]) -> Result<String, String> {
+        let mut command = Command::new("powershell.exe");
+        command.args(["-NoProfile", "-NonInteractive", "-Command", script]);
+        for (key, value) in variables {
+            command.env(key, value);
+        }
+        let output = command
+            .output()
+            .map_err(|error| format!("Could not start Windows shortcut service: {error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "Windows shortcut service failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        String::from_utf8(output.stdout)
+            .map_err(|error| format!("Windows shortcut path is not UTF-8: {error}"))
+    }
+
+    pub(super) fn create(
+        game: &Game,
+        location: ShortcutLocation,
+        icon: Option<&Path>,
+    ) -> Result<PathBuf, String> {
+        let id = uuid::Uuid::parse_str(&game.id)
+            .map_err(|_| "Game ID is invalid".to_owned())?
+            .to_string();
+        if game.steam_install_path.is_none() {
+            let executable = game
+                .executable_path
+                .as_deref()
+                .ok_or_else(|| "Select an executable first".to_owned())?;
+            if !Path::new(executable).is_file() {
+                return Err("Game executable is unavailable".to_owned());
+            }
+        }
+        let launcher = std::env::current_exe()
+            .map_err(|error| format!("Could not find Legio executable: {error}"))?;
+        let launcher = launcher
+            .to_str()
+            .ok_or_else(|| "Legio executable path is not UTF-8".to_owned())?;
+        let name = game
+            .name
+            .chars()
+            .map(|character| {
+                if "<>:\"/\\|?*".contains(character) || character.is_control() {
+                    '_'
+                } else {
+                    character
+                }
+            })
+            .collect::<String>();
+        let name = format!("{} - {}", name.trim().trim_end_matches('.'), &id[..8]);
+        let icon = icon.and_then(Path::to_str).unwrap_or(launcher);
+        let path = run(
+            CREATE_SCRIPT,
+            &[
+                (
+                    "LEGIO_LINK_LOCATION",
+                    match location {
+                        ShortcutLocation::Desktop => "desktop",
+                        ShortcutLocation::ApplicationsMenu => "menu",
+                    },
+                ),
+                ("LEGIO_LINK_NAME", &name),
+                ("LEGIO_GAME_ID", &id),
+                ("LEGIO_LAUNCHER", launcher),
+                ("LEGIO_LINK_ICON", icon),
+            ],
+        )?;
+        Ok(PathBuf::from(path))
+    }
+
+    pub(super) fn remove(game_id: &str) -> Result<(), String> {
+        let id = uuid::Uuid::parse_str(game_id)
+            .map_err(|_| "Game ID is invalid".to_owned())?
+            .to_string();
+        run(REMOVE_SCRIPT, &[("LEGIO_GAME_ID", &id)]).map(|_| ())
+    }
+
+    pub(super) fn steam_shortcut_arguments(game: &Game) -> Result<Option<Vec<String>>, String> {
+        let id = game
+            .steam_app_id
+            .ok_or_else(|| "Steam game has no App ID".to_owned())?
+            .to_string();
+        let output = run(
+            STEAM_SCRIPT,
+            &[("LEGIO_STEAM_APP_ID", &id), ("LEGIO_STEAM_ACTION", "scan")],
+        )?;
+        let shortcuts: Vec<SteamShortcut> = serde_json::from_str(&output)
+            .map_err(|error| format!("Could not read Steam shortcuts: {error}"))?;
+        let mut found = None;
+        for shortcut in shortcuts {
+            let arguments = split_arguments(&shortcut.arguments)?;
+            if arguments.is_empty() {
+                continue;
+            }
+            if found
+                .as_ref()
+                .is_some_and(|previous| previous != &arguments)
+            {
+                return Err("Existing Steam shortcuts have different launch arguments".to_owned());
+            }
+            found = Some(arguments);
+        }
+        Ok(found)
+    }
+    pub(super) fn remove_steam_shortcuts(game: &Game) -> Result<(), String> {
+        let id = game
+            .steam_app_id
+            .ok_or_else(|| "Steam game has no App ID".to_owned())?
+            .to_string();
+        run(
+            STEAM_SCRIPT,
+            &[
+                ("LEGIO_STEAM_APP_ID", &id),
+                ("LEGIO_STEAM_ACTION", "remove"),
+            ],
+        )
+        .map(|_| ())
     }
 }
 
@@ -66,6 +363,32 @@ pub(crate) fn requested_game_id(
     Ok(requested)
 }
 
+#[cfg(windows)]
+pub(crate) fn requested_game_id(
+    arguments: impl IntoIterator<Item = std::ffi::OsString>,
+) -> Result<Option<String>, String> {
+    let mut requested = None;
+    for argument in arguments {
+        let argument = argument
+            .into_string()
+            .map_err(|_| "The shortcut game ID is not valid UTF-8".to_owned())?;
+        if argument == "--launch-game" {
+            return Err("Expected a game ID in --launch-game=<uuid>".to_owned());
+        }
+        if let Some(game_id) = argument.strip_prefix("--launch-game=") {
+            if requested.is_some() {
+                return Err("Only one --launch-game argument is allowed".to_owned());
+            }
+            requested = Some(
+                uuid::Uuid::parse_str(game_id)
+                    .map_err(|_| "The shortcut contains an invalid game ID".to_owned())?
+                    .to_string(),
+            );
+        }
+    }
+    Ok(requested)
+}
+
 #[cfg(target_os = "linux")]
 mod linux {
     use super::{Game, PathBuf, ShortcutLocation};
@@ -75,6 +398,155 @@ mod linux {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     use std::path::Path;
     use std::process::{Command, Stdio};
+
+    fn exec_words(value: &str) -> Result<Vec<String>, String> {
+        let mut words = Vec::new();
+        let mut word = String::new();
+        let mut quoted = false;
+        let mut escaped = false;
+        let mut started = false;
+        for character in value.chars() {
+            if escaped {
+                word.push(character);
+                escaped = false;
+                started = true;
+                continue;
+            }
+            if character == '\\' {
+                escaped = true;
+                started = true;
+                continue;
+            }
+            if character == '"' {
+                quoted = !quoted;
+                started = true;
+                continue;
+            }
+            if character.is_whitespace() && !quoted {
+                if started {
+                    words.push(std::mem::take(&mut word));
+                    started = false;
+                }
+            } else {
+                word.push(character);
+                started = true;
+            }
+        }
+        if escaped || quoted {
+            return Err("Steam shortcut has malformed launch arguments".to_owned());
+        }
+        if started {
+            words.push(word);
+        }
+        Ok(words)
+    }
+
+    fn steam_entries(game: &Game) -> Result<Vec<(PathBuf, Vec<String>)>, String> {
+        let app_id = game
+            .steam_app_id
+            .ok_or_else(|| "Steam game has no App ID".to_owned())?
+            .to_string();
+        let mut entries = Vec::new();
+        for directory in [desktop_directory()?, applications_directory()?] {
+            let iter = match fs::read_dir(&directory) {
+                Ok(iter) => iter,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(format!("Could not inspect Steam shortcuts: {error}")),
+            };
+            for entry in iter {
+                let entry =
+                    entry.map_err(|error| format!("Could not inspect shortcut: {error}"))?;
+                let path = entry.path();
+                if path.extension().is_none_or(|ext| ext != "desktop") {
+                    continue;
+                }
+                let metadata = fs::symlink_metadata(&path)
+                    .map_err(|error| format!("Could not inspect shortcut: {error}"))?;
+                if !metadata.is_file()
+                    || metadata.file_type().is_symlink()
+                    || metadata.len() > 64 * 1024
+                {
+                    continue;
+                }
+                let content = match fs::read_to_string(&path) {
+                    Ok(content) => content,
+                    Err(error) if error.kind() == io::ErrorKind::InvalidData => continue,
+                    Err(error) => return Err(format!("Could not read shortcut: {error}")),
+                };
+                if content
+                    .lines()
+                    .any(|line| line.starts_with("X-Legio-GameId="))
+                {
+                    continue;
+                }
+                let Some(exec) = content.lines().find_map(|line| line.strip_prefix("Exec=")) else {
+                    continue;
+                };
+                if !exec.contains(&app_id) {
+                    continue;
+                }
+                let words = exec_words(exec)?;
+                if !words
+                    .first()
+                    .and_then(|program| Path::new(program).file_name())
+                    .is_some_and(|name| name == "steam" || name == "steam.sh")
+                {
+                    continue;
+                }
+                let match_at = words
+                    .iter()
+                    .position(|word| {
+                        word == &format!("steam://rungameid/{app_id}")
+                            || word == &format!("steam://run/{app_id}")
+                    })
+                    .map(|index| index + 1)
+                    .or_else(|| {
+                        words
+                            .windows(2)
+                            .position(|pair| pair[0] == "-applaunch" && pair[1] == app_id)
+                            .map(|index| index + 2)
+                    });
+                if let Some(after) = match_at {
+                    let arguments = words[after..]
+                        .iter()
+                        .filter(|word| !word.starts_with('%'))
+                        .cloned()
+                        .collect();
+                    entries.push((path, arguments));
+                }
+            }
+        }
+        Ok(entries)
+    }
+
+    pub(super) fn steam_shortcut_arguments(game: &Game) -> Result<Option<Vec<String>>, String> {
+        let mut found = None;
+        for (_, arguments) in steam_entries(game)? {
+            if arguments.is_empty() {
+                continue;
+            }
+            if found
+                .as_ref()
+                .is_some_and(|previous| previous != &arguments)
+            {
+                return Err("Existing Steam shortcuts have different launch arguments".to_owned());
+            }
+            found = Some(arguments);
+        }
+        Ok(found)
+    }
+
+    pub(super) fn remove_steam_shortcuts(game: &Game) -> Result<(), String> {
+        for (path, _) in steam_entries(game)? {
+            fs::remove_file(&path).map_err(|error| {
+                format!(
+                    "Could not replace Steam shortcut {}: {error}",
+                    path.display()
+                )
+            })?;
+        }
+        Ok(())
+    }
 
     pub(super) fn create(
         game: &Game,
@@ -133,20 +605,23 @@ mod linux {
         let game_id = uuid::Uuid::parse_str(&game.id)
             .map_err(|_| "Could not create a game shortcut: invalid game ID".to_owned())?
             .to_string();
-        if game.steam_app_id.is_some() || game.steam_install_path.is_some() {
-            return Err("Shortcuts are supported for manually imported Windows games".to_owned());
-        }
-        let executable = game
-            .executable_path
-            .as_deref()
-            .ok_or_else(|| "This manual game has no selected executable".to_owned())?;
-        let executable = Path::new(executable);
-        if !executable.is_file()
-            || !executable
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
-        {
-            return Err("Selected file is not an available Windows executable".to_owned());
+        if game.steam_install_path.is_some() {
+            if game.steam_app_id.is_none() {
+                return Err("Steam game has no App ID".to_owned());
+            }
+        } else {
+            let executable = game
+                .executable_path
+                .as_deref()
+                .ok_or_else(|| "This manual game has no selected executable".to_owned())?;
+            let executable = Path::new(executable);
+            if !executable.is_file()
+                || !executable
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+            {
+                return Err("Selected file is not an available Windows executable".to_owned());
+            }
         }
         if game.name.trim().is_empty() {
             return Err("This game has no display name for its shortcut".to_owned());
@@ -612,7 +1087,7 @@ mod linux {
         }
 
         #[test]
-        fn shortcut_requires_a_manual_game_with_an_existing_exe() {
+        fn shortcut_accepts_manual_app_id_and_requires_existing_exe() {
             let directory = test_dir("game-validation");
             let executable = directory.join("Test.exe");
             fs::write(&executable, b"test").unwrap();
@@ -630,7 +1105,7 @@ mod linux {
 
             let mut steam_game = game.clone();
             steam_game.steam_app_id = Some(42);
-            assert!(validate_game(&steam_game).is_err());
+            assert_eq!(validate_game(&steam_game).unwrap(), game.id);
 
             let mut missing_exe = game.clone();
             missing_exe.executable_path =

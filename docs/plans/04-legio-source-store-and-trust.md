@@ -65,3 +65,5 @@ Only validated manifests become current, the last valid cache survives bad refre
 04B stores the validated manifest in a single SQLite row. A failed refresh preserves that row and returns it with a stale warning. Catalog searches report source availability by Steam App ID and keep the catalog title. A missing cache reports unknown availability; an absent ID in a valid cache reports unavailable.
 
 04C adds availability and trust states to the catalog verification UI, including stale source warnings and release details for unverified entries. Installation actions will be added with the Phase 05 download pipeline.
+
+Store listing layout: the store lists two tiles per column and shares `ArtworkTile` with the library, so a release and an installed game look the same. The tile owns the lazy artwork load, the monogram fallback and the hover treatment; each card supplies only its own bottom block. A store tile shows the availability badge in the corner and the published release version and size above the title, and it names the title from the source or catalog rather than the Steam detail, because the store is listing what the source publishes.

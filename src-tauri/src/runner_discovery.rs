@@ -147,7 +147,10 @@ fn proton_version(runner: &InstalledRunner) -> Option<(u32, u32)> {
         .into_iter()
         .find_map(|value| {
             let lower = value.to_ascii_lowercase();
-            let marker = lower.find("proton")? + "proton".len();
+            let marker = lower
+                .find("proton")
+                .map(|index| index + "proton".len())
+                .or_else(|| lower.find("cachyos-").map(|index| index + "cachyos-".len()))?;
             let suffix = value[marker..].trim_start_matches(|ch: char| !ch.is_ascii_digit());
             let (major, remainder) = take_number(suffix)?;
             let minor = remainder
@@ -224,7 +227,7 @@ fn discover_linux() -> RunnerDiscovery {
 
 #[cfg(target_os = "linux")]
 fn discover_proton() -> Vec<InstalledRunner> {
-    let mut directories = Vec::new();
+    let mut directories = vec![PathBuf::from("/usr/share/steam/compatibilitytools.d")];
     for library in steam_local::default_steam_library_paths() {
         directories.push(library.join("compatibilitytools.d"));
         directories.push(library.join("steamapps/common"));
@@ -270,7 +273,7 @@ fn classify_proton_dir(path: &Path) -> Option<(RunnerKind, String)> {
     let lower = name.to_ascii_lowercase();
     let kind = if lower.starts_with("ge-proton") {
         RunnerKind::GeProton
-    } else if lower == "proton" || lower.starts_with("proton ") || lower.starts_with("proton-") {
+    } else if lower.contains("proton") {
         RunnerKind::Proton
     } else {
         return None;

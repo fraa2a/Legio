@@ -5,6 +5,8 @@ export interface SteamDetails {
   name: string;
   appType: string;
   shortDescription: string | null;
+  detailedDescription: string | null;
+  systemRequirements?: { minimum: string | null; recommended: string | null } | null;
   developers: string[];
   publishers: string[];
   genres: string[];
@@ -34,7 +36,7 @@ export function getSteamDetails(steamAppId: number, refresh: boolean): Promise<S
   return invoke<SteamDetailsResult>("get_steam_details", { steamAppId, refresh });
 }
 
-export type SteamAssetKind = "header" | "capsule" | "screenshot";
+export type SteamAssetKind = "header" | "capsule" | "screenshot" | "hero" | "logo";
 
 export interface SteamAsset {
   bytes: number[];
@@ -43,6 +45,11 @@ export interface SteamAsset {
   cacheWarning: string | null;
 }
 
-export function getSteamAsset(steamAppId: number, asset: SteamAssetKind, index?: number): Promise<SteamAsset> {
-  return invoke<SteamAsset>("get_steam_asset", { steamAppId, asset, index });
+export function getSteamAsset(
+  steamAppId: number,
+  asset: SteamAssetKind,
+  index?: number,
+  full?: boolean,
+): Promise<SteamAsset> {
+  return invoke<SteamAsset>("get_steam_asset", { steamAppId, asset, index, full });
 }

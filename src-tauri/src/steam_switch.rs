@@ -58,10 +58,15 @@ pub(crate) fn launch(
     check_cancel(cancel)?;
     let game = app.state::<DatabaseState>().database()?.game(game_id)?;
     let steam_app_id = launch_app_id(&game)?;
+    let arguments = app
+        .state::<DatabaseState>()
+        .database()?
+        .steam_launch_config(game_id)?
+        .arguments;
     let steam_root = steam_local::find_steam_root_for_game(&game)?;
     let Some(target_id) = game.steam_account_id.as_deref() else {
         steam_process::ensure_running(&steam_root, SWITCH_TIMEOUT, cancel)?;
-        steam_process::request_game_launch(&steam_root, steam_app_id, cancel)?;
+        steam_process::request_game_launch(&steam_root, steam_app_id, &arguments, cancel)?;
         return Ok(SteamLaunchResult {
             game_id: game.id,
             steam_app_id,
@@ -76,7 +81,7 @@ pub(crate) fn launch(
         None
     };
     if steam_running && current_id.as_deref() == Some(target_id) {
-        steam_process::request_game_launch(&steam_root, steam_app_id, cancel)?;
+        steam_process::request_game_launch(&steam_root, steam_app_id, &arguments, cancel)?;
         return Ok(SteamLaunchResult {
             game_id: game.id,
             steam_app_id,
@@ -110,7 +115,7 @@ pub(crate) fn launch(
         SWITCH_TIMEOUT,
         cancel,
     )?;
-    steam_process::request_game_launch(&steam_root, steam_app_id, cancel)?;
+    steam_process::request_game_launch(&steam_root, steam_app_id, &arguments, cancel)?;
     Ok(SteamLaunchResult {
         game_id: game.id,
         steam_app_id,
