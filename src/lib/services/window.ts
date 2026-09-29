@@ -14,6 +14,11 @@ export function hideWindow(): Promise<void> {
   return appWindow.hide();
 }
 
+export async function showWindow(): Promise<void> {
+  await appWindow.show();
+  await appWindow.setFocus();
+}
+
 export function toggleMaximizeWindow(): Promise<void> {
   return appWindow.toggleMaximize();
 }

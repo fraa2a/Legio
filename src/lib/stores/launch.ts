@@ -14,7 +14,7 @@ import { appInfo } from "./app-info";
 import { launchConfiguredGameWithRunner, launchNativeGame } from "../services/launch";
 import { getCompatibilityLogsDirectory } from "../services/game-settings";
 import { settings } from "./settings";
-import { hideWindow } from "../services/window";
+import { hideWindow, showWindow } from "../services/window";
 
 export const launchStates = createResource<GameLaunchState[]>([], listGameLaunchStates);
 
@@ -35,14 +35,23 @@ export const accountSwitchGame = writable<Game | null>(null);
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 const hiddenForSession = new Set<string>();
+const restoreOnExit = new Set<string>();
 
 launchStates.subscribe((state) => {
   for (const launch of state.data) {
-    if (launch.status === "idle") hiddenForSession.delete(launch.gameId);
-    else if (launch.status === "running" && !hiddenForSession.has(launch.gameId)) {
+    if (launch.status === "idle") {
+      hiddenForSession.delete(launch.gameId);
+      if (restoreOnExit.delete(launch.gameId)) {
+        void showWindow().catch((error) => launchError.set(toMessage(error)));
+      }
+    } else if (launch.status === "running" && !hiddenForSession.has(launch.gameId)) {
       hiddenForSession.add(launch.gameId);
       if (get(settings).data.hideOnGameStart) {
-        void hideWindow().catch((error) => launchError.set(toMessage(error)));
+        restoreOnExit.add(launch.gameId);
+        void hideWindow().catch((error) => {
+          restoreOnExit.delete(launch.gameId);
+          launchError.set(toMessage(error));
+        });
       }
     }
   }
