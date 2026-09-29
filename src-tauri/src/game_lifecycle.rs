@@ -745,6 +745,16 @@ impl GameLaunchManager {
         let mut steam_progress = SteamLaunchProgress::default();
         let mut cancelled_without_process_since = None;
         loop {
+            #[cfg(windows)]
+            // CIM enumeration can lag behind a live native child.
+            if native_launch
+                && !cancel.load(Ordering::Acquire)
+                && child
+                    .as_mut()
+                    .is_some_and(|child| matches!(child.try_wait(), Ok(None)))
+            {
+                break;
+            }
             match game_process::matching_pids(&process_target) {
                 Ok(pids) if !pids.is_empty() => {
                     if cancel.load(Ordering::Acquire) {
