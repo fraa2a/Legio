@@ -73,6 +73,11 @@ jobs:
           rustup toolchain install 1.98.1 --profile minimal --component rustfmt,clippy
           rustup default 1.98.1
 
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: src-tauri -> target
+
       - name: Check formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
@@ -87,6 +92,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       VCPKGRS_TRIPLET: x64-windows-static-md
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-cache
     strategy:
       fail-fast: false
       matrix:
@@ -121,12 +127,38 @@ jobs:
           rustup toolchain install 1.98.1 --profile minimal
           rustup default 1.98.1
 
+      - name: Configure Windows archive cache
+        if: runner.os == 'Windows'
+        id: vcpkg-cache
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+          $revision = git -C $env:VCPKG_INSTALLATION_ROOT rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "revision=$revision" >> $env:GITHUB_OUTPUT
+          "image=$env:ImageVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Cache Windows archive binaries
+        if: runner.os == 'Windows'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKGRS_TRIPLET }}-libarchive-${{ steps.vcpkg-cache.outputs.revision }}-${{ steps.vcpkg-cache.outputs.image }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKGRS_TRIPLET }}-libarchive-${{ steps.vcpkg-cache.outputs.revision }}-
+
       - name: Install Windows archive library
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
           vcpkg install libarchive:x64-windows-static-md
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: src-tauri -> target
+          key: ${{ matrix.os }}
 
       - name: Set up Node
         uses: actions/setup-node@v7
