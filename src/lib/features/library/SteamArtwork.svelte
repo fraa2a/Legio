@@ -45,12 +45,14 @@
   let warning = $state<string | null>(null);
   let error = $state<string | null>(null);
   let fromCache = $state(false);
-  const displayedUrl = $derived(url ?? cached?.url ?? null);
+  let loadedRequest = $state.raw<typeof request | null>(null);
+  const displayedUrl = $derived(loadedRequest === request ? url : cached?.url ?? null);
 
   $effect(() => {
     const current = request;
     const cached = retainSteamImage(current);
     if (cached !== undefined) {
+      loadedRequest = current;
       url = cached.url;
       stale = cached.stale;
       warning = cached.cacheWarning;
@@ -59,6 +61,7 @@
       return () => releaseSteamImage(current);
     }
 
+    loadedRequest = null;
     url = null;
     stale = false;
     warning = null;
@@ -73,6 +76,7 @@
         const image = retainSteamImage(current);
         if (image === undefined) return;
         retained = true;
+        loadedRequest = current;
         url = image.url;
         stale = image.stale;
         warning = image.cacheWarning;
