@@ -7,7 +7,7 @@ use std::{
 
 use serde::Serialize;
 
-use crate::{database::Game, image_format::ImageFormat, pe_icons};
+use crate::{database::Game, image_format::ImageFormat, manual_import, pe_icons};
 
 const MAX_ARTWORK_BYTES: usize = 2 * 1024 * 1024;
 
@@ -85,8 +85,11 @@ impl GameArtworkStore {
     }
 
     pub(crate) fn shortcut_icon_path(&self, game: &Game) -> Result<Option<PathBuf>, String> {
-        if let Some(executable) = game.executable_path.as_deref() {
-            match pe_icons::extract_png(Path::new(executable)).and_then(|bytes| {
+        if let Some(executable) = shortcut_executable(game) {
+            #[cfg(windows)]
+            return Ok(Some(executable));
+            #[cfg(target_os = "linux")]
+            match pe_icons::extract_png(&executable).and_then(|bytes| {
                 self.store(
                     canonical_game_id(&game.id)?,
                     ArtworkKind::ShortcutIcon,
@@ -227,6 +230,25 @@ impl GameArtworkStore {
             ));
         }
         Ok(directory)
+    }
+}
+
+fn shortcut_executable(game: &Game) -> Option<PathBuf> {
+    if let Some(path) = game.executable_path.as_deref().map(PathBuf::from)
+        && path.is_file()
+    {
+        return Some(path);
+    }
+    let root = game.steam_install_path.as_deref()?;
+    match manual_import::scan_directory(root, game.automatic_name.as_deref().or(Some(&game.name))) {
+        Ok(scan) => scan.selected_path.map(PathBuf::from),
+        Err(error) => {
+            eprintln!(
+                "Could not find a shortcut executable for {}: {error}",
+                game.id
+            );
+            None
+        }
     }
 }
 
@@ -437,6 +459,18 @@ mod tests {
             steam_account_id: None,
             executable_path: None,
         }
+    }
+
+    #[test]
+    fn steam_shortcut_finds_a_game_executable() {
+        let root = test_dir();
+        let executable = root.join("Portal.exe");
+        fs::write(&executable, b"MZ").unwrap();
+        let mut game = manual_game();
+        game.automatic_name = Some("Portal".to_owned());
+        game.steam_install_path = Some(root.to_string_lossy().into_owned());
+        assert_eq!(shortcut_executable(&game), Some(executable));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
