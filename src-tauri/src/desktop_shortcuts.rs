@@ -186,7 +186,13 @@ $path = Join-Path $folder ($env:LEGIO_LINK_NAME + '.lnk')
 $shell = New-Object -ComObject WScript.Shell
 if ([IO.File]::Exists($path)) {
   $old = $shell.CreateShortcut($path)
-  if ($old.Description -ne ('Legio game ' + $env:LEGIO_GAME_ID)) { throw 'Refusing to replace a shortcut not owned by Legio' }
+  if ($old.Description -ne ('Legio game ' + $env:LEGIO_GAME_ID)) {
+    $path = Join-Path $folder ($env:LEGIO_LINK_NAME + ' (' + $env:LEGIO_GAME_ID + ').lnk')
+    if ([IO.File]::Exists($path)) {
+      $old = $shell.CreateShortcut($path)
+      if ($old.Description -ne ('Legio game ' + $env:LEGIO_GAME_ID)) { throw 'Refusing to replace a shortcut not owned by Legio' }
+    }
+  }
 }
 $link = $shell.CreateShortcut($path)
 $link.TargetPath = $env:LEGIO_LAUNCHER
@@ -194,6 +200,11 @@ $link.Arguments = '--launch-game=' + $env:LEGIO_GAME_ID
 $link.Description = 'Legio game ' + $env:LEGIO_GAME_ID
 if ($env:LEGIO_LINK_ICON) { $link.IconLocation = $env:LEGIO_LINK_ICON }
 $link.Save()
+foreach ($existingPath in [IO.Directory]::EnumerateFiles($folder, '*.lnk')) {
+  if ($existingPath -eq $path) { continue }
+  try { $existing = $shell.CreateShortcut($existingPath) } catch { continue }
+  if ($existing.Description -eq ('Legio game ' + $env:LEGIO_GAME_ID)) { [IO.File]::Delete($existingPath) }
+}
 [Console]::Out.Write($path)
 "#;
 
@@ -263,7 +274,8 @@ foreach ($base in @([Environment]::GetFolderPath('DesktopDirectory'), [Environme
                 }
             })
             .collect::<String>();
-        let name = format!("{} - {}", name.trim().trim_end_matches('.'), &id[..8]);
+        let name = name.trim().trim_end_matches('.');
+        let name = if name.is_empty() { "Game" } else { name };
         let icon = icon.and_then(Path::to_str).unwrap_or(launcher);
         let path = run(
             CREATE_SCRIPT,
@@ -275,7 +287,7 @@ foreach ($base in @([Environment]::GetFolderPath('DesktopDirectory'), [Environme
                         ShortcutLocation::ApplicationsMenu => "menu",
                     },
                 ),
-                ("LEGIO_LINK_NAME", &name),
+                ("LEGIO_LINK_NAME", name),
                 ("LEGIO_GAME_ID", &id),
                 ("LEGIO_LAUNCHER", launcher),
                 ("LEGIO_LINK_ICON", icon),
@@ -561,19 +573,25 @@ mod linux {
             ShortcutLocation::ApplicationsMenu => applications_directory()?,
         };
         require_utf8_directory(&directory)?;
-        let filename = format!("legio-game-{game_id}.desktop");
-        write_entry(&directory, &filename, &game_id, &contents)
+        let filename = shortcut_filename(&game.name);
+        let filename = if has_foreign_entry(&directory.join(&filename), &game_id)? {
+            format!("{} ({game_id}).desktop", safe_filename(&game.name))
+        } else {
+            filename
+        };
+        let path = write_entry(&directory, &filename, &game_id, &contents)?;
+        remove_other_owned_entries(&directory, &game_id, Some(&path))?;
+        Ok(path)
     }
 
     pub(super) fn remove(game_id: &str) -> Result<(), String> {
         let game_id = uuid::Uuid::parse_str(game_id)
             .map_err(|_| "Could not remove game shortcuts: invalid game ID".to_owned())?
             .to_string();
-        let filename = format!("legio-game-{game_id}.desktop");
         let mut errors = Vec::new();
         match desktop_directory() {
             Ok(directory) => {
-                if let Err(error) = remove_owned_entry(&directory, &filename, &game_id) {
+                if let Err(error) = remove_other_owned_entries(&directory, &game_id, None) {
                     errors.push(format!("Desktop shortcut: {error}"));
                 }
             }
@@ -581,7 +599,7 @@ mod linux {
         }
         match applications_directory() {
             Ok(directory) => {
-                if let Err(error) = remove_owned_entry(&directory, &filename, &game_id) {
+                if let Err(error) = remove_other_owned_entries(&directory, &game_id, None) {
                     errors.push(format!("Application-menu shortcut: {error}"));
                 }
             }
@@ -598,6 +616,87 @@ mod linux {
         directory
             .to_str()
             .ok_or_else(|| "The shortcut directory path is not valid UTF-8".to_owned())?;
+        Ok(())
+    }
+
+    fn safe_filename(name: &str) -> String {
+        let mut filename = String::new();
+        for character in name.trim().chars() {
+            let character = if character == '/' || character.is_control() {
+                '_'
+            } else {
+                character
+            };
+            if filename.len() + character.len_utf8() > 160 {
+                break;
+            }
+            filename.push(character);
+        }
+        let filename = filename.trim().trim_matches('.');
+        if filename.is_empty() {
+            "Game".to_owned()
+        } else {
+            filename.to_owned()
+        }
+    }
+
+    fn shortcut_filename(name: &str) -> String {
+        format!("{}.desktop", safe_filename(name))
+    }
+
+    fn has_foreign_entry(path: &Path, game_id: &str) -> Result<bool, String> {
+        match fs::symlink_metadata(path) {
+            Ok(metadata)
+                if metadata.is_file()
+                    && !metadata.file_type().is_symlink()
+                    && metadata.len() <= 64 * 1024 =>
+            {
+                let contents = fs::read_to_string(path)
+                    .map_err(|error| format!("Could not inspect desktop entry: {error}"))?;
+                Ok(!is_owned_entry(&contents, game_id))
+            }
+            Ok(_) => Ok(true),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(format!("Could not inspect desktop entry: {error}")),
+        }
+    }
+
+    fn remove_other_owned_entries(
+        directory: &Path,
+        game_id: &str,
+        keep: Option<&Path>,
+    ) -> Result<(), String> {
+        let entries = match fs::read_dir(directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(format!("Could not inspect shortcut directory: {error}")),
+        };
+        for entry in entries {
+            let path = entry
+                .map_err(|error| format!("Could not inspect shortcut: {error}"))?
+                .path();
+            if path
+                .extension()
+                .is_none_or(|extension| extension != "desktop")
+                || keep == Some(path.as_path())
+            {
+                continue;
+            }
+            let metadata = fs::symlink_metadata(&path)
+                .map_err(|error| format!("Could not inspect shortcut: {error}"))?;
+            if !metadata.is_file()
+                || metadata.file_type().is_symlink()
+                || metadata.len() > 64 * 1024
+            {
+                continue;
+            }
+            let contents = fs::read_to_string(&path)
+                .map_err(|error| format!("Could not inspect shortcut: {error}"))?;
+            if is_owned_entry(&contents, game_id) {
+                fs::remove_file(&path)
+                    .map_err(|error| format!("Could not remove shortcut: {error}"))?;
+            }
+        }
         Ok(())
     }
 
@@ -757,6 +856,9 @@ mod linux {
     }
 
     fn launcher_path() -> Result<PathBuf, String> {
+        if env::var_os("LEGIO_AUR_PACKAGE").as_deref() == Some(std::ffi::OsStr::new("1")) {
+            return Ok(PathBuf::from("/usr/bin/legio-launcher"));
+        }
         let current = env::current_exe()
             .map_err(|error| format!("Could not locate Legio's executable: {error}"))?;
         let app_dir = env::var_os("APPDIR").map(PathBuf::from);
@@ -846,6 +948,7 @@ mod linux {
         Ok(path)
     }
 
+    #[cfg(test)]
     fn remove_owned_entry(directory: &Path, filename: &str, game_id: &str) -> Result<(), String> {
         let path = directory.join(filename);
         let metadata = match fs::symlink_metadata(&path) {
@@ -952,6 +1055,28 @@ mod linux {
             )
             .unwrap_err();
             assert!(error.contains("not owned by Legio"));
+            fs::remove_dir_all(directory).unwrap();
+        }
+
+        #[test]
+        fn game_shortcut_uses_readable_filename_and_preserves_name_collisions() {
+            let directory = test_dir("readable-name");
+            let first_id = "00000000-0000-0000-0000-000000000001";
+            let second_id = "00000000-0000-0000-0000-000000000002";
+            let filename = shortcut_filename("Portal/Two");
+            assert_eq!(filename, "Portal_Two.desktop");
+            let first = desktop_entry(
+                "Portal/Two",
+                Path::new("/usr/bin/legio-launcher"),
+                first_id,
+                None,
+            )
+            .unwrap();
+            write_entry(&directory, &filename, first_id, &first).unwrap();
+            assert!(has_foreign_entry(&directory.join(&filename), second_id).unwrap());
+            assert!(!has_foreign_entry(&directory.join(&filename), first_id).unwrap());
+            remove_other_owned_entries(&directory, first_id, None).unwrap();
+            assert!(!directory.join(filename).exists());
             fs::remove_dir_all(directory).unwrap();
         }
 
