@@ -6,8 +6,8 @@ use std::{
 };
 
 use reqwest::{
-    StatusCode,
-    header::{CONTENT_RANGE, ETAG, IF_RANGE, RANGE},
+    Response, StatusCode,
+    header::{CONTENT_RANGE, ETAG, HeaderMap, IF_RANGE, RANGE},
 };
 use rusqlite::{OptionalExtension, params};
 use serde::Serialize;
@@ -612,6 +612,28 @@ fn content_range_matches(value: &str, start: u64, size: u64) -> bool {
         && total.parse::<u64>() == Ok(size)
 }
 
+fn strong_etag(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(ETAG)
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.starts_with("W/"))
+        .map(str::to_owned)
+}
+
+fn resume_matches(response: &Response, job: &Transfer, offset: u64) -> bool {
+    response.status() == StatusCode::PARTIAL_CONTENT
+        && response
+            .headers()
+            .get(CONTENT_RANGE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| content_range_matches(value, offset, job.size))
+        && job
+            .etag
+            .as_deref()
+            .zip(strong_etag(response.headers()).as_deref())
+            .is_none_or(|(stored, served)| stored == served)
+}
+
 async fn transfer(
     queue: &DownloadQueueState,
     database: &Database,
@@ -632,40 +654,28 @@ async fn transfer(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
         Err(error) => return Err(format!("Could not inspect partial download: {error}")),
     };
-    if offset >= job.size || (offset > 0 && job.etag.is_none()) {
+    if offset >= job.size {
         offset = 0;
     }
     let mut request = queue.client.get(&job.url);
     if offset > 0 {
-        request = request
-            .header(RANGE, format!("bytes={offset}-"))
-            .header(IF_RANGE, job.etag.as_deref().unwrap_or_default());
+        request = request.header(RANGE, format!("bytes={offset}-"));
+        if let Some(etag) = job.etag.as_deref() {
+            request = request.header(IF_RANGE, etag);
+        }
     }
     let mut response = request
         .send()
         .await
         .map_err(|error| format!("Network: {}", error.without_url()))?;
-    if offset > 0 {
-        let valid = response.status() == StatusCode::PARTIAL_CONTENT
-            && response
-                .headers()
-                .get(CONTENT_RANGE)
-                .and_then(|value| value.to_str().ok())
-                .is_some_and(|value| content_range_matches(value, offset, job.size))
-            && response
-                .headers()
-                .get(ETAG)
-                .and_then(|value| value.to_str().ok())
-                == job.etag.as_deref();
-        if !valid {
-            offset = 0;
-            response = queue
-                .client
-                .get(&job.url)
-                .send()
-                .await
-                .map_err(|error| format!("Network: {}", error.without_url()))?;
-        }
+    if offset > 0 && !resume_matches(&response, job, offset) {
+        offset = 0;
+        response = queue
+            .client
+            .get(&job.url)
+            .send()
+            .await
+            .map_err(|error| format!("Network: {}", error.without_url()))?;
     }
     if response.status()
         != if offset > 0 {
@@ -676,12 +686,7 @@ async fn transfer(
     {
         return Err(format!("HTTP {}", response.status()));
     }
-    let etag = response
-        .headers()
-        .get(ETAG)
-        .and_then(|value| value.to_str().ok())
-        .filter(|value| !value.starts_with("W/"))
-        .map(str::to_owned);
+    let etag = strong_etag(response.headers()).or(job.etag.clone());
     let mut file = tokio::fs::OpenOptions::new()
         .create(true)
         .write(true)
@@ -1448,6 +1453,104 @@ mod tests {
                 .to_ascii_lowercase()
                 .contains("if-range: \"abc\"\r\n")
         );
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn resumes_without_a_server_entity_tag() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/archive", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            stream.write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 5-9/10\r\nContent-Length: 5\r\nConnection: close\r\n\r\nfghij").unwrap();
+            String::from_utf8(request).unwrap()
+        });
+        let (database, directory) = database_with_source();
+        let job = enqueue(&database, 400, TEST_HASH, false).unwrap();
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET url = ?2 WHERE id = ?1",
+                        params![job.id, url],
+                    )
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+        let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
+        fs::write(queue.path(&job.id, "part").unwrap(), b"abcde").unwrap();
+        let transfer_job = claim(&database).unwrap().unwrap();
+        tauri::async_runtime::block_on(transfer(&queue, &database, &transfer_job)).unwrap();
+        assert_eq!(
+            fs::read(queue.path(&job.id, "archive").unwrap()).unwrap(),
+            b"abcdefghij"
+        );
+        let request = server.join().unwrap().to_ascii_lowercase();
+        assert!(request.contains("range: bytes=5-\r\n"));
+        assert!(!request.contains("if-range:"));
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn restarts_when_the_entity_tag_changed() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/archive", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let mut requests = Vec::new();
+            for response in [
+                b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 5-9/10\r\nETag: \"changed\"\r\nContent-Length: 5\r\nConnection: close\r\n\r\nfghij".as_slice(),
+                b"HTTP/1.1 200 OK\r\nETag: \"changed\"\r\nContent-Length: 10\r\nConnection: close\r\n\r\n0123456789".as_slice(),
+            ] {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while !request.ends_with(b"\r\n\r\n") {
+                    stream.read_exact(&mut byte).unwrap();
+                    request.push(byte[0]);
+                }
+                stream.write_all(response).unwrap();
+                requests.push(String::from_utf8(request).unwrap());
+            }
+            requests
+        });
+        let (database, directory) = database_with_source();
+        let job = enqueue(&database, 400, TEST_HASH, false).unwrap();
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET url = ?2, etag = '\"abc\"' WHERE id = ?1",
+                        params![job.id, url],
+                    )
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+        let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
+        fs::write(queue.path(&job.id, "part").unwrap(), b"abcde").unwrap();
+        let transfer_job = claim(&database).unwrap().unwrap();
+        tauri::async_runtime::block_on(transfer(&queue, &database, &transfer_job)).unwrap();
+        assert_eq!(
+            fs::read(queue.path(&job.id, "archive").unwrap()).unwrap(),
+            b"0123456789"
+        );
+        let requests = server.join().unwrap();
+        assert!(!requests[1].to_ascii_lowercase().contains("range:"));
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
