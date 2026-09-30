@@ -241,7 +241,14 @@ fn shortcut_executable(game: &Game) -> Option<PathBuf> {
     }
     let root = game.steam_install_path.as_deref()?;
     match manual_import::scan_directory(root, game.automatic_name.as_deref().or(Some(&game.name))) {
-        Ok(scan) => scan.selected_path.map(PathBuf::from),
+        Ok(scan) => scan
+            .candidates
+            .into_iter()
+            .map(|candidate| PathBuf::from(candidate.path))
+            .find(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+            }),
         Err(error) => {
             eprintln!(
                 "Could not find a shortcut executable for {}: {error}",
