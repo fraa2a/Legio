@@ -276,7 +276,12 @@ foreach ($base in @([Environment]::GetFolderPath('DesktopDirectory'), [Environme
             .collect::<String>();
         let name = name.trim().trim_end_matches('.');
         let name = if name.is_empty() { "Game" } else { name };
-        let icon = icon.and_then(Path::to_str).unwrap_or(launcher);
+        let icon = game
+            .executable_path
+            .as_deref()
+            .filter(|path| Path::new(path).is_file())
+            .or_else(|| icon.and_then(Path::to_str))
+            .unwrap_or(launcher);
         let path = run(
             CREATE_SCRIPT,
             &[

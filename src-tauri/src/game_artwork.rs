@@ -15,6 +15,7 @@ const MAX_ARTWORK_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) enum ArtworkKind {
     Icon,
     Banner,
+    ShortcutIcon,
 }
 
 impl ArtworkKind {
@@ -22,6 +23,7 @@ impl ArtworkKind {
         match self {
             Self::Icon => "game-icons",
             Self::Banner => "game-banners",
+            Self::ShortcutIcon => "game-shortcut-icons",
         }
     }
 
@@ -29,6 +31,7 @@ impl ArtworkKind {
         match self {
             Self::Icon => "game icon",
             Self::Banner => "game banner",
+            Self::ShortcutIcon => "game shortcut icon",
         }
     }
 }
@@ -79,6 +82,22 @@ impl GameArtworkStore {
         let game_id = canonical_game_id(game_id)?;
         let bytes = pe_icons::extract_png(executable)?;
         self.store(game_id, ArtworkKind::Icon, bytes)
+    }
+
+    pub(crate) fn shortcut_icon_path(&self, game: &Game) -> Result<Option<PathBuf>, String> {
+        if let Some(executable) = game.executable_path.as_deref() {
+            match pe_icons::extract_png(Path::new(executable)).and_then(|bytes| {
+                self.store(
+                    canonical_game_id(&game.id)?,
+                    ArtworkKind::ShortcutIcon,
+                    bytes,
+                )
+            }) {
+                Ok(_) => return self.path(&game.id, ArtworkKind::ShortcutIcon),
+                Err(error) => eprintln!("Could not extract shortcut icon for {}: {error}", game.id),
+            }
+        }
+        self.path(&game.id, ArtworkKind::Icon)
     }
 
     fn store(
@@ -162,7 +181,11 @@ impl GameArtworkStore {
             .lock()
             .map_err(|_| "Game artwork store lock was poisoned".to_owned())?;
         let mut errors = Vec::new();
-        for kind in [ArtworkKind::Icon, ArtworkKind::Banner] {
+        for kind in [
+            ArtworkKind::Icon,
+            ArtworkKind::Banner,
+            ArtworkKind::ShortcutIcon,
+        ] {
             if let Err(error) = self.remove_locked(&game_id, kind) {
                 errors.push(error);
             }

@@ -190,39 +190,44 @@ pub fn create_game(
 }
 
 #[tauri::command]
-pub fn create_game_shortcut(
+pub async fn create_game_shortcut(
     app: AppHandle,
-    state: State<'_, DatabaseState>,
     game_id: String,
     location: crate::desktop_shortcuts::ShortcutLocation,
 ) -> Result<String, String> {
-    let game = state.database()?.game(&game_id)?;
-    let steam_managed = game.steam_install_path.is_some();
-    let imported_arguments = if steam_managed {
-        crate::desktop_shortcuts::steam_shortcut_arguments(&game)?
-    } else {
-        None
-    };
-    let icon = app
-        .state::<crate::game_artwork::GameArtworkStore>()
-        .path(&game.id, crate::game_artwork::ArtworkKind::Icon)?;
-    let path = crate::desktop_shortcuts::create(&game, location, icon.as_deref())?;
-    if steam_managed {
-        crate::desktop_shortcuts::create(
-            &game,
-            crate::desktop_shortcuts::ShortcutLocation::ApplicationsMenu,
-            icon.as_deref(),
-        )?;
-        if let Some(arguments) = imported_arguments {
-            state
-                .database()?
-                .save_steam_launch_config(&game.id, database::SteamLaunchConfig { arguments })?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let database = app.state::<DatabaseState>();
+        let game = database.database()?.game(&game_id)?;
+        let steam_managed = game.steam_install_path.is_some();
+        let imported_arguments = if steam_managed {
+            crate::desktop_shortcuts::steam_shortcut_arguments(&game)?
+        } else {
+            None
+        };
+        let icon = app
+            .state::<crate::game_artwork::GameArtworkStore>()
+            .shortcut_icon_path(&game)?;
+        let path = crate::desktop_shortcuts::create(&game, location, icon.as_deref())?;
+        if steam_managed {
+            crate::desktop_shortcuts::create(
+                &game,
+                crate::desktop_shortcuts::ShortcutLocation::ApplicationsMenu,
+                icon.as_deref(),
+            )?;
+            if let Some(arguments) = imported_arguments {
+                database.database()?.save_steam_launch_config(
+                    &game.id,
+                    database::SteamLaunchConfig { arguments },
+                )?;
+            }
+            crate::desktop_shortcuts::remove_steam_shortcuts(&game)?;
         }
-        crate::desktop_shortcuts::remove_steam_shortcuts(&game)?;
-    }
-    path.to_str()
-        .map(str::to_owned)
-        .ok_or_else(|| "The desktop shortcut path is not valid UTF-8".to_owned())
+        path.to_str()
+            .map(str::to_owned)
+            .ok_or_else(|| "The desktop shortcut path is not valid UTF-8".to_owned())
+    })
+    .await
+    .map_err(|error| format!("Game shortcut task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -610,10 +615,13 @@ pub async fn import_manual_game(
 ) -> Result<Game, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let game = manual_import::import(&app.state::<DatabaseState>(), input)?;
+        let icon = app
+            .state::<crate::game_artwork::GameArtworkStore>()
+            .shortcut_icon_path(&game)?;
         if let Err(error) = crate::desktop_shortcuts::create(
             &game,
             crate::desktop_shortcuts::ShortcutLocation::ApplicationsMenu,
-            None,
+            icon.as_deref(),
         ) {
             eprintln!("Could not create application-menu shortcut: {error}");
         }
@@ -653,10 +661,13 @@ pub async fn set_game_executable(
             &game_id,
             &executable_path,
         )?;
+        let icon = app
+            .state::<crate::game_artwork::GameArtworkStore>()
+            .shortcut_icon_path(&game)?;
         if let Err(error) = crate::desktop_shortcuts::create(
             &game,
             crate::desktop_shortcuts::ShortcutLocation::ApplicationsMenu,
-            None,
+            icon.as_deref(),
         ) {
             eprintln!("Could not create application-menu shortcut: {error}");
         }
