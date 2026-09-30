@@ -1,7 +1,14 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { fade } from "svelte/transition";
-  import { getSteamAsset, type SteamAssetKind } from "../../services/steam-details";
+  import {
+    loadSteamImage,
+    peekSteamImage,
+    releaseSteamImage,
+    retainSteamImage,
+    type SteamAssetKind,
+  } from "../../services/steam-details";
+  import { steamDetails } from "../../stores/steam-details";
   import { toMessage } from "../../utils/errors";
   import { fadeDuration } from "../../utils/motion";
 
@@ -29,35 +36,50 @@
     placeholder?: Snippet;
   } = $props();
 
+  const currentVersion = $derived(version ?? $steamDetails[steamAppId]?.cachedAt ?? null);
+  const request = $derived({ steamAppId, asset, fallbackAsset, index, version: currentVersion, full });
+  const cached = $derived(peekSteamImage(request));
+
   let url = $state<string | null>(null);
   let stale = $state(false);
   let warning = $state<string | null>(null);
   let error = $state<string | null>(null);
-
-  const request = $derived({ steamAppId, asset, fallbackAsset, index, version, full });
+  let fromCache = $state(false);
+  let loadedRequest = $state.raw<typeof request | null>(null);
+  const displayedUrl = $derived(loadedRequest === request ? url : cached?.url ?? null);
 
   $effect(() => {
-    const { steamAppId: appId, asset: kind, fallbackAsset: fallback, index: shot, full: large } = request;
+    const current = request;
+    const cached = retainSteamImage(current);
+    if (cached !== undefined) {
+      loadedRequest = current;
+      url = cached.url;
+      stale = cached.stale;
+      warning = cached.cacheWarning;
+      error = null;
+      fromCache = true;
+      return () => releaseSteamImage(current);
+    }
 
+    loadedRequest = null;
     url = null;
     stale = false;
     warning = null;
     error = null;
+    fromCache = false;
 
-    let objectUrl: string | null = null;
     let cancelled = false;
-    void getSteamAsset(appId, kind, shot ?? undefined, large).catch((failure: unknown) => {
-      if (fallback !== null) return getSteamAsset(appId, fallback, shot ?? undefined, large);
-      throw failure;
-    }).then(
-      (result) => {
+    let retained = false;
+    void loadSteamImage(current).then(
+      () => {
         if (cancelled) return;
-        objectUrl = URL.createObjectURL(
-          new Blob([Uint8Array.from(result.bytes)], { type: result.contentType }),
-        );
-        url = objectUrl;
-        stale = result.stale;
-        warning = result.cacheWarning;
+        const image = retainSteamImage(current);
+        if (image === undefined) return;
+        retained = true;
+        loadedRequest = current;
+        url = image.url;
+        stale = image.stale;
+        warning = image.cacheWarning;
       },
       (failure: unknown) => {
         if (!cancelled) error = toMessage(failure);
@@ -66,13 +88,13 @@
 
     return () => {
       cancelled = true;
-      if (objectUrl !== null) URL.revokeObjectURL(objectUrl);
+      if (retained) releaseSteamImage(current);
     };
   });
 </script>
 
-{#if url !== null}
-  <img src={url} {alt} class={className} in:fade={{ duration: fadeDuration }} />
+{#if displayedUrl !== null}
+  <img src={displayedUrl} {alt} class={className} in:fade={{ duration: cached !== undefined || fromCache ? 0 : fadeDuration }} />
 {:else if placeholder !== undefined}
   {@render placeholder()}
 {:else if error !== null}
