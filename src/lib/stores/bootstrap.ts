@@ -1,7 +1,7 @@
 import { appInfo } from "./app-info";
 import { settings } from "./settings";
 import { games } from "./games";
-import { bandwidthLimit, downloads } from "./downloads";
+import { bandwidthLimit, downloads, startDownloadProgressPolling } from "./downloads";
 import { source, refreshSource } from "./source";
 import { checkConnectivity, network } from "./network";
 import { launchError, launchStates } from "./launch";
@@ -29,6 +29,7 @@ export async function hydrateApp(): Promise<void> {
     launchStates.load(),
     playtime.load(),
   ]);
+  startDownloadProgressPolling();
   if (get(settings).data.launchInLibrary) activeSection.set("library");
   const startup = get(appInfo).data;
   if (startup.startupLaunchGameId !== null) {

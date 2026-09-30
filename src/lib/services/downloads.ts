@@ -85,6 +85,11 @@ export function isFinishedDownloadStatus(status: string): boolean {
   return status === "cancelled" || status === "installed";
 }
 
+export function downloadProgressPercent(job: DownloadJob): number {
+  if (job.sizeBytes <= 0) return 0;
+  return Math.min(100, (job.downloadedBytes / job.sizeBytes) * 100);
+}
+
 export function listDownloads(): Promise<DownloadJob[]> {
   return invoke<DownloadJob[]>("list_downloads");
 }

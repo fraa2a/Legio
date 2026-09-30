@@ -11,7 +11,7 @@
 
   const isLoading = $derived(
     $games.status === "loading" ||
-      $downloads.status === "loading" ||
+      ($downloads.status === "loading" && $downloads.data.length === 0) ||
       $source.status === "loading" ||
       $network.status === "loading",
   );
