@@ -7,7 +7,7 @@ use std::{
 
 use serde::Serialize;
 
-use crate::{database::Game, image_format::ImageFormat, pe_icons};
+use crate::{database::Game, image_format::ImageFormat, manual_import, pe_icons};
 
 const MAX_ARTWORK_BYTES: usize = 2 * 1024 * 1024;
 
@@ -15,6 +15,7 @@ const MAX_ARTWORK_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) enum ArtworkKind {
     Icon,
     Banner,
+    ShortcutIcon,
 }
 
 impl ArtworkKind {
@@ -22,6 +23,7 @@ impl ArtworkKind {
         match self {
             Self::Icon => "game-icons",
             Self::Banner => "game-banners",
+            Self::ShortcutIcon => "game-shortcut-icons",
         }
     }
 
@@ -29,6 +31,7 @@ impl ArtworkKind {
         match self {
             Self::Icon => "game icon",
             Self::Banner => "game banner",
+            Self::ShortcutIcon => "game shortcut icon",
         }
     }
 }
@@ -79,6 +82,25 @@ impl GameArtworkStore {
         let game_id = canonical_game_id(game_id)?;
         let bytes = pe_icons::extract_png(executable)?;
         self.store(game_id, ArtworkKind::Icon, bytes)
+    }
+
+    pub(crate) fn shortcut_icon_path(&self, game: &Game) -> Result<Option<PathBuf>, String> {
+        if let Some(executable) = shortcut_executable(game) {
+            #[cfg(windows)]
+            return Ok(Some(executable));
+            #[cfg(target_os = "linux")]
+            match pe_icons::extract_png(&executable).and_then(|bytes| {
+                self.store(
+                    canonical_game_id(&game.id)?,
+                    ArtworkKind::ShortcutIcon,
+                    bytes,
+                )
+            }) {
+                Ok(_) => return self.path(&game.id, ArtworkKind::ShortcutIcon),
+                Err(error) => eprintln!("Could not extract shortcut icon for {}: {error}", game.id),
+            }
+        }
+        self.path(&game.id, ArtworkKind::Icon)
     }
 
     fn store(
@@ -162,7 +184,11 @@ impl GameArtworkStore {
             .lock()
             .map_err(|_| "Game artwork store lock was poisoned".to_owned())?;
         let mut errors = Vec::new();
-        for kind in [ArtworkKind::Icon, ArtworkKind::Banner] {
+        for kind in [
+            ArtworkKind::Icon,
+            ArtworkKind::Banner,
+            ArtworkKind::ShortcutIcon,
+        ] {
             if let Err(error) = self.remove_locked(&game_id, kind) {
                 errors.push(error);
             }
@@ -204,6 +230,32 @@ impl GameArtworkStore {
             ));
         }
         Ok(directory)
+    }
+}
+
+fn shortcut_executable(game: &Game) -> Option<PathBuf> {
+    if let Some(path) = game.executable_path.as_deref().map(PathBuf::from)
+        && path.is_file()
+    {
+        return Some(path);
+    }
+    let root = game.steam_install_path.as_deref()?;
+    match manual_import::scan_directory(root, game.automatic_name.as_deref().or(Some(&game.name))) {
+        Ok(scan) => scan
+            .candidates
+            .into_iter()
+            .map(|candidate| PathBuf::from(candidate.path))
+            .find(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+            }),
+        Err(error) => {
+            eprintln!(
+                "Could not find a shortcut executable for {}: {error}",
+                game.id
+            );
+            None
+        }
     }
 }
 
@@ -414,6 +466,18 @@ mod tests {
             steam_account_id: None,
             executable_path: None,
         }
+    }
+
+    #[test]
+    fn steam_shortcut_finds_a_game_executable() {
+        let root = test_dir();
+        let executable = root.join("Portal.exe");
+        fs::write(&executable, b"MZ").unwrap();
+        let mut game = manual_game();
+        game.automatic_name = Some("Portal".to_owned());
+        game.steam_install_path = Some(root.to_string_lossy().into_owned());
+        assert_eq!(shortcut_executable(&game), Some(executable));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
