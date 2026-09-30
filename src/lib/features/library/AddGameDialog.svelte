@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { toMessage } from "../../utils/errors";
-  import { addGame } from "../../stores/games";
+  import { addGame, games } from "../../stores/games";
   import {
     browseGameDirectory,
     chooseCandidate,
@@ -42,9 +42,11 @@
   const parsedAppId = $derived(selectedSteamGame?.steamAppId ?? null);
   const detailsState = $derived(parsedAppId === null ? null : ($steamDetails[parsedAppId] ?? null));
   const details = $derived(detailsState?.details ?? null);
+  const duplicateName = $derived(parsedAppId !== null && $games.data.some((game) =>
+    game.steamAppId === parsedAppId && game.name.trim().toLocaleLowerCase() === $manualImport.gameName.trim().toLocaleLowerCase()));
   const canAdd = $derived(
     $manualImport.gameName.trim().length > 0 && (selectedPath !== null || parsedAppId !== null) &&
-    !previewPending && !pending && !added,
+    !duplicateName && !previewPending && !pending && !added,
   );
 
   function fileStem(path: string): string {
@@ -170,6 +172,7 @@
       disabled={pending || added}
       oninput={setScanGameName}
     />
+    {#if duplicateName}<p class="text-sm text-amber-300 light:text-amber-800" role="alert">Il nome è già usato per questo gioco Steam. Scegli un nome diverso.</p>{/if}
 
     <div class="flex flex-col gap-2">
       <span class="text-sm text-zinc-400 light:text-zinc-600">Eseguibile</span>
