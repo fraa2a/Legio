@@ -763,6 +763,7 @@ impl Database {
         };
 
         self.with_connection(|connection| {
+            ensure_unique_game_name(connection, game.steam_app_id, &game.name, None)?;
             connection
                 .execute(
                     "INSERT INTO games (id, steam_app_id, automatic_name, name_override)
@@ -783,9 +784,10 @@ impl Database {
         let id = parse_game_id(&input.id)?;
         let automatic_name = optional_name(input.automatic_name, "automatic name")?;
         let name_override = optional_name(input.name_override, "name override")?;
-        effective_name(&automatic_name, &name_override)?;
+        let name = effective_name(&automatic_name, &name_override)?;
 
         self.with_connection(|connection| {
+            ensure_unique_game_name(connection, input.steam_app_id, &name, Some(&id))?;
             connection
                 .query_row(
                     "UPDATE games
@@ -1538,6 +1540,34 @@ fn effective_name(
         .ok_or_else(|| "a game needs an automatic name or a name override".to_owned())
 }
 
+fn ensure_unique_game_name(
+    connection: &Connection,
+    steam_app_id: Option<u32>,
+    name: &str,
+    excluded_id: Option<&str>,
+) -> Result<(), String> {
+    let Some(steam_app_id) = steam_app_id else {
+        return Ok(());
+    };
+    let duplicate = connection
+        .query_row(
+            "SELECT 1 FROM games
+             WHERE steam_app_id = ?1 AND COALESCE(name_override, automatic_name) = ?2 COLLATE NOCASE
+               AND (?3 IS NULL OR id != ?3)
+             LIMIT 1",
+            params![steam_app_id, name, excluded_id],
+            |_| Ok(()),
+        )
+        .optional()
+        .map_err(database_error)?;
+    if duplicate.is_some() {
+        return Err(
+            "Il nome è già usato per questo gioco Steam. Scegli un nome diverso.".to_owned(),
+        );
+    }
+    Ok(())
+}
+
 fn parse_game_id(value: &str) -> Result<String, String> {
     Uuid::parse_str(value)
         .map(|id| id.to_string())
@@ -1899,6 +1929,43 @@ mod tests {
             std::env::temp_dir().join(format!("legio-database-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&directory).unwrap();
         directory
+    }
+
+    #[test]
+    fn rejects_duplicate_name_for_the_same_steam_app_id() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let first = database
+            .create_game(CreateGameInput {
+                name: "Portal".to_owned(),
+                steam_app_id: Some(400),
+            })
+            .unwrap();
+        let error = database
+            .create_game(CreateGameInput {
+                name: "portal".to_owned(),
+                steam_app_id: Some(400),
+            })
+            .unwrap_err();
+        assert!(error.contains("nome è già usato"));
+
+        let second = database
+            .create_game(CreateGameInput {
+                name: "Portal".to_owned(),
+                steam_app_id: Some(401),
+            })
+            .unwrap();
+        let error = database
+            .update_game(UpdateGameInput {
+                id: second.id,
+                steam_app_id: Some(400),
+                automatic_name: None,
+                name_override: Some("Portal".to_owned()),
+            })
+            .unwrap_err();
+        assert!(error.contains("nome è già usato"));
+        assert_eq!(database.game(&first.id).unwrap().name, "Portal");
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
