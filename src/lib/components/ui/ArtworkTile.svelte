@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { peekSteamImage } from "../../services/steam-details";
   import { ensureSteamDetails, steamDetails } from "../../stores/steam-details";
   import { observeVisibility } from "../../utils/visibility";
   import SteamArtwork from "../../features/library/SteamArtwork.svelte";
@@ -18,6 +19,14 @@
 
   const detailsState = $derived(steamAppId === null ? null : ($steamDetails[steamAppId] ?? null));
   const details = $derived(detailsState?.details ?? null);
+  const cachedHeader = $derived(steamAppId !== null && peekSteamImage({
+    steamAppId,
+    asset: "header",
+    fallbackAsset: null,
+    index: null,
+    version: detailsState?.cachedAt ?? null,
+    full: false,
+  }) !== undefined);
 
   let tile: HTMLElement | undefined = $state();
   let visible = $state(false);
@@ -39,7 +48,7 @@
     bind:this={tile}
     class="absolute inset-0 transition-transform duration-300 ease-out group-hover:scale-105"
   >
-    {#if visible && details !== null}
+    {#if (visible || cachedHeader) && details !== null}
       <SteamArtwork
         steamAppId={details.steamAppId}
         asset="header"
