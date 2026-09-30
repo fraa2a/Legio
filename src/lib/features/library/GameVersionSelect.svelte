@@ -6,6 +6,7 @@
     id: string;
     name: string;
     subtitle: string;
+    isSteam?: boolean;
   }
 
   let {
@@ -59,7 +60,10 @@
       <span class="flex size-10 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold">{selected.name.charAt(0).toUpperCase()}</span>
     {/if}
     <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-      <span class="truncate text-lg leading-6 font-semibold">{selected.name}</span>
+      <span class="flex min-w-0 items-center gap-1.5">
+        <span class="truncate text-lg leading-6 font-semibold">{selected.name}</span>
+        {#if selected.isSteam}<span class="shrink-0 rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-bold leading-none text-sky-300 light:text-sky-700">STEAM</span>{/if}
+      </span>
       <span class="truncate text-xs leading-4 text-zinc-400 light:text-zinc-600">{selected.subtitle}</span>
     </span>
     <Icon name="chevron-down" size="h-4 w-4 shrink-0 text-zinc-400 light:text-zinc-600" />
@@ -82,7 +86,10 @@
             <span class="flex size-9 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold">{option.name.charAt(0).toUpperCase()}</span>
           {/if}
           <span class="flex min-w-0 flex-col">
-            <span class="truncate text-sm font-semibold text-zinc-100 light:text-zinc-900">{option.name}</span>
+            <span class="flex min-w-0 items-center gap-1.5">
+              <span class="truncate text-sm font-semibold text-zinc-100 light:text-zinc-900">{option.name}</span>
+              {#if option.isSteam}<span class="shrink-0 rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-bold leading-none text-sky-300 light:text-sky-700">STEAM</span>{/if}
+            </span>
             <span class="truncate text-xs text-zinc-400 light:text-zinc-600">{option.subtitle}</span>
           </span>
         </button>
