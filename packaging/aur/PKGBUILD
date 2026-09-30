@@ -9,11 +9,11 @@ depends=('fuse2')
 provides=('legio-launcher')
 conflicts=('legio-launcher')
 options=('!strip')
-source=('Legio.AppImage::APPIMAGE_URL' 'icon.png' 'legio-launcher' 'legio-launcher.desktop' 'LICENSE')
+source=("Legio-${pkgver}.AppImage::APPIMAGE_URL" 'icon.png' 'legio-launcher' 'legio-launcher.desktop' 'LICENSE')
 sha256sums=('APPIMAGE_SHA256' 'ICON_SHA256' 'WRAPPER_SHA256' 'DESKTOP_SHA256' 'LICENSE_SHA256')
 
 package() {
-  install -Dm755 "$srcdir/Legio.AppImage" "$pkgdir/opt/legio-launcher/Legio.AppImage"
+  install -Dm755 "$srcdir/Legio-${pkgver}.AppImage" "$pkgdir/opt/legio-launcher/Legio.AppImage"
   install -Dm755 "$srcdir/legio-launcher" "$pkgdir/usr/bin/legio-launcher"
   install -Dm644 "$srcdir/legio-launcher.desktop" "$pkgdir/usr/share/applications/legio-launcher.desktop"
   install -Dm644 "$srcdir/icon.png" "$pkgdir/usr/share/pixmaps/legio-launcher.png"
