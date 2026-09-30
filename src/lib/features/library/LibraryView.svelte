@@ -67,7 +67,7 @@
   />
 
   {#if visible.length > 0}
-    <ul class="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
+    <ul class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-4">
       {#each visible as item (item.game.id)}
         <GameCard
           game={item.game}

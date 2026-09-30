@@ -33,7 +33,7 @@
 </script>
 
 <li
-  class="tile group relative flex aspect-[2.14/1] min-h-max flex-col overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200 {className}"
+  class="tile group relative flex aspect-[2.14/1] min-h-max min-w-0 flex-col overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200 {className}"
 >
   <div
     bind:this={tile}
