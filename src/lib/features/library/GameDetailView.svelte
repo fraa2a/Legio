@@ -55,7 +55,7 @@
     ? releases.map((release) => ({ id: release.entry.download.sha256, name: release.entry.name, subtitle: `Versione ${release.entry.release.version}` }))
     : libraryVersions.map((candidate) => {
       const lastPlayed = $playtime.data.find((summary) => summary.gameId === candidate.id)?.lastPlayedAt ?? null;
-      return { id: candidate.id, name: candidate.name, subtitle: lastPlayed === null ? "Mai giocato" : `Ultima partita: ${new Date(lastPlayed).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" })}` };
+      return { id: candidate.id, name: candidate.name, subtitle: lastPlayed === null ? "Mai giocato" : `Ultima partita: ${new Date(lastPlayed).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" })}`, isSteam: candidate.steamInstallPath !== null };
     }));
   const selectedVersionId = $derived(storeGame !== null ? (entry?.download.sha256 ?? "") : (game?.id ?? ""));
 
