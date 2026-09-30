@@ -122,7 +122,7 @@ pub fn run() -> tauri::Result<()> {
             let open = MenuItem::with_id(app, "open", "Apri", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Chiudi", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &quit])?;
-            let icon = image::load_from_memory(include_bytes!("../icons/icon.png"))
+            let icon = image::load_from_memory(include_bytes!("../icons/tray.png"))
                 .map_err(std::io::Error::other)?
                 .to_rgba8();
             let (width, height) = icon.dimensions();
