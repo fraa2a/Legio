@@ -686,7 +686,8 @@ async fn transfer(
     {
         return Err(format!("HTTP {}", response.status()));
     }
-    let etag = strong_etag(response.headers()).or(job.etag.clone());
+    let etag = strong_etag(response.headers())
+        .or_else(|| if offset > 0 { job.etag.clone() } else { None });
     let mut file = tokio::fs::OpenOptions::new()
         .create(true)
         .write(true)
@@ -1605,6 +1606,18 @@ mod tests {
                 .contains("range: bytes=5-\r\n")
         );
         assert!(!requests[1].to_ascii_lowercase().contains("range:"));
+        let etag: Option<String> = database
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT etag FROM downloads WHERE id = ?1",
+                        [&job.id],
+                        |row| row.get(0),
+                    )
+                    .map_err(db_error)
+            })
+            .unwrap();
+        assert_eq!(etag, None);
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
