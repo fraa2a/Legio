@@ -1,4 +1,10 @@
-use std::{collections::BTreeMap, io, path::Path, time::Duration};
+use std::{
+    collections::BTreeMap,
+    future::Future,
+    io,
+    path::{Path, PathBuf},
+    time::{Duration, SystemTime},
+};
 
 use serde::{Deserialize, Serialize};
 use steam_client::{AppsEvent, LogOnDetails, SteamClient, SteamEvent, utils::vdf::VdfValue};
@@ -6,8 +12,9 @@ use tokio::io::AsyncReadExt;
 
 const CDN: &str = "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps";
 const MAX_METADATA_BYTES: u64 = 16 * 1024;
+const FRESH_FOR: Duration = Duration::from_secs(24 * 60 * 60);
 
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
 pub(crate) struct PicsAssets(BTreeMap<String, String>);
 
 impl PicsAssets {
@@ -89,7 +96,7 @@ fn valid_asset_path(path: &str, filename: &str) -> bool {
         .is_some_and(|(hash, name)| valid_hash(hash) && name == filename)
 }
 
-pub(crate) async fn read_cache(path: &Path) -> Result<Option<PicsAssets>, String> {
+async fn read_cache(path: &Path) -> Result<Option<(PicsAssets, bool)>, String> {
     let metadata = match tokio::fs::symlink_metadata(path).await {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -109,12 +116,17 @@ pub(crate) async fn read_cache(path: &Path) -> Result<Option<PicsAssets>, String
     if bytes.len() as u64 > MAX_METADATA_BYTES {
         return Err("Steam PICS cache exceeds the size limit.".to_owned());
     }
-    serde_json::from_slice(&bytes)
-        .map(Some)
-        .map_err(|error| format!("Invalid Steam PICS cache: {error}"))
+    let assets = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("Invalid Steam PICS cache: {error}"))?;
+    let stale = metadata
+        .modified()
+        .ok()
+        .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+        .is_none_or(|age| age >= FRESH_FOR);
+    Ok(Some((assets, stale)))
 }
 
-pub(crate) async fn write_cache(path: &Path, assets: &PicsAssets) -> Result<(), String> {
+async fn write_cache(path: &Path, assets: &PicsAssets) -> Result<(), String> {
     let directory = path.parent().ok_or("Invalid Steam PICS cache path.")?;
     tokio::fs::create_dir_all(directory)
         .await
@@ -132,6 +144,58 @@ pub(crate) async fn write_cache(path: &Path, assets: &PicsAssets) -> Result<(), 
         return Err(format!("Could not save Steam PICS cache: {error}"));
     }
     Ok(())
+}
+
+pub(crate) async fn resolve(
+    path: Result<PathBuf, String>,
+    lock: &tokio::sync::Mutex<()>,
+    fetched: impl Future<Output = Result<PicsAssets, String>>,
+) -> (Option<PicsAssets>, Option<String>) {
+    let (path, mut warning) = match path {
+        Ok(path) => (Some(path), None),
+        Err(error) => (None, Some(error)),
+    };
+    let mut cached = if let Some(path) = path.as_deref() {
+        read_cache(path).await.unwrap_or_else(|error| {
+            warning = Some(error);
+            None
+        })
+    } else {
+        None
+    };
+    if cached.as_ref().is_some_and(|(_, stale)| !stale) {
+        return (cached.map(|(assets, _)| assets), warning);
+    }
+
+    // ponytail: serialize CM lookups; fresh cache reads bypass the lock.
+    let _guard = lock.lock().await;
+    if let Some(path) = path.as_deref() {
+        match read_cache(path).await {
+            Ok(Some(entry)) => cached = Some(entry),
+            Ok(None) => {}
+            Err(error) => warning = Some(error),
+        }
+    }
+    if cached.as_ref().is_some_and(|(_, stale)| !stale) {
+        return (cached.map(|(assets, _)| assets), warning);
+    }
+    match fetched.await {
+        Ok(assets) => {
+            if let Some(path) = path.as_deref()
+                && let Err(error) = write_cache(path, &assets).await
+            {
+                warning = Some(error);
+            }
+            (Some(assets), warning)
+        }
+        Err(error) => {
+            let error = match warning {
+                Some(warning) => format!("{error} Steam PICS cache: {warning}"),
+                None => error,
+            };
+            (cached.map(|(assets, _)| assets), Some(error))
+        }
+    }
 }
 
 pub(crate) async fn fetch(app_id: u32) -> Result<PicsAssets, String> {
@@ -216,26 +280,111 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn metadata_cache_round_trip_preserves_all_assets() {
-        let directory =
-            std::env::temp_dir().join(format!("legio-pics-test-{}", uuid::Uuid::new_v4()));
-        let path = directory.join("4656000.json");
-        assert!(read_cache(&path).await.unwrap().is_none());
-        let assets = PicsAssets(BTreeMap::from([(
+    const HASH: &str = "94e9d990ddd19610b268faf629865e17dcda0bb8";
+
+    fn logo_assets(hash: &str) -> PicsAssets {
+        PicsAssets(BTreeMap::from([(
             "logo.png".into(),
-            "94e9d990ddd19610b268faf629865e17dcda0bb8/logo.png".into(),
-        )]));
-        write_cache(&path, &assets).await.unwrap();
+            format!("{hash}/logo.png"),
+        )]))
+    }
+
+    fn cache_path() -> PathBuf {
+        std::env::temp_dir()
+            .join(format!("legio-pics-test-{}", uuid::Uuid::new_v4()))
+            .join("4656000.json")
+    }
+
+    async fn expire_cache(path: &Path) {
+        write_cache(path, &logo_assets(HASH)).await.unwrap();
+        std::fs::File::open(path)
+            .unwrap()
+            .set_times(
+                std::fs::FileTimes::new()
+                    .set_modified(SystemTime::now() - FRESH_FOR - Duration::from_secs(1)),
+            )
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn cache_miss_fetches_and_persists_metadata() {
+        let path = cache_path();
+        let lock = tokio::sync::Mutex::new(());
+        let (assets, warning) =
+            resolve(Ok(path.clone()), &lock, async { Ok(logo_assets(HASH)) }).await;
+        let (saved, stale) = read_cache(&path).await.unwrap().unwrap();
         assert_eq!(
-            read_cache(&path)
-                .await
-                .unwrap()
-                .unwrap()
-                .url(4656000, "logo.png"),
-            assets.url(4656000, "logo.png")
+            saved.url(4656000, "logo.png"),
+            assets.unwrap().url(4656000, "logo.png")
         );
-        tokio::fs::remove_dir_all(directory).await.unwrap();
+        assert!(!stale);
+        assert!(warning.is_none());
+        tokio::fs::remove_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn fresh_metadata_bypasses_network_and_lookup_lock() {
+        let path = cache_path();
+        write_cache(&path, &logo_assets(HASH)).await.unwrap();
+        let lock = tokio::sync::Mutex::new(());
+        let _guard = lock.lock().await;
+        let (assets, warning) = tokio::time::timeout(
+            Duration::from_secs(3),
+            resolve(Ok(path.clone()), &lock, async {
+                panic!("Fresh metadata must not connect to Steam")
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            assets.unwrap().url(4656000, "logo.png"),
+            logo_assets(HASH).url(4656000, "logo.png")
+        );
+        assert!(warning.is_none());
+        tokio::fs::remove_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn expired_metadata_refreshes_and_saves_the_new_hash() {
+        let path = cache_path();
+        expire_cache(&path).await;
+        let lock = tokio::sync::Mutex::new(());
+        let hash = "b".repeat(40);
+        let (assets, warning) =
+            resolve(Ok(path.clone()), &lock, async { Ok(logo_assets(&hash)) }).await;
+        let expected = logo_assets(&hash).url(4656000, "logo.png");
+        assert_eq!(assets.unwrap().url(4656000, "logo.png"), expected);
+        let (saved, stale) = read_cache(&path).await.unwrap().unwrap();
+        assert_eq!(saved.url(4656000, "logo.png"), expected);
+        assert!(!stale);
+        assert!(warning.is_none());
+        tokio::fs::remove_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn expired_metadata_is_preserved_when_steam_is_offline() {
+        let path = cache_path();
+        expire_cache(&path).await;
+        let lock = tokio::sync::Mutex::new(());
+        let (assets, warning) = resolve(Ok(path.clone()), &lock, async {
+            Err("Steam is offline".into())
+        })
+        .await;
+        assert_eq!(
+            assets.unwrap().url(4656000, "logo.png"),
+            logo_assets(HASH).url(4656000, "logo.png")
+        );
+        assert_eq!(warning.as_deref(), Some("Steam is offline"));
+        assert!(read_cache(&path).await.unwrap().unwrap().1);
+        tokio::fs::remove_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
