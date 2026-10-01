@@ -38,7 +38,7 @@ pub struct Release {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Download {
     pub url: String,
-    pub sha256: String,
+    pub sha256: Option<String>,
     pub size_bytes: u64,
 }
 
@@ -110,6 +110,7 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {
     }
     validate_utc_timestamp(&manifest.generated_at, "generatedAt")?;
     let mut seen = HashSet::new();
+    let mut archives = HashSet::new();
     for (list_name, entries) in [
         ("verified", &manifest.verified),
         ("unverified", &manifest.unverified),
@@ -129,12 +130,18 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {
                 &format!("{prefix}.release.publishedAt"),
             )?;
             validate_archive_url(&entry.download.url, &format!("{prefix}.download.url"))?;
-            if entry.download.sha256.len() != 64
-                || !entry
-                    .download
-                    .sha256
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            if list_name == "verified" && entry.download.sha256.is_none() {
+                return Err(invalid_field(
+                    format!("{prefix}.download.sha256"),
+                    "is required for verified games",
+                ));
+            }
+            if list_name == "verified"
+                && let Some(hash) = &entry.download.sha256
+                && (hash.len() != 64
+                    || !hash
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
             {
                 return Err(invalid_field(
                     format!("{prefix}.download.sha256"),
@@ -147,13 +154,23 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {
                     "must be positive",
                 ));
             }
-            if !seen.insert((entry.steam_app_id, entry.download.sha256.as_str())) {
+            let duplicate = !seen.insert((
+                entry.steam_app_id,
+                entry.download.url.as_str(),
+                entry.release.version.as_str(),
+            )) || (list_name == "verified"
+                && entry
+                    .download
+                    .sha256
+                    .as_ref()
+                    .is_some_and(|hash| !archives.insert((entry.steam_app_id, hash.as_str()))));
+            if duplicate {
                 return Err(ManifestError::new(
                     ManifestErrorKind::DuplicateRelease,
-                    format!("{prefix}.download.sha256"),
+                    format!("{prefix}.download"),
                     format!(
-                        "archive {} is published more than once for Steam App ID {}",
-                        entry.download.sha256, entry.steam_app_id
+                        "archive is published more than once for Steam App ID {}",
+                        entry.steam_app_id
                     ),
                 ));
             }
@@ -353,6 +370,26 @@ mod tests {
             let mut document = valid();
             *document.pointer_mut(path).unwrap() = value;
             assert_eq!(parse(document).unwrap_err().kind, kind, "{path}");
+        }
+    }
+
+    #[test]
+    fn only_verified_releases_require_sha256() {
+        for hash in [None, Some(json!(null)), Some(json!("unused"))] {
+            let mut document = valid();
+            let mut entry = document["verified"][0].clone();
+            entry["download"].as_object_mut().unwrap().remove("sha256");
+            if let Some(hash) = hash {
+                entry["download"]["sha256"] = hash;
+            }
+            document["verified"] = json!([]);
+            let mut second = entry.clone();
+            second["release"]["version"] = json!("2");
+            document["unverified"] = json!([entry.clone(), second]);
+            assert_eq!(parse(document.clone()).unwrap().unverified.len(), 2);
+            document["verified"] = json!([entry]);
+            document["unverified"] = json!([]);
+            assert!(parse(document).is_err());
         }
     }
 

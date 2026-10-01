@@ -10,7 +10,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 19;
+const SCHEMA_VERSION: i64 = 20;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -158,6 +158,8 @@ pub struct Settings {
     pub launch_in_library: bool,
     #[serde(default = "default_true")]
     pub download_notifications: bool,
+    #[serde(default = "default_true")]
+    pub verify_verified_downloads: bool,
 }
 
 fn default_true() -> bool {
@@ -190,6 +192,7 @@ impl Default for Settings {
             launch_minimized: false,
             launch_in_library: false,
             download_notifications: true,
+            verify_verified_downloads: true,
         }
     }
 }
@@ -1290,6 +1293,41 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             .execute_batch("PRAGMA user_version = 19;")
             .map_err(database_error)?;
     }
+    if version < 20 {
+        let existing: i64 = transaction.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('downloads') WHERE name = 'source_verified'",
+            [], |row| row.get(0),
+        ).map_err(database_error)?;
+        if existing == 0 {
+            transaction.execute_batch(
+                "ALTER TABLE downloads ADD COLUMN source_verified INTEGER NOT NULL DEFAULT 1 CHECK (source_verified IN (0, 1));"
+            ).map_err(database_error)?;
+        }
+        let bytes: Option<Vec<u8>> = transaction
+            .query_row(
+                "SELECT manifest FROM legio_source_cache WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(database_error)?;
+        if let Some(bytes) = bytes {
+            match crate::legio_source::parse_manifest(&bytes) {
+                Ok(manifest) => {
+                    for entry in manifest.unverified {
+                        transaction.execute(
+                            "UPDATE downloads SET source_verified = 0 WHERE steam_app_id = ?1 AND url = ?2 AND release_version = ?3",
+                            params![entry.steam_app_id, entry.download.url, entry.release.version],
+                        ).map_err(database_error)?;
+                    }
+                }
+                Err(error) => eprintln!("Could not classify existing download sources: {error}"),
+            }
+        }
+        transaction
+            .execute_batch("PRAGMA user_version = 20;")
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }
 
@@ -1655,7 +1693,7 @@ mod tests {
     fn migrates_v9_staged_download_for_finalization() {
         let connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
-        connection.execute_batch("INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at, staged_path) VALUES ('job', 42, 'Game', '1', 'https://example.test', 'hash', 4, 'staged', 1, 1, '/stage'); ALTER TABLE downloads DROP COLUMN install_token; ALTER TABLE downloads DROP COLUMN executable_relative; ALTER TABLE downloads DROP COLUMN final_path; DROP TABLE game_native_launch_config; DROP TABLE game_sessions; DROP TABLE game_compatibility_overrides; DROP TABLE compatibility_defaults; PRAGMA user_version = 9;").unwrap();
+        connection.execute_batch("INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at, staged_path) VALUES ('job', 42, 'Game', '1', 'https://example.test', 'hash', 4, 'staged', 1, 1, '/stage'); ALTER TABLE downloads DROP COLUMN source_verified; ALTER TABLE downloads DROP COLUMN install_token; ALTER TABLE downloads DROP COLUMN executable_relative; ALTER TABLE downloads DROP COLUMN final_path; DROP TABLE game_native_launch_config; DROP TABLE game_sessions; DROP TABLE game_compatibility_overrides; DROP TABLE compatibility_defaults; PRAGMA user_version = 9;").unwrap();
         migrate(&connection).unwrap();
         let row: (String, String, Option<String>) = connection
             .query_row(
@@ -1801,7 +1839,7 @@ mod tests {
         connection
             .execute_batch(
                 "INSERT INTO games (id, name_override) VALUES ('manual', 'Manual game');
-             ALTER TABLE downloads DROP COLUMN install_token;
+             ALTER TABLE downloads DROP COLUMN source_verified; ALTER TABLE downloads DROP COLUMN install_token;
              ALTER TABLE downloads DROP COLUMN executable_relative;
              ALTER TABLE downloads DROP COLUMN final_path;
              DROP TABLE game_compatibility_overrides;
@@ -2102,6 +2140,34 @@ mod tests {
                 .unwrap_err(),
             "game was not found"
         );
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn verified_hash_check_defaults_on_and_persists_when_disabled() {
+        let mut preferences = serde_json::to_value(Settings::default()).unwrap();
+        preferences
+            .as_object_mut()
+            .unwrap()
+            .remove("verifyVerifiedDownloads");
+        assert!(
+            serde_json::from_value::<Settings>(preferences)
+                .unwrap()
+                .verify_verified_downloads
+        );
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        assert!(database.settings().unwrap().verify_verified_downloads);
+        database
+            .save_settings(Settings {
+                verify_verified_downloads: false,
+                ..Settings::default()
+            })
+            .unwrap();
+        drop(database);
+        let database = Database::open(&directory).unwrap();
+        assert!(!database.settings().unwrap().verify_verified_downloads);
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }

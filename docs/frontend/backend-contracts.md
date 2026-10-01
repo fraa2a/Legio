@@ -192,7 +192,7 @@ Availability is joined by Steam App ID from the Legio manifest. `verified` and `
 | `get_legio_source` | none | `{ manifest, cachedAt, stale, warning }` |
 | `refresh_legio_source` | none | same shape |
 
-Manifest v1 fields are `schemaVersion`, `generatedAt`, `verified[]`, and `unverified[]`. Each entry contains `steamAppId`, `name`, `release: { version, publishedAt }`, and `download: { url, sha256, sizeBytes }`. Use source entries only through `queue_download`; do not download directly from a URL in the frontend. If refresh fails but a valid cache exists, the backend returns the stale cache and a warning.
+Manifest v1 fields are `schemaVersion`, `generatedAt`, `verified[]`, and `unverified[]`. Each entry contains `steamAppId`, `name`, `release: { version, publishedAt }`, and `download: { url, sha256?, sizeBytes }`. `sha256` is mandatory for verified entries and optional or null for unverified entries. Use source entries only through `queue_download`; do not download directly from a URL in the frontend. If refresh fails but a valid cache exists, the backend returns the stale cache and a warning.
 
 The source manifest URL is `https://source.example.invalid/store.json`. Hydra and this source are separate: Hydra provides searchable Steam identities and names; the Legio source describes releases and trust status. Join by `steamAppId`, keep the Hydra title as the catalog identity, and display the source release/version separately. The manifest may be unavailable or not yet published, so empty and unavailable states are normal.
 
@@ -213,10 +213,12 @@ Cached catalog search, cached Steam details, and the last valid Legio source hav
 
 ### Queue contract
 
+Releases are selected by Steam App ID, URL and version. The backend resolves that selection against the cached manifest and persists its verified/unverified status with the job. Unverified downloads skip SHA-256. The global `verifyVerifiedDownloads` setting defaults to true and controls hash checking for verified downloads when extraction starts. Archive safety checks remain enabled regardless of that setting.
+
 | Command | Arguments | Result |
 | --- | --- | --- |
 | `list_downloads` | none | `DownloadJob[]` |
-| `queue_download` | `{ steamAppId, acceptUnverified }` | new `DownloadJob` |
+| `queue_download` | `{ steamAppId, downloadUrl, releaseVersion, acceptUnverified }` | new `DownloadJob` |
 | `pause_download` | `{ id }` | `void` |
 | `resume_download` | `{ id }` | `void` |
 | `retry_download` | `{ id }` | `void` |
@@ -236,6 +238,8 @@ interface DownloadJob {
   steamAppId: number;
   name: string;
   releaseVersion: string;
+  url: string;
+  sha256: string | null;
   sizeBytes: number;
   downloadedBytes: number;
   speedBps: number;

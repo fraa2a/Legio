@@ -1,5 +1,5 @@
 <script lang="ts">
-  type IconName =
+  export type IconName =
     | "home"
     | "library"
     | "store"
@@ -10,6 +10,7 @@
     | "wrench"
     | "warning"
     | "play"
+    | "pause"
     | "download"
     | "stop"
     | "clock"
@@ -47,6 +48,7 @@
     plus: [{ d: "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2Z" }],
     reload: [{ d: "M17.65 6.35A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.76-4.24L13 11h7V4l-2.35 2.35Z" }],
     play: [{ d: "M8 5v14l11-7L8 5z" }],
+    pause: [{ d: "M7 4h3v16H7V4Zm7 0h3v16h-3V4Z" }],
     download: [{ d: "M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }],
     stop: [{ d: "M6 6h12v12H6z" }],
     clock: [
