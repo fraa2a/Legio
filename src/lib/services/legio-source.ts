@@ -4,7 +4,7 @@ export interface SourceEntry {
   steamAppId: number;
   name: string;
   release: { version: string; publishedAt: string };
-  download: { url: string; sha256: string; sizeBytes: number };
+  download: { url: string; sha256?: string | null; sizeBytes: number };
 }
 
 export interface SourceManifest {

@@ -28,7 +28,8 @@ pub struct DownloadJob {
     steam_app_id: u32,
     name: String,
     release_version: String,
-    sha256: String,
+    sha256: Option<String>,
+    url: String,
     size_bytes: u64,
     downloaded_bytes: u64,
     speed_bps: u64,
@@ -127,6 +128,7 @@ fn db_error(error: rusqlite::Error) -> String {
 }
 
 fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DownloadJob> {
+    let hash: String = row.get(10)?;
     let app_id: i64 = row.get(1)?;
     let size: i64 = row.get(4)?;
     let downloaded: i64 = row.get(5)?;
@@ -138,7 +140,8 @@ fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DownloadJob> {
             .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(1, app_id))?,
         name: row.get(2)?,
         release_version: row.get(3)?,
-        sha256: row.get(10)?,
+        sha256: (!hash.is_empty()).then_some(hash),
+        url: row.get(11)?,
         size_bytes: u64::try_from(size)
             .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(4, size))?,
         downloaded_bytes: u64::try_from(downloaded)
@@ -160,7 +163,7 @@ fn list(database: &Database) -> Result<Vec<DownloadJob>, String> {
         let mut statement = connection
             .prepare(
                 "SELECT id, steam_app_id, name, release_version, size_bytes, downloaded_bytes,
-                    speed_bps, eta_seconds, status, error, sha256 FROM downloads ORDER BY created_at, id",
+                    speed_bps, eta_seconds, status, error, sha256, url FROM downloads ORDER BY created_at, id",
             )
             .map_err(db_error)?;
         statement
@@ -195,24 +198,26 @@ fn change_status(database: &Database, id: &str, from: &[&str], to: &str) -> Resu
 pub fn enqueue(
     database: &Database,
     app_id: u32,
-    sha256: &str,
+    download_url: &str,
+    release_version: &str,
     accept_unverified: bool,
 ) -> Result<DownloadJob, String> {
     let cache = legio_source_cache::cached(database)?
         .ok_or_else(|| "No valid Legio source is cached".to_owned())?;
-    let verified = cache
-        .manifest
-        .verified
-        .iter()
-        .find(|entry| entry.steam_app_id == app_id && entry.download.sha256 == sha256);
-    let unverified = cache
-        .manifest
-        .unverified
-        .iter()
-        .find(|entry| entry.steam_app_id == app_id && entry.download.sha256 == sha256);
+    let verified = cache.manifest.verified.iter().find(|entry| {
+        entry.steam_app_id == app_id
+            && entry.download.url == download_url
+            && entry.release.version == release_version
+    });
+    let unverified = cache.manifest.unverified.iter().find(|entry| {
+        entry.steam_app_id == app_id
+            && entry.download.url == download_url
+            && entry.release.version == release_version
+    });
     if verified.is_none() && unverified.is_some() && !accept_unverified {
         return Err("Confirm the unverified source before downloading".to_owned());
     }
+    let source_verified = verified.is_some();
     let entry = verified
         .or(unverified)
         .ok_or_else(|| "Download is unavailable for this game".to_owned())?;
@@ -223,9 +228,9 @@ pub fn enqueue(
     database.with_connection(|connection| {
         connection.execute(
             "INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256,
-             size_bytes, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'queued', ?8, ?8)",
+             size_bytes, status, created_at, updated_at, source_verified) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'queued', ?8, ?8, ?9)",
             params![id, app_id, entry.name, entry.release.version, entry.download.url,
-                entry.download.sha256, size, created],
+                entry.download.sha256.as_deref().unwrap_or(""), size, created, source_verified],
         ).map_err(db_error)?;
         Ok(())
     })?;
@@ -235,6 +240,7 @@ pub fn enqueue(
         name: entry.name.clone(),
         release_version: entry.release.version.clone(),
         sha256: entry.download.sha256.clone(),
+        url: entry.download.url.clone(),
         size_bytes: entry.download.size_bytes,
         downloaded_bytes: 0,
         speed_bps: 0,
@@ -335,16 +341,16 @@ fn stage_one(queue: &DownloadQueueState, database: &Database, id: &str) -> Resul
     let id = Uuid::parse_str(id)
         .map_err(|_| "Download ID is invalid".to_owned())?
         .to_string();
-    let hash = database.with_connection(|connection| {
-        let row: Option<(String, String)> = connection
+    let (hash, verified) = database.with_connection(|connection| {
+        let row: Option<(String, String, bool)> = connection
             .query_row(
-                "SELECT sha256, status FROM downloads WHERE id = ?1",
+                "SELECT sha256, status, source_verified FROM downloads WHERE id = ?1",
                 [&id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()
             .map_err(db_error)?;
-        let Some((hash, status)) = row else {
+        let Some((hash, status, verified)) = row else {
             return Err("Download was not found".into());
         };
         if status != "downloaded" {
@@ -354,14 +360,18 @@ fn stage_one(queue: &DownloadQueueState, database: &Database, id: &str) -> Resul
             "UPDATE downloads SET status = 'staging', error = NULL, updated_at = ?2 WHERE id = ?1",
             params![id, now()?],
         ).map_err(db_error)?;
-        Ok(hash)
+        Ok((hash, verified))
     })?;
 
     let outcome: Result<PathBuf, String> = (|| {
+        if verified && hash.is_empty() {
+            return Err("SHA-256 is required for verified downloads".into());
+        }
+        let verify = verified && database.settings()?.verify_verified_downloads;
         let archive = queue.path(&id, "archive")?;
         let stage = queue.path(&id, "stage")?;
         remove_stage(&stage)?;
-        archive_install::verify_and_stage(&archive, &hash, &stage)?;
+        archive_install::verify_and_stage(&archive, verify.then_some(hash.as_str()), &stage)?;
         Ok(stage)
     })();
     match outcome {
@@ -810,7 +820,8 @@ pub async fn list_downloads(app: AppHandle) -> Result<Vec<DownloadJob>, String> 
 pub async fn queue_download(
     app: AppHandle,
     steam_app_id: u32,
-    sha256: String,
+    download_url: String,
+    release_version: String,
     accept_unverified: bool,
 ) -> Result<DownloadJob, String> {
     let worker_app = app.clone();
@@ -819,7 +830,8 @@ pub async fn queue_download(
         enqueue(
             app.state::<DatabaseState>().database()?,
             steam_app_id,
-            &sha256,
+            &download_url,
+            &release_version,
             accept_unverified,
         )
     })
@@ -1085,14 +1097,28 @@ mod tests {
             })
             .unwrap();
 
-        let second = enqueue(&database, 400, second_hash, false).unwrap();
-        let first = enqueue(&database, 400, TEST_HASH, false).unwrap();
+        let second = enqueue(
+            &database,
+            400,
+            "https://example.invalid/two.zip",
+            "2",
+            false,
+        )
+        .unwrap();
+        let first = enqueue(
+            &database,
+            400,
+            "https://example.invalid/one.zip",
+            "1",
+            false,
+        )
+        .unwrap();
         assert_ne!(first.id, second.id);
         assert_eq!(
             (
                 second.name.as_str(),
                 second.release_version.as_str(),
-                second.sha256.as_str()
+                second.sha256.as_deref().unwrap()
             ),
             ("Portal moddato", "2", second_hash)
         );
@@ -1100,7 +1126,16 @@ mod tests {
             (first.name.as_str(), first.release_version.as_str()),
             ("Portal", "1")
         );
-        assert!(enqueue(&database, 400, "deadbeef", false).is_err());
+        assert!(
+            enqueue(
+                &database,
+                400,
+                "https://example.invalid/missing.zip",
+                "1",
+                false
+            )
+            .is_err()
+        );
 
         drop(database);
         fs::remove_dir_all(directory).unwrap();
@@ -1124,7 +1159,14 @@ mod tests {
 
     fn downloaded_fixture() -> (Database, DownloadQueueState, DownloadJob, PathBuf) {
         let (database, directory) = database_with_source();
-        let job = enqueue(&database, 400, TEST_HASH, false).unwrap();
+        let job = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
         let (bytes, hash) = archive_fixture();
         let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
         fs::write(queue.path(&job.id, "archive").unwrap(), bytes).unwrap();
@@ -1209,6 +1251,142 @@ mod tests {
     }
 
     #[test]
+    fn unverified_releases_without_hash_are_distinct_and_skip_verification() {
+        let (database, directory) = database_with_source();
+        let mut manifest = serde_json::to_value(
+            legio_source_cache::cached(&database)
+                .unwrap()
+                .unwrap()
+                .manifest,
+        )
+        .unwrap();
+        let mut entry = manifest["verified"][0].clone();
+        entry["download"].as_object_mut().unwrap().remove("sha256");
+        let mut second = entry.clone();
+        second["release"]["version"] = serde_json::json!("2");
+        manifest["verified"] = serde_json::json!([]);
+        manifest["unverified"] = serde_json::json!([entry, second]);
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE legio_source_cache SET manifest = ?1",
+                        [serde_json::to_vec(&manifest).unwrap()],
+                    )
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+        let url = "https://example.invalid/portal.zip";
+        assert!(enqueue(&database, 400, url, "1", false).is_err());
+        let first = enqueue(&database, 400, url, "1", true).unwrap();
+        let second = enqueue(&database, 400, url, "2", true).unwrap();
+        assert_eq!(first.sha256, None);
+        assert_eq!(second.release_version, "2");
+        let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
+        fs::write(
+            queue.path(&first.id, "archive").unwrap(),
+            archive_fixture().0,
+        )
+        .unwrap();
+        set_status(&database, &first.id, "downloaded");
+        stage_one(&queue, &database, &first.id).unwrap();
+        assert_eq!(status(&database, &first.id).unwrap(), "staged");
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn migration_recovers_unverified_trust_for_existing_downloads() {
+        let (database, _queue, job, directory) = downloaded_fixture();
+        let mut manifest = serde_json::to_value(
+            legio_source_cache::cached(&database)
+                .unwrap()
+                .unwrap()
+                .manifest,
+        )
+        .unwrap();
+        manifest["unverified"] = manifest["verified"].clone();
+        manifest["verified"] = serde_json::json!([]);
+        database.with_connection(|connection| {
+            connection.execute("UPDATE legio_source_cache SET manifest = ?1", [serde_json::to_vec(&manifest).unwrap()]).map_err(db_error)?;
+            connection.execute_batch("ALTER TABLE downloads DROP COLUMN source_verified; PRAGMA user_version = 19;").map_err(db_error)
+        }).unwrap();
+        drop(database);
+        let database = Database::open(&directory).unwrap();
+        let verified: bool = database
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT source_verified FROM downloads WHERE id = ?1",
+                        [&job.id],
+                        |row| row.get(0),
+                    )
+                    .map_err(db_error)
+            })
+            .unwrap();
+        assert!(!verified);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn staging_hash_policy_respects_trust_and_the_global_setting() {
+        for (verified, enabled) in [(false, true), (false, false), (true, false)] {
+            let (database, queue, job, directory) = downloaded_fixture();
+            database
+                .save_settings(crate::database::Settings {
+                    verify_verified_downloads: enabled,
+                    ..crate::database::Settings::default()
+                })
+                .unwrap();
+            database
+                .with_connection(|connection| {
+                    connection
+                        .execute(
+                            "UPDATE downloads SET sha256 = ?1, source_verified = ?2 WHERE id = ?3",
+                            params![TEST_HASH, verified, job.id],
+                        )
+                        .map_err(db_error)?;
+                    Ok(())
+                })
+                .unwrap();
+            stage_one(&queue, &database, &job.id).unwrap();
+            assert!(queue.path(&job.id, "archive").unwrap().exists());
+            assert_eq!(status(&database, &job.id).unwrap(), "staged");
+            drop(database);
+            fs::remove_dir_all(directory).unwrap();
+        }
+    }
+
+    #[test]
+    fn verified_download_still_requires_a_hash_when_checking_is_disabled() {
+        let (database, queue, job, directory) = downloaded_fixture();
+        database
+            .save_settings(crate::database::Settings {
+                verify_verified_downloads: false,
+                ..crate::database::Settings::default()
+            })
+            .unwrap();
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute("UPDATE downloads SET sha256 = '' WHERE id = ?1", [&job.id])
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(
+            stage_one(&queue, &database, &job.id)
+                .unwrap_err()
+                .contains("required")
+        );
+        assert_eq!(status(&database, &job.id).unwrap(), "failed");
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn staging_path_failure_is_persisted_for_the_user() {
         let (database, queue, job, directory) = downloaded_fixture();
         let blocked = directory.join("blocked");
@@ -1248,8 +1426,22 @@ mod tests {
     #[test]
     fn startup_staging_covers_only_completed_downloads() {
         let (database, _queue, completed, directory) = downloaded_fixture();
-        let queued = enqueue(&database, 400, TEST_HASH, false).unwrap();
-        let staged = enqueue(&database, 400, TEST_HASH, false).unwrap();
+        let queued = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
+        let staged = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
         set_status(&database, &staged.id, "staged");
 
         assert_eq!(downloaded_ids(&database).unwrap(), vec![completed.id]);
@@ -1265,7 +1457,8 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute_batch(
-                        "ALTER TABLE downloads DROP COLUMN install_token;
+                        "ALTER TABLE downloads DROP COLUMN source_verified;
+                         ALTER TABLE downloads DROP COLUMN install_token;
                          ALTER TABLE downloads DROP COLUMN executable_relative;
                          ALTER TABLE downloads DROP COLUMN final_path;
                          ALTER TABLE downloads DROP COLUMN staged_path;
@@ -1302,7 +1495,14 @@ mod tests {
     #[test]
     fn queue_survives_reopen_and_recovers_interrupted_transfer() {
         let (database, directory) = database_with_source();
-        let job = enqueue(&database, 400, TEST_HASH, false).unwrap();
+        let job = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
         assert_eq!(claim(&database).unwrap().unwrap().id, job.id);
         drop(database);
         let reopened = Database::open(&directory).unwrap();
@@ -1340,7 +1540,14 @@ mod tests {
 
         let (database, directory) = database_with_source();
         let app = test_app(&directory);
-        let job = enqueue(&database, 400, TEST_HASH, false).unwrap();
+        let job = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
         database
             .with_connection(|connection| {
                 connection
@@ -1405,7 +1612,14 @@ mod tests {
 
         let (database, directory) = database_with_source();
         let app = test_app(&directory);
-        let job = enqueue(&database, 400, TEST_HASH, false).unwrap();
+        let job = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
         database
             .with_connection(|connection| {
                 connection
@@ -1480,7 +1694,14 @@ mod tests {
 
         let (database, directory) = database_with_source();
         let app = test_app(&directory);
-        let job = enqueue(&database, 400, TEST_HASH, false).unwrap();
+        let job = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
         database
             .with_connection(|connection| {
                 connection
@@ -1574,7 +1795,14 @@ mod tests {
             String::from_utf8(request).unwrap()
         });
         let (database, directory) = database_with_source();
-        let job = enqueue(&database, 400, TEST_HASH, false).unwrap();
+        let job = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
         database
             .with_connection(|connection| {
                 connection
@@ -1624,7 +1852,14 @@ mod tests {
             String::from_utf8(request).unwrap()
         });
         let (database, directory) = database_with_source();
-        let job = enqueue(&database, 400, TEST_HASH, false).unwrap();
+        let job = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
         database
             .with_connection(|connection| {
                 connection
@@ -1677,7 +1912,14 @@ mod tests {
             requests
         });
         let (database, directory) = database_with_source();
-        let job = enqueue(&database, 400, TEST_HASH, false).unwrap();
+        let job = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
         database
             .with_connection(|connection| {
                 connection
@@ -1726,7 +1968,14 @@ mod tests {
             requests
         });
         let (database, directory) = database_with_source();
-        let job = enqueue(&database, 400, TEST_HASH, false).unwrap();
+        let job = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
         database
             .with_connection(|connection| {
                 connection
@@ -1864,7 +2113,17 @@ mod tests {
         let (database, _queue, cancelled, directory) = downloaded_fixture();
         let mut ids = vec![cancelled.id.clone()];
         for _ in 0..2 {
-            ids.push(enqueue(&database, 400, TEST_HASH, false).unwrap().id);
+            ids.push(
+                enqueue(
+                    &database,
+                    400,
+                    "https://example.invalid/portal.zip",
+                    "1",
+                    false,
+                )
+                .unwrap()
+                .id,
+            );
         }
         let installed = ids[1].clone();
         let failed = ids[2].clone();

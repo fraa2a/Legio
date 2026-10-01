@@ -85,8 +85,8 @@ export function startDownloadProgressPolling(): void {
   activeDownloadCount.subscribe(syncProgressPolling);
 }
 
-export async function queueJob(steamAppId: number, sha256: string, acceptUnverified: boolean): Promise<void> {
-  await queueDownload(steamAppId, sha256, acceptUnverified);
+export async function queueJob(steamAppId: number, downloadUrl: string, releaseVersion: string, acceptUnverified: boolean): Promise<void> {
+  await queueDownload(steamAppId, downloadUrl, releaseVersion, acceptUnverified);
   await downloads.load();
 }
 

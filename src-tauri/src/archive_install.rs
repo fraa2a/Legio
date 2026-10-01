@@ -17,9 +17,13 @@ const MAX_ENTRIES: usize = 100_000;
 const MAX_EXPANDED_BYTES: u64 = 64 * 1024 * 1024 * 1024;
 const MAX_EXPANSION_RATIO: u64 = 200;
 
-/// Verifies a queue-owned archive and extracts ordinary files into an empty staging path.
+/// Checks an optional SHA-256 hash and extracts ordinary files into an empty staging path.
 /// The caller owns the staging path and passes it to finalization only after success.
-pub fn verify_and_stage(archive: &Path, expected_sha256: &str, stage: &Path) -> Result<(), String> {
+pub fn verify_and_stage(
+    archive: &Path,
+    expected_sha256: Option<&str>,
+    stage: &Path,
+) -> Result<(), String> {
     let metadata = fs::symlink_metadata(archive)
         .map_err(|error| format!("Cannot inspect download: {error}"))?;
     if !metadata.is_file() || metadata.file_type().is_symlink() {
@@ -31,18 +35,21 @@ pub fn verify_and_stage(archive: &Path, expected_sha256: &str, stage: &Path) -> 
         .metadata()
         .map_err(|error| format!("Cannot inspect download: {error}"))?
         .len();
-    let mut hasher = Sha256::new();
-    io::copy(&mut source, &mut hasher)
-        .map_err(|error| format!("Cannot verify download: {error}"))?;
-    let digest = format!("{:x}", hasher.finalize());
-    if digest != expected_sha256 {
-        drop(source);
-        fs::remove_file(archive).map_err(|error| {
-            format!("Download hash differs and corrupt file could not be removed: {error}")
-        })?;
-        return Err(
-            "Download hash differs. The corrupt download was removed; retry the download".into(),
-        );
+    if let Some(expected_sha256) = expected_sha256 {
+        let mut hasher = Sha256::new();
+        io::copy(&mut source, &mut hasher)
+            .map_err(|error| format!("Cannot verify download: {error}"))?;
+        let digest = format!("{:x}", hasher.finalize());
+        if digest != expected_sha256 {
+            drop(source);
+            fs::remove_file(archive).map_err(|error| {
+                format!("Download hash differs and corrupt file could not be removed: {error}")
+            })?;
+            return Err(
+                "Download hash differs. The corrupt download was removed; retry the download"
+                    .into(),
+            );
+        }
     }
 
     source
@@ -360,7 +367,7 @@ mod tests {
         let (root, archive) = fixture(bytes, name);
         let hash = format!("{:x}", Sha256::digest(bytes));
         let stage = root.join("staging");
-        let result = verify_and_stage(&archive, &hash, &stage).map(|()| stage);
+        let result = verify_and_stage(&archive, Some(&hash), &stage).map(|()| stage);
         (root, archive, result)
     }
 
@@ -447,11 +454,41 @@ mod tests {
             include_bytes!("../test-fixtures/archive/safe.zip"),
             "bad.zip",
         );
-        let error = verify_and_stage(&archive, &"0".repeat(64), &root.join("staging")).unwrap_err();
+        let error =
+            verify_and_stage(&archive, Some(&"0".repeat(64)), &root.join("staging")).unwrap_err();
         assert!(error.contains("corrupt download was removed"));
         assert!(!archive.exists());
         assert!(!root.join("staging").exists());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn skipping_sha256_keeps_archive_path_and_size_protections() {
+        for (bytes, allowed) in [
+            (
+                include_bytes!("../test-fixtures/archive/safe.zip").as_slice(),
+                true,
+            ),
+            (
+                include_bytes!("../test-fixtures/archive/traversal.zip").as_slice(),
+                false,
+            ),
+            (
+                include_bytes!("../test-fixtures/archive/symlink.zip").as_slice(),
+                false,
+            ),
+            (
+                include_bytes!("../test-fixtures/archive/bomb.zip").as_slice(),
+                false,
+            ),
+        ] {
+            let (root, archive) = fixture(bytes, "archive.zip");
+            assert_eq!(
+                verify_and_stage(&archive, None, &root.join("staging")).is_ok(),
+                allowed
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

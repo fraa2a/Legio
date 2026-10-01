@@ -5,7 +5,8 @@ export interface DownloadJob {
   steamAppId: number;
   name: string;
   releaseVersion: string;
-  sha256: string;
+  sha256: string | null;
+  url: string;
   sizeBytes: number;
   downloadedBytes: number;
   speedBps: number;
@@ -90,8 +91,8 @@ export function listDownloads(): Promise<DownloadJob[]> {
   return invoke<DownloadJob[]>("list_downloads");
 }
 
-export function queueDownload(steamAppId: number, sha256: string, acceptUnverified: boolean): Promise<DownloadJob> {
-  return invoke<DownloadJob>("queue_download", { steamAppId, sha256, acceptUnverified });
+export function queueDownload(steamAppId: number, downloadUrl: string, releaseVersion: string, acceptUnverified: boolean): Promise<DownloadJob> {
+  return invoke<DownloadJob>("queue_download", { steamAppId, downloadUrl, releaseVersion, acceptUnverified });
 }
 
 export function pauseDownload(id: string): Promise<void> {

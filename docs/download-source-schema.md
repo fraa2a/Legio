@@ -59,7 +59,7 @@ A source entry never makes a game catalog entry, download, or installation appea
 | `release.version` | nonempty string | Required. Source release version. Ordering rules are a later update-policy decision. |
 | `release.publishedAt` | RFC 3339 UTC string | Required. Publication timestamp. |
 | `download.url` | URL string | Required. Direct HTTP or HTTPS archive URL. Redirect handling remains bounded by Legio. |
-| `download.sha256` | 64 lowercase hexadecimal characters | Required. Archive integrity hash checked before extraction. Together with `steamAppId`, identifies the selectable release. |
+| `download.sha256` | string or null | Required for verified entries: 64 lowercase hexadecimal characters. Optional and ignored for unverified entries. Verified hashes are checked before extraction unless the global verification setting is disabled. |
 | `download.sizeBytes` | positive integer | Required. Expected archive size for progress and disk-space checks. |
 
 No arbitrary script, executable command, torrent, encrypted archive password, multipart archive description, or installation instruction is permitted in this contract.
@@ -69,8 +69,8 @@ No arbitrary script, executable command, torrent, encrypted archive password, mu
 Legio rejects the whole refresh when any rule fails:
 
 1. Unknown `schemaVersion`.
-2. Duplicate `steamAppId` and `download.sha256` pair within either list or across both lists.
-3. Missing required field, incorrect type, empty required string, invalid timestamp, or invalid SHA-256 encoding.
+2. Duplicate `(steamAppId, download.url, release.version)` tuple within or across lists, or duplicate `(steamAppId, download.sha256)` pair among verified entries.
+3. Missing required field, incorrect type, empty required string, invalid timestamp, or missing/invalid verified SHA-256.
 4. Non-positive App ID or size.
 5. Download URL outside HTTP or HTTPS.
 
@@ -83,7 +83,8 @@ Legio must preserve the previous valid cache when a refresh is rejected and surf
 - This manifest provides Legio download source metadata only.
 - The UI presents verified and unverified source status separately.
 - The store lists a title once per Steam App ID and lets the user choose its release by name and version. The queue stores the selected archive metadata, so later source refreshes cannot change a queued download.
-- An unverified entry presents an actionable warning but may still be installed after user choice.
+- An unverified entry presents an actionable warning but may still be installed after user choice. Its SHA-256 is never checked, even when provided.
+- Verified hash checking defaults to enabled. The global `verifyVerifiedDownloads` setting can disable it for computers with very poor performance; verified manifest entries must still provide a valid hash. Safe-path, link, format and extraction-size checks always remain enabled.
 - A catalog game without a valid matching entry displays `Download unavailable`.
 
 ## Example
@@ -117,7 +118,6 @@ Legio must preserve the previous valid cache when a refresh is rejected and surf
       },
       "download": {
         "url": "https://downloads.example.invalid/portal-modded.zip",
-        "sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
         "sizeBytes": 234567890
       }
     }

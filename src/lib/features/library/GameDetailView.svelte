@@ -16,6 +16,7 @@
   } from "../../stores/launch";
   import { closeGame, openGame, selectSection, selectedGameId, type StoreGameSelection } from "../../stores/navigation";
   import { downloads, queueJob } from "../../stores/downloads";
+  import type { SourceEntry } from "../../services/legio-source";
   import { describeDownloadStatus } from "../../services/downloads";
   import { playtime } from "../../stores/playtime";
   import { refreshSource, source, sourceRefreshError } from "../../stores/source";
@@ -34,7 +35,7 @@
   import GameVersionSelect from "./GameVersionSelect.svelte";
   import { getGameBanner, getGameIcon, gameArtworkRevision } from "../../services/game-artwork";
   import { toMessage } from "../../utils/errors";
-  import { sourceReleasesFor } from "../store/source-status";
+  import { sourceReleaseId, sourceReleasesFor } from "../store/source-status";
 
   let { storeGame = null }: { storeGame?: StoreGameSelection | null } = $props();
 
@@ -44,20 +45,20 @@
   const detailsState = $derived(steamAppId === null ? null : ($steamDetails[steamAppId] ?? null));
   const details = $derived(detailsState?.details ?? null);
   const releases = $derived(steamAppId === null ? [] : sourceReleasesFor($source.data.manifest, steamAppId));
-  let selectedReleaseHash = $state<string | null>(null);
-  const status = $derived(releases.find((release) => release.entry?.download.sha256 === selectedReleaseHash) ?? releases[0] ?? null);
+  let selectedReleaseId = $state<string | null>(null);
+  const status = $derived(releases.find((release) => sourceReleaseId(release.entry) === selectedReleaseId) ?? releases[0] ?? null);
   const entry = $derived(status?.entry ?? null);
   const name = $derived(storeGame !== null ? (entry?.name ?? storeGame.name) : (game?.name ?? ""));
-  const job = $derived(storeGame === null || entry === null ? null : ($downloads.data.find((candidate) => candidate.steamAppId === steamAppId && candidate.sha256 === entry.download.sha256 && candidate.status !== "installed" && candidate.status !== "cancelled") ?? null));
+  const job = $derived(storeGame === null || entry === null ? null : ($downloads.data.find((candidate) => candidate.steamAppId === steamAppId && candidate.url === entry.download.url && candidate.releaseVersion === entry.release.version && candidate.status !== "installed" && candidate.status !== "cancelled") ?? null));
   const downloadProgress = $derived(job === null || job.sizeBytes === 0 ? 0 : Math.min(100, Math.max(0, job.downloadedBytes / job.sizeBytes * 100)));
   const libraryVersions = $derived(game === null ? [] : $games.data.filter((candidate) => candidate.steamAppId === null ? candidate.id === game.id : candidate.steamAppId === game.steamAppId));
   const versionOptions = $derived(storeGame !== null
-    ? releases.map((release) => ({ id: release.entry.download.sha256, name: release.entry.name, subtitle: `Versione ${release.entry.release.version}` }))
+    ? releases.map((release) => ({ id: sourceReleaseId(release.entry), name: release.entry.name, subtitle: `Versione ${release.entry.release.version}` }))
     : libraryVersions.map((candidate) => {
       const lastPlayed = $playtime.data.find((summary) => summary.gameId === candidate.id)?.lastPlayedAt ?? null;
       return { id: candidate.id, name: candidate.name, subtitle: lastPlayed === null ? "Mai giocato" : `Ultima partita: ${new Date(lastPlayed).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" })}`, isSteam: candidate.steamInstallPath !== null };
     }));
-  const selectedVersionId = $derived(storeGame !== null ? (entry?.download.sha256 ?? "") : (game?.id ?? ""));
+  const selectedVersionId = $derived(storeGame !== null ? (entry === null ? "" : sourceReleaseId(entry)) : (game?.id ?? ""));
 
   let artworkOpen = $state(false);
   let gameSettingsOpen = $state(false);
@@ -65,7 +66,7 @@
   let customIconUrl = $state<string | null>(null);
   let artworkError = $state<string | null>(null);
   let confirmOpen = $state(false);
-  let confirmHash = $state<string | null>(null);
+  let confirmEntry = $state<SourceEntry | null>(null);
   let queueing = $state(false);
   let queueError = $state<string | null>(null);
 
@@ -118,12 +119,12 @@
     };
   });
 
-  async function startDownload(sha256: string, acceptUnverified: boolean): Promise<void> {
+  async function startDownload(downloadUrl: string, releaseVersion: string, acceptUnverified: boolean): Promise<void> {
     if (steamAppId === null) return;
     queueError = null;
     queueing = true;
     try {
-      await queueJob(steamAppId, sha256, acceptUnverified);
+      await queueJob(steamAppId, downloadUrl, releaseVersion, acceptUnverified);
     } catch (error) {
       queueError = toMessage(error);
     } finally {
@@ -134,15 +135,15 @@
   function requestDownload(): void {
     if (entry === null) return;
     if (status?.availability === "unverified") {
-      confirmHash = entry.download.sha256;
+      confirmEntry = entry;
       confirmOpen = true;
       return;
     }
-    void startDownload(entry.download.sha256, false);
+    void startDownload(entry.download.url, entry.release.version, false);
   }
 
   function selectVersion(id: string): void {
-    if (storeGame !== null) selectedReleaseHash = id;
+    if (storeGame !== null) selectedReleaseId = id;
     else openGame(id);
   }
 </script>
@@ -313,7 +314,7 @@
     </p>
     <div class="flex justify-end gap-2">
       <Button label="Annulla" variant="secondary" onClick={() => (confirmOpen = false)} />
-      <Button label="Scarica comunque" variant="danger" disabled={queueing} onClick={() => { confirmOpen = false; if (confirmHash !== null) void startDownload(confirmHash, true); }} />
+      <Button label="Scarica comunque" variant="danger" disabled={queueing} onClick={() => { confirmOpen = false; if (confirmEntry !== null) void startDownload(confirmEntry.download.url, confirmEntry.release.version, true); }} />
     </div>
   </Dialog>
 {/if}
