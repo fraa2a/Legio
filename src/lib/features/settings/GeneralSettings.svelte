@@ -9,6 +9,7 @@
   import { configureSteamScanInterval } from "../../stores/bootstrap";
   import { settings, settingsError } from "../../stores/settings";
   import { toMessage } from "../../utils/errors";
+  import { checkForAppUpdate, installAppUpdate, updateState } from "../../services/app-updater";
 
   const intervals = [5, 10, 15, 30, 60, 120];
   const options = intervals.map((minutes) => ({ value: String(minutes), label: `${minutes} minuti` }));
@@ -86,6 +87,37 @@
         />
       </label>
     {/each}
+  </SettingsGroup>
+
+  <SettingsGroup
+    title="Integrità dei download: impostazione delicata"
+    description="Controlla SHA-256 per i giochi verified. Disabilita questa protezione solo su computer di fascia bassa con prestazioni molto scarse: Legio non potrà rilevare archivi alterati o corrotti tramite hash. I giochi unverified vengono sempre estratti senza controllo SHA-256. La modifica si applica alle estrazioni successive."
+  >
+    <label class="flex cursor-pointer items-center justify-between gap-6">
+      <span class="text-sm text-zinc-100 light:text-zinc-900">Verifica SHA-256 dei giochi verified (consigliato)</span>
+      <input
+        type="checkbox"
+        class="size-4 accent-white"
+        checked={$settings.data.verifyVerifiedDownloads}
+        disabled={saving || $settings.status === "loading" || $settings.status === "idle" || $settings.status === "error"}
+        onchange={(event) => void update({ verifyVerifiedDownloads: event.currentTarget.checked })}
+      />
+    </label>
+  </SettingsGroup>
+
+  <SettingsGroup title="Aggiornamenti" description="Controlla automaticamente all'avvio se è disponibile una nuova versione di Legio.">
+    <div class="flex flex-wrap items-center gap-3">
+      <Button label={$updateState.checking ? "Controllo..." : "Controlla aggiornamenti"} variant="secondary" disabled={$updateState.checking || $updateState.installing} onClick={() => void checkForAppUpdate()} />
+      {#if $updateState.version}
+        <span class="text-sm text-zinc-300 light:text-zinc-700">Versione {$updateState.version} disponibile.{#if $updateState.aur} Aggiorna tramite AUR.{/if}</span>
+        {#if !$updateState.aur}
+          <Button label={$updateState.installing ? "Installazione..." : "Installa e riavvia"} disabled={$updateState.installing} onClick={() => void installAppUpdate()} />
+        {/if}
+      {:else if $updateState.checked}
+        <span class="text-sm text-zinc-300 light:text-zinc-700">Legio è aggiornato.</span>
+      {/if}
+    </div>
+    {#if $updateState.error}<ErrorBanner message={$updateState.error} />{/if}
   </SettingsGroup>
 
   <SettingsGroup title="Cartella per download e installazioni">

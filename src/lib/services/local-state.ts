@@ -12,6 +12,7 @@ export interface Settings {
   launchMinimized: boolean;
   launchInLibrary: boolean;
   downloadNotifications: boolean;
+  verifyVerifiedDownloads: boolean;
 }
 
 export interface Game {

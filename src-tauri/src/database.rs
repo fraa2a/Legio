@@ -10,7 +10,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 19;
+const SCHEMA_VERSION: i64 = 20;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -158,6 +158,8 @@ pub struct Settings {
     pub launch_in_library: bool,
     #[serde(default = "default_true")]
     pub download_notifications: bool,
+    #[serde(default = "default_true")]
+    pub verify_verified_downloads: bool,
 }
 
 fn default_true() -> bool {
@@ -190,6 +192,7 @@ impl Default for Settings {
             launch_minimized: false,
             launch_in_library: false,
             download_notifications: true,
+            verify_verified_downloads: true,
         }
     }
 }
@@ -763,6 +766,7 @@ impl Database {
         };
 
         self.with_connection(|connection| {
+            ensure_unique_game_name(connection, game.steam_app_id, &game.name, None)?;
             connection
                 .execute(
                     "INSERT INTO games (id, steam_app_id, automatic_name, name_override)
@@ -783,9 +787,10 @@ impl Database {
         let id = parse_game_id(&input.id)?;
         let automatic_name = optional_name(input.automatic_name, "automatic name")?;
         let name_override = optional_name(input.name_override, "name override")?;
-        effective_name(&automatic_name, &name_override)?;
+        let name = effective_name(&automatic_name, &name_override)?;
 
         self.with_connection(|connection| {
+            ensure_unique_game_name(connection, input.steam_app_id, &name, Some(&id))?;
             connection
                 .query_row(
                     "UPDATE games
@@ -1288,6 +1293,41 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             .execute_batch("PRAGMA user_version = 19;")
             .map_err(database_error)?;
     }
+    if version < 20 {
+        let existing: i64 = transaction.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('downloads') WHERE name = 'source_verified'",
+            [], |row| row.get(0),
+        ).map_err(database_error)?;
+        if existing == 0 {
+            transaction.execute_batch(
+                "ALTER TABLE downloads ADD COLUMN source_verified INTEGER NOT NULL DEFAULT 1 CHECK (source_verified IN (0, 1));"
+            ).map_err(database_error)?;
+        }
+        let bytes: Option<Vec<u8>> = transaction
+            .query_row(
+                "SELECT manifest FROM legio_source_cache WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(database_error)?;
+        if let Some(bytes) = bytes {
+            match crate::legio_source::parse_manifest(&bytes) {
+                Ok(manifest) => {
+                    for entry in manifest.unverified {
+                        transaction.execute(
+                            "UPDATE downloads SET source_verified = 0 WHERE steam_app_id = ?1 AND url = ?2 AND release_version = ?3",
+                            params![entry.steam_app_id, entry.download.url, entry.release.version],
+                        ).map_err(database_error)?;
+                    }
+                }
+                Err(error) => eprintln!("Could not classify existing download sources: {error}"),
+            }
+        }
+        transaction
+            .execute_batch("PRAGMA user_version = 20;")
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }
 
@@ -1538,6 +1578,34 @@ fn effective_name(
         .ok_or_else(|| "a game needs an automatic name or a name override".to_owned())
 }
 
+fn ensure_unique_game_name(
+    connection: &Connection,
+    steam_app_id: Option<u32>,
+    name: &str,
+    excluded_id: Option<&str>,
+) -> Result<(), String> {
+    let Some(steam_app_id) = steam_app_id else {
+        return Ok(());
+    };
+    let duplicate = connection
+        .query_row(
+            "SELECT 1 FROM games
+             WHERE steam_app_id = ?1 AND COALESCE(name_override, automatic_name) = ?2 COLLATE NOCASE
+               AND (?3 IS NULL OR id != ?3)
+             LIMIT 1",
+            params![steam_app_id, name, excluded_id],
+            |_| Ok(()),
+        )
+        .optional()
+        .map_err(database_error)?;
+    if duplicate.is_some() {
+        return Err(
+            "Il nome è già usato per questo gioco Steam. Scegli un nome diverso.".to_owned(),
+        );
+    }
+    Ok(())
+}
+
 fn parse_game_id(value: &str) -> Result<String, String> {
     Uuid::parse_str(value)
         .map(|id| id.to_string())
@@ -1625,7 +1693,7 @@ mod tests {
     fn migrates_v9_staged_download_for_finalization() {
         let connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
-        connection.execute_batch("INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at, staged_path) VALUES ('job', 42, 'Game', '1', 'https://example.test', 'hash', 4, 'staged', 1, 1, '/stage'); ALTER TABLE downloads DROP COLUMN install_token; ALTER TABLE downloads DROP COLUMN executable_relative; ALTER TABLE downloads DROP COLUMN final_path; DROP TABLE game_native_launch_config; DROP TABLE game_sessions; DROP TABLE game_compatibility_overrides; DROP TABLE compatibility_defaults; PRAGMA user_version = 9;").unwrap();
+        connection.execute_batch("INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at, staged_path) VALUES ('job', 42, 'Game', '1', 'https://example.test', 'hash', 4, 'staged', 1, 1, '/stage'); ALTER TABLE downloads DROP COLUMN source_verified; ALTER TABLE downloads DROP COLUMN install_token; ALTER TABLE downloads DROP COLUMN executable_relative; ALTER TABLE downloads DROP COLUMN final_path; DROP TABLE game_native_launch_config; DROP TABLE game_sessions; DROP TABLE game_compatibility_overrides; DROP TABLE compatibility_defaults; PRAGMA user_version = 9;").unwrap();
         migrate(&connection).unwrap();
         let row: (String, String, Option<String>) = connection
             .query_row(
@@ -1771,7 +1839,7 @@ mod tests {
         connection
             .execute_batch(
                 "INSERT INTO games (id, name_override) VALUES ('manual', 'Manual game');
-             ALTER TABLE downloads DROP COLUMN install_token;
+             ALTER TABLE downloads DROP COLUMN source_verified; ALTER TABLE downloads DROP COLUMN install_token;
              ALTER TABLE downloads DROP COLUMN executable_relative;
              ALTER TABLE downloads DROP COLUMN final_path;
              DROP TABLE game_compatibility_overrides;
@@ -1899,6 +1967,43 @@ mod tests {
             std::env::temp_dir().join(format!("legio-database-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&directory).unwrap();
         directory
+    }
+
+    #[test]
+    fn rejects_duplicate_name_for_the_same_steam_app_id() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let first = database
+            .create_game(CreateGameInput {
+                name: "Portal".to_owned(),
+                steam_app_id: Some(400),
+            })
+            .unwrap();
+        let error = database
+            .create_game(CreateGameInput {
+                name: "portal".to_owned(),
+                steam_app_id: Some(400),
+            })
+            .unwrap_err();
+        assert!(error.contains("nome è già usato"));
+
+        let second = database
+            .create_game(CreateGameInput {
+                name: "Portal".to_owned(),
+                steam_app_id: Some(401),
+            })
+            .unwrap();
+        let error = database
+            .update_game(UpdateGameInput {
+                id: second.id,
+                steam_app_id: Some(400),
+                automatic_name: None,
+                name_override: Some("Portal".to_owned()),
+            })
+            .unwrap_err();
+        assert!(error.contains("nome è già usato"));
+        assert_eq!(database.game(&first.id).unwrap().name, "Portal");
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -2035,6 +2140,34 @@ mod tests {
                 .unwrap_err(),
             "game was not found"
         );
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn verified_hash_check_defaults_on_and_persists_when_disabled() {
+        let mut preferences = serde_json::to_value(Settings::default()).unwrap();
+        preferences
+            .as_object_mut()
+            .unwrap()
+            .remove("verifyVerifiedDownloads");
+        assert!(
+            serde_json::from_value::<Settings>(preferences)
+                .unwrap()
+                .verify_verified_downloads
+        );
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        assert!(database.settings().unwrap().verify_verified_downloads);
+        database
+            .save_settings(Settings {
+                verify_verified_downloads: false,
+                ..Settings::default()
+            })
+            .unwrap();
+        drop(database);
+        let database = Database::open(&directory).unwrap();
+        assert!(!database.settings().unwrap().verify_verified_downloads);
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }

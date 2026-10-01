@@ -53,6 +53,8 @@ pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(move |app| {
             let database = database::DatabaseState::new(app.path().app_data_dir());
             let bandwidth_limit = database
@@ -120,7 +122,7 @@ pub fn run() -> tauri::Result<()> {
             let open = MenuItem::with_id(app, "open", "Apri", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Chiudi", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &quit])?;
-            let icon = image::load_from_memory(include_bytes!("../icons/icon.png"))
+            let icon = image::load_from_memory(include_bytes!("../icons/tray.png"))
                 .map_err(std::io::Error::other)?
                 .to_rgba8();
             let (width, height) = icon.dimensions();
@@ -207,6 +209,7 @@ pub fn run() -> tauri::Result<()> {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            commands::is_aur_package,
             commands::get_app_info,
             commands::get_settings,
             commands::save_settings,
@@ -256,7 +259,6 @@ pub fn run() -> tauri::Result<()> {
             commands::get_network_log_status,
             commands::get_legio_source,
             download_queue::list_downloads,
-            download_queue::stage_download,
             finalize_install::finalize_download,
             finalize_install::scan_staged_executables,
             download_queue::queue_download,

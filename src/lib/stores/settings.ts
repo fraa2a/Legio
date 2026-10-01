@@ -6,7 +6,7 @@ import { createResource } from "./resource";
 const fallback: Settings = {
   theme: "system", steamLibraryPollMinutes: 30, downloadPath: null,
   closeToTray: true, hideOnGameStart: true, launchOnSystemStart: false,
-  launchMinimized: false, launchInLibrary: false, downloadNotifications: true,
+  launchMinimized: false, launchInLibrary: false, downloadNotifications: true, verifyVerifiedDownloads: true,
 };
 
 export const settings = createResource<Settings>(fallback, getSettings);

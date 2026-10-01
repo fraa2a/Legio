@@ -562,10 +562,13 @@ pub async fn finalize_download(
         let root = database.storage_root(&data_dir)?;
         finalize(database, &root, &id, &executable_relative)?;
         let game = database.game(&id)?;
+        let icon = app
+            .state::<crate::game_artwork::GameArtworkStore>()
+            .shortcut_icon_path(&game)?;
         if let Err(error) = crate::desktop_shortcuts::create(
             &game,
             crate::desktop_shortcuts::ShortcutLocation::ApplicationsMenu,
-            None,
+            icon.as_deref(),
         ) {
             eprintln!("Could not create application-menu shortcut: {error}");
         }
