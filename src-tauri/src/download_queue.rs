@@ -52,6 +52,7 @@ pub struct DownloadQueueState {
     running: AtomicBool,
     bandwidth_limit: AtomicU64,
     wake: tokio::sync::Notify,
+    staging: tokio::sync::Mutex<()>,
 }
 
 impl DownloadQueueState {
@@ -73,6 +74,7 @@ impl DownloadQueueState {
             running: AtomicBool::new(false),
             bandwidth_limit: AtomicU64::new(0),
             wake: tokio::sync::Notify::new(),
+            staging: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -333,8 +335,6 @@ fn stage_one(queue: &DownloadQueueState, database: &Database, id: &str) -> Resul
     let id = Uuid::parse_str(id)
         .map_err(|_| "Download ID is invalid".to_owned())?
         .to_string();
-    let archive = queue.path(&id, "archive")?;
-    let stage = queue.path(&id, "stage")?;
     let hash = database.with_connection(|connection| {
         let row: Option<(String, String)> = connection
             .query_row(
@@ -357,10 +357,15 @@ fn stage_one(queue: &DownloadQueueState, database: &Database, id: &str) -> Resul
         Ok(hash)
     })?;
 
-    let outcome = remove_stage(&stage)
-        .and_then(|()| archive_install::verify_and_stage(&archive, &hash, &stage));
+    let outcome: Result<PathBuf, String> = (|| {
+        let archive = queue.path(&id, "archive")?;
+        let stage = queue.path(&id, "stage")?;
+        remove_stage(&stage)?;
+        archive_install::verify_and_stage(&archive, &hash, &stage)?;
+        Ok(stage)
+    })();
     match outcome {
-        Ok(()) => {
+        Ok(stage) => {
             let persisted = database.with_connection(|connection| {
                 connection.execute(
                     "UPDATE downloads SET status = 'staged', staged_path = ?2, updated_at = ?3 WHERE id = ?1 AND status = 'staging'",
@@ -396,18 +401,23 @@ fn stage_one(queue: &DownloadQueueState, database: &Database, id: &str) -> Resul
 fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
     let app = app.clone();
     let id = id.to_owned();
-    tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn(async move {
         let queue = app.state::<DownloadQueueState>();
-        let state = app.state::<DatabaseState>();
-        let database = match state.database() {
-            Ok(database) => database,
-            Err(error) => {
-                eprintln!("Could not verify and extract download {id}: {error}");
-                return;
-            }
-        };
-        if let Err(error) = stage_one(&queue, database, &id) {
-            eprintln!("Could not verify and extract download {id}: {error}");
+        let _staging = queue.staging.lock().await;
+        let worker_app = app.clone();
+        let worker_id = id.clone();
+        let outcome = tauri::async_runtime::spawn_blocking(move || {
+            stage_one(
+                &worker_app.state::<DownloadQueueState>(),
+                worker_app.state::<DatabaseState>().database()?,
+                &worker_id,
+            )
+        })
+        .await;
+        match outcome {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => eprintln!("Could not verify and extract download {id}: {error}"),
+            Err(error) => eprintln!("Download staging task failed for {id}: {error}"),
         }
     });
 }
@@ -1194,6 +1204,43 @@ mod tests {
         assert_eq!(list(&database).unwrap()[0].status, "staging");
         recover_staging(&queue, &database).unwrap();
         assert_eq!(list(&database).unwrap()[0].status, "downloaded");
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn staging_path_failure_is_persisted_for_the_user() {
+        let (database, queue, job, directory) = downloaded_fixture();
+        let blocked = directory.join("blocked");
+        fs::write(&blocked, b"not a directory").unwrap();
+        queue.set_storage_root(&blocked).unwrap();
+
+        let error = stage_one(&queue, &database, &job.id).unwrap_err();
+        let jobs = list(&database).unwrap();
+        assert_eq!(jobs[0].status, "failed");
+        assert_eq!(jobs[0].error.as_deref(), Some(error.as_str()));
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn automatic_staging_waits_for_the_previous_extraction() {
+        let (database, _queue, job, directory) = downloaded_fixture();
+        let app = test_app(&directory);
+        let queue = app.state::<DownloadQueueState>();
+        let staging = queue.staging.lock().await;
+
+        spawn_staging(app.handle(), &job.id);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(status(&database, &job.id).unwrap(), "downloaded");
+
+        drop(staging);
+        wait_for_status(&database, &job.id, "staged");
+        assert_eq!(
+            fs::read(queue.path(&job.id, "stage").unwrap().join("Game/data.bin")).unwrap(),
+            b"hello"
+        );
+        drop(app);
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }

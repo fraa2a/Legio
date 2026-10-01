@@ -38,12 +38,12 @@ export const finishedDownloadCount = derived(
 const statusRank: Record<string, number> = {
   downloading: 0,
   staging: 0,
+  downloaded: 0,
   finalizing: 0,
   queued: 1,
   waiting: 1,
   paused: 2,
   failed: 3,
-  downloaded: 4,
   staged: 4,
   installed: 5,
   cancelled: 6,

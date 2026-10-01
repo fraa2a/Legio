@@ -44,7 +44,7 @@ export function describeDownloadStatus(status: string): string {
 }
 
 export function isActiveDownloadStatus(status: string): boolean {
-  return status === "queued" || status === "downloading" || status === "waiting" || status === "staging" || status === "finalizing";
+  return status === "queued" || status === "downloading" || status === "waiting" || status === "downloaded" || status === "staging" || status === "finalizing";
 }
 
 export function canPauseDownload(status: string): boolean {

@@ -20,6 +20,7 @@
   let pending = $state(false);
 
   async function confirm(): Promise<void> {
+    if (pending) return;
     actionError = null;
     pending = true;
     try {

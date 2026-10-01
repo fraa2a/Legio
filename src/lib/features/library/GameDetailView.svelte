@@ -16,7 +16,7 @@
   } from "../../stores/launch";
   import { closeGame, openGame, selectSection, selectedGameId, type StoreGameSelection } from "../../stores/navigation";
   import { downloads, queueJob } from "../../stores/downloads";
-  import { describeDownloadStatus, isActiveDownloadStatus } from "../../services/downloads";
+  import { describeDownloadStatus } from "../../services/downloads";
   import { playtime } from "../../stores/playtime";
   import { refreshSource, source, sourceRefreshError } from "../../stores/source";
   import { ensureSteamDetails, steamDetails } from "../../stores/steam-details";
@@ -73,12 +73,6 @@
     if (storeGame !== null) return;
     void playtime.load();
     const timer = setInterval(() => void playtime.load(), 30000);
-    return () => clearInterval(timer);
-  });
-
-  $effect(() => {
-    if (storeGame === null || job === null || !isActiveDownloadStatus(job.status)) return;
-    const timer = setInterval(() => void downloads.load(), 2000);
     return () => clearInterval(timer);
   });
 

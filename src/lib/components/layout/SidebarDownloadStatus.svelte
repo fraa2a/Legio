@@ -4,6 +4,7 @@
     canPauseDownload,
     canResumeDownload,
     downloadProgressPercent,
+    type DownloadJob,
   } from "../../services/downloads";
   import { currentDownload, pauseJob, resumeJob } from "../../stores/downloads";
   import { selectSection } from "../../stores/navigation";
@@ -24,10 +25,10 @@
 
   let actionError = $state<string | null>(null);
   let busy = $state(false);
-  let cancelOpen = $state(false);
-  let revealed = $state(false);
+  let cancelTarget = $state<DownloadJob | null>(null);
 
   const phaseLabels: Record<string, string> = {
+    downloaded: "In attesa di estrazione",
     staging: "Estrazione",
     finalizing: "Installazione",
     waiting: "In attesa",
@@ -73,7 +74,7 @@
         icon: "stop",
         label: `Annulla il download di ${lead.name}`,
         title: "Annulla",
-        trigger: () => (cancelOpen = true),
+        trigger: () => (cancelTarget = lead),
       });
     }
     return actions;
@@ -98,20 +99,14 @@
     <div
       role="group"
       aria-label="Download in corso: {lead.name}"
-      class="flex shrink-0 flex-col gap-2 rounded-lg border border-white/10 bg-white/5 p-2 light:border-zinc-900/15 light:bg-zinc-100"
-      onmouseenter={() => (revealed = true)}
-      onmouseleave={() => (revealed = false)}
-      onfocusin={() => (revealed = true)}
-      onfocusout={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) revealed = false;
-      }}
+      class="group/download flex shrink-0 flex-col gap-2 rounded-lg border border-white/10 bg-white/5 p-2 light:border-zinc-900/15 light:bg-zinc-100"
     >
-      <div class="flex min-h-7 items-center gap-2">
+      <div class="relative flex min-h-7 items-center gap-2">
         <p class="min-w-0 flex-1 truncate text-xs font-medium text-white light:text-zinc-900">
           {lead.name}
         </p>
-        {#if revealed && quickActions.length > 0}
-          <div class="flex shrink-0 items-center gap-1">
+        {#if quickActions.length > 0}
+          <div class="pointer-events-none flex shrink-0 items-center gap-1 opacity-0 group-hover/download:pointer-events-auto group-hover/download:opacity-100 group-focus-within/download:pointer-events-auto group-focus-within/download:opacity-100">
             {#each quickActions as action (action.title)}
               <button
                 type="button"
@@ -125,11 +120,14 @@
               </button>
             {/each}
           </div>
-        {:else}
-          <span class="shrink-0 text-xs font-semibold text-zinc-300 light:text-zinc-700">
-            {percentLabel}
-          </span>
         {/if}
+        <span
+          class="shrink-0 text-xs font-semibold text-zinc-300 light:text-zinc-700 {quickActions.length > 0
+            ? 'pointer-events-none absolute right-0 group-hover/download:opacity-0 group-focus-within/download:opacity-0'
+            : ''}"
+        >
+          {percentLabel}
+        </span>
       </div>
 
       <ProgressBar value={percent} label="Avanzamento di {lead.name}" />
@@ -164,11 +162,13 @@
       </span>
     </button>
   {/if}
+{/if}
 
+{#if cancelTarget}
   <CancelDownloadDialog
-    open={cancelOpen}
-    jobId={lead.id}
-    gameName={lead.name}
-    onClose={() => (cancelOpen = false)}
+    open
+    jobId={cancelTarget.id}
+    gameName={cancelTarget.name}
+    onClose={() => (cancelTarget = null)}
   />
 {/if}
