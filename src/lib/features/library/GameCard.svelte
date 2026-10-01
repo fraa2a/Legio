@@ -52,8 +52,8 @@
       </span>
     </div>
 
-    <div class="relative mt-auto p-3">
-      <div class="flex w-fit min-w-0 max-w-full flex-col gap-1.5">
+    <div class="relative m-auto p-3">
+      <div class="flex w-full min-w-0 max-w-full flex-col items-center gap-1.5">
         {#if launch?.error}
           <span class="rounded-lg bg-zinc-950/60 px-3 py-1.5 text-xs text-red-300 light:bg-zinc-100/70 light:text-red-700" role="alert">{launch.error}</span>
         {/if}
@@ -64,7 +64,7 @@
             version={detailsState?.cachedAt ?? null}
             caption={false}
             alt=""
-            class="h-12 w-48 max-w-full object-contain object-left"
+            class="h-20 w-80 max-w-full object-contain object-center"
           >
             {#snippet placeholder()}{@render namePill()}{/snippet}
           </SteamArtwork>
