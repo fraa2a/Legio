@@ -13,7 +13,6 @@ import {
   resumeDownload,
   retryDownload,
   setDownloadBandwidthLimit,
-  stageDownload,
   type DownloadJob,
 } from "../services/downloads";
 import { toMessage } from "../utils/errors";
@@ -120,11 +119,6 @@ export async function removeFinishedJobs(): Promise<number> {
   const removed = await removeFinishedDownloads();
   await downloads.load();
   return removed.length;
-}
-
-export async function stageJob(id: string): Promise<void> {
-  await stageDownload(id);
-  await downloads.load();
 }
 
 export async function browseInstalledFolder(): Promise<void> {

@@ -6,7 +6,6 @@
     canRemoveDownload,
     canResumeDownload,
     canRetryDownload,
-    canStageDownload,
     describeDownloadStatus,
     downloadProgressPercent,
     isActiveDownloadStatus,
@@ -29,7 +28,6 @@
     removeJob,
     resumeJob,
     retryJob,
-    stageJob,
   } from "../../stores/downloads";
   import { openStagedInstall, stagedInstall } from "../../stores/staged-install";
   import CancelDownloadDialog from "./CancelDownloadDialog.svelte";
@@ -37,7 +35,6 @@
 
   let actionError = $state<string | null>(null);
   let pendingJob = $state<string | null>(null);
-  let stagingJob = $state<string | null>(null);
   let cancelTarget = $state<DownloadJob | null>(null);
   let removeTarget = $state<DownloadJob | null>(null);
   let clearingFinished = $state(false);
@@ -92,18 +89,6 @@
       clearingFinished = false;
     }
   }
-
-  async function stage(job: DownloadJob): Promise<void> {
-    actionError = null;
-    stagingJob = job.id;
-    try {
-      await stageJob(job.id);
-    } catch (error) {
-      actionError = toMessage(error);
-    } finally {
-      stagingJob = null;
-    }
-  }
 </script>
 
 {#if actionError}
@@ -155,28 +140,12 @@
           <p class="text-xs text-red-300 light:text-red-700" role="alert">{job.error}</p>
         {/if}
 
-        {#if stagingJob === job.id}
-          <p role="status">
-            <span
-              class="size-4 shrink-0 animate-spin rounded-full border-2 border-zinc-400 border-t-transparent"
-              aria-hidden="true"
-            ></span>
-          </p>
-        {/if}
-
         <div class="flex flex-wrap gap-2">
-          {#if canStageDownload(job.status)}
-            <Button
-              label="Estrai e verifica"
-              variant="primary"
-              disabled={pendingJob === job.id || stagingJob === job.id}
-              onClick={() => void stage(job)}
-            />
-          {/if}
           {#if canFinalizeDownload(job.status)}
             <Button
               label="Installa"
-              disabled={pendingJob === job.id || stagingJob === job.id}
+              variant="primary"
+              disabled={pendingJob === job.id}
               onClick={() => void openStagedInstall(job.id)}
             />
           {/if}

@@ -69,10 +69,6 @@ export function canCancelDownload(status: string): boolean {
   );
 }
 
-export function canStageDownload(status: string): boolean {
-  return status === "downloaded";
-}
-
 export function canFinalizeDownload(status: string): boolean {
   return status === "staged";
 }
@@ -120,10 +116,6 @@ export function removeDownload(id: string): Promise<void> {
 
 export function removeFinishedDownloads(): Promise<string[]> {
   return invoke<string[]>("remove_finished_downloads");
-}
-
-export function stageDownload(id: string): Promise<string> {
-  return invoke<string>("stage_download", { id });
 }
 
 export function scanStagedExecutables(

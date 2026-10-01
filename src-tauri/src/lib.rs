@@ -259,7 +259,6 @@ pub fn run() -> tauri::Result<()> {
             commands::get_network_log_status,
             commands::get_legio_source,
             download_queue::list_downloads,
-            download_queue::stage_download,
             finalize_install::finalize_download,
             finalize_install::scan_staged_executables,
             download_queue::queue_download,

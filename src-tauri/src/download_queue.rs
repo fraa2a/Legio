@@ -393,6 +393,25 @@ fn stage_one(queue: &DownloadQueueState, database: &Database, id: &str) -> Resul
     }
 }
 
+fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
+    let app = app.clone();
+    let id = id.to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        let queue = app.state::<DownloadQueueState>();
+        let state = app.state::<DatabaseState>();
+        let database = match state.database() {
+            Ok(database) => database,
+            Err(error) => {
+                eprintln!("Could not verify and extract download {id}: {error}");
+                return;
+            }
+        };
+        if let Err(error) = stage_one(&queue, database, &id) {
+            eprintln!("Could not verify and extract download {id}: {error}");
+        }
+    });
+}
+
 fn recover_staging(queue: &DownloadQueueState, database: &Database) -> Result<(), String> {
     let ids: Vec<String> = database.with_connection(|connection| {
         let mut statement = connection
@@ -426,6 +445,19 @@ fn recover_staging(queue: &DownloadQueueState, database: &Database) -> Result<()
         })?;
     }
     Ok(())
+}
+
+fn downloaded_ids(database: &Database) -> Result<Vec<String>, String> {
+    database.with_connection(|connection| {
+        let mut statement = connection
+            .prepare("SELECT id FROM downloads WHERE status = 'downloaded' ORDER BY created_at, id")
+            .map_err(db_error)?;
+        statement
+            .query_map([], |row| row.get(0))
+            .map_err(db_error)?
+            .collect::<Result<_, _>>()
+            .map_err(db_error)
+    })
 }
 
 fn remove_partial(path: &Path) -> std::io::Result<()> {
@@ -554,6 +586,7 @@ async fn run_queue<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         match outcome {
             Ok(()) => {
                 finish(database, &job.id, "downloaded", None)?;
+                spawn_staging(app, &job.id);
                 match database.settings() {
                     Ok(settings) if settings.download_notifications => {
                         if let Err(error) = app
@@ -764,20 +797,6 @@ pub async fn list_downloads(app: AppHandle) -> Result<Vec<DownloadJob>, String> 
 }
 
 #[tauri::command]
-pub async fn stage_download(app: AppHandle, id: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let stage = stage_one(
-            &app.state::<DownloadQueueState>(),
-            app.state::<DatabaseState>().database()?,
-            &id,
-        )?;
-        Ok(stage.to_string_lossy().into_owned())
-    })
-    .await
-    .map_err(|error| format!("Staging task failed: {error}"))?
-}
-
-#[tauri::command]
 pub async fn queue_download(
     app: AppHandle,
     steam_app_id: u32,
@@ -974,6 +993,9 @@ pub fn start(app: AppHandle) -> Result<(), String> {
     let database = database.database()?;
     clean_cancelled(&app.state::<DownloadQueueState>(), database)?;
     recover_staging(&app.state::<DownloadQueueState>(), database)?;
+    for id in downloaded_ids(database)? {
+        spawn_staging(&app, &id);
+    }
     let data_dir = app
         .path()
         .app_data_dir()
@@ -1074,13 +1096,28 @@ mod tests {
         fs::remove_dir_all(directory).unwrap();
     }
 
+    fn archive_fixture() -> (&'static [u8], String) {
+        let bytes: &'static [u8] = include_bytes!("../test-fixtures/archive/safe.zip");
+        (bytes, format!("{:x}", Sha256::digest(bytes)))
+    }
+
+    fn archive_response(archive: &[u8]) -> Vec<u8> {
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            archive.len()
+        )
+        .into_bytes()
+        .into_iter()
+        .chain(archive.iter().copied())
+        .collect()
+    }
+
     fn downloaded_fixture() -> (Database, DownloadQueueState, DownloadJob, PathBuf) {
         let (database, directory) = database_with_source();
         let job = enqueue(&database, 400, TEST_HASH, false).unwrap();
-        let bytes = include_bytes!("../test-fixtures/archive/safe.zip");
+        let (bytes, hash) = archive_fixture();
         let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
         fs::write(queue.path(&job.id, "archive").unwrap(), bytes).unwrap();
-        let hash = format!("{:x}", Sha256::digest(bytes));
         database.with_connection(|connection| {
             connection.execute(
                 "UPDATE downloads SET status = 'downloaded', sha256 = ?2, size_bytes = ?3, downloaded_bytes = ?3 WHERE id = ?1",
@@ -1162,6 +1199,19 @@ mod tests {
     }
 
     #[test]
+    fn startup_staging_covers_only_completed_downloads() {
+        let (database, _queue, completed, directory) = downloaded_fixture();
+        let queued = enqueue(&database, 400, TEST_HASH, false).unwrap();
+        let staged = enqueue(&database, 400, TEST_HASH, false).unwrap();
+        set_status(&database, &staged.id, "staged");
+
+        assert_eq!(downloaded_ids(&database).unwrap(), vec![completed.id]);
+        assert_eq!(status_of(&database, &queued.id).as_deref(), Some("queued"));
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn schema_v8_preserves_existing_downloads() {
         let (database, _, job, directory) = downloaded_fixture();
         database
@@ -1221,6 +1271,8 @@ mod tests {
     async fn waiting_download_waits_for_connectivity_retry() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/archive", listener.local_addr().unwrap());
+        let (archive, hash) = archive_fixture();
+        let response = archive_response(archive);
         let (request_sent, request_received) = mpsc::channel();
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
@@ -1236,11 +1288,7 @@ mod tests {
             request_sent
                 .send(String::from_utf8(request).unwrap())
                 .unwrap();
-            stream
-                .write_all(
-                    b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n0123456789",
-                )
-                .unwrap();
+            stream.write_all(&response).unwrap();
         });
 
         let (database, directory) = database_with_source();
@@ -1250,8 +1298,9 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute(
-                        "UPDATE downloads SET url = ?2, status = 'waiting', error = 'Network: unavailable' WHERE id = ?1",
-                        params![job.id, url],
+                        "UPDATE downloads SET url = ?2, status = 'waiting', error = 'Network: unavailable',
+                         sha256 = ?3, size_bytes = ?4 WHERE id = ?1",
+                        params![job.id, url, hash, archive.len() as i64],
                     )
                     .map_err(db_error)?;
                 Ok(())
@@ -1278,7 +1327,57 @@ mod tests {
             .recv_timeout(Duration::from_secs(3))
             .expect("connectivity retry should resume the waiting download");
         assert!(request.starts_with("GET /archive HTTP/1.1"));
-        wait_for_status(&database, &job.id, "downloaded");
+        wait_for_status(&database, &job.id, "staged");
+        assert_eq!(list(&database).unwrap()[0].error, None);
+        server.join().unwrap();
+
+        drop(app);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn completed_download_is_verified_and_extracted_without_a_user_action() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/archive", listener.local_addr().unwrap());
+        let (archive, hash) = archive_fixture();
+        let response = archive_response(archive);
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            stream.write_all(&response).unwrap();
+        });
+
+        let (database, directory) = database_with_source();
+        let app = test_app(&directory);
+        let job = enqueue(&database, 400, TEST_HASH, false).unwrap();
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET url = ?2, sha256 = ?3, size_bytes = ?4 WHERE id = ?1",
+                        params![job.id, url, hash, archive.len() as i64],
+                    )
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+
+        kick(app.handle().clone());
+        wait_for_status(&database, &job.id, "staged");
+
+        let staged = directory
+            .join("downloads")
+            .join(format!("{}.stage", job.id));
+        assert_eq!(fs::read(staged.join("Game/data.bin")).unwrap(), b"hello");
         assert_eq!(list(&database).unwrap()[0].error, None);
         server.join().unwrap();
 
@@ -1292,12 +1391,13 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let url = format!("http://{}/archive", listener.local_addr().unwrap());
+        let (archive, hash) = archive_fixture();
         let (request_sent, request_received) = mpsc::channel();
         let server = thread::spawn(move || {
             for (index, response) in [
-                b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".as_slice(),
-                b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".as_slice(),
-                b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n0123456789".as_slice(),
+                b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+                b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+                archive_response(archive),
             ]
             .into_iter()
             .enumerate()
@@ -1327,7 +1427,7 @@ mod tests {
                 request_sent
                     .send((index, String::from_utf8(request).unwrap()))
                     .unwrap();
-                stream.write_all(response).unwrap();
+                stream.write_all(&response).unwrap();
             }
         });
 
@@ -1338,8 +1438,8 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute(
-                        "UPDATE downloads SET url = ?2 WHERE id = ?1",
-                        params![job.id, url],
+                        "UPDATE downloads SET url = ?2, sha256 = ?3, size_bytes = ?4 WHERE id = ?1",
+                        params![job.id, url, hash, archive.len() as i64],
                     )
                     .map_err(db_error)?;
                 Ok(())
@@ -1382,10 +1482,10 @@ mod tests {
             .recv_timeout(Duration::from_secs(3))
             .expect("manual retry should issue one request");
         assert_eq!(index, 2);
-        wait_for_status(&database, &job.id, "downloaded");
+        wait_for_status(&database, &job.id, "staged");
         assert_eq!(list(&database).unwrap()[0].error, None);
         assert!(retry_download(app_handle, job.id.clone()).await.is_err());
-        assert_eq!(status(&database, &job.id).unwrap(), "downloaded");
+        assert_eq!(status(&database, &job.id).unwrap(), "staged");
         server.join().unwrap();
 
         drop(app);
