@@ -6,8 +6,8 @@
     canRemoveDownload,
     canResumeDownload,
     canRetryDownload,
-    canStageDownload,
     describeDownloadStatus,
+    downloadProgressPercent,
     isActiveDownloadStatus,
     type DownloadJob,
   } from "../../services/downloads";
@@ -17,9 +17,9 @@
   import Button from "../../components/ui/Button.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
+  import ProgressBar from "../../components/ui/ProgressBar.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
   import {
-    cancelJob,
     downloads,
     finishedDownloadCount,
     orderedDownloads,
@@ -28,29 +28,20 @@
     removeJob,
     resumeJob,
     retryJob,
-    stageJob,
   } from "../../stores/downloads";
   import { openStagedInstall, stagedInstall } from "../../stores/staged-install";
+  import CancelDownloadDialog from "./CancelDownloadDialog.svelte";
   import StagedInstallDialog from "./StagedInstallDialog.svelte";
 
   let actionError = $state<string | null>(null);
   let pendingJob = $state<string | null>(null);
-  let stagingJob = $state<string | null>(null);
   let cancelTarget = $state<DownloadJob | null>(null);
   let removeTarget = $state<DownloadJob | null>(null);
   let clearingFinished = $state(false);
 
-  const hasActiveJobs = $derived($downloads.data.some((job) => isActiveDownloadStatus(job.status)));
-
   const installTarget = $derived(
     $downloads.data.find((job) => job.id === $stagedInstall.jobId) ?? null,
   );
-
-  $effect(() => {
-    if (!hasActiveJobs) return;
-    const timer = setInterval(() => void downloads.load(), 2000);
-    return () => clearInterval(timer);
-  });
 
   const formatEta = (seconds: number | null): string => {
     if (seconds === null) return "-";
@@ -68,9 +59,6 @@
     return "neutral";
   };
 
-  const progressPercent = (job: DownloadJob): number =>
-    job.sizeBytes > 0 ? Math.min(100, (job.downloadedBytes / job.sizeBytes) * 100) : 0;
-
   async function run(action: (id: string) => Promise<void>, job: DownloadJob): Promise<void> {
     actionError = null;
     pendingJob = job.id;
@@ -81,13 +69,6 @@
     } finally {
       pendingJob = null;
     }
-  }
-
-  async function confirmCancel(): Promise<void> {
-    const job = cancelTarget;
-    cancelTarget = null;
-    if (job === null) return;
-    await run(cancelJob, job);
   }
 
   async function confirmRemove(): Promise<void> {
@@ -106,18 +87,6 @@
       actionError = toMessage(error);
     } finally {
       clearingFinished = false;
-    }
-  }
-
-  async function stage(job: DownloadJob): Promise<void> {
-    actionError = null;
-    stagingJob = job.id;
-    try {
-      await stageJob(job.id);
-    } catch (error) {
-      actionError = toMessage(error);
-    } finally {
-      stagingJob = null;
     }
   }
 </script>
@@ -156,19 +125,7 @@
           <Badge tone={statusTone(job)} title={describeDownloadStatus(job.status)} />
         </div>
 
-        <div
-          class="h-1.5 w-full overflow-hidden rounded-full bg-white/10 light:bg-zinc-900/10"
-          role="progressbar"
-          aria-label="Avanzamento di {job.name}"
-          aria-valuemin="0"
-          aria-valuemax="100"
-          aria-valuenow={Math.round(progressPercent(job))}
-        >
-          <div
-            class="h-full rounded-full bg-zinc-100 transition-[width] duration-300 light:bg-zinc-900"
-            style="width: {progressPercent(job)}%"
-          ></div>
-        </div>
+        <ProgressBar value={downloadProgressPercent(job)} label="Avanzamento di {job.name}" />
 
         <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-400 light:text-zinc-600">
           <span>Versione {job.releaseVersion}</span>
@@ -183,28 +140,12 @@
           <p class="text-xs text-red-300 light:text-red-700" role="alert">{job.error}</p>
         {/if}
 
-        {#if stagingJob === job.id}
-          <p role="status">
-            <span
-              class="size-4 shrink-0 animate-spin rounded-full border-2 border-zinc-400 border-t-transparent"
-              aria-hidden="true"
-            ></span>
-          </p>
-        {/if}
-
         <div class="flex flex-wrap gap-2">
-          {#if canStageDownload(job.status)}
-            <Button
-              label="Estrai e verifica"
-              variant="primary"
-              disabled={pendingJob === job.id || stagingJob === job.id}
-              onClick={() => void stage(job)}
-            />
-          {/if}
           {#if canFinalizeDownload(job.status)}
             <Button
               label="Installa"
-              disabled={pendingJob === job.id || stagingJob === job.id}
+              variant="primary"
+              disabled={pendingJob === job.id}
               onClick={() => void openStagedInstall(job.id)}
             />
           {/if}
@@ -254,15 +195,14 @@
   </ul>
 {/if}
 
-<Dialog open={cancelTarget !== null} title="Annulla download" onClose={() => (cancelTarget = null)}>
-  <p class="text-sm text-zinc-300 light:text-zinc-700">
-    Annullare il download di {cancelTarget?.name}?
-  </p>
-  <div class="flex justify-end gap-2">
-    <Button label="Indietro" variant="secondary" onClick={() => (cancelTarget = null)} />
-    <Button label="Annulla" variant="danger" onClick={() => void confirmCancel()} />
-  </div>
-</Dialog>
+{#if cancelTarget}
+  <CancelDownloadDialog
+    open
+    jobId={cancelTarget.id}
+    gameName={cancelTarget.name}
+    onClose={() => (cancelTarget = null)}
+  />
+{/if}
 
 <Dialog open={removeTarget !== null} title="Rimuovi dalla coda" onClose={() => (removeTarget = null)}>
   <p class="text-sm text-zinc-300 light:text-zinc-700">

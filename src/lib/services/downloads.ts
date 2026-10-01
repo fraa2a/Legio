@@ -5,7 +5,8 @@ export interface DownloadJob {
   steamAppId: number;
   name: string;
   releaseVersion: string;
-  sha256: string;
+  sha256: string | null;
+  url: string;
   sizeBytes: number;
   downloadedBytes: number;
   speedBps: number;
@@ -44,7 +45,7 @@ export function describeDownloadStatus(status: string): string {
 }
 
 export function isActiveDownloadStatus(status: string): boolean {
-  return status === "queued" || status === "downloading" || status === "waiting" || status === "staging" || status === "finalizing";
+  return status === "queued" || status === "downloading" || status === "waiting" || status === "downloaded" || status === "staging" || status === "finalizing";
 }
 
 export function canPauseDownload(status: string): boolean {
@@ -69,10 +70,6 @@ export function canCancelDownload(status: string): boolean {
   );
 }
 
-export function canStageDownload(status: string): boolean {
-  return status === "downloaded";
-}
-
 export function canFinalizeDownload(status: string): boolean {
   return status === "staged";
 }
@@ -85,12 +82,17 @@ export function isFinishedDownloadStatus(status: string): boolean {
   return status === "cancelled" || status === "installed";
 }
 
+export function downloadProgressPercent(job: DownloadJob): number {
+  if (job.sizeBytes <= 0) return 0;
+  return Math.min(100, (job.downloadedBytes / job.sizeBytes) * 100);
+}
+
 export function listDownloads(): Promise<DownloadJob[]> {
   return invoke<DownloadJob[]>("list_downloads");
 }
 
-export function queueDownload(steamAppId: number, sha256: string, acceptUnverified: boolean): Promise<DownloadJob> {
-  return invoke<DownloadJob>("queue_download", { steamAppId, sha256, acceptUnverified });
+export function queueDownload(steamAppId: number, downloadUrl: string, releaseVersion: string, acceptUnverified: boolean): Promise<DownloadJob> {
+  return invoke<DownloadJob>("queue_download", { steamAppId, downloadUrl, releaseVersion, acceptUnverified });
 }
 
 export function pauseDownload(id: string): Promise<void> {
@@ -115,10 +117,6 @@ export function removeDownload(id: string): Promise<void> {
 
 export function removeFinishedDownloads(): Promise<string[]> {
   return invoke<string[]>("remove_finished_downloads");
-}
-
-export function stageDownload(id: string): Promise<string> {
-  return invoke<string>("stage_download", { id });
 }
 
 export function scanStagedExecutables(

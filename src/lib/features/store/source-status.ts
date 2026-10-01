@@ -65,3 +65,7 @@ export function sourceReleasesFor(
     ...manifest.unverified.filter((entry) => entry.steamAppId === steamAppId).map((entry) => ({ availability: "unverified" as const, entry })),
   ];
 }
+
+export function sourceReleaseId(entry: SourceEntry): string {
+  return JSON.stringify([entry.download.url, entry.release.version]);
+}

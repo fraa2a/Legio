@@ -13,7 +13,6 @@ import {
   resumeDownload,
   retryDownload,
   setDownloadBandwidthLimit,
-  stageDownload,
   type DownloadJob,
 } from "../services/downloads";
 import { toMessage } from "../utils/errors";
@@ -26,8 +25,6 @@ export const activeDownloadCount = derived(
   (state) => state.data.filter((job) => isActiveDownloadStatus(job.status)).length,
 );
 
-// Jobs the user still has to act on, so a queue summary does not count
-// finished or abandoned entries as pending work.
 export const pendingDownloadCount = derived(
   downloads,
   (state) => state.data.filter((job) => !isFinishedDownloadStatus(job.status)).length,
@@ -38,17 +35,15 @@ export const finishedDownloadCount = derived(
   (state) => state.data.filter((job) => isFinishedDownloadStatus(job.status)).length,
 );
 
-// Work in progress first, then everything still actionable, so a long history of
-// finished entries does not push the active job off the screen.
 const statusRank: Record<string, number> = {
   downloading: 0,
   staging: 0,
+  downloaded: 0,
   finalizing: 0,
   queued: 1,
   waiting: 1,
   paused: 2,
   failed: 3,
-  downloaded: 4,
   staged: 4,
   installed: 5,
   cancelled: 6,
@@ -61,14 +56,37 @@ export const orderedDownloads = derived(downloads, (state) =>
   ),
 );
 
+export const currentDownload = derived(orderedDownloads, (state) => {
+  const active = state.find((job) => isActiveDownloadStatus(job.status));
+  return active ?? state.find((job) => job.status === "paused") ?? null;
+});
+
 export const bandwidthLimit = createResource(0, getDownloadBandwidthLimit);
 
 export const bandwidthLimitError = writable<string | null>(null);
 
 export const installedFolderError = writable<string | null>(null);
 
-export async function queueJob(steamAppId: number, sha256: string, acceptUnverified: boolean): Promise<void> {
-  await queueDownload(steamAppId, sha256, acceptUnverified);
+let progressTimer: ReturnType<typeof setInterval> | undefined;
+let progressPollingSubscribed = false;
+
+function syncProgressPolling(count: number): void {
+  if (count === 0) {
+    clearInterval(progressTimer);
+    progressTimer = undefined;
+    return;
+  }
+  progressTimer ??= setInterval(() => void downloads.load(), 1000);
+}
+
+export function startDownloadProgressPolling(): void {
+  if (progressPollingSubscribed) return;
+  progressPollingSubscribed = true;
+  activeDownloadCount.subscribe(syncProgressPolling);
+}
+
+export async function queueJob(steamAppId: number, downloadUrl: string, releaseVersion: string, acceptUnverified: boolean): Promise<void> {
+  await queueDownload(steamAppId, downloadUrl, releaseVersion, acceptUnverified);
   await downloads.load();
 }
 
@@ -101,11 +119,6 @@ export async function removeFinishedJobs(): Promise<number> {
   const removed = await removeFinishedDownloads();
   await downloads.load();
   return removed.length;
-}
-
-export async function stageJob(id: string): Promise<void> {
-  await stageDownload(id);
-  await downloads.load();
 }
 
 export async function browseInstalledFolder(): Promise<void> {

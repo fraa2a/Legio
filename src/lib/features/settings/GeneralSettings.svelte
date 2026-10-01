@@ -89,6 +89,22 @@
     {/each}
   </SettingsGroup>
 
+  <SettingsGroup
+    title="Integrità dei download: impostazione delicata"
+    description="Controlla SHA-256 per i giochi verified. Disabilita questa protezione solo su computer di fascia bassa con prestazioni molto scarse: Legio non potrà rilevare archivi alterati o corrotti tramite hash. I giochi unverified vengono sempre estratti senza controllo SHA-256. La modifica si applica alle estrazioni successive."
+  >
+    <label class="flex cursor-pointer items-center justify-between gap-6">
+      <span class="text-sm text-zinc-100 light:text-zinc-900">Verifica SHA-256 dei giochi verified (consigliato)</span>
+      <input
+        type="checkbox"
+        class="size-4 accent-white"
+        checked={$settings.data.verifyVerifiedDownloads}
+        disabled={saving || $settings.status === "loading" || $settings.status === "idle" || $settings.status === "error"}
+        onchange={(event) => void update({ verifyVerifiedDownloads: event.currentTarget.checked })}
+      />
+    </label>
+  </SettingsGroup>
+
   <SettingsGroup title="Aggiornamenti" description="Controlla automaticamente all'avvio se è disponibile una nuova versione di Legio.">
     <div class="flex flex-wrap items-center gap-3">
       <Button label={$updateState.checking ? "Controllo..." : "Controlla aggiornamenti"} variant="secondary" disabled={$updateState.checking || $updateState.installing} onClick={() => void checkForAppUpdate()} />
