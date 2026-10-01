@@ -30,6 +30,10 @@ pub enum AssetKind {
     Screenshot,
     Hero,
     Logo,
+    LibraryCapsule,
+    LibraryHeader,
+    HeroBlur,
+    ClientIcon,
 }
 
 #[derive(Debug, Serialize)]
@@ -57,6 +61,7 @@ struct CacheEntry {
 pub struct AssetCacheState {
     directory: Result<PathBuf, String>,
     lock: Arc<Mutex<()>>,
+    pics_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl AssetCacheState {
@@ -68,6 +73,7 @@ impl AssetCacheState {
                     format!("Could not resolve the application cache directory: {error}")
                 }),
             lock: Arc::new(Mutex::new(())),
+            pics_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
@@ -218,17 +224,6 @@ fn selected_url(
     index: Option<usize>,
     full: bool,
 ) -> Result<String, String> {
-    if matches!(asset, AssetKind::Hero | AssetKind::Logo) && index.is_none() {
-        let filename = if matches!(asset, AssetKind::Hero) {
-            "library_hero.jpg"
-        } else {
-            "logo.png"
-        };
-        return Ok(format!(
-            "https://cdn.cloudflare.steamstatic.com/steam/apps/{}/{filename}",
-            details.steam_app_id
-        ));
-    }
     let url = match (asset, index) {
         (AssetKind::Header, None) => details.assets.header.as_deref(),
         (AssetKind::Capsule, None) => details.assets.capsule.as_deref(),
@@ -334,30 +329,122 @@ pub async fn get_asset(
     index: Option<usize>,
     full: bool,
 ) -> Result<AssetResult, String> {
-    let app_for_lookup = app.clone();
-    let (url, key) = tauri::async_runtime::spawn_blocking(move || {
-        let state = app_for_lookup.state::<DatabaseState>();
-        let database = state.database()?;
-        let details = cached_details(database, app_id)
-            .map_err(|error| error.message)?
-            .ok_or_else(|| "No cached Steam details are available for this App ID.".to_owned())?;
-        let url = selected_url(&details, asset, index, full)?;
-        let key = match asset {
-            AssetKind::Header => format!("{app_id}-header"),
-            AssetKind::Capsule => format!("{app_id}-capsule"),
-            AssetKind::Hero => format!("{app_id}-hero"),
-            AssetKind::Logo => format!("{app_id}-logo"),
-            AssetKind::Screenshot => {
-                let suffix = if full { "-full" } else { "" };
-                format!("{app_id}-screenshot-{}{suffix}", index.unwrap_or_default())
+    if app_id == 0 || (index.is_some() != matches!(asset, AssetKind::Screenshot)) {
+        return Err("Invalid image selection.".to_owned());
+    }
+    let state = app.state::<AssetCacheState>().inner().clone();
+    let filename = match asset {
+        AssetKind::Header => "header.jpg",
+        AssetKind::Capsule => "capsule_231x87.jpg",
+        AssetKind::Hero if full => "library_hero_2x.jpg",
+        AssetKind::Hero => "library_hero.jpg",
+        AssetKind::Logo if full => "logo_2x.png",
+        AssetKind::Logo => "logo.png",
+        AssetKind::LibraryCapsule if full => "library_capsule_2x.jpg",
+        AssetKind::LibraryCapsule => "library_capsule.jpg",
+        AssetKind::LibraryHeader if full => "library_header_2x.jpg",
+        AssetKind::LibraryHeader => "library_header.jpg",
+        AssetKind::HeroBlur => "library_hero_blur.jpg",
+        AssetKind::ClientIcon => "clienticon.jpg",
+        AssetKind::Screenshot => "screenshot",
+    };
+    let suffix = if full { "-full" } else { "" };
+    let key = if let Some(index) = index {
+        format!("{app_id}-screenshot-{index}{suffix}")
+    } else {
+        let kind = match asset {
+            AssetKind::Header => "header",
+            AssetKind::Capsule => "capsule",
+            AssetKind::Hero => "hero",
+            AssetKind::Logo => "logo",
+            _ => filename,
+        };
+        format!("{app_id}-{kind}{suffix}")
+    };
+    let mut metadata_warning = None;
+    let pics_url = if matches!(asset, AssetKind::Screenshot) {
+        None
+    } else {
+        // ponytail: serialize cache misses; per-app locks if lookup throughput matters.
+        let _guard = state.pics_lock.lock().await;
+        let path = match state.directory() {
+            Ok(directory) => Some(directory.join("pics").join(format!("{app_id}.json"))),
+            Err(error) => {
+                metadata_warning = Some(error);
+                None
             }
         };
-        Ok::<_, String>((url, key))
-    })
-    .await
-    .map_err(|error| format!("Image lookup task failed: {error}"))??;
-    let state = app.state::<AssetCacheState>().inner().clone();
-    load_asset(state, network, key, url).await
+        let cached = if let Some(path) = path.as_deref() {
+            crate::steam_pics::read_cache(path)
+                .await
+                .unwrap_or_else(|error| {
+                    eprintln!("{error}");
+                    metadata_warning = Some(error);
+                    None
+                })
+        } else {
+            None
+        };
+        let assets = if let Some(cached) = cached {
+            Some(cached)
+        } else {
+            match crate::steam_pics::fetch(app_id).await {
+                Ok(assets) => {
+                    if let Some(path) = path.as_deref()
+                        && let Err(error) = crate::steam_pics::write_cache(path, &assets).await
+                    {
+                        eprintln!("{error}");
+                        metadata_warning = Some(error);
+                    }
+                    Some(assets)
+                }
+                Err(error) => {
+                    eprintln!("Steam asset metadata lookup failed for {app_id}: {error}");
+                    metadata_warning = Some(error);
+                    None
+                }
+            }
+        };
+        assets.and_then(|assets| assets.url(app_id, filename))
+    };
+    let url = if let Some(url) = pics_url {
+        url
+    } else if matches!(
+        asset,
+        AssetKind::Header | AssetKind::Capsule | AssetKind::Screenshot
+    ) {
+        let app_for_lookup = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let state = app_for_lookup.state::<DatabaseState>();
+            let database = state.database()?;
+            let details = cached_details(database, app_id)
+                .map_err(|error| error.message)?
+                .ok_or_else(|| {
+                    "No cached Steam details are available for this App ID.".to_owned()
+                })?;
+            selected_url(&details, asset, index, full)
+        })
+        .await
+        .map_err(|error| format!("Image lookup task failed: {error}"))??
+    } else if matches!(asset, AssetKind::ClientIcon) {
+        return Err(metadata_warning
+            .unwrap_or_else(|| "Steam did not provide a client icon for this App ID.".to_owned()));
+    } else {
+        format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{app_id}/{filename}")
+    };
+    let mut result = load_asset(state, network, key, url)
+        .await
+        .map_err(|error| match metadata_warning.as_deref() {
+            Some(warning) => format!("{error} Steam asset metadata: {warning}"),
+            None => error,
+        })?;
+    if let Some(warning) = metadata_warning {
+        result.cache_warning = Some(match result.cache_warning {
+            Some(existing) => format!("{existing} Steam asset metadata: {warning}"),
+            None => format!("Steam asset metadata: {warning}"),
+        });
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -404,6 +491,27 @@ mod tests {
         .into_bytes();
         response.extend_from_slice(body);
         response
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires Steam CM and CDN connectivity"]
+    async fn live_modern_logo_download_is_cached() {
+        let cache = cache();
+        let assets = crate::steam_pics::fetch(4656000).await.unwrap();
+        let url = assets.url(4656000, "logo.png").unwrap();
+        let network = NetworkState::new(
+            "0.1.0",
+            crate::diagnostics::Diagnostics::new(Err("test".into())),
+        )
+        .unwrap();
+        let first = load_asset(cache.clone(), &network, "4656000-logo".into(), url.clone())
+            .await
+            .unwrap();
+        let second = cache.read("4656000-logo", &url).unwrap().unwrap();
+        assert_eq!(first.bytes, second.bytes);
+        assert_eq!(first.content_type, "image/png");
+        assert!(!second.stale);
+        fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
     }
 
     #[test]

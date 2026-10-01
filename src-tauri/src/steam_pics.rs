@@ -1,0 +1,265 @@
+use std::{collections::BTreeMap, io, path::Path, time::Duration};
+
+use serde::{Deserialize, Serialize};
+use steam_client::{AppsEvent, LogOnDetails, SteamClient, SteamEvent, utils::vdf::VdfValue};
+use tokio::io::AsyncReadExt;
+
+const CDN: &str = "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps";
+const MAX_METADATA_BYTES: u64 = 16 * 1024;
+
+#[derive(Default, Deserialize, Serialize)]
+pub(crate) struct PicsAssets(BTreeMap<String, String>);
+
+impl PicsAssets {
+    pub(crate) fn url(&self, app_id: u32, filename: &str) -> Option<String> {
+        let path = self.0.get(filename)?;
+        if filename == "clienticon.jpg" {
+            valid_hash(path).then(|| format!(
+                "https://media.steampowered.com/steamcommunity/public/images/apps/{app_id}/{path}.jpg"
+            ))
+        } else {
+            valid_asset_path(path, filename).then(|| format!("{CDN}/{app_id}/{path}"))
+        }
+    }
+
+    fn from_vdf(info: &VdfValue) -> Self {
+        let info = info.get("appinfo").unwrap_or(info);
+        let common = info.get("common").unwrap_or(info);
+        let mut paths = BTreeMap::new();
+        if let Some(library) = common.get("library_assets_full") {
+            for (key, filenames) in [
+                ("library_logo", &["logo.png", "logo_2x.png"][..]),
+                (
+                    "library_capsule",
+                    &["library_capsule.jpg", "library_capsule_2x.jpg"][..],
+                ),
+                (
+                    "library_hero",
+                    &[
+                        "library_hero.jpg",
+                        "library_hero_2x.jpg",
+                        "library_hero_blur.jpg",
+                    ][..],
+                ),
+                (
+                    "library_header",
+                    &["library_header.jpg", "library_header_2x.jpg"][..],
+                ),
+            ] {
+                if let Some(image) = library
+                    .get(key)
+                    .and_then(|v| v.get("image"))
+                    .and_then(|v| v.get_str("english"))
+                {
+                    let hash = image.split('/').next().unwrap_or_default();
+                    if valid_hash(hash)
+                        && (image == hash
+                            || filenames.iter().any(|name| valid_asset_path(image, name)))
+                    {
+                        for filename in filenames {
+                            paths.insert((*filename).to_owned(), format!("{hash}/{filename}"));
+                        }
+                    }
+                }
+            }
+        }
+        for (key, filename) in [
+            ("header_image", "header.jpg"),
+            ("small_capsule", "capsule_231x87.jpg"),
+        ] {
+            if let Some(image) = common.get(key).and_then(|v| v.get_str("english"))
+                && valid_asset_path(image, filename)
+            {
+                paths.insert(filename.to_owned(), image.to_owned());
+            }
+        }
+        if let Some(hash) = common.get_str("clienticon").filter(|hash| valid_hash(hash)) {
+            paths.insert("clienticon.jpg".to_owned(), hash.to_owned());
+        }
+        Self(paths)
+    }
+}
+
+fn valid_hash(hash: &str) -> bool {
+    hash.len() == 40 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn valid_asset_path(path: &str, filename: &str) -> bool {
+    path.split_once('/')
+        .is_some_and(|(hash, name)| valid_hash(hash) && name == filename)
+}
+
+pub(crate) async fn read_cache(path: &Path) -> Result<Option<PicsAssets>, String> {
+    let metadata = match tokio::fs::symlink_metadata(path).await {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("Could not inspect Steam PICS cache: {error}")),
+    };
+    if !metadata.is_file() || metadata.len() > MAX_METADATA_BYTES {
+        return Err("Invalid Steam PICS cache file.".to_owned());
+    }
+    let mut bytes = Vec::new();
+    tokio::fs::File::open(path)
+        .await
+        .map_err(|error| format!("Could not open Steam PICS cache: {error}"))?
+        .take(MAX_METADATA_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .await
+        .map_err(|error| format!("Could not read Steam PICS cache: {error}"))?;
+    if bytes.len() as u64 > MAX_METADATA_BYTES {
+        return Err("Steam PICS cache exceeds the size limit.".to_owned());
+    }
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .map_err(|error| format!("Invalid Steam PICS cache: {error}"))
+}
+
+pub(crate) async fn write_cache(path: &Path, assets: &PicsAssets) -> Result<(), String> {
+    let directory = path.parent().ok_or("Invalid Steam PICS cache path.")?;
+    tokio::fs::create_dir_all(directory)
+        .await
+        .map_err(|error| format!("Could not create Steam PICS cache: {error}"))?;
+    let bytes = serde_json::to_vec(assets)
+        .map_err(|error| format!("Could not encode Steam PICS cache: {error}"))?;
+    let temporary = directory.join(format!("{}.tmp", uuid::Uuid::new_v4()));
+    tokio::fs::write(&temporary, bytes)
+        .await
+        .map_err(|error| format!("Could not write Steam PICS cache: {error}"))?;
+    if let Err(error) = tokio::fs::rename(&temporary, path).await {
+        if let Err(cleanup) = tokio::fs::remove_file(&temporary).await {
+            eprintln!("Could not remove temporary Steam PICS cache: {cleanup}");
+        }
+        return Err(format!("Could not save Steam PICS cache: {error}"));
+    }
+    Ok(())
+}
+
+pub(crate) async fn fetch(app_id: u32) -> Result<PicsAssets, String> {
+    let mut client = SteamClient::new(Default::default());
+    let result = tokio::time::timeout(Duration::from_secs(30), async {
+        client
+            .log_on(LogOnDetails {
+                anonymous: true,
+                ..Default::default()
+            })
+            .await
+            .map_err(|error| format!("Steam anonymous login failed: {error}"))?;
+        client
+            .get_product_info(vec![app_id])
+            .await
+            .map_err(|error| format!("Steam PICS request failed: {error}"))?;
+        loop {
+            if let Some(SteamEvent::Apps(AppsEvent::ProductInfoResponse {
+                apps,
+                unknown_apps,
+                ..
+            })) = client
+                .poll_event()
+                .await
+                .map_err(|error| format!("Steam PICS response failed: {error}"))?
+            {
+                if let Some(app) = apps.get(&app_id) {
+                    let info = app
+                        .app_info
+                        .as_ref()
+                        .ok_or("Steam PICS returned no app metadata.")?;
+                    return Ok(PicsAssets::from_vdf(info));
+                }
+                if unknown_apps.contains(&app_id) {
+                    return Err("Steam PICS could not find this App ID.".to_owned());
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .map_err(|_| "Steam PICS request timed out.".to_owned())
+    .and_then(|result| result);
+    if client.is_logged_in() {
+        match tokio::time::timeout(Duration::from_secs(3), client.log_off()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => eprintln!("Steam anonymous logout failed: {error}"),
+            Err(_) => eprintln!("Steam anonymous logout timed out."),
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use steam_client::utils::vdf::parse_vdf;
+
+    #[test]
+    fn hashed_library_assets_and_community_icon_are_validated() {
+        let hash = "94e9d990ddd19610b268faf629865e17dcda0bb8";
+        let info = parse_vdf(&format!(r#""appinfo" {{ "common" {{ "library_assets_full" {{ "library_logo" {{ "image" {{ "english" "{hash}/logo.png" }} }} "library_hero" {{ "image" {{ "english" "../../evil" }} }} }} "clienticon" "{hash}" }} }}"#)).unwrap();
+        let assets = PicsAssets::from_vdf(&info);
+        assert_eq!(
+            assets.url(4656000, "logo_2x.png"),
+            Some(format!("{CDN}/4656000/{hash}/logo_2x.png"))
+        );
+        assert!(assets.url(4656000, "library_hero.jpg").is_none());
+        assert!(
+            assets
+                .url(4656000, "clienticon.jpg")
+                .unwrap()
+                .ends_with(&format!("/{hash}.jpg"))
+        );
+        assert!(
+            PicsAssets(BTreeMap::from([(
+                "logo.png".into(),
+                "../../logo.png".into()
+            )]))
+            .url(1, "logo.png")
+            .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn metadata_cache_round_trip_preserves_all_assets() {
+        let directory =
+            std::env::temp_dir().join(format!("legio-pics-test-{}", uuid::Uuid::new_v4()));
+        let path = directory.join("4656000.json");
+        assert!(read_cache(&path).await.unwrap().is_none());
+        let assets = PicsAssets(BTreeMap::from([(
+            "logo.png".into(),
+            "94e9d990ddd19610b268faf629865e17dcda0bb8/logo.png".into(),
+        )]));
+        write_cache(&path, &assets).await.unwrap();
+        assert_eq!(
+            read_cache(&path)
+                .await
+                .unwrap()
+                .unwrap()
+                .url(4656000, "logo.png"),
+            assets.url(4656000, "logo.png")
+        );
+        tokio::fs::remove_dir_all(directory).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires a live anonymous Steam CM connection"]
+    async fn live_pics_resolves_modern_assets() {
+        let assets = fetch(4656000).await.unwrap();
+        for filename in [
+            "logo.png",
+            "logo_2x.png",
+            "library_capsule.jpg",
+            "library_capsule_2x.jpg",
+            "library_hero.jpg",
+            "library_hero_2x.jpg",
+            "library_hero_blur.jpg",
+            "library_header.jpg",
+            "library_header_2x.jpg",
+            "header.jpg",
+            "capsule_231x87.jpg",
+            "clienticon.jpg",
+        ] {
+            assert!(
+                assets.url(4656000, filename).is_some(),
+                "Missing {filename}"
+            );
+        }
+    }
+}
