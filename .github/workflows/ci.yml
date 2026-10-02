@@ -43,6 +43,9 @@ jobs:
       - name: Build frontend
         run: corepack pnpm build
 
+      - name: Test Home calendar and recent games
+        run: corepack pnpm test:home
+
       - name: Test release manifest
         run: python -B -m unittest discover -s scripts
 

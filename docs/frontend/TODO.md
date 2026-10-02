@@ -10,7 +10,7 @@ Use [`backend-contracts.md`](backend-contracts.md) for exact Tauri arguments, ty
 - [x] Add typed feature services and shared stores for games, settings, download queue, source snapshot, network status, and launch states. Keep `invoke()` calls inside those services.
 - [x] Hydrate persisted state at startup: app info, settings, `list_games`, `list_downloads`, and cached Legio source. Give each load a loading, ready, empty, and retryable error state.
 - [x] Refresh library and queue state after mutations. Prevent stale async responses from overwriting newer search or view state.
-- [ ] Complete keyboard and accessibility review. The shell has page headings, dialog focus handling, labels for icon-only buttons, and reduced-motion handling, but `App.svelte` currently blocks Tab globally.
+- [ ] Complete keyboard and accessibility review. The shell has page headings, dialog focus handling, labels for icon-only buttons, and reduced-motion handling, and the global Tab blocker has been removed. Complete the remaining cross-page review in the app.
 
 ## P0: Library and game management
 
@@ -73,7 +73,7 @@ Implementation update (2026-09-27): Settings now has theme, network diagnostics,
 
 - [x] Build Home around real library and queue data.
 - [x] Load `get_playtime_summaries` at startup and show total playtime in Library game cards and last-played dates in the game version selector.
-- [ ] Show real playtime and active-session state on Home. Do not invent recent-session timelines or a monthly heatmap until the backend exposes session history/per-day aggregates.
+- [x] Show real playtime and active-session state on Home, a last-played banner with launch/info/settings actions, other recent games, downloads, and a monthly activity calendar backed by `get_playtime_activity`. Calendar slots outside the month are blank; months can use six weeks. Browser interaction checks use fixture data; platform launch verification remains open.
 - [ ] Add consistent loading, empty, offline, stale, error, confirmation, and success states across pages. Home, Library, local metadata, playtime, settings, and permitted installed-game actions must remain useful offline; remote actions should expose an explicit retry state without loops.
 - [ ] Review the section 35 product mockup when available and reconcile it with the current shell before final visual acceptance.
 - [ ] Add component/service tests for query races, hydration failures, queue action eligibility, manual candidate selection, confirmation dialogs, and stale cache display.
@@ -86,7 +86,7 @@ Implementation update (2026-09-27): Settings now has theme, network diagnostics,
 - [x] Native file and folder selection is resolved with `tauri-plugin-dialog` and the narrowly scoped `dialog:allow-open` permission.
 - [x] Safe staged executable selection is resolved with `scan_staged_executables`, which returns download-bound relative paths consumed unchanged by the frontend.
 - [ ] Verify automatic Steam App ID identification for manually selected executables as required by PLAN sections 17 and 18. Rust compares normalized executable and nearby folder titles against the cached and refreshed Hydra catalog. The add-game dialog previews a unique match and offers ambiguous candidates; verify the full import path in the app.
-- [ ] Expose session history or per-day playtime aggregates before implementing the full recent-played timeline and monthly activity heatmap. `get_playtime_summaries` currently provides totals and active-session counts.
+- [x] Expose per-day playtime aggregates through `get_playtime_activity` for the monthly Home calendar. Raw session history for a full session timeline is still unavailable.
 - [ ] Add progress events for downloads and process lifecycle only if polling proves inadequate; there are no such events in the current contract.
 - [ ] Define frontend commands only after backend/product decisions exist for runner acquisition, prefix cleanup/tools, and trusted fix packaging.
 - [ ] Add application/game update contracts in Phase 09 before building update-check UI.
