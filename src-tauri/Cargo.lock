@@ -2428,7 +2428,7 @@ dependencies = [
 
 [[package]]
 name = "legio"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "chrono",
  "compress-tools",
