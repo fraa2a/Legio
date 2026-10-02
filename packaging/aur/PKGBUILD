@@ -9,7 +9,7 @@ depends=('fuse2')
 provides=('legio-launcher')
 conflicts=('legio-launcher')
 options=('!strip')
-source=("Legio-${pkgver}.AppImage::APPIMAGE_URL" 'icon.png' 'legio-launcher' 'legio-launcher.desktop' 'LICENSE')
+source=("Legio-${pkgver}.AppImage::APPIMAGE_URL" "icon.png::https://raw.githubusercontent.com/fraa2a/Legio/v${pkgver}/src-tauri/icons/icon.png" 'legio-launcher' 'legio-launcher.desktop' 'LICENSE')
 sha256sums=('APPIMAGE_SHA256' 'ICON_SHA256' 'WRAPPER_SHA256' 'DESKTOP_SHA256' 'LICENSE_SHA256')
 
 package() {
