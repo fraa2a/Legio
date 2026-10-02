@@ -19,8 +19,6 @@
     return createResource<number[] | null>(null, () => getPlaytimeActivity(boundaries));
   });
   const monthLabel = $derived(calendar.first.toLocaleDateString("it-IT", { month: "long", year: "numeric" }));
-  const total = $derived($activity.data?.reduce((sum, value) => sum + value, 0) ?? 0);
-  const playedDays = $derived($activity.data?.filter((value) => value > 0).length ?? 0);
 
   $effect(() => { void activity.load(); });
   onMount(() => {
@@ -32,8 +30,8 @@
   });
 </script>
 
-<section class="rounded-2xl bg-zinc-900 p-5 light:bg-zinc-100" aria-labelledby="activity-title">
-  <div class="mb-5 flex items-center justify-between gap-3">
+<section class="flex min-h-0 flex-col rounded-2xl bg-zinc-900 p-4 light:bg-zinc-100" aria-labelledby="activity-title">
+  <div class="mb-3 flex shrink-0 items-center justify-between gap-3">
     <div>
       <h2 id="activity-title" class="text-lg font-medium text-zinc-50 light:text-zinc-900">Attività di gioco</h2>
       <p class="mt-1 text-sm capitalize text-zinc-400 light:text-zinc-600">{monthLabel}</p>
@@ -47,15 +45,17 @@
   <StateBlock status={$activity.status} hasData={$activity.data !== null} error={$activity.error} onRetry={() => void activity.load()} loadingMessage="Caricamento attività..." />
 
   {#if $activity.data !== null}
-    <div class="mb-4 flex items-center gap-3 text-xs text-zinc-400 light:text-zinc-600" role="img" aria-label="Intensità proporzionale alle ore giocate, da 0 a 8 ore o più">
+    <div class="mb-3 flex shrink-0 items-center gap-3 text-xs text-zinc-400 light:text-zinc-600" role="img" aria-label="Intensità proporzionale alle ore giocate, da 0 a 8 ore o più">
       <span>0 h</span>
       <span class="activity-scale block h-2 flex-1 rounded-full" aria-hidden="true"></span>
       <span>8 h o più</span>
     </div>
-    <div class="grid grid-cols-7 gap-2" role="group" aria-label={`Calendario di ${monthLabel}`}>
+    <div class="grid shrink-0 grid-cols-7 gap-1.5" aria-hidden="true">
       {#each ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'] as weekday (weekday)}
         <span class="pb-1 text-center text-xs text-zinc-500">{weekday}</span>
       {/each}
+    </div>
+    <div class="grid min-h-0 flex-1 auto-rows-fr grid-cols-7 gap-1.5" role="group" aria-label={`Calendario di ${monthLabel}`}>
       {#each calendar.cells as day, index (index)}
         {#if day === null}
           <span aria-hidden="true"></span>
@@ -65,7 +65,7 @@
           {@const today = new Date(calendar.boundaries[day - 1]).toDateString() === now.toDateString()}
           {@const label = `${day} ${monthLabel}: ${future ? 'giorno futuro' : formatPlaytime(milliseconds) + ' giocati'}`}
           <span
-            class="activity-cell flex aspect-square items-center justify-center rounded-lg text-xs font-medium tabular-nums text-zinc-200 light:text-zinc-800"
+            class="activity-cell flex min-h-0 items-center justify-center rounded-lg text-xs font-medium tabular-nums text-zinc-200 light:text-zinc-800"
             class:future
             class:today
             class:active={milliseconds >= 3 * 3600000}
@@ -76,10 +76,6 @@
           >{day}</span>
         {/if}
       {/each}
-    </div>
-    <div class="mt-5 flex items-baseline justify-between gap-3 text-sm">
-      <span class="font-medium text-zinc-50 light:text-zinc-900">{formatPlaytime(total)} giocate</span>
-      <span class="text-zinc-400 light:text-zinc-600">{playedDays} giorni attivi</span>
     </div>
   {/if}
 </section>
