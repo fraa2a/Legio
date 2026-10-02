@@ -2,6 +2,8 @@
   export type IconName =
     | "home"
     | "library"
+    | "landscape"
+    | "portrait"
     | "store"
     | "downloads"
     | "settings"
@@ -41,6 +43,8 @@
   };
 
   const iconPaths: Record<IconName, IconPath[]> = {
+    landscape: [{ d: "M3 4h18v6H3V4Zm0 10h18v6H3v-6Z", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinejoin: "round" }],
+    portrait: [{ d: "M3 3h7v18H3V3Zm11 0h7v18h-7V3Z", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinejoin: "round" }],
     search: [
       { d: "M11 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16Z", fill: "none", stroke: "currentColor", strokeWidth: 2 },
       { d: "m21 21-4.35-4.35", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" },

@@ -349,6 +349,11 @@ fn library_url(
     } else if filename == "clienticon.jpg" {
         Err("Steam did not provide a client icon for this App ID.".to_owned())
     } else {
+        let filename = match filename {
+            "library_capsule.jpg" => "library_600x900.jpg",
+            "library_capsule_2x.jpg" => "library_600x900_2x.jpg",
+            filename => filename,
+        };
         Ok(format!(
             "https://cdn.cloudflare.steamstatic.com/steam/apps/{app_id}/{filename}"
         ))
@@ -543,6 +548,24 @@ mod tests {
             "https://cdn.cloudflare.steamstatic.com/steam/apps/400/logo_2x.png"
         );
         assert!(library_url(400, "clienticon.jpg", None).is_err());
+    }
+
+    #[test]
+    fn library_capsules_use_legacy_portrait_filenames_without_pics() {
+        for (full, filename) in [
+            (false, "library_600x900.jpg"),
+            (true, "library_600x900_2x.jpg"),
+        ] {
+            assert_eq!(
+                library_url(
+                    400,
+                    AssetKind::LibraryCapsule.library_filename(full).unwrap(),
+                    None,
+                )
+                .unwrap(),
+                format!("https://cdn.cloudflare.steamstatic.com/steam/apps/400/{filename}")
+            );
+        }
     }
 
     #[tokio::test]

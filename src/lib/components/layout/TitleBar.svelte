@@ -19,7 +19,7 @@
   } from "../../services/window";
   import WindowControlButton from "../ui/WindowControlButton.svelte";
   import Icon from "../ui/Icon.svelte";
-  import { addGameDialogOpen, libraryQuery, storeQuery } from "../../stores/library-ui";
+  import { addGameDialogOpen, libraryPortrait, libraryQuery, storeQuery } from "../../stores/library-ui";
   import { runCatalogSearch } from "../../stores/catalog";
   import { refreshSource } from "../../stores/source";
 
@@ -115,6 +115,16 @@
           onclick={() => addGameDialogOpen.set(true)}
         >
           <Icon name="plus" />
+        </button>
+        <button
+          type="button"
+          aria-label="Copertine verticali"
+          aria-pressed={$libraryPortrait}
+          title={$libraryPortrait ? "Mostra copertine orizzontali" : "Mostra copertine verticali"}
+          class="flex size-9 items-center justify-center rounded-xl transition-colors hover:bg-white/10 hover:text-white light:hover:bg-zinc-900/10 light:hover:text-zinc-900 {$libraryPortrait ? 'bg-white/10 text-white light:bg-zinc-900/10 light:text-zinc-900' : 'text-zinc-300 light:text-zinc-700'}"
+          onclick={() => libraryPortrait.update((portrait) => !portrait)}
+        >
+          <Icon name={$libraryPortrait ? "landscape" : "portrait"} />
         </button>
       </div>
     {:else if detail !== null}
