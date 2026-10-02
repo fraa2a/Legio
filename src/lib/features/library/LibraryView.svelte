@@ -3,7 +3,7 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
   import { games } from "../../stores/games";
-  import { addGameDialogOpen, libraryQuery } from "../../stores/library-ui";
+  import { addGameDialogOpen, libraryPortrait, libraryQuery } from "../../stores/library-ui";
   import { launchError, launchStateByGame } from "../../stores/launch";
   import { openGame } from "../../stores/navigation";
   import { playtime } from "../../stores/playtime";
@@ -67,10 +67,11 @@
   />
 
   {#if visible.length > 0}
-    <ul class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-4">
+    <ul class="grid gap-4 {$libraryPortrait ? 'grid-cols-[repeat(auto-fill,minmax(min(100%,11rem),1fr))]' : 'grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))]'}">
       {#each visible as item (item.game.id)}
         <GameCard
           game={item.game}
+          portrait={$libraryPortrait}
           playtimeMilliseconds={item.totalMilliseconds}
           launch={$launchStateByGame.get(item.game.id)}
           onOpen={() => openGame(item.game.id)}
