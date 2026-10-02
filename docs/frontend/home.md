@@ -1,28 +1,26 @@
 # Home frontend
 
-Development scope for the Home page, based on the Home requirements in
-[`PLAN.md`](../../PLAN.md) and the existing frontend
-[`TODO.md`](TODO.md).
+The Home page follows the supplied visual reference with a last-played banner,
+recent library games, download status, and a monthly activity calendar.
+Achievements and progress comparisons are outside this implementation.
 
-## Implementation checklist
+Preview screenshots use fixture data:
+[dark theme](screenshots/home-dark.png), [light theme](screenshots/home-light.png).
 
-- [ ] Reuse the existing shell, UI primitives, Tailwind tokens, and light/dark themes.
-- [ ] Show Continue Playing and recently played library games using real last-played timestamps.
-- [ ] Show most played games and total recorded playtime from `get_playtime_summaries`.
-- [ ] Show active game state from the existing launch store and open game details through shared navigation.
-- [ ] Show download queue status and provide navigation to Downloads.
-- [ ] Handle loading, empty, error, and cached/offline states using the existing stores and retry controls.
-- [ ] Verify responsive layout, keyboard navigation, accessible labels, and reduced-motion behavior.
-- [ ] Run `pnpm check`, `pnpm lint`, and `pnpm build`; verify the page in the Tauri app.
+## Behavior
 
-## Data constraints
+- The banner selects the most recently played installation from real session timestamps and shows its date, name, artwork, short description, and recorded playtime.
+- Continue playing reuses the existing launch lifecycle, including cancellation, stop, and Steam account-switch confirmation. Info opens game details; Settings opens the game settings dialog.
+- The calendar starts on Monday, leaves slots outside the selected month blank, and uses five or six weeks as needed. Previous months are navigable; future months are disabled.
+- Zero hours is gray, activity below two hours is hatched, and color intensity increases continuously until eight hours. Dates, tooltips, a legend, the monthly total, and active-day count accompany the cells.
+- Local-day boundaries include daylight saving changes. Rust splits stored sessions into daily totals; active sessions count through request time. Concurrent games contribute separately, matching lifetime totals.
+- Loading, empty, cached/offline, and retryable error states use existing frontend resources. Playtime and activity refresh every 30 seconds while Home is mounted.
+- Keyboard Tab navigation is enabled; existing focus indicators and reduced-motion rules apply.
 
-Keep Tauri calls in the existing service modules and business logic in Rust.
-The current playtime summary exposes totals, active-session counts, and
-last-played timestamps. Recent-period totals and the monthly activity heatmap
-require session history or per-day aggregates from the backend before they can
-be implemented. Do not generate placeholder activity or infer daily playtime
-from lifetime totals.
+## Verification
 
-Confirm the Home visual reference before final visual acceptance. The existing
-Home currently displays library, download, network, and source summaries.
+Run `pnpm check`, `pnpm lint`, `pnpm build`, and `pnpm test:home`.
+Rust activity tests cover midnight splits, active sessions, future days, and input validation.
+Browser smoke checks cover launch/stop, settings, game details, Steam account confirmation,
+month navigation, empty/error/retry states, keyboard navigation, themes, and responsive layout
+using fixture data. Actual Steam and manual-game launches still need platform verification.

@@ -10,3 +10,7 @@ export interface PlaytimeSummary {
 export function getPlaytimeSummaries(): Promise<PlaytimeSummary[]> {
   return invoke<PlaytimeSummary[]>("get_playtime_summaries");
 }
+
+export function getPlaytimeActivity(dayBoundaries: number[]): Promise<number[]> {
+  return invoke<number[]>("get_playtime_activity", { dayBoundaries });
+}

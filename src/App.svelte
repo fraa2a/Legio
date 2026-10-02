@@ -34,17 +34,13 @@
   function blockContextMenu(event: MouseEvent) {
     event.preventDefault();
   }
-
-  function blockTabFocus(event: KeyboardEvent) {
-    if (event.key === "Tab") event.preventDefault();
-  }
 </script>
 
 <svelte:head>
   <title>Legio</title>
 </svelte:head>
 
-<svelte:window oncontextmenu={blockContextMenu} onkeydown={blockTabFocus} />
+<svelte:window oncontextmenu={blockContextMenu} />
 
 <div class="flex h-dvh select-none bg-black light:bg-zinc-200">
   <Sidebar />

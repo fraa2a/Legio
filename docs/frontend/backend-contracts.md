@@ -116,7 +116,7 @@ These commands are available on `main` after PR #35.
 | `launch_configured_game_with_runner` | `{ gameId }` | starts configured manual game |
 | `get_playtime_summaries` | none | per-game session totals in milliseconds |
 
-`get_playtime_summaries` returns `{ gameId, totalMilliseconds, activeSessions }` for each local game. Active totals are calculated through the request time. The backend starts a session after detecting the game process, closes it after the lifecycle monitor observes exit, and recovers sessions left open by a crash at their last heartbeat. Different games may have overlapping session time.
+`get_playtime_summaries` returns `{ gameId, totalMilliseconds, activeSessions, lastPlayedAt }` for each local game. Active totals are calculated through the request time. The backend starts a session after detecting the game process, closes it after the lifecycle monitor observes exit, and recovers sessions left open by a crash at their last heartbeat. Different games may have overlapping session time.
 
 Defaults have `runnerPath`, `prefixRoot`, `argumentsBefore`, `argumentsAfter`, `environment`, `dllOverrides`, `graphicsRenderer`, `wayland`, and `debugLogging`. The legacy `workingDirectory` field remains in the defaults response for compatibility but no longer affects launch and is cleared by the Settings UI on save. Per-game overrides have those settings plus `launchViaSteam`, `prefixPath` and `workingDirectory`. A null per-game working directory uses the executable's directory. Each typed option and `debugLogging` is nullable and inherits when null. Enum values are `graphicsRenderer: "runner_default" | "wine_d3d"` and `wayland: "runner_default" | "disabled" | "native"`. For scalar/list values, `null` inherits; an empty string/list clears an inherited value. Environment and DLL maps merge by key; an empty map clears all inherited entries. Saving settings persists them, but the UI should not imply that settings were applied until the save command succeeds.
 
@@ -301,18 +301,21 @@ interface GameLaunchState {
 
 | Command | Arguments | Result |
 | --- | --- | --- |
-| `get_playtime_summaries` | none | `{ gameId, totalMilliseconds, activeSessions }[]` |
+| `get_playtime_summaries` | none | `{ gameId, totalMilliseconds, activeSessions, lastPlayedAt }[]` |
+| `get_playtime_activity` | `{ dayBoundaries: number[] }` | daily playtime totals in milliseconds, one per interval |
 | `get_network_status` | none | current local network state |
 | `check_steam_connectivity` | none | connectivity result and waiting-download resume attempt |
 
-`get_playtime_summaries` is backed by persistent process sessions and is available without network access. Use it for per-game total playtime and active-session indicators in Home and Library. Do not invent recent-session timelines or the monthly activity heatmap from totals alone; no frontend contract currently exposes session history or per-day aggregates.
+`get_playtime_summaries` is backed by persistent process sessions and is available without network access. Use it for per-game total playtime and active-session indicators in Home and Library. `lastPlayedAt` is the latest session start in epoch milliseconds, or null for an unplayed game. Home uses it to select the latest played installation and link to its details.
+
+`get_playtime_activity` aggregates persistent sessions into the supplied local-day intervals. Pass 2 to 32 strictly increasing epoch-millisecond boundaries, with each interval between 20 and 28 hours to accommodate timezone changes. Home generates boundaries using local calendar midnights, so sessions crossing midnight are split correctly, including daylight saving days. Active sessions count through request time; future intervals have zero activity. Concurrent game sessions contribute separately, matching lifetime summaries. The command needs no network or schema migration. Raw session history is still not exposed.
 
 Offline UI should keep Home, Library, local metadata, playtime, settings, and permitted installed-game actions usable. Cached catalog/details/source/artwork may remain visible with stale warnings. Remote refresh, new downloads, and other network-backed actions should show an unavailable/retry state without loops. Update checks belong to Phase 09 and do not have a frontend/backend contract yet.
 
 ## Known backend gaps relevant to frontend work
 
 - Automatic Steam App ID identification from a manually selected executable is not implemented. Do not emulate it in Svelte.
-- Session history/per-day activity needed for a full recent-played timeline and monthly heatmap is not exposed by the current playtime summary command.
+- Raw session history is not exposed. Daily activity is available through `get_playtime_activity`; lifetime summaries alone cannot provide per-day data.
 - Download and launch progress are polling contracts; there are no push events yet.
 - Runner acquisition/version installation, safe prefix cleanup/tools, and trusted game-fix packaging remain open Phase 07 product/backend work and have no shipping frontend command.
 - Application/game update checks are Phase 09 work; do not build fake update state in the UI.

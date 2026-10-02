@@ -10,6 +10,7 @@
     actionPending = false,
     cancelPending = false,
     variant = "secondary",
+    playLabel = "GIOCA",
     circle = false,
     revealOnHover = false,
     class: className = "",
@@ -22,6 +23,7 @@
     actionPending?: boolean;
     cancelPending?: boolean;
     variant?: "primary" | "secondary";
+    playLabel?: string;
     circle?: boolean;
     revealOnHover?: boolean;
     class?: string;
@@ -39,7 +41,7 @@
 {#if game.steamInstallPath !== null || game.executablePath !== null}
   {#if status === "idle"}
     <Button
-      label="GIOCA"
+      label={playLabel}
       variant={actionVariant}
       {circle}
       class={revealOnHover
