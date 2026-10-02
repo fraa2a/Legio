@@ -47,10 +47,10 @@
   <StateBlock status={$activity.status} hasData={$activity.data !== null} error={$activity.error} onRetry={() => void activity.load()} loadingMessage="Caricamento attività..." />
 
   {#if $activity.data !== null}
-    <div class="mb-3 flex flex-wrap gap-4 text-xs text-zinc-400 light:text-zinc-600" aria-label="Legenda ore giocate">
-      {#each [{ hours: 0, label: '0 h' }, { hours: 1, label: '< 2 h' }, { hours: 4, label: '4 h' }, { hours: 8, label: '8 h o più' }] as level (level.hours)}
-        <span class="flex items-center gap-1.5"><span class="activity-cell size-3 rounded-sm" class:hatched={level.hours > 0 && level.hours < 2} style={`--intensity: ${activityIntensity(level.hours * 3600000) * 100}%`} aria-hidden="true"></span>{level.label}</span>
-      {/each}
+    <div class="mb-4 flex items-center gap-3 text-xs text-zinc-400 light:text-zinc-600" role="img" aria-label="Intensità proporzionale alle ore giocate, da 0 a 8 ore o più">
+      <span>0 h</span>
+      <span class="activity-scale block h-2 flex-1 rounded-full" aria-hidden="true"></span>
+      <span>8 h o più</span>
     </div>
     <div class="grid grid-cols-7 gap-2" role="group" aria-label={`Calendario di ${monthLabel}`}>
       {#each ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'] as weekday (weekday)}
@@ -66,7 +66,6 @@
           {@const label = `${day} ${monthLabel}: ${future ? 'giorno futuro' : formatPlaytime(milliseconds) + ' giocati'}`}
           <span
             class="activity-cell flex aspect-square items-center justify-center rounded-lg text-xs font-medium tabular-nums text-zinc-200 light:text-zinc-800"
-            class:hatched={milliseconds > 0 && milliseconds < 2 * 3600000}
             class:future
             class:today
             class:active={milliseconds >= 3 * 3600000}
@@ -89,12 +88,13 @@
   .activity-cell {
     background-color: color-mix(in srgb, var(--color-legio-activity) var(--intensity), var(--activity-base, #3f3f46));
   }
-  .hatched {
-    background-image: repeating-linear-gradient(135deg, transparent 0 3px, var(--color-legio-activity) 3px 4px);
+  .activity-scale {
+    background: linear-gradient(to right, var(--activity-base, #3f3f46), var(--color-legio-activity));
   }
   .active { color: #18181b; }
   .future { color: #a1a1aa; }
   .today { outline: 2px solid var(--color-legio-activity); outline-offset: 2px; }
-  :global([data-theme="light"]) .activity-cell { --activity-base: #d4d4d8; }
+  :global([data-theme="light"]) .activity-cell,
+  :global([data-theme="light"]) .activity-scale { --activity-base: #d4d4d8; }
   :global([data-theme="light"]) .future { color: #52525b; }
 </style>
