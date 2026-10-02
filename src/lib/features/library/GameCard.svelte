@@ -9,17 +9,20 @@
 
   let {
     game,
+    portrait = false,
     playtimeMilliseconds = 0,
     launch,
     onOpen,
   }: {
     game: Game;
+    portrait?: boolean;
     playtimeMilliseconds?: number;
     launch: GameLaunchState | undefined;
     onOpen: () => void;
   } = $props();
 
   const steamAppId = $derived(game.steamAppId);
+  const showTitle = $derived(!portrait || steamAppId === null);
   const status = $derived(launch?.status ?? "idle");
   const monogram = $derived(game.name.trim().charAt(0).toUpperCase() || "?");
   const detailsState = $derived(steamAppId === null ? null : ($steamDetails[steamAppId] ?? null));
@@ -32,7 +35,7 @@
   });
 </script>
 
-<ArtworkTile {steamAppId} {monogram}>
+<ArtworkTile {steamAppId} {monogram} {portrait}>
   <button
     type="button"
     class="flex flex-1 flex-col text-left focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-white"
@@ -52,27 +55,31 @@
       </span>
     </div>
 
-    <div class="relative mt-auto p-3">
-      <div class="flex w-fit min-w-0 max-w-full flex-col gap-1.5">
-        {#if launch?.error}
-          <span class="rounded-lg bg-zinc-950/60 px-3 py-1.5 text-xs text-red-300 light:bg-zinc-100/70 light:text-red-700" role="alert">{launch.error}</span>
-        {/if}
-        {#if details !== null}
-          <SteamArtwork
-            steamAppId={details.steamAppId}
-            asset="logo"
-            version={detailsState?.cachedAt ?? null}
-            caption={false}
-            alt=""
-            class="h-12 w-48 max-w-full object-contain object-left"
-          >
-            {#snippet placeholder()}{@render namePill()}{/snippet}
-          </SteamArtwork>
-        {:else}
-          {@render namePill()}
-        {/if}
+    {#if showTitle || launch?.error}
+      <div class="relative p-3 {portrait ? 'mt-auto' : 'm-auto'}">
+        <div class="flex w-full min-w-0 max-w-full flex-col items-center gap-1.5">
+          {#if launch?.error}
+            <span class="rounded-lg bg-zinc-950/60 px-3 py-1.5 text-xs text-red-300 light:bg-zinc-100/70 light:text-red-700" role="alert">{launch.error}</span>
+          {/if}
+          {#if showTitle}
+            {#if details !== null}
+              <SteamArtwork
+                steamAppId={details.steamAppId}
+                asset="logo"
+                version={detailsState?.cachedAt ?? null}
+                caption={false}
+                alt=""
+                class="h-20 w-80 max-w-full object-contain object-center"
+              >
+                {#snippet placeholder()}{@render namePill()}{/snippet}
+              </SteamArtwork>
+            {:else}
+              {@render namePill()}
+            {/if}
+          {/if}
+        </div>
       </div>
-    </div>
+    {/if}
   </button>
 </ArtworkTile>
 

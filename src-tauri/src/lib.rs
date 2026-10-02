@@ -41,6 +41,7 @@ mod steam_assets;
 mod steam_details;
 mod steam_import;
 mod steam_local;
+mod steam_pics;
 mod steam_process;
 mod steam_switch;
 mod steam_vdf;

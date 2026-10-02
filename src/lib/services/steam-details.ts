@@ -36,7 +36,7 @@ export function getSteamDetails(steamAppId: number, refresh: boolean): Promise<S
   return invoke<SteamDetailsResult>("get_steam_details", { steamAppId, refresh });
 }
 
-export type SteamAssetKind = "header" | "capsule" | "screenshot" | "hero" | "logo";
+export type SteamAssetKind = "header" | "capsule" | "screenshot" | "hero" | "logo" | "library_capsule" | "library_header" | "hero_blur" | "client_icon";
 
 export interface SteamAsset {
   bytes: number[];

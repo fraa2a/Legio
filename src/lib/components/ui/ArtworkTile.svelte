@@ -8,21 +8,25 @@
   let {
     steamAppId,
     monogram,
+    portrait = false,
     class: className = "",
     children,
   }: {
     steamAppId: number | null;
     monogram: string;
+    portrait?: boolean;
     class?: string;
     children: Snippet;
   } = $props();
 
   const detailsState = $derived(steamAppId === null ? null : ($steamDetails[steamAppId] ?? null));
   const details = $derived(detailsState?.details ?? null);
-  const cachedHeader = $derived(steamAppId !== null && peekSteamImage({
+  const asset = $derived(portrait ? "library_capsule" : "hero_blur");
+  const fallbackAsset = $derived(portrait ? null : "header");
+  const cachedCover = $derived(steamAppId !== null && peekSteamImage({
     steamAppId,
-    asset: "header",
-    fallbackAsset: null,
+    asset,
+    fallbackAsset,
     index: null,
     version: detailsState?.cachedAt ?? null,
     full: false,
@@ -42,16 +46,17 @@
 </script>
 
 <li
-  class="tile group relative flex aspect-[2.14/1] min-h-max min-w-0 flex-col overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200 {className}"
+  class="tile group relative flex min-h-max min-w-0 flex-col overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200 {portrait ? 'aspect-[2/3]' : 'aspect-[2.14/1]'} {className}"
 >
   <div
     bind:this={tile}
     class="absolute inset-0 transition-transform duration-300 ease-out group-hover:scale-105"
   >
-    {#if (visible || cachedHeader) && details !== null}
+    {#if (visible || cachedCover) && details !== null}
       <SteamArtwork
         steamAppId={details.steamAppId}
-        asset="header"
+        {asset}
+        {fallbackAsset}
         version={detailsState?.cachedAt ?? null}
         caption={false}
         class="size-full object-cover"
