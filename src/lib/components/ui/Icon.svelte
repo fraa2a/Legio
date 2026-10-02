@@ -1,6 +1,7 @@
 <script lang="ts">
   export type IconName =
     | "home"
+    | "info"
     | "library"
     | "landscape"
     | "portrait"
@@ -43,6 +44,7 @@
   };
 
   const iconPaths: Record<IconName, IconPath[]> = {
+    info: [{ d: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16Zm-1 6h2v7h-2v-7Zm0-3h2v2h-2V7Z", evenodd: true }],
     landscape: [{ d: "M3 4h18v6H3V4Zm0 10h18v6H3v-6Z", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinejoin: "round" }],
     portrait: [{ d: "M3 3h7v18H3V3Zm11 0h7v18h-7V3Z", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinejoin: "round" }],
     search: [

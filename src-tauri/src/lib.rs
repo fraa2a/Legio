@@ -28,6 +28,7 @@ mod manual_import;
 mod network;
 mod online_fix;
 mod pe_icons;
+mod playtime_activity;
 mod runner_discovery;
 mod startup;
 
@@ -225,6 +226,7 @@ pub fn run() -> tauri::Result<()> {
             commands::save_steam_launch_config,
             commands::list_games,
             commands::get_playtime_summaries,
+            commands::get_playtime_activity,
             commands::create_game,
             commands::create_game_shortcut,
             game_transfer::transfer_game,

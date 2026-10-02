@@ -182,6 +182,23 @@ pub fn get_playtime_summaries(
 }
 
 #[tauri::command]
+pub async fn get_playtime_activity(
+    app: AppHandle,
+    day_boundaries: Vec<i64>,
+) -> Result<Vec<i64>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatabaseState>();
+        crate::playtime_activity::daily_playtime(
+            state.database()?,
+            &day_boundaries,
+            database::now_milliseconds(),
+        )
+    })
+    .await
+    .map_err(|error| format!("could not load playtime activity: {error}"))?
+}
+
+#[tauri::command]
 pub fn create_game(
     state: State<'_, DatabaseState>,
     input: CreateGameInput,
