@@ -38,32 +38,37 @@ impl PicsAssets {
                 ("library_logo", &["logo.png", "logo_2x.png"][..]),
                 (
                     "library_capsule",
-                    &["library_capsule.jpg", "library_capsule_2x.jpg"][..],
+                    &[
+                        "library_capsule.jpg",
+                        "library_capsule_2x.jpg",
+                        "library_600x900.jpg",
+                        "library_600x900_2x.jpg",
+                    ][..],
                 ),
                 (
                     "library_hero",
-                    &[
-                        "library_hero.jpg",
-                        "library_hero_2x.jpg",
-                        "library_hero_blur.jpg",
-                    ][..],
+                    &["library_hero.jpg", "library_hero_2x.jpg"][..],
                 ),
+                ("library_hero_blur", &["library_hero_blur.jpg"][..]),
                 (
                     "library_header",
                     &["library_header.jpg", "library_header_2x.jpg"][..],
                 ),
             ] {
-                if let Some(image) = library
-                    .get(key)
-                    .and_then(|v| v.get("image"))
-                    .and_then(|v| v.get_str("english"))
-                {
+                for field in ["image", "image2x"] {
+                    let Some(image) = library
+                        .get(key)
+                        .and_then(|asset| asset.get(field))
+                        .and_then(|value| value.get_str("english"))
+                    else {
+                        continue;
+                    };
                     let hash = image.split('/').next().unwrap_or_default();
-                    if valid_hash(hash)
-                        && (image == hash
-                            || filenames.iter().any(|name| valid_asset_path(image, name)))
-                    {
-                        for filename in filenames {
+                    if !valid_hash(hash) {
+                        continue;
+                    }
+                    for filename in filenames {
+                        if image == hash || valid_asset_path(image, filename) {
                             paths.insert((*filename).to_owned(), format!("{hash}/{filename}"));
                         }
                     }
@@ -116,8 +121,15 @@ async fn read_cache(path: &Path) -> Result<Option<(PicsAssets, bool)>, String> {
     if bytes.len() as u64 > MAX_METADATA_BYTES {
         return Err("Steam PICS cache exceeds the size limit.".to_owned());
     }
-    let assets = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("Invalid Steam PICS cache: {error}"))?;
+    let assets = match serde_json::from_slice(&bytes) {
+        Ok(assets) => assets,
+        Err(error) => {
+            if let Err(cleanup) = tokio::fs::remove_file(path).await {
+                eprintln!("Could not remove an unreadable Steam PICS cache: {cleanup}");
+            }
+            return Err(format!("Invalid Steam PICS cache: {error}"));
+        }
+    };
     let stale = metadata
         .modified()
         .ok()
@@ -257,7 +269,7 @@ mod tests {
     #[test]
     fn hashed_library_assets_and_community_icon_are_validated() {
         let hash = "94e9d990ddd19610b268faf629865e17dcda0bb8";
-        let info = parse_vdf(&format!(r#""appinfo" {{ "common" {{ "library_assets_full" {{ "library_logo" {{ "image" {{ "english" "{hash}/logo.png" }} }} "library_hero" {{ "image" {{ "english" "../../evil" }} }} }} "clienticon" "{hash}" }} }}"#)).unwrap();
+        let info = parse_vdf(&format!(r#""appinfo" {{ "common" {{ "library_assets_full" {{ "library_logo" {{ "image" {{ "english" "{hash}/logo.png" }} "image2x" {{ "english" "{hash}/logo_2x.png" }} }} "library_hero" {{ "image" {{ "english" "../../evil" }} }} }} "clienticon" "{hash}" }} }}"#)).unwrap();
         let assets = PicsAssets::from_vdf(&info);
         assert_eq!(
             assets.url(4656000, "logo_2x.png"),
