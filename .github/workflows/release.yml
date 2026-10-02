@@ -352,11 +352,12 @@ jobs:
           ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
           export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur -o IdentitiesOnly=yes"
           git clone ssh://aur@aur.archlinux.org/legio-launcher-bin.git aur-repo
-          cp aur-files/{PKGBUILD,.SRCINFO,legio-launcher,legio-launcher.desktop,icon.png,LICENSE} aur-repo/
+          cp aur-files/{PKGBUILD,.SRCINFO,legio-launcher,legio-launcher.desktop,LICENSE} aur-repo/
           cd aur-repo
           git config user.name 'Legio release bot'
           git config user.email 'actions@users.noreply.github.com'
-          git add PKGBUILD .SRCINFO legio-launcher legio-launcher.desktop icon.png LICENSE
+          git rm --ignore-unmatch icon.png
+          git add PKGBUILD .SRCINFO legio-launcher legio-launcher.desktop LICENSE
           if ! git diff --cached --quiet; then
             git commit -m "Update to $VERSION"
             git push origin HEAD:master
