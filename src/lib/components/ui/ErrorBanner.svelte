@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   let {
     message,
     onRetry,
-    retryLabel = "Riprova",
+    retryLabel = t("Riprova", $language),
   }: {
     message: string;
     onRetry?: () => void;

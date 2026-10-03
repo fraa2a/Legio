@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import { onMount } from "svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
@@ -11,7 +12,7 @@
   import AddGameDialog from "./AddGameDialog.svelte";
   import GameCard from "./GameCard.svelte";
 
-  const collator = new Intl.Collator("it", { sensitivity: "base" });
+  const collator = new Intl.Collator(undefined, { sensitivity: "base" });
   onMount(() => {
     void playtime.load();
     const timer = setInterval(() => void playtime.load(), 30000);
@@ -49,11 +50,11 @@
   {/if}
 
   {#if $steamLibrary.error !== null}
-    <ErrorBanner message={$steamLibrary.error} onRetry={() => void importSteamLibrary()} retryLabel="Riprova" />
+    <ErrorBanner message={$steamLibrary.error} onRetry={() => void importSteamLibrary()} retryLabel={t("Riprova", $language)} />
   {/if}
 
   {#if $steamLibrary.importResult?.diagnostics.length}
-    <ul class="rounded-xl border border-amber-400/20 bg-amber-400/5 px-4 py-3 text-xs text-amber-300 light:text-amber-800" aria-label="Diagnostica Steam">
+    <ul class="rounded-xl border border-amber-400/20 bg-amber-400/5 px-4 py-3 text-xs text-amber-300 light:text-amber-800" aria-label={t("Diagnostica Steam", $language)}>
       {#each $steamLibrary.importResult.diagnostics as diagnostic (diagnostic)}<li>{diagnostic}</li>{/each}
     </ul>
   {/if}
@@ -61,7 +62,7 @@
   <StateBlock
     status={listStatus}
     hasData={$games.data.length > 0}
-    emptyMessage="Nessun gioco in libreria. Steam viene sincronizzato automaticamente, oppure puoi aggiungere un gioco con +."
+    emptyMessage={t("Nessun gioco in libreria. Steam viene sincronizzato automaticamente, oppure puoi aggiungere un gioco con +.", $language)}
     error={$games.error}
     onRetry={() => void games.load()}
   />
@@ -80,7 +81,7 @@
     </ul>
   {:else if $games.data.length > 0}
     <div class="rounded-xl border border-white/10 bg-white/[0.03] p-6 text-zinc-400 light:border-zinc-900/10 light:bg-zinc-100 light:text-zinc-600">
-      <p>Nessun gioco corrisponde alla ricerca.</p>
+      <p>{t("Nessun gioco corrisponde alla ricerca.", $language)}</p>
     </div>
   {/if}
 

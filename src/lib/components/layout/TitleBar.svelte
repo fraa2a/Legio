@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import { onMount } from "svelte";
   import { appInfo } from "../../stores/app-info";
   import { games } from "../../stores/games";
@@ -34,8 +35,8 @@
   );
   const storeGame = $derived($activeSection === "store" ? $selectedStoreGame : null);
   const detail = $derived(storeGame ?? game);
-  const backLabel = $derived(storeGame !== null ? "Risultati" : "Libreria");
-  const title = $derived(detail?.name ?? sectionLabels[$activeSection]);
+  const backLabel = $derived(storeGame !== null ? t("Risultati", $language) : t("Libreria", $language));
+  const title = $derived(detail?.name ?? t(sectionLabels[$activeSection], $language));
   const libraryList = $derived($activeSection === "library" && $selectedGameId === null);
   const storeList = $derived($activeSection === "store" && $selectedStoreGame === null);
   const searchList = $derived(libraryList || storeList);
@@ -109,8 +110,8 @@
       <div class="flex h-11 items-center rounded-xl bg-zinc-900 p-1 light:bg-zinc-50">
         <button
           type="button"
-          aria-label="Aggiungi gioco"
-          title="Aggiungi gioco"
+          aria-label={t("Aggiungi gioco", $language)}
+          title={t("Aggiungi gioco", $language)}
           class="flex size-9 items-center justify-center rounded-xl text-zinc-300 transition-colors hover:bg-white/10 hover:text-white light:text-zinc-700 light:hover:bg-zinc-900/10 light:hover:text-zinc-900"
           onclick={() => addGameDialogOpen.set(true)}
         >
@@ -118,9 +119,9 @@
         </button>
         <button
           type="button"
-          aria-label="Copertine verticali"
+          aria-label={t("Copertine verticali", $language)}
           aria-pressed={$libraryPortrait}
-          title={$libraryPortrait ? "Mostra copertine orizzontali" : "Mostra copertine verticali"}
+          title={$libraryPortrait ? t("Mostra copertine orizzontali", $language) : t("Mostra copertine verticali", $language)}
           class="flex size-9 items-center justify-center rounded-xl transition-colors hover:bg-white/10 hover:text-white light:hover:bg-zinc-900/10 light:hover:text-zinc-900 {$libraryPortrait ? 'bg-white/10 text-white light:bg-zinc-900/10 light:text-zinc-900' : 'text-zinc-300 light:text-zinc-700'}"
           onclick={() => libraryPortrait.update((portrait) => !portrait)}
         >
@@ -149,8 +150,8 @@
         bind:this={searchInput}
         value={libraryList ? $libraryQuery : $storeQuery}
         type="search"
-        aria-label={libraryList ? "Cerca nella libreria" : "Cerca nello store"}
-        placeholder={libraryList ? "Cerca nella libreria" : "Cerca nello store"}
+        aria-label={libraryList ? t("Cerca nella libreria", $language) : t("Cerca nello store", $language)}
+        placeholder={libraryList ? t("Cerca nella libreria", $language) : t("Cerca nello store", $language)}
         oninput={(event) => libraryList ? libraryQuery.set(event.currentTarget.value) : storeQuery.set(event.currentTarget.value)}
         class="h-full min-w-0 flex-1 bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-500 light:text-zinc-900"
       />
@@ -158,8 +159,8 @@
         <button
           type="button"
           class="flex size-8 shrink-0 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100 light:text-zinc-600 light:hover:bg-zinc-900/10 light:hover:text-zinc-900"
-          aria-label="Aggiorna store"
-          title="Aggiorna store"
+          aria-label={t("Aggiorna store", $language)}
+          title={t("Aggiorna store", $language)}
           onclick={() => { void refreshSource(); void runCatalogSearch($storeQuery); }}
         >
           <Icon name="reload" size="h-4 w-4" />
@@ -180,13 +181,13 @@
   {/if}
   <div class="col-start-3 flex items-center justify-end">
     <div class="flex h-11 items-center gap-1 rounded-xl bg-zinc-900 p-1 light:bg-zinc-50">
-      <WindowControlButton label="Minimize" onClick={handleMinimize}>
+      <WindowControlButton label={t("Riduci a icona", $language)} onClick={handleMinimize}>
         <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
           <path d="M19,13H5V11H19V13Z" />
         </svg>
       </WindowControlButton>
       {#if showMaximize}
-        <WindowControlButton label={maximized ? "Restore" : "Maximize"} onClick={handleToggleMaximize}>
+        <WindowControlButton label={maximized ? t("Ripristina finestra", $language) : t("Massimizza", $language)} onClick={handleToggleMaximize}>
           {#if maximized}
             <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
               <path d="M4,8H8V4H20V16H16V20H4V8M16,8V14H18V6H10V8H16M6,12V18H14V12H6Z" />
@@ -198,7 +199,7 @@
           {/if}
         </WindowControlButton>
       {/if}
-      <WindowControlButton label="Close" variant="danger" onClick={handleClose}>
+      <WindowControlButton label={t("Chiudi", $language)} variant="danger" onClick={handleClose}>
         <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
           <path d="M13.46,12L19,17.54V19H17.54L12,13.46L6.46,19H5V17.54L10.54,12L5,6.46V5H6.46L12,10.54L17.54,5H19V6.46L13.46,12Z" />
         </svg>

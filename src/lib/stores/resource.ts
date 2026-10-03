@@ -21,8 +21,9 @@ export function createResource<T>(
 ): Resource<T> {
   const state = writable<LoadState<T>>({ status: "idle", data: initial, error: null });
   let requestId = 0;
+  let pending: Promise<void> | null = null;
 
-  async function load(): Promise<void> {
+  async function read(): Promise<void> {
     const request = ++requestId;
     state.update((previous) => ({ status: "loading", data: previous.data, error: null }));
     try {
@@ -35,8 +36,18 @@ export function createResource<T>(
     }
   }
 
+  function load(): Promise<void> {
+    if (pending !== null) return pending;
+    const request = read().finally(() => {
+      if (pending === request) pending = null;
+    });
+    pending = request;
+    return request;
+  }
+
   function set(data: T): void {
     requestId += 1;
+    pending = null;
     state.set({ status: isEmpty(data) ? "empty" : "ready", data, error: null });
   }
 

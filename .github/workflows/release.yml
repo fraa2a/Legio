@@ -6,7 +6,7 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -23,7 +23,7 @@ jobs:
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
@@ -146,9 +146,15 @@ jobs:
           write("prerelease", str(prerelease).lower())
           PY
 
+  quality:
+    name: Verify release commit
+    needs: detect
+    if: needs.detect.outputs.release == 'true'
+    uses: ./.github/workflows/ci.yml
+
   build:
     name: Build ${{ matrix.name }}
-    needs: detect
+    needs: [detect, quality]
     if: needs.detect.outputs.release == 'true'
     strategy:
       fail-fast: false
@@ -167,7 +173,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -200,7 +206,7 @@ jobs:
           vcpkg install libarchive:x64-windows-static-md
 
       - name: Set up Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
 
@@ -226,7 +232,7 @@ jobs:
           fi
 
       - name: Upload bundles
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.artifact }}
           path: |
@@ -242,6 +248,8 @@ jobs:
 
   publish:
     name: Publish release
+    permissions:
+      contents: write
     needs:
       - detect
       - build
@@ -250,10 +258,10 @@ jobs:
 
     steps:
       - name: Check out manifest generator
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Download release bundles
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: release-assets
 
@@ -323,7 +331,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Prepare AUR package
         env:
@@ -342,6 +350,7 @@ jobs:
       - name: Push AUR package
         env:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          AUR_KNOWN_HOSTS: ${{ vars.AUR_KNOWN_HOSTS }}
           VERSION: ${{ needs.detect.outputs.version }}
         shell: bash
         run: |
@@ -349,8 +358,10 @@ jobs:
           install -d -m 700 ~/.ssh
           printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
           chmod 600 ~/.ssh/aur
-          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
-          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur -o IdentitiesOnly=yes"
+          test -n "$AUR_KNOWN_HOSTS" || { echo "Configure verified AUR_KNOWN_HOSTS before publishing"; exit 1; }
+          printf '%s\n' "$AUR_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
           git clone ssh://aur@aur.archlinux.org/legio-launcher-bin.git aur-repo
           cp aur-files/{PKGBUILD,.SRCINFO,legio-launcher,legio-launcher.desktop,LICENSE} aur-repo/
           cd aur-repo

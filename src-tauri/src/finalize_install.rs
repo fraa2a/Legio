@@ -236,14 +236,14 @@ fn write_token(path: &Path, token: &str) -> Result<(), String> {
 }
 
 #[cfg(unix)]
-fn sync_directory(path: &Path) -> Result<(), String> {
+pub(crate) fn sync_directory(path: &Path) -> Result<(), String> {
     fs::File::open(path)
         .and_then(|file| file.sync_all())
         .map_err(|error| format!("Could not sync install directory: {error}"))
 }
 
 #[cfg(windows)]
-fn sync_directory(_path: &Path) -> Result<(), String> {
+pub(crate) fn sync_directory(_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
@@ -256,7 +256,7 @@ fn existing(path: &Path) -> Result<bool, String> {
 }
 
 #[cfg(target_os = "linux")]
-fn publish_noreplace(source: &Path, target: &Path) -> io::Result<()> {
+pub(crate) fn publish_noreplace(source: &Path, target: &Path) -> io::Result<()> {
     use std::{ffi::CString, os::unix::ffi::OsStrExt};
 
     let source = CString::new(source.as_os_str().as_bytes())
@@ -289,7 +289,7 @@ fn publish_noreplace(source: &Path, target: &Path) -> io::Result<()> {
 }
 
 #[cfg(windows)]
-fn publish_noreplace(source: &Path, target: &Path) -> io::Result<()> {
+pub(crate) fn publish_noreplace(source: &Path, target: &Path) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
 
     let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
@@ -373,8 +373,8 @@ fn finish(database: &Database, intent: &Intent) -> Result<(), String> {
     database.with_connection(|connection| {
         let transaction = connection.unchecked_transaction().map_err(database_error)?;
         transaction.execute(
-            "INSERT INTO games (id, steam_app_id, automatic_name, executable_path) VALUES (?1, ?2, ?3, ?4)",
-            params![intent.id, intent.app_id, intent.name, executable.to_string_lossy()]
+            "INSERT INTO games (id, steam_app_id, automatic_name, executable_path, installation_root) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![intent.id, intent.app_id, intent.name, executable.to_string_lossy(), intent.target.to_string_lossy()]
         ).map_err(database_error)?;
         let changed = transaction.execute(
             "UPDATE downloads SET status = 'installed', error = NULL, updated_at = ?2 WHERE id = ?1 AND status = 'finalizing'",

@@ -73,7 +73,9 @@ fn disk_space(path: &Path) -> Result<(u64, u64), String> {
 
     let c_path = std::ffi::CString::new(path.as_os_str().as_bytes())
         .map_err(|_| "Install directory path contains an interior NUL byte".to_owned())?;
+    // SAFETY: statvfs contains only integer fields; zero is valid for each field.
     let mut stats: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: c_path is NUL-terminated and stats remains writable for this call.
     if unsafe { libc::statvfs(c_path.as_ptr(), &mut stats) } != 0 {
         return Err(format!(
             "Could not read free disk space: {}",
@@ -106,6 +108,7 @@ fn disk_space(path: &Path) -> Result<(u64, u64), String> {
     let mut available = 0_u64;
     let mut total = 0_u64;
     let mut total_free = 0_u64;
+    // SAFETY: directory is NUL-terminated and all output pointers live through the call.
     let result = unsafe {
         GetDiskFreeSpaceExW(
             directory.as_ptr(),
@@ -121,11 +124,6 @@ fn disk_space(path: &Path) -> Result<(u64, u64), String> {
         ));
     }
     Ok((available, total))
-}
-
-#[cfg(not(any(target_os = "linux", windows)))]
-fn disk_space(_path: &Path) -> Result<(u64, u64), String> {
-    Err("Reading free disk space is unsupported on this platform".to_owned())
 }
 
 #[tauri::command]
@@ -202,9 +200,4 @@ fn open_directory(path: &Path) -> Result<(), String> {
         .spawn()
         .map(|_| ())
         .map_err(|error| format!("Could not open the install folder: {error}"))
-}
-
-#[cfg(not(any(target_os = "linux", windows)))]
-fn open_directory(_path: &Path) -> Result<(), String> {
-    Err("Opening the install folder is unsupported on this platform".to_owned())
 }

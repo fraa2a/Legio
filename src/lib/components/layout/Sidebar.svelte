@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import { activeDownloadCount } from "../../stores/downloads";
   import { games } from "../../stores/games";
   import { playtime } from "../../stores/playtime";
@@ -31,7 +32,7 @@
 
   let expanded = $state(true);
 
-  const collator = new Intl.Collator("it", { sensitivity: "base" });
+  const collator = new Intl.Collator(undefined, { sensitivity: "base" });
 
   const gamesList = $derived.by(() => {
     const lastPlayed = new Map($playtime.data.map((entry) => [entry.gameId, entry.lastPlayedAt]));
@@ -57,7 +58,7 @@
     ? "w-[13.5rem]"
     : "w-16"} transition-[width] duration-300 ease-out"
 >
-  <nav class="mt-2 flex flex-1 flex-col gap-1 p-2" aria-label="Main navigation">
+  <nav class="mt-2 flex flex-1 flex-col gap-1 p-2" aria-label={t("Navigazione principale", $language)}>
     <div class="flex w-full items-center text-white light:text-zinc-900">
       <span class="flex h-12 w-full items-center gap-2 overflow-hidden rounded-lg">
         <span class="ml-2 flex size-8 shrink-0 items-center justify-center">
@@ -70,12 +71,12 @@
     </div>
     {#each sections as section (section)}
       <SidebarButton
-        label={sectionLabels[section]}
+        label={t(sectionLabels[section], $language)}
         expanded={expanded}
         active={$activeSection === section}
         count={section === "downloads" ? $activeDownloadCount : undefined}
         ariaLabel={section === "downloads" && $activeDownloadCount > 0
-          ? `${sectionLabels.downloads} (${$activeDownloadCount} attivi)`
+          ? t("Download ({0} attivi)", $language, [$activeDownloadCount])
           : undefined}
         onClick={() => selectSection(section)}
       >
@@ -93,7 +94,7 @@
       <section
         transition:fade={{ duration: fadeMs, easing: cubicOut }}
         class="mt-2 flex flex-col gap-1.5"
-        aria-label="Recenti"
+        aria-label={t("Recenti", $language)}
       >
         <ul class="flex flex-col gap-1.5">
           {#each gamesList as game (game.id)}
@@ -105,10 +106,10 @@
     <div class="mt-auto flex flex-col gap-1">
       <SidebarDownloadStatus {expanded} />
       <SidebarButton
-        label="Comprimi"
+        label={t("Comprimi", $language)}
         expanded={expanded}
         togglesSidebar
-        ariaLabel={expanded ? undefined : "Espandi sidebar"}
+        ariaLabel={expanded ? undefined : t("Espandi sidebar", $language)}
         onClick={() => (expanded = !expanded)}
       >
         {#if expanded}
@@ -121,7 +122,7 @@
           </svg>
         {/if}
       </SidebarButton>
-      <SidebarButton label="Impostazioni" {expanded} onClick={openSettings}>
+      <SidebarButton label={t("Impostazioni", $language)} {expanded} onClick={openSettings}>
         <Icon name="settings" />
       </SidebarButton>
     </div>

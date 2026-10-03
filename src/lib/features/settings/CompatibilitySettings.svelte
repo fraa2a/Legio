@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { mapToText, parseMap, parseEnvironment } from "../../services/launch-fields";
+  import { isGraphicsRenderer, isWaylandMode } from "../../services/game-settings";
+  import { t, language } from "../../i18n";
   import { onMount } from "svelte";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
@@ -12,8 +15,6 @@
     listCompatibilityRunners,
     saveCompatibilityDefaults,
     type CompatibilityDefaults,
-    type GraphicsRenderer,
-    type WaylandMode,
   } from "../../services/game-settings";
   import { appInfo } from "../../stores/app-info";
   import { toMessage } from "../../utils/errors";
@@ -73,51 +74,8 @@
     loading = false;
   }
 
-  function mapToText(values: Record<string, string>): string {
-    return Object.entries(values)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, value]) => `${key}=${value}`)
-      .join("\n");
-  }
-
-  function parseMap(value: string, label: string): Record<string, string> {
-    const result: Record<string, string> = {};
-    for (const line of value.split(/\r?\n/)) {
-      if (line.trim().length === 0) continue;
-      const separator = line.indexOf("=");
-      const key = separator < 0 ? "" : line.slice(0, separator).trim();
-      if (key.length === 0) throw new Error(`${label}: ogni riga deve contenere una chiave e un valore separati da =.`);
-      if (Object.hasOwn(result, key)) throw new Error(`${label}: la chiave ${key} è ripetuta.`);
-      result[key] = line.slice(separator + 1);
-    }
-    return result;
-  }
-
   function parseArguments(value: string): string[] {
     return value === "" ? [] : value.split("\n").map((line) => line.replace(/\r$/, ""));
-  }
-
-  function parseEnvironment(value: string): Record<string, string> {
-    const environment = parseMap(value, "Ambiente");
-    const typedKeys = [
-      "WINEPREFIX",
-      "STEAM_COMPAT_DATA_PATH",
-      "STEAM_COMPAT_CLIENT_INSTALL_PATH",
-      "WINEDLLOVERRIDES",
-      "PROTON_USE_WINED3D",
-      "PROTON_ENABLE_WAYLAND",
-      "ENABLE_VK_LAYER_VALVE_steam_overlay_1",
-      "SteamOverlayGameId",
-    ];
-    for (const key of Object.keys(environment)) {
-      if (typedKeys.some((managed) => key.toLowerCase() === managed.toLowerCase())) {
-        throw new Error(`La variabile ${key} è gestita dalle opzioni tipizzate di Legio.`);
-      }
-      if (defaults.debugLogging && ["PROTON_LOG", "PROTON_LOG_DIR", "SteamGameId"].some((managed) => key.toLowerCase() === managed.toLowerCase())) {
-        throw new Error(`La variabile ${key} è gestita dai log di debug.`);
-      }
-    }
-    return environment;
   }
 
   async function save(): Promise<void> {
@@ -130,8 +88,8 @@
         workingDirectory: null,
         argumentsBefore: parseArguments(argumentsBefore),
         argumentsAfter: parseArguments(argumentsAfter),
-        environment: parseEnvironment(environmentText),
-        dllOverrides: parseMap(dllOverridesText, "Override DLL"),
+        environment: parseEnvironment(environmentText, defaults.debugLogging),
+        dllOverrides: parseMap(dllOverridesText, t("Override DLL", $language)),
       });
       argumentsBefore = defaults.argumentsBefore.join("\n");
       argumentsAfter = defaults.argumentsAfter.join("\n");
@@ -146,7 +104,7 @@
   }
 
   const runnerOptions = $derived([
-    { value: "", label: "Scelta automatica" },
+    { value: "", label: t("Scelta automatica", $language) },
     ...(defaults.runnerPath && !runners.some((runner) => runner.path === defaults.runnerPath)
       ? [{ value: defaults.runnerPath, label: defaults.runnerPath }]
       : []),
@@ -157,23 +115,21 @@
   ]);
 
   function setGraphicsRenderer(value: string): void {
-    defaults = { ...defaults, graphicsRenderer: value as GraphicsRenderer };
+    if (isGraphicsRenderer(value)) defaults = { ...defaults, graphicsRenderer: value };
   }
 
   function setWayland(value: string): void {
-    defaults = { ...defaults, wayland: value as WaylandMode };
+    if (isWaylandMode(value)) defaults = { ...defaults, wayland: value };
   }
 </script>
 
 <section class="flex flex-col gap-4">
   {#if loading}
-    <p class="text-sm text-zinc-400 light:text-zinc-600" role="status">Caricamento dei runner e dei default...</p>
+    <p class="text-sm text-zinc-400 light:text-zinc-600" role="status">{t("Caricamento dei runner e dei default...", $language)}</p>
   {:else if $appInfo.status === "error"}
-    <ErrorBanner message={$appInfo.error ?? "Impossibile rilevare la piattaforma."} onRetry={() => void load()} />
+    <ErrorBanner message={$appInfo.error ?? t("Impossibile rilevare la piattaforma.", $language)} onRetry={() => void load()} />
   {:else if $appInfo.data.platform !== "linux"}
-    <p class="rounded-xl bg-white/5 p-4 text-sm text-zinc-400 light:bg-zinc-100 light:text-zinc-600">
-      I runner e i default di compatibilità sono disponibili su Linux. Le impostazioni di avvio native si configurano nella pagina di ogni gioco Windows.
-    </p>
+    <p class="rounded-xl bg-white/5 p-4 text-sm text-zinc-400 light:bg-zinc-100 light:text-zinc-600">{t("\n      I runner e i default di compatibilità sono disponibili su Linux. Le impostazioni di avvio native si configurano nella pagina di ogni gioco Windows.\n    ", $language)}</p>
   {:else}
     {#if loadError !== null}
       <ErrorBanner message={loadError} onRetry={() => void load()} />
@@ -182,7 +138,7 @@
     <SettingsGroup title="Runner">
       {#if runnerDiagnostics.length > 0}
         <div class="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-200 light:text-amber-900">
-          <p class="font-medium">Rilevamento runner</p>
+          <p class="font-medium">{t("Rilevamento runner", $language)}</p>
           <ul class="mt-2 list-disc pl-5">
             {#each runnerDiagnostics as diagnostic (diagnostic)}
               <li>{diagnostic}</li>
@@ -191,30 +147,30 @@
         </div>
       {/if}
       {#if runners.length === 0}
-        <p class="text-sm text-zinc-400 light:text-zinc-600">Nessun runner compatibile rilevato.</p>
+        <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Nessun runner compatibile rilevato.", $language)}</p>
       {/if}
       <div class="max-w-sm">
         <SelectField
           id="compat-runner"
-          label="Runner predefinito"
+          label={t("Runner predefinito", $language)}
           value={defaults.runnerPath ?? ""}
           options={runnerOptions}
           onChange={(value) => (defaults = { ...defaults, runnerPath: value || null })}
         />
       </div>
       {#if logsDirectory !== null}
-        <p class="break-all text-xs text-zinc-500 light:text-zinc-600">Log compatibilità: {logsDirectory}</p>
+        <p class="break-all text-xs text-zinc-500 light:text-zinc-600">{t("Log compatibilità: ", $language)}{logsDirectory}</p>
       {/if}
     </SettingsGroup>
 
-    <SettingsGroup title="Configurazione di avvio">
+    <SettingsGroup title={t("Configurazione di avvio", $language)}>
       <div class="grid gap-4 md:grid-cols-2">
         <TextField
           id="compat-prefix-root"
-          label="Cartella predefinita dei prefix"
+          label={t("Cartella predefinita dei prefix", $language)}
           value={defaults.prefixRoot ?? ""}
-          placeholder="Percorso opzionale"
-          hint="Legio crea un prefix per gioco dentro questa cartella."
+          placeholder={t("Percorso opzionale", $language)}
+          hint={t("Legio crea un prefix per gioco dentro questa cartella.", $language)}
           oninput={(value) => (defaults = { ...defaults, prefixRoot: value || null })}
         />
         <label class="flex items-center gap-2 self-end pb-2 text-sm text-zinc-300 light:text-zinc-700">
@@ -223,49 +179,39 @@
             class="size-4 accent-white"
             checked={defaults.debugLogging}
             onchange={(event) => (defaults = { ...defaults, debugLogging: event.currentTarget.checked })}
-          />
-          Abilita log di debug per gli avvii
-        </label>
+          />{t("\n          Abilita log di debug per gli avvii\n        ", $language)}</label>
       </div>
       <div class="grid gap-4 md:grid-cols-2">
         <SelectField
           id="compat-renderer"
-          label="Renderer grafico"
+          label={t("Renderer grafico", $language)}
           value={defaults.graphicsRenderer}
-          options={[{ value: "runner_default", label: "Predefinito del runner" }, { value: "wine_d3d", label: "WineD3D" }]}
+          options={[{ value: "runner_default", label: t("Predefinito del runner", $language) }, { value: "wine_d3d", label: "WineD3D" }]}
           onChange={setGraphicsRenderer}
         />
         <SelectField
           id="compat-wayland"
           label="Wayland"
           value={defaults.wayland}
-          options={[{ value: "runner_default", label: "Predefinito del runner" }, { value: "disabled", label: "Disattivato" }, { value: "native", label: "Nativo, solo GE-Proton" }]}
+          options={[{ value: "runner_default", label: t("Predefinito del runner", $language) }, { value: "disabled", label: t("Disattivato", $language) }, { value: "native", label: t("Nativo, solo GE-Proton", $language) }]}
           onChange={setWayland}
         />
       </div>
     </SettingsGroup>
 
-    <SettingsGroup title="Argomenti e ambiente">
+    <SettingsGroup title={t("Argomenti e ambiente", $language)}>
       <div class="grid gap-4 md:grid-cols-2">
-        <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-          Argomenti prima dell'eseguibile
-          <textarea bind:value={argumentsBefore} rows="4" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
-          <span class="text-xs text-zinc-500">Un argomento per riga. Le righe vuote rappresentano argomenti vuoti.</span>
+        <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("\n          Argomenti prima dell'eseguibile\n          ", $language)}<textarea bind:value={argumentsBefore} rows="4" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
+          <span class="text-xs text-zinc-500">{t("Un argomento per riga. Le righe vuote rappresentano argomenti vuoti.", $language)}</span>
         </label>
-        <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-          Argomenti dopo l'eseguibile
-          <textarea bind:value={argumentsAfter} rows="4" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
-          <span class="text-xs text-zinc-500">Un argomento per riga, passato senza interpretazione shell.</span>
+        <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("\n          Argomenti dopo l'eseguibile\n          ", $language)}<textarea bind:value={argumentsAfter} rows="4" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
+          <span class="text-xs text-zinc-500">{t("Un argomento per riga, passato senza interpretazione shell.", $language)}</span>
         </label>
-        <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-          Variabili ambiente
-          <textarea bind:value={environmentText} rows="5" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
-          <span class="text-xs text-zinc-500">Una voce KEY=VALUE per riga. I controlli tipizzati hanno priorità.</span>
+        <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("\n          Variabili ambiente\n          ", $language)}<textarea bind:value={environmentText} rows="5" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
+          <span class="text-xs text-zinc-500">{t("Una voce KEY=VALUE per riga. I controlli tipizzati hanno priorità.", $language)}</span>
         </label>
-        <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-          Override DLL
-          <textarea bind:value={dllOverridesText} rows="5" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
-          <span class="text-xs text-zinc-500">Una voce KEY=VALUE per riga, ad esempio d3d11=n,b.</span>
+        <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("\n          Override DLL\n          ", $language)}<textarea bind:value={dllOverridesText} rows="5" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
+          <span class="text-xs text-zinc-500">{t("Una voce KEY=VALUE per riga, ad esempio d3d11=n,b.", $language)}</span>
         </label>
       </div>
     </SettingsGroup>
@@ -275,9 +221,9 @@
         <ErrorBanner message={saveError} />
       {/if}
       {#if saved}
-        <p class="text-sm text-emerald-300 light:text-emerald-700" role="status">Default salvati.</p>
+        <p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Default salvati.", $language)}</p>
       {/if}
-      <Button label={saving ? "Salvataggio..." : "Salva default"} disabled={saving || loading} onClick={() => void save()} />
+      <Button label={saving ? t("Salvataggio...", $language) : t("Salva default", $language)} disabled={saving || loading} onClick={() => void save()} />
     </div>
   {/if}
 </section>

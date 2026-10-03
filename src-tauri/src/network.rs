@@ -95,8 +95,13 @@ impl NetworkState {
         self.post_catalog(HYDRA_SEARCH_URL, body).await
     }
 
-    pub async fn steam_details(&self, app_id: u32) -> Result<Vec<u8>, NetworkError> {
-        self.get_steam_details(STEAM_DETAILS_URL, app_id).await
+    pub async fn steam_details(
+        &self,
+        app_id: u32,
+        language: crate::locale::LanguagePreference,
+    ) -> Result<Vec<u8>, NetworkError> {
+        self.get_steam_details(STEAM_DETAILS_URL, app_id, language)
+            .await
     }
 
     pub async fn steam_asset(&self, url: &str) -> Result<Vec<u8>, NetworkError> {
@@ -141,9 +146,14 @@ impl NetworkState {
         result
     }
 
-    async fn get_steam_details(&self, url: &str, app_id: u32) -> Result<Vec<u8>, NetworkError> {
+    async fn get_steam_details(
+        &self,
+        url: &str,
+        app_id: u32,
+        language: crate::locale::LanguagePreference,
+    ) -> Result<Vec<u8>, NetworkError> {
         self.get(
-            &format!("{url}?appids={app_id}&l=english"),
+            &format!("{url}?appids={app_id}&l={}", language.steam()),
             MAX_CATALOG_BYTES,
             Operation::SteamDetails,
         )
@@ -355,7 +365,12 @@ mod tests {
         let (url, server) =
             server(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}".to_vec());
         let state = state();
-        let bytes = tauri::async_runtime::block_on(state.get_steam_details(&url, 400)).unwrap();
+        let bytes = tauri::async_runtime::block_on(state.get_steam_details(
+            &url,
+            400,
+            crate::locale::LanguagePreference::English,
+        ))
+        .unwrap();
         assert_eq!(bytes, b"{}");
         let request = server.join().unwrap();
         assert!(request.starts_with("GET /catalogue/search?appids=400&l=english HTTP/1.1"));

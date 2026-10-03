@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import { loadSteamDetails, steamDetails } from "../../stores/steam-details";
   import Badge from "../../components/ui/Badge.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
@@ -19,17 +20,17 @@
   }
 </script>
 
-<Panel title="Dettagli Steam" class="flex-1">
+<Panel title={t("Dettagli Steam", $language)} class="flex-1">
   {#snippet actions()}
     <div class="flex items-center gap-2">
       {#if detailsState?.stale}
-        <Badge tone="warning" title="Cache scaduta" />
+        <Badge tone="warning" title={t("Cache scaduta", $language)} />
       {/if}
     </div>
   {/snippet}
 
   {#if detailsState !== null && detailsState.status === "loading"}
-    <p class="text-sm text-zinc-400 light:text-zinc-600" role="status">Caricamento dettagli...</p>
+    <p class="text-sm text-zinc-400 light:text-zinc-600" role="status">{t("Caricamento dettagli...", $language)}</p>
   {/if}
 
   {#if detailsState !== null && detailsState.status === "error" && detailsState.error !== null}
@@ -37,9 +38,7 @@
   {/if}
 
   {#if details === null}
-    <p class="text-sm text-zinc-500">
-      Nessun dato Steam disponibile per questo titolo.
-    </p>
+    <p class="text-sm text-zinc-500">{t("\n      Nessun dato Steam disponibile per questo titolo.\n    ", $language)}</p>
   {:else}
     {#if screenshots.length > 0}
       <ScreenshotGallery {steamAppId} name={details.name} version={cachedAt} {screenshots} />
@@ -62,7 +61,7 @@
     <dl class="grid gap-3 text-sm">
       {#if details.developers.length > 0}
         <div class="flex flex-wrap gap-x-3">
-          <dt class="w-24 shrink-0 text-zinc-400 light:text-zinc-600">Sviluppatori</dt>
+          <dt class="w-24 shrink-0 text-zinc-400 light:text-zinc-600">{t("Sviluppatori", $language)}</dt>
           <dd class="min-w-0 flex-1 text-zinc-100 light:text-zinc-900">
             {details.developers.join(", ")}
           </dd>
@@ -70,7 +69,7 @@
       {/if}
       {#if details.publishers.length > 0}
         <div class="flex flex-wrap gap-x-3">
-          <dt class="w-24 shrink-0 text-zinc-400 light:text-zinc-600">Editori</dt>
+          <dt class="w-24 shrink-0 text-zinc-400 light:text-zinc-600">{t("Editori", $language)}</dt>
           <dd class="min-w-0 flex-1 text-zinc-100 light:text-zinc-900">
             {details.publishers.join(", ")}
           </dd>

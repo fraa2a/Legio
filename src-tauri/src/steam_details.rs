@@ -334,7 +334,12 @@ fn now() -> Result<i64, DetailsError> {
         })
 }
 
-fn store(database: &Database, details: &SteamDetails, fetched_at: i64) -> Result<(), DetailsError> {
+fn store_localized(
+    database: &Database,
+    details: &SteamDetails,
+    fetched_at: i64,
+    language: crate::locale::LanguagePreference,
+) -> Result<(), DetailsError> {
     let json = serde_json::to_string(details)
         .map_err(|error| DetailsError::new(DetailsErrorKind::Internal, error.to_string()))?;
     if json.len() > MAX_DETAILS_BYTES {
@@ -345,23 +350,24 @@ fn store(database: &Database, details: &SteamDetails, fetched_at: i64) -> Result
     }
     database.with_connection(|connection| {
         let transaction = connection.unchecked_transaction().map_err(database_error)?;
-        transaction.execute("INSERT INTO steam_details_cache (steam_app_id, details, fetched_at) VALUES (?1, ?2, ?3) ON CONFLICT (steam_app_id) DO UPDATE SET details = excluded.details, fetched_at = excluded.fetched_at", params![details.steam_app_id, json, fetched_at]).map_err(database_error)?;
-        transaction.execute("DELETE FROM steam_details_cache WHERE steam_app_id IN (SELECT steam_app_id FROM steam_details_cache WHERE steam_app_id != ?1 ORDER BY fetched_at DESC, steam_app_id LIMIT -1 OFFSET ?2)", params![details.steam_app_id, CACHE_LIMIT - 1]).map_err(database_error)?;
+        transaction.execute("INSERT INTO steam_details_cache (steam_app_id, details, fetched_at, language) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (steam_app_id, language) DO UPDATE SET details = excluded.details, fetched_at = excluded.fetched_at", params![details.steam_app_id, json, fetched_at, language.code()]).map_err(database_error)?;
+        transaction.execute("DELETE FROM steam_details_cache WHERE language = ?3 AND steam_app_id IN (SELECT steam_app_id FROM steam_details_cache WHERE language = ?3 AND steam_app_id != ?1 ORDER BY fetched_at DESC, steam_app_id LIMIT -1 OFFSET ?2)", params![details.steam_app_id, CACHE_LIMIT - 1, language.code()]).map_err(database_error)?;
         transaction.commit().map_err(database_error)
     }).map_err(DetailsError::database)
 }
 
-fn cached(
+fn cached_localized(
     database: &Database,
     app_id: u32,
     current_time: i64,
+    language: crate::locale::LanguagePreference,
 ) -> Result<DetailsResult, DetailsError> {
     let row: Option<(String, i64)> = database
         .with_connection(|connection| {
             connection
                 .query_row(
-                    "SELECT details, fetched_at FROM steam_details_cache WHERE steam_app_id = ?1",
-                    [app_id],
+                    "SELECT details, fetched_at FROM steam_details_cache WHERE steam_app_id = ?1 AND language = ?2",
+                    params![app_id, language.code()],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .optional()
@@ -409,12 +415,50 @@ fn cached(
     }
 }
 
+#[cfg(test)]
+fn store(database: &Database, details: &SteamDetails, fetched_at: i64) -> Result<(), DetailsError> {
+    store_localized(
+        database,
+        details,
+        fetched_at,
+        crate::locale::LanguagePreference::English,
+    )
+}
+
+#[cfg(test)]
+fn cached(
+    database: &Database,
+    app_id: u32,
+    current_time: i64,
+) -> Result<DetailsResult, DetailsError> {
+    cached_localized(
+        database,
+        app_id,
+        current_time,
+        crate::locale::LanguagePreference::English,
+    )
+}
+
 pub(crate) fn cached_details(
     database: &Database,
     app_id: u32,
 ) -> Result<Option<SteamDetails>, DetailsError> {
     validate_app_id(app_id)?;
-    Ok(cached(database, app_id, now()?)?.details)
+    let language = database
+        .settings()
+        .map_err(DetailsError::database)?
+        .language;
+    let time = now()?;
+    let details = cached_localized(database, app_id, time, language)?.details;
+    if details.is_some() {
+        return Ok(details);
+    }
+    let alternate = if language.resolve() == crate::locale::LanguagePreference::Italian {
+        crate::locale::LanguagePreference::English
+    } else {
+        crate::locale::LanguagePreference::Italian
+    };
+    Ok(cached_localized(database, app_id, time, alternate)?.details)
 }
 
 fn needs_fetch(previous: &DetailsResult, refresh: bool) -> bool {
@@ -431,11 +475,12 @@ where
         .map_err(|error| DetailsError::new(DetailsErrorKind::Internal, error.to_string()))?
 }
 
-pub async fn get_details<R: Runtime>(
+pub async fn get_details_localized<R: Runtime>(
     app: tauri::AppHandle<R>,
     network: &NetworkState,
     app_id: u32,
     refresh: bool,
+    language: crate::locale::LanguagePreference,
 ) -> Result<DetailsResult, DetailsError> {
     validate_app_id(app_id)?;
     let (database, time) = blocking({
@@ -449,13 +494,13 @@ pub async fn get_details<R: Runtime>(
     .await?;
     let previous = blocking({
         let database = database.clone();
-        move || cached(&database, app_id, time)
+        move || cached_localized(&database, app_id, time, language)
     })
     .await?;
     if !needs_fetch(&previous, refresh) {
         return Ok(previous);
     }
-    let bytes = match network.steam_details(app_id).await {
+    let bytes = match network.steam_details(app_id, language).await {
         Ok(bytes) => bytes,
         // Stale metadata is preferable to an empty panel during an implicit
         // refresh. An explicit refresh still reports its failure.
@@ -464,7 +509,7 @@ pub async fn get_details<R: Runtime>(
     };
     let details = blocking(move || {
         let details = decode(&bytes, app_id)?;
-        store(&database, &details, time)?;
+        store_localized(&database, &details, time, language)?;
         Ok::<_, DetailsError>(details)
     })
     .await?;
@@ -473,6 +518,23 @@ pub async fn get_details<R: Runtime>(
         cached_at: Some(time),
         stale: false,
     })
+}
+
+#[cfg(test)]
+pub async fn get_details<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    network: &NetworkState,
+    app_id: u32,
+    refresh: bool,
+) -> Result<DetailsResult, DetailsError> {
+    get_details_localized(
+        app,
+        network,
+        app_id,
+        refresh,
+        crate::locale::LanguagePreference::English,
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -505,6 +567,57 @@ mod tests {
             .manage(DatabaseState::new(Ok(directory.to_path_buf())))
             .build(context)
             .unwrap()
+    }
+
+    #[test]
+    fn keeps_language_caches_independent() {
+        let root =
+            std::env::temp_dir().join(format!("legio-localized-details-{}", uuid::Uuid::new_v4()));
+        let database = Database::open(&root).unwrap();
+        let mut details = decode(br#"{"400":{"success":true,"data":{"steam_appid":400,"name":"English","type":"game"}}}"#, 400).unwrap();
+        store_localized(
+            &database,
+            &details,
+            100,
+            crate::locale::LanguagePreference::English,
+        )
+        .unwrap();
+        details.name = "Italian".to_owned();
+        store_localized(
+            &database,
+            &details,
+            200,
+            crate::locale::LanguagePreference::Italian,
+        )
+        .unwrap();
+        assert_eq!(
+            cached_localized(
+                &database,
+                400,
+                201,
+                crate::locale::LanguagePreference::English
+            )
+            .unwrap()
+            .details
+            .unwrap()
+            .name,
+            "English"
+        );
+        assert_eq!(
+            cached_localized(
+                &database,
+                400,
+                201,
+                crate::locale::LanguagePreference::Italian
+            )
+            .unwrap()
+            .details
+            .unwrap()
+            .name,
+            "Italian"
+        );
+        drop(database);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -745,7 +858,7 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute(
-                        "INSERT INTO steam_details_cache VALUES (400, 'broken json', 100)",
+                        "INSERT INTO steam_details_cache (steam_app_id, details, fetched_at) VALUES (400, 'broken json', 100)",
                         [],
                     )
                     .map_err(database_error)?;

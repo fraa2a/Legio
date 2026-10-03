@@ -457,6 +457,7 @@ mod tests {
 
     fn manual_game() -> Game {
         Game {
+            installation_root: None,
             id: "00000000-0000-0000-0000-000000000001".to_owned(),
             steam_app_id: None,
             automatic_name: None,

@@ -1,3 +1,4 @@
+import { language } from "../i18n";
 import { get, writable } from "svelte/store";
 import {
   getSteamDetails,
@@ -25,7 +26,14 @@ const idle: SteamDetailsState = {
 
 export const steamDetails = writable<Record<number, SteamDetailsState>>({});
 
+const generations = new Map<number, number>();
 const inflight = new Map<number, Promise<SteamDetailsResult>>();
+
+language.subscribe(() => {
+  for (const [id, generation] of generations) generations.set(id, generation + 1);
+  inflight.clear();
+  steamDetails.set({});
+});
 
 function patch(steamAppId: number, values: Partial<SteamDetailsState>): void {
   steamDetails.update((all) => ({ ...all, [steamAppId]: { ...(all[steamAppId] ?? idle), ...values } }));
@@ -39,11 +47,13 @@ export function loadSteamDetails(
     const pending = inflight.get(steamAppId);
     if (pending !== undefined) return pending;
   }
+  const generation = (generations.get(steamAppId) ?? 0) + 1;
+  generations.set(steamAppId, generation);
   const request = (async () => {
     patch(steamAppId, { status: "loading", error: null });
     try {
       const result = await getSteamDetails(steamAppId, refresh);
-      patch(steamAppId, {
+      if (generations.get(steamAppId) === generation) patch(steamAppId, {
         status: result.details === null ? "empty" : "ready",
         details: result.details,
         cachedAt: result.cachedAt,
@@ -52,13 +62,16 @@ export function loadSteamDetails(
       });
       return result;
     } catch (error) {
-      patch(steamAppId, { status: "error", error: toMessage(error) });
+      if (generations.get(steamAppId) === generation) {
+        const previous = get(steamDetails)[steamAppId];
+        patch(steamAppId, { status: previous?.details ? "ready" : "error", stale: true, error: toMessage(error) });
+      }
       throw error;
     } finally {
-      inflight.delete(steamAppId);
+      if (generations.get(steamAppId) === generation) inflight.delete(steamAppId);
     }
   })();
-  if (!refresh) inflight.set(steamAppId, request);
+  inflight.set(steamAppId, request);
   return request;
 }
 

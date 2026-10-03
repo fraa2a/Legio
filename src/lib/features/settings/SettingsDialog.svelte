@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import Dialog from "../../components/ui/Dialog.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import DownloadSettings from "./DownloadSettings.svelte";
@@ -9,13 +10,13 @@
 
   let { onClose }: { onClose: () => void } = $props();
 
-  const categories = [
-    { id: "general", label: "Generali" },
-    { id: "appearance", label: "Aspetto" },
-    { id: "network", label: "Rete" },
+  const categories = $derived([
+    { id: "general", label: t("Generali", $language) },
+    { id: "appearance", label: t("Aspetto", $language) },
+    { id: "network", label: t("Rete", $language) },
     { id: "downloads", label: "Download" },
-    { id: "compatibility", label: "Compatibilità" },
-  ] as const;
+    { id: "compatibility", label: t("Compatibilità", $language) },
+  ] as const);
 
   type Category = (typeof categories)[number]["id"];
 
@@ -28,11 +29,11 @@
   }
 </script>
 
-<Dialog open title="Impostazioni" size="wide" flush {onClose}>
+<Dialog open title={t("Impostazioni", $language)} size="wide" flush {onClose}>
   {#snippet actions()}
     <button
       type="button"
-      aria-label="Chiudi le impostazioni"
+      aria-label={t("Chiudi le impostazioni", $language)}
       class="rounded-lg p-1.5 text-zinc-400 transition-colors duration-200 hover:bg-white/10 hover:text-zinc-100 light:text-zinc-500 light:hover:bg-zinc-900/10 light:hover:text-zinc-900"
       onclick={onClose}
     >
@@ -43,7 +44,7 @@
   <div class="flex min-h-0 flex-1">
     <nav
       class="flex w-52 shrink-0 flex-col gap-1 overflow-y-auto border-r border-white/15 p-2 light:border-zinc-900/15"
-      aria-label="Categorie delle impostazioni"
+      aria-label={t("Categorie delle impostazioni", $language)}
     >
       {#each categories as category (category.id)}
         <button

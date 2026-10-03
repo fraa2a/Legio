@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 
 export interface DownloadJob {
@@ -11,7 +12,7 @@ export interface DownloadJob {
   downloadedBytes: number;
   speedBps: number;
   etaSeconds: number | null;
-  status: string;
+  status: DownloadStatus;
   error: string | null;
   updatedAt: number;
 }
@@ -33,7 +34,9 @@ export interface StagedExecutableScan {
   selectedRelativePath: string | null;
 }
 
-const statusLabels: Record<string, string> = {
+export type DownloadStatus = "queued" | "downloading" | "waiting" | "paused" | "failed" | "downloaded" | "staging" | "staged" | "finalizing" | "installed" | "cancelled";
+
+const statusLabels: Record<DownloadStatus, string> = {
   queued: "in coda",
   downloading: "download in corso",
   waiting: "in attesa",
@@ -48,7 +51,7 @@ const statusLabels: Record<string, string> = {
 };
 
 export function describeDownloadStatus(status: string): string {
-  return statusLabels[status] ?? status;
+  return t(statusLabels[status as DownloadStatus] ?? status);
 }
 
 export function isActiveDownloadStatus(status: string): boolean {

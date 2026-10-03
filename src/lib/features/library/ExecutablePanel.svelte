@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import { untrack } from "svelte";
   import type { Game } from "../../services/local-state";
   import { pickExecutableFile } from "../../services/dialog";
@@ -38,13 +39,13 @@
   }
 </script>
 
-<Panel title="Eseguibile">
+<Panel title={t("Eseguibile", $language)}>
   {#if actionError !== null}
     <ErrorBanner message={actionError} />
   {/if}
-  <TextField id="game-executable" label="Percorso eseguibile (.exe)" value={executablePath} disabled={pending} placeholder="Seleziona o inserisci un file .exe" oninput={(value) => (executablePath = value)} />
+  <TextField id="game-executable" label={t("Percorso eseguibile (.exe)", $language)} value={executablePath} disabled={pending} placeholder={t("Seleziona o inserisci un file .exe", $language)} oninput={(value) => (executablePath = value)} />
   <div class="flex flex-wrap gap-2">
-    <Button label="Scegli eseguibile..." variant="secondary" disabled={pending} onClick={() => void browse()} />
-    <Button label={pending ? "Salvataggio..." : "Salva eseguibile"} disabled={pending || executablePath.trim().length === 0 || executablePath.trim() === game.executablePath} onClick={() => void save()} />
+    <Button label={t("Scegli eseguibile...", $language)} variant="secondary" disabled={pending} onClick={() => void browse()} />
+    <Button label={pending ? t("Salvataggio...", $language) : t("Salva eseguibile", $language)} disabled={pending || executablePath.trim().length === 0 || executablePath.trim() === game.executablePath} onClick={() => void save()} />
   </div>
 </Panel>

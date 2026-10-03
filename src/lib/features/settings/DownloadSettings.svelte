@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
@@ -31,8 +32,8 @@
 
   const limitDescription = $derived(
     $bandwidthLimit.data === 0
-      ? "Nessun limite di banda: i download usano tutta la connessione disponibile."
-      : `Limite attuale: ${savedMegabytes} MB/s`,
+      ? t("Nessun limite di banda: i download usano tutta la connessione disponibile.", $language)
+      : t("Limite attuale: {0} MB/s", $language, [savedMegabytes]),
   );
 
   async function applyLimit(): Promise<void> {
@@ -54,7 +55,7 @@
 <section class="flex flex-col gap-4">
   {#if $bandwidthLimit.status === "error"}
     <ErrorBanner
-      message={`Impossibile leggere il limite di banda: ${$bandwidthLimit.error}`}
+      message={t("Impossibile leggere il limite di banda: {0}", $language, [$bandwidthLimit.error])}
       onRetry={() => void bandwidthLimit.load()}
     />
   {:else}
@@ -62,22 +63,22 @@
       <ErrorBanner message={$bandwidthLimitError} />
     {/if}
 
-    <SettingsGroup title="Velocità di download" description={limitDescription}>
+    <SettingsGroup title={t("Velocità di download", $language)} description={limitDescription}>
       <div class="flex flex-wrap items-end gap-3">
         <div class="w-56">
           <TextField
             id="download-bandwidth-limit"
-            label="Limite di banda (MB/s)"
+            label={t("Limite di banda (MB/s)", $language)}
             type="number"
             inputmode="numeric"
             value={draftMegabytes}
             placeholder="0"
-            hint="0 significa senza limite. Il limite viene applicato subito e riportato al prossimo avvio."
+            hint={t("0 significa senza limite. Il limite viene applicato subito e riportato al prossimo avvio.", $language)}
             disabled={savingLimit}
             oninput={(value) => (limitDraft = value)}
           />
         </div>
-        <Button label="Applica" disabled={!draftChanged || savingLimit} onClick={() => void applyLimit()} />
+        <Button label={t("Applica", $language)} disabled={!draftChanged || savingLimit} onClick={() => void applyLimit()} />
       </div>
     </SettingsGroup>
 
@@ -85,9 +86,9 @@
       <ErrorBanner message={$installedFolderError} />
     {/if}
 
-    <SettingsGroup title="Cartella dei giochi installati">
-      <SettingsRow label="Posizione dei giochi installati dallo store">
-        <Button label="Sfoglia" variant="secondary" disabled={openingFolder} onClick={() => void browseFolder()} />
+    <SettingsGroup title={t("Cartella dei giochi installati", $language)}>
+      <SettingsRow label={t("Posizione dei giochi installati dallo store", $language)}>
+        <Button label={t("Sfoglia", $language)} variant="secondary" disabled={openingFolder} onClick={() => void browseFolder()} />
       </SettingsRow>
     </SettingsGroup>
   {/if}

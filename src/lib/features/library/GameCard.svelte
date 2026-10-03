@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import type { Game } from "../../services/local-state";
   import type { GameLaunchState } from "../../services/steam-accounts";
   import type { SteamAssetKind } from "../../services/steam-details";
@@ -34,7 +35,7 @@
   const lastPlayedLabel = $derived(
     lastPlayedAt === null
       ? null
-      : new Date(lastPlayedAt).toLocaleDateString("it-IT", { day: "numeric", month: "short" }),
+      : new Date(lastPlayedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" }),
   );
 
   const playtimeLabel = $derived.by(() => {
@@ -48,25 +49,25 @@
   <button
     type="button"
     class="flex flex-1 flex-col text-left focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-white"
-    aria-label="Dettagli di {game.name}"
+    aria-label="{t("Dettagli di ", $language)}{game.name}"
     onclick={onOpen}
   >
     <div class="absolute inset-x-2 top-2 flex items-center gap-1.5">
       {#if lastPlayedLabel !== null}
         <span
           class="rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium text-zinc-100 light:bg-zinc-100/70 light:text-zinc-900"
-          title="Ultima partita: {lastPlayedLabel}"
+          title="{t("Ultima partita: ", $language)}{lastPlayedLabel}"
         >
           {lastPlayedLabel}
         </span>
       {/if}
       <div class="ml-auto flex items-center gap-1.5">
         {#if status !== "idle"}
-          <Badge tone={status === "running" ? "success" : "warning"} title={status === "running" ? "In esecuzione" : "Avvio in corso"} />
+          <Badge tone={status === "running" ? "success" : "warning"} title={status === "running" ? t("In esecuzione", $language) : t("Avvio in corso", $language)} />
         {/if}
         <span
           class="flex items-center gap-1 rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-100 light:bg-zinc-100/70 light:text-zinc-900"
-          title="{playtimeLabel} giocati"
+          title="{playtimeLabel}{t(" giocati", $language)}"
         >
           <Icon name="clock" size="h-3.5 w-3.5" />
           {playtimeLabel}

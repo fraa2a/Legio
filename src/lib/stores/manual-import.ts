@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { get, writable } from "svelte/store";
 import { pickExecutableFile, pickGameDirectory } from "../services/dialog";
 import {
@@ -109,7 +110,7 @@ export async function rescanCurrentDirectory(): Promise<void> {
 function selectedExecutable(): string {
   const selected = get(manualImport).selectedPath;
   if (selected === null) {
-    throw new Error("Seleziona un eseguibile dalla scansione.");
+    throw new Error(t("Seleziona un eseguibile dalla scansione.", undefined));
   }
   return selected;
 }

@@ -8,16 +8,16 @@ export function formatBytes(value: number): string {
     size /= 1024;
     unit += 1;
   }
-  return `${size.toFixed(1)} ${byteUnits[unit]}`;
+  return `${size.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ${byteUnits[unit]}`;
 }
 
 export function formatDate(value: string): string {
-  return new Date(value).toLocaleDateString("it-IT");
+  return new Date(value).toLocaleDateString(undefined);
 }
 
 // The backend reports cache freshness as epoch seconds.
 export function formatDateTime(epochSeconds: number): string {
-  return new Date(epochSeconds * 1000).toLocaleString("it-IT", {
+  return new Date(epochSeconds * 1000).toLocaleString(undefined, {
     dateStyle: "short",
     timeStyle: "short",
   });

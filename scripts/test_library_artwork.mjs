@@ -1,0 +1,121 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { test } from "node:test";
+import { compile } from "svelte/compiler";
+import ts from "typescript";
+import { JSDOM } from "jsdom";
+
+const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBeVisual: true });
+for (const key of ["window", "document", "navigator", "Node", "Text", "Comment", "Element", "HTMLElement", "Event", "CustomEvent", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"]) {
+  const value = dom.window[key];
+  Object.defineProperty(globalThis, key, { configurable: true, value: typeof value === "function" && key.endsWith("AnimationFrame") ? value.bind(dom.window) : value });
+}
+const { mount, unmount, flushSync } = await import("svelte");
+const dataModule = (code) => `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`;
+const mocks = {
+  "@tauri-apps/api/core": dataModule("export const invoke = (...args) => globalThis.artworkInvoke(...args);"),
+  "src/lib/i18n": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const language = writable("en"); export const t = value => value;`),
+  "src/lib/utils/motion": dataModule("export const fadeDuration = 0;"),
+};
+const modules = new Map();
+async function moduleUrl(path) {
+  if (mocks[path]) return mocks[path];
+  if (modules.has(path)) return modules.get(path);
+  const loading = (async () => {
+    const source = await readFile(new URL(`../${path}`, import.meta.url), "utf8");
+    const code = path.endsWith(".svelte")
+      ? compile(source, { filename: path, generate: "client" }).js.code
+      : ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+    return dataModule(await resolveImports(code, path));
+  })();
+  modules.set(path, loading);
+  return loading;
+}
+async function resolveImports(code, path) {
+  for (const match of [...code.matchAll(/(?:from|import)\s*["']([^"']+)["']/g)]) {
+    const specifier = match[1];
+    let url;
+    if (specifier.startsWith(".")) {
+      const resolved = new URL(specifier, `file:///${path}`).pathname.slice(1);
+      url = await moduleUrl(resolved.endsWith(".svelte") ? resolved : resolved + (mocks[resolved] ? "" : ".ts"));
+    } else {
+      url = mocks[specifier] ?? import.meta.resolve(specifier);
+    }
+    code = code.replaceAll(`"${specifier}"`, JSON.stringify(url)).replaceAll(`'${specifier}'`, JSON.stringify(url));
+  }
+  return code;
+}
+const requests = [];
+let detailsResolve;
+globalThis.artworkInvoke = (command, args) => {
+  requests.push([command, args]);
+  if (command === "get_steam_details") return new Promise((resolve) => { detailsResolve = resolve; });
+  assert.equal(command, "get_steam_asset");
+  return Promise.resolve({ bytes: [1], contentType: "image/png", stale: false, cacheWarning: null });
+};
+const settle = async () => {
+  for (let i = 0; i < 8; i++) { await new Promise((resolve) => setImmediate(resolve)); flushSync(); }
+};
+
+// Each App ID starts with empty details and image caches.
+test("visible library cover loads while details are pending and remains after an empty response", async () => {
+  requests.length = 0;
+  let intersect;
+  globalThis.IntersectionObserver = class {
+    constructor(callback) { intersect = callback; }
+    observe() {}
+    disconnect() {}
+  };
+  const source = `<script>import ArtworkTile from "./src/lib/components/ui/ArtworkTile.svelte";</script><ul><ArtworkTile steamAppId={400} monogram="P">Portal</ArtworkTile></ul>`;
+  const url = dataModule(await resolveImports(compile(source, { generate: "client" }).js.code, "fixture.svelte"));
+  const target = document.createElement("div");
+  document.body.append(target);
+  const component = mount((await import(url)).default, { target });
+  try {
+    await settle();
+    assert.equal(requests.length, 0, "offscreen covers must remain lazy");
+    intersect([{ isIntersecting: true }]);
+    await settle();
+    assert.ok(requests.some(([command]) => command === "get_steam_details"));
+    assert.ok(requests.some(([command, args]) => command === "get_steam_asset" && args.steamAppId === 400 && args.asset === "hero_blur"));
+    assert.match(target.querySelector("img")?.src ?? "", /^blob:/);
+    detailsResolve({ details: null, cachedAt: null, stale: false });
+    await settle();
+    assert.match(target.querySelector("img")?.src ?? "", /^blob:/);
+  } finally {
+    await unmount(component);
+    target.remove();
+    delete globalThis.IntersectionObserver;
+  }
+});
+
+test("standalone game logo loads without opening game details", async () => {
+  requests.length = 0;
+  const { default: GameLogo } = await import(await moduleUrl("src/lib/features/library/GameLogo.svelte"));
+  const target = document.createElement("div");
+  document.body.append(target);
+  const component = mount(GameLogo, { target, props: { game: { id: "portal", name: "Portal", steamAppId: 401 } } });
+  try {
+    await settle();
+    assert.ok(requests.some(([command, args]) => command === "get_steam_asset" && args.steamAppId === 401 && args.asset === "logo"));
+    assert.match(target.querySelector("img")?.src ?? "", /^blob:/);
+    assert.equal(requests.filter(([command]) => command === "get_steam_details").length, 0);
+  } finally {
+    await unmount(component);
+    target.remove();
+  }
+});
+
+test("manual game keeps its name without requesting Steam artwork", async () => {
+  requests.length = 0;
+  const { default: GameLogo } = await import(await moduleUrl("src/lib/features/library/GameLogo.svelte"));
+  const target = document.createElement("div");
+  const component = mount(GameLogo, { target, props: { game: { id: "manual", name: "Manual game", steamAppId: null } } });
+  try {
+    await settle();
+    assert.equal(target.textContent, "Manual game");
+    assert.equal(requests.length, 0);
+  } finally {
+    await unmount(component);
+  }
+});

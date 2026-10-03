@@ -1,11 +1,12 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import type { LoadStatus } from "../../stores/resource";
   import ErrorBanner from "./ErrorBanner.svelte";
 
   let {
     status,
     hasData = false,
-    loadingMessage = "Caricamento...",
+    loadingMessage = t("Caricamento...", $language),
     emptyMessage,
     error,
     onRetry,

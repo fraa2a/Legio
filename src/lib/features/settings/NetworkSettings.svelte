@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import { onMount } from "svelte";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
@@ -30,7 +31,7 @@
   const statusDotClass = $derived(
     $networkSummary.status === "Online"
       ? "bg-emerald-400"
-      : $networkSummary.status === "Non verificato"
+      : $networkSummary.status === t("Non verificato", $language)
         ? "bg-zinc-400"
         : "bg-red-400",
   );
@@ -42,31 +43,31 @@
   {/if}
 
   <SettingsGroup
-    title="Connessione"
-    description="Stato della connessione e raggiungibilità dei server usati dallo store."
+    title={t("Connessione", $language)}
+    description={t("Stato della connessione e raggiungibilità dei server usati dallo store.", $language)}
   >
-    <SettingsRow label="Connessione">
+    <SettingsRow label={t("Connessione", $language)}>
       <span class="flex items-center gap-2 text-sm text-zinc-300 light:text-zinc-700">
         <span class="size-2 rounded-full {statusDotClass}" aria-hidden="true"></span>
         {$networkSummary.status}
       </span>
     </SettingsRow>
-    <SettingsRow label="Server Steam">
+    <SettingsRow label={t("Server Steam", $language)}>
       <span class="text-sm text-zinc-300 light:text-zinc-700">{$networkSummary.steam}</span>
     </SettingsRow>
     {#if $networkSummary.detail}
-      <SettingsRow label="Dettaglio">
+      <SettingsRow label={t("Dettaglio", $language)}>
         <span class="max-w-72 text-right text-sm text-zinc-400 light:text-zinc-600">{$networkSummary.detail}</span>
       </SettingsRow>
     {/if}
     <div>
-      <Button label="Verifica connettività" variant="secondary" onClick={() => void checkConnectivity()} />
+      <Button label={t("Verifica connettività", $language)} variant="secondary" onClick={() => void checkConnectivity()} />
     </div>
   </SettingsGroup>
 
   <SettingsGroup
-    title="Diagnostica di rete"
-    description="Ultimo errore registrato e stato della coda diagnostica locale."
+    title={t("Diagnostica di rete", $language)}
+    description={t("Ultimo errore registrato e stato della coda diagnostica locale.", $language)}
   >
     {#if diagnosticsError !== null}
       <ErrorBanner message={diagnosticsError} onRetry={() => void refreshDiagnostics()} />
@@ -74,22 +75,22 @@
       {#if diagnostics.lastError}
         <ErrorBanner message={diagnostics.lastError} />
       {:else}
-        <p class="text-sm text-emerald-300 light:text-emerald-700">Nessun errore di rete registrato.</p>
+        <p class="text-sm text-emerald-300 light:text-emerald-700">{t("Nessun errore di rete registrato.", $language)}</p>
       {/if}
-      <SettingsRow label="Record in attesa">
+      <SettingsRow label={t("Record in attesa", $language)}>
         <span class="text-sm text-zinc-300 light:text-zinc-700">{diagnostics.pendingRecords}</span>
       </SettingsRow>
-      <SettingsRow label="Record scartati">
+      <SettingsRow label={t("Record scartati", $language)}>
         <span class="text-sm text-zinc-300 light:text-zinc-700">{diagnostics.droppedRecords}</span>
       </SettingsRow>
       {#if diagnostics.directory}
-        <SettingsRow label="Cartella diagnostica">
+        <SettingsRow label={t("Cartella diagnostica", $language)}>
           <span class="max-w-72 break-all text-right text-xs text-zinc-400 light:text-zinc-600">{diagnostics.directory}</span>
         </SettingsRow>
       {/if}
       <div>
         <Button
-          label={loadingDiagnostics ? "Aggiornamento..." : "Aggiorna diagnostica"}
+          label={loadingDiagnostics ? t("Aggiornamento...", $language) : t("Aggiorna diagnostica", $language)}
           variant="secondary"
           disabled={loadingDiagnostics}
           onClick={() => void refreshDiagnostics()}
