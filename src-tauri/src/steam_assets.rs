@@ -49,7 +49,7 @@ impl AssetKind {
             Self::LibraryHeader if full => "library_header_2x.jpg",
             Self::LibraryHeader => "library_header.jpg",
             Self::HeroBlur => "library_hero_blur.jpg",
-            Self::ClientIcon => "clienticon.jpg",
+            Self::ClientIcon => "clienticon.ico",
             Self::Header | Self::Capsule | Self::Screenshot => return None,
         })
     }
@@ -145,7 +145,7 @@ impl AssetCacheState {
             return Ok(None);
         }
         let bytes = raw[split + 1..].to_vec();
-        let format = ImageFormat::from_bytes(&bytes)
+        let format = ImageFormat::from_steam_bytes(&bytes)
             .ok_or_else(|| "A cached image has invalid content.".to_owned())?;
         if format.content_type() != header.content_type {
             return Err("A cached image has mismatched content type.".to_owned());
@@ -312,7 +312,7 @@ async fn load_asset(
         .await
         .map_err(|error| format!("Steam image request failed: {error:?}"))
         .and_then(|bytes| {
-            ImageFormat::from_bytes(&bytes)
+            ImageFormat::from_steam_bytes(&bytes)
                 .map(|format| (bytes, format.content_type()))
                 .ok_or_else(|| "Steam returned unsupported image content.".to_owned())
         });
@@ -370,7 +370,7 @@ fn library_url(
             .or_else(|| assets.url(app_id, portrait))
     }) {
         Ok(url)
-    } else if filename == "clienticon.jpg" {
+    } else if filename == "clienticon.ico" {
         Err("Steam did not provide a client icon for this App ID.".to_owned())
     } else {
         Ok(format!(
@@ -566,7 +566,7 @@ mod tests {
             library_url(400, AssetKind::Logo.library_filename(true).unwrap(), None).unwrap(),
             "https://cdn.cloudflare.steamstatic.com/steam/apps/400/logo_2x.png"
         );
-        assert!(library_url(400, "clienticon.jpg", None).is_err());
+        assert!(library_url(400, "clienticon.ico", None).is_err());
     }
 
     #[test]

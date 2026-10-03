@@ -60,6 +60,26 @@
     >
       {game.name}
     </span>
+
+    {#if visible && game.steamAppId !== null}
+      <span
+        class="pointer-events-none absolute inset-0 overflow-hidden transition-opacity duration-300 ease-out {expanded
+          ? 'opacity-0'
+          : 'opacity-100'}"
+        aria-hidden="true"
+      >
+        <span class="absolute inset-0 transition-transform duration-200 ease-out group-hover:scale-105">
+          <SteamArtwork
+            steamAppId={game.steamAppId}
+            asset="client_icon"
+            caption={false}
+            class="size-full object-cover"
+          >
+            {#snippet placeholder()}{/snippet}
+          </SteamArtwork>
+        </span>
+      </span>
+    {/if}
   </button>
 </li>
 
