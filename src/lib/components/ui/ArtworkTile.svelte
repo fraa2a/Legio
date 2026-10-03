@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { peekSteamImage } from "../../services/steam-details";
+  import { peekSteamImage, type SteamAssetKind } from "../../services/steam-details";
   import { ensureSteamDetails, steamDetails } from "../../stores/steam-details";
   import { observeVisibility } from "../../utils/visibility";
   import SteamArtwork from "../../features/library/SteamArtwork.svelte";
@@ -9,19 +9,21 @@
     steamAppId,
     monogram,
     portrait = false,
+    asset: assetOverride = null,
     class: className = "",
     children,
   }: {
     steamAppId: number | null;
     monogram: string;
     portrait?: boolean;
+    asset?: SteamAssetKind | null;
     class?: string;
     children: Snippet;
   } = $props();
 
   const detailsState = $derived(steamAppId === null ? null : ($steamDetails[steamAppId] ?? null));
   const details = $derived(detailsState?.details ?? null);
-  const asset = $derived(portrait ? "library_capsule" : "hero_blur");
+  const asset = $derived(assetOverride ?? (portrait ? "library_capsule" : "hero_blur"));
   const fallbackAsset = $derived(portrait ? null : "header");
   const cachedCover = $derived(steamAppId !== null && peekSteamImage({
     steamAppId,
