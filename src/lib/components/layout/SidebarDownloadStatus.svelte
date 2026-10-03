@@ -57,7 +57,7 @@
     if (canResumeDownload(lead.status)) {
       actions.push({
         icon: "play",
-        label: `Riprendi il download di ${lead.name}`,
+        label: t("Riprendi il download di {0}", $language, [lead.name]),
         title: t("Riprendi", $language),
         trigger: () => void run(resumeJob),
       });
@@ -65,7 +65,7 @@
     if (canPauseDownload(lead.status)) {
       actions.push({
         icon: "pause",
-        label: `Metti in pausa il download di ${lead.name}`,
+        label: t("Metti in pausa il download di {0}", $language, [lead.name]),
         title: t("Pausa", $language),
         trigger: () => void run(pauseJob),
       });
@@ -73,7 +73,7 @@
     if (canCancelDownload(lead.status)) {
       actions.push({
         icon: "stop",
-        label: `Annulla il download di ${lead.name}`,
+        label: t("Annulla il download di {0}", $language, [lead.name]),
         title: t("Annulla", $language),
         trigger: () => (cancelTarget = lead),
       });

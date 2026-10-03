@@ -31,8 +31,8 @@
 
 <div class="flex h-full min-h-0 flex-col gap-2.5 overflow-hidden">
   <StateBlock status={$games.status} hasData={$games.data.length > 0} error={$games.error} onRetry={() => void games.load()} />
-  {#if $playtime.error !== null}<ErrorBanner message={`Tempo di gioco: ${$playtime.error}`} onRetry={() => void playtime.load()} />{/if}
-  {#if $launchStates.error !== null}<ErrorBanner message={`Stato dei giochi: ${$launchStates.error}`} onRetry={() => void launchStates.load()} />{/if}
+  {#if $playtime.error !== null}<ErrorBanner message={t("Tempo di gioco: {0}", $language, [$playtime.error])} onRetry={() => void playtime.load()} />{/if}
+  {#if $launchStates.error !== null}<ErrorBanner message={t("Stato dei giochi: {0}", $language, [$launchStates.error])} onRetry={() => void launchStates.load()} />{/if}
   {#if $launchError !== null}<ErrorBanner message={$launchError} />{/if}
 
   <div class="grid min-h-0 flex-1 gap-2.5 md:grid-cols-[minmax(0,1fr)_18rem]">

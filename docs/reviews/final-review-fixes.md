@@ -33,9 +33,9 @@ Removed unused frontend count exports and unused account-check wrapper. Renamed 
 
 ## Verification
 
-Frontend checks, lint, build, Home tests, asynchronous store/artwork/localization regressions and release-manifest tests run locally. Rust formatting and Clippy cover all targets/features with warnings denied. Transfer recovery tests reopen the database after publication, inject a database commit failure, verify path rollback and exercise repeated recovery. Queue tests cover transactional reorder failure and preservation of installation metadata after history cleanup. Image and streaming redaction tests cover allocation boundaries and cross-read secrets.
+Frontend checks, lint, build, Home tests, five asynchronous store/artwork/localization regressions and release-manifest tests run locally. Rust formatting and Clippy cover all targets/features with warnings denied. Transfer recovery tests reopen the database after publication, inject a database commit failure, verify path rollback and exercise repeated recovery. Queue tests cover transactional reorder failure and preservation of installation metadata after history cleanup. Image and streaming redaction tests cover allocation boundaries and cross-read secrets.
 
-The local focused Rust run passed 278 tests with four intentional ignored tests; process/lifecycle modules are checked separately. Six existing Linux process/lifecycle tests cannot observe child processes correctly in this sandbox's PID namespace. The CI workflow runs the complete unfiltered suite plus Linux/Windows Tauri builds and specific Windows lifecycle/finalization tests. Do not weaken those tests to accommodate the sandbox.
+The local focused Rust run passed 278 tests with four intentional ignored tests; process/lifecycle modules are checked separately. The idle-game gate has a direct regression for launching, running, idle and unrelated games. Six existing Linux process/lifecycle tests cannot observe child processes correctly in this sandbox's PID namespace. The CI workflow runs the complete unfiltered suite plus Linux/Windows Tauri builds and specific Windows lifecycle/finalization tests. Do not weaken those tests to accommodate the sandbox.
 
 ## Deployment configuration and remaining acceptance work
 

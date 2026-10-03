@@ -117,7 +117,7 @@
           {:else if game.executablePath !== null}
             {#key game.id}<GameSettingsPanel {game} section="launch" />{/key}
           {:else}
-            <Panel title="Launch Options">
+            <Panel title={t("Opzioni di avvio", $language)}>
               <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Seleziona prima un eseguibile nella sezione Posizioni.", $language)}</p>
             </Panel>
           {/if}

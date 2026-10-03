@@ -236,7 +236,7 @@
   }
 </script>
 
-<Panel title={section === "locations" ? t("Percorsi del gioco", $language) : section === "launch" ? "Launch Options" : t("Compatibilità", $language)}>
+<Panel title={section === "locations" ? t("Percorsi del gioco", $language) : section === "launch" ? t("Opzioni di avvio", $language) : t("Compatibilità", $language)}>
   {#if loading}
     <p class="text-sm text-zinc-400" role="status">{t("Caricamento delle impostazioni di avvio...", $language)}</p>
   {:else if loadError !== null}
@@ -275,7 +275,7 @@
       </div>
     {/if}
     <div class="flex flex-col gap-2">
-      <h3 class="text-lg font-semibold text-zinc-100 light:text-zinc-900">Proton Version</h3>
+      <h3 class="text-lg font-semibold text-zinc-100 light:text-zinc-900">{t("Versione Proton", $language)}</h3>
       {#if runnerChoices.length === 0}
         <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Nessun runner compatibile installato.", $language)}</p>
       {:else}
@@ -285,7 +285,7 @@
             <label class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-200 transition-colors hover:bg-white/5 has-checked:bg-white/10 light:text-zinc-800 light:hover:bg-zinc-900/5 light:has-checked:bg-zinc-900/10">
               <input type="radio" name="game-compat-runner" value={runner.path} checked={selectedRunnerPath === runner.path} onchange={() => selectRunner(runner.path)} class="size-4 accent-white" />
               <span class="min-w-0 truncate">{runner.name}{runner.kind === "wine" && runner.version ? ` ${runner.version}` : ""}</span>
-              {#if runner.path === (defaults?.runnerPath ?? runners[0]?.path)}<span class="ml-auto shrink-0 text-xs text-zinc-500">Default</span>{/if}
+              {#if runner.path === (defaults?.runnerPath ?? runners[0]?.path)}<span class="ml-auto shrink-0 text-xs text-zinc-500">{t("Predefinito", $language)}</span>{/if}
             </label>
           {/each}
         </fieldset>
@@ -328,12 +328,12 @@
       <div class="flex flex-col gap-2">
         <label class="flex items-center gap-2 text-sm text-zinc-300 light:text-zinc-700">
           <input type="checkbox" class="size-4 accent-white" checked={overrides.argumentsBefore !== null} onchange={(event) => toggleArgumentsBefore(event.currentTarget.checked)} />{t("\n          Prima dell'eseguibile\n        ", $language)}</label>
-        <TextField id="arguments-before" label="Launch Options" value={argumentsBefore} disabled={overrides.argumentsBefore === null} placeholder="-windowed -novid" oninput={(value) => (argumentsBefore = value)} />
+        <TextField id="arguments-before" label={t("Opzioni di avvio", $language)} value={argumentsBefore} disabled={overrides.argumentsBefore === null} placeholder="-windowed -novid" oninput={(value) => (argumentsBefore = value)} />
       </div>
       <div class="flex flex-col gap-2">
         <label class="flex items-center gap-2 text-sm text-zinc-300 light:text-zinc-700">
           <input type="checkbox" class="size-4 accent-white" checked={overrides.argumentsAfter !== null} onchange={(event) => toggleArgumentsAfter(event.currentTarget.checked)} />{t("\n          Dopo l'eseguibile\n        ", $language)}</label>
-        <TextField id="arguments-after" label="Launch Options" value={argumentsAfter} disabled={overrides.argumentsAfter === null} placeholder="-windowed -novid" oninput={(value) => (argumentsAfter = value)} />
+        <TextField id="arguments-after" label={t("Opzioni di avvio", $language)} value={argumentsAfter} disabled={overrides.argumentsAfter === null} placeholder="-windowed -novid" oninput={(value) => (argumentsAfter = value)} />
       </div>
     </div>
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
@@ -341,7 +341,7 @@
     <div><Button label={saving ? t("Salvataggio...", $language) : t("Salva opzioni", $language)} disabled={saving} onClick={() => void saveCompatibility()} /></div>
   {:else if $appInfo.data.platform === "windows" && section === "launch"}
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Aggiungi argomenti di avvio. Racchiudi tra virgolette i valori che contengono spazi.", $language)}</p>
-    <TextField id="native-arguments" label="Launch Options" value={nativeArguments} placeholder="-windowed -novid" oninput={(value) => (nativeArguments = value)} />
+    <TextField id="native-arguments" label={t("Opzioni di avvio", $language)} value={nativeArguments} placeholder="-windowed -novid" oninput={(value) => (nativeArguments = value)} />
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
     {#if saved}<p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Argomenti salvati.", $language)}</p>{/if}
     <div><Button label={saving ? t("Salvataggio...", $language) : t("Salva opzioni", $language)} disabled={saving} onClick={() => void saveNative()} /></div>

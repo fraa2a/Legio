@@ -144,7 +144,7 @@
         const result = await importScannedGame(name, identity);
         if (result.linkingError !== null) {
           added = true;
-          actionError = `Gioco aggiunto. Collegamento Steam non riuscito: ${result.linkingError}`;
+          actionError = t("Gioco aggiunto. Collegamento Steam non riuscito: {0}", $language, [result.linkingError]);
           return;
         }
       } else if (parsedAppId !== null) {

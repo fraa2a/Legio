@@ -55,7 +55,7 @@
     </Button>
   {:else if status === "launching"}
     <Button
-      label={cancelPending ? "ANNULLAMENTO..." : "LAUNCHING..."}
+      label={cancelPending ? t("ANNULLAMENTO...", $language) : t("AVVIO...", $language)}
       variant={actionVariant}
       class={className}
       disabled={cancelPending}
@@ -64,7 +64,7 @@
       <Icon name="close" size="h-6 w-6" />
     </Button>
   {:else}
-    <Button label="STOP" variant={actionVariant} class={className} disabled={actionPending} onClick={() => onStop(game)}>
+    <Button label={t("FERMA", $language)} variant={actionVariant} class={className} disabled={actionPending} onClick={() => onStop(game)}>
       <Icon name="stop" size="h-6 w-6" />
     </Button>
   {/if}

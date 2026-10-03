@@ -1,4 +1,4 @@
-import { t } from "../../i18n";
+import { t, type Language } from "../../i18n";
 import { type DownloadJob } from "../../services/downloads";
 
 const PROCESSING = ["downloading", "downloaded", "staging", "staged", "finalizing"];
@@ -54,24 +54,24 @@ export function statusTone(status: string): StatusTone {
   return "neutral";
 }
 
-export function statusBadge(status: string): string {
+export function statusBadge(status: string, selected?: Language): string {
   const labels: Record<string, string> = {
     queued: "In coda",
     downloading: "Scaricamento",
-    waiting: t("In attesa", undefined),
-    paused: t("In pausa", undefined),
-    failed: t("Errore", undefined),
+    waiting: "In attesa",
+    paused: "In pausa",
+    failed: "Errore",
     downloaded: "Verifica",
-    staging: t("Estrazione", undefined),
+    staging: "Estrazione",
     staged: "Pronto",
-    finalizing: t("Installazione", undefined),
+    finalizing: "Installazione",
     installed: "Completato",
     cancelled: "Annullato",
   };
-  return labels[status] ?? status;
+  return t(labels[status] ?? status, selected);
 }
 
-export function phaseLabel(job: DownloadJob): string | null {
+export function phaseLabel(job: DownloadJob, selected?: Language): string | null {
   if (job.status === "downloading") return `Download ${Math.round(progressOf(job))}%`;
   // Lo stato "in coda" è già descritto dal badge.
   if (job.status === "queued") return null;
@@ -86,7 +86,7 @@ export function phaseLabel(job: DownloadJob): string | null {
     failed: "Download interrotto",
     cancelled: "Download annullato",
   };
-  return labels[job.status] ?? job.status;
+  return t(labels[job.status] ?? job.status, selected);
 }
 
 export function progressOf(job: DownloadJob): number {

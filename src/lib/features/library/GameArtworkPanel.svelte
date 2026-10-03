@@ -66,7 +66,7 @@
         else await setGameBanner(game.id, path);
       });
     } catch (cause) {
-      error = toMessage(cause);
+      if (!destroyed) error = toMessage(cause);
     }
   }
 
@@ -80,10 +80,8 @@
     await runAction(async () => {
       if (kind === "icon") {
         await resetGameIcon(game.id);
-
       } else {
         await resetGameBanner(game.id);
-
       }
     });
   }

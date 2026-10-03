@@ -165,7 +165,7 @@
             {#if job !== null}
               <button type="button" class="relative flex h-[60px] w-[240px] shrink-0 items-center justify-center gap-2 overflow-hidden rounded-xl bg-legio-download px-4 text-xl font-bold text-white hover:bg-legio-download-hover" onclick={() => selectSection("downloads")}>
                 <Icon name="download" size="h-6 w-6" />
-                {job.status === "queued" || job.status === "downloading" ? "DOWNLOADING" : describeDownloadStatus(job.status).toUpperCase()}
+                {job.status === "queued" || job.status === "downloading" ? t("SCARICAMENTO", $language) : describeDownloadStatus(job.status).toUpperCase()}
                 <span class="absolute inset-x-0 bottom-0 h-2 bg-white/30" role="progressbar" aria-label={t("Avanzamento download", $language)} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(downloadProgress)}>
                   <span class="block h-full bg-white" style:width={`${downloadProgress}%`}></span>
                 </span>

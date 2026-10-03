@@ -68,7 +68,7 @@
           <span class="text-xs text-zinc-400 light:text-zinc-500">{t("Versione ", $language)}{entry.release.version} · {formatBytes(entry.download.sizeBytes)}</span>
         {/if}
       </div>
-      <Badge tone={meta.tone} title={meta.label} />
+      <Badge tone={meta.tone} title={t(meta.label, $language)} />
     </div>
   </button>
 </li>

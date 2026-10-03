@@ -63,7 +63,7 @@
       {/if}
       <div class="ml-auto flex items-center gap-1.5">
         {#if status !== "idle"}
-          <Badge tone={status === "running" ? "success" : "warning"} title={status === "running" ? "In esecuzione" : t("Avvio in corso", $language)} />
+          <Badge tone={status === "running" ? "success" : "warning"} title={status === "running" ? t("In esecuzione", $language) : t("Avvio in corso", $language)} />
         {/if}
         <span
           class="flex items-center gap-1 rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-100 light:bg-zinc-100/70 light:text-zinc-900"

@@ -112,3 +112,12 @@ test("language selection preserves regional formatting and interpolates translat
   assert.equal(t("Versione {0}", "it", ["1.2"]), "Versione 1.2");
   assert.equal(t("  Chiudi  ", "en"), "  Close  ");
 });
+
+
+test("download presentation labels follow the selected language", async () => {
+  const { statusBadge, phaseLabel } = await loadModule("../src/lib/features/downloads/downloads-model.ts", { "../../i18n": localeUrl });
+  assert.equal(statusBadge("installed", "en"), "Completed");
+  assert.equal(statusBadge("installed", "it"), "Completato");
+  assert.equal(phaseLabel({ status: "staged" }, "en"), "Ready to install");
+  assert.equal(statusBadge("future", "en"), "future");
+});

@@ -104,7 +104,7 @@
     if (identityResult === null) return null;
     switch (identityResult.status) {
       case "matched":
-        return `App ID Steam rilevato: ${identityResult.game.automaticName} (${identityResult.game.steamAppId}).`;
+        return t("App ID Steam rilevato: {0} ({1}).", $language, [identityResult.game.automaticName, identityResult.game.steamAppId]);
       case "ambiguous":
         return t("Trovate più corrispondenze con lo stesso nome. Scegli quella corretta.", $language);
       case "unavailable":

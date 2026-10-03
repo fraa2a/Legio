@@ -38,7 +38,7 @@
 
   const progress = $derived(progressOf(job));
   const downloading = $derived(job.status === "downloading");
-  const phase = $derived(phaseLabel(job));
+  const phase = $derived(phaseLabel(job, $language));
   const busyPhase = $derived(
     ["downloading", "downloaded", "staging", "finalizing"].includes(job.status),
   );
@@ -71,7 +71,7 @@
             <h2 class="min-w-0 truncate text-xl font-semibold text-zinc-50 light:text-zinc-900">
               {job.name}
             </h2>
-            <Badge tone={statusTone(job.status)} title={statusBadge(job.status)} />
+            <Badge tone={statusTone(job.status)} title={statusBadge(job.status, $language)} />
           </div>
           <p class="mt-1 flex items-center gap-2 text-sm text-zinc-400 light:text-zinc-600">
             {#if busyPhase}

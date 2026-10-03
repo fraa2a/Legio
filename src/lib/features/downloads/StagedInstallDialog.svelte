@@ -82,7 +82,7 @@
               {candidate.relativePath}
             </span>
             <span class="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-              <Badge tone="neutral" title={`Punteggio ${candidate.score}`} />
+              <Badge tone="neutral" title={t("Punteggio {0}", $language, [candidate.score])} />
               {#if candidate.signals.length > 0}
                 <span>{describeSignals(candidate.signals)}</span>
               {/if}

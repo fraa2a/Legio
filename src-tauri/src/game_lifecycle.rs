@@ -1492,6 +1492,25 @@ mod tests {
     use std::io::Write;
     use tauri::Manager;
 
+    #[test]
+    fn installation_changes_require_an_idle_game() {
+        let manager = GameLaunchManager::new();
+        let target = game_process::ProcessTarget::Steam {
+            app_id: 400,
+            install_path: PathBuf::from("game"),
+        };
+        manager.require_idle("game").unwrap();
+        manager
+            .reserve_launch("game", Some(400), target, None)
+            .unwrap();
+        assert!(manager.require_idle("game").is_err());
+        manager.require_idle("other-game").unwrap();
+        manager.set_state("game", GameStatus::Running, None);
+        assert!(manager.require_idle("game").is_err());
+        manager.set_state("game", GameStatus::Idle, None);
+        manager.require_idle("game").unwrap();
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn steam_starts_only_for_launch_via_steam() {

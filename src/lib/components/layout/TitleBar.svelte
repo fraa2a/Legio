@@ -181,13 +181,13 @@
   {/if}
   <div class="col-start-3 flex items-center justify-end">
     <div class="flex h-11 items-center gap-1 rounded-xl bg-zinc-900 p-1 light:bg-zinc-50">
-      <WindowControlButton label="Minimize" onClick={handleMinimize}>
+      <WindowControlButton label={t("Riduci a icona", $language)} onClick={handleMinimize}>
         <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
           <path d="M19,13H5V11H19V13Z" />
         </svg>
       </WindowControlButton>
       {#if showMaximize}
-        <WindowControlButton label={maximized ? "Restore" : "Maximize"} onClick={handleToggleMaximize}>
+        <WindowControlButton label={maximized ? t("Ripristina finestra", $language) : t("Massimizza", $language)} onClick={handleToggleMaximize}>
           {#if maximized}
             <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
               <path d="M4,8H8V4H20V16H16V20H4V8M16,8V14H18V6H10V8H16M6,12V18H14V12H6Z" />
@@ -199,7 +199,7 @@
           {/if}
         </WindowControlButton>
       {/if}
-      <WindowControlButton label="Close" variant="danger" onClick={handleClose}>
+      <WindowControlButton label={t("Chiudi", $language)} variant="danger" onClick={handleClose}>
         <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
           <path d="M13.46,12L19,17.54V19H17.54L12,13.46L6.46,19H5V17.54L10.54,12L5,6.46V5H6.46L12,10.54L17.54,5H19V6.46L13.46,12Z" />
         </svg>

@@ -1,4 +1,3 @@
-import { t } from "../../i18n";
 import type { CatalogGame } from "../../services/catalog";
 import type { SourceEntry, SourceManifest } from "../../services/legio-source";
 
@@ -21,18 +20,18 @@ export const availabilityMeta: Record<
   { label: string; tone: SourceTone; description: string }
 > = {
   verified: {
-    label: t("Verificato", undefined),
+    label: "Verificato",
     tone: "success",
     description: "",
   },
   unverified: {
-    label: t("Non verificato", undefined),
+    label: "Non verificato",
     tone: "warning",
     description:
       "",
   },
   unavailable: {
-    label: t("Non disponibile", undefined),
+    label: "Non disponibile",
     tone: "danger",
     description: "",
   },

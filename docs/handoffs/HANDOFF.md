@@ -4,7 +4,7 @@ Updated: 2026-10-03
 
 ## Final-review fix work
 
-The user requested a PR for the complete launcher final-review report. The branch `fix/final-review` starts at main `c0b1041` and includes the numbered fixes, localization, regression tests and release hardening described in [final-review-fixes.md](../reviews/final-review-fixes.md). Schema v22 and the changed frontend contracts are documented in [backend-contracts.md](../frontend/backend-contracts.md). No version bump, release or merge is part of this request. GitHub CI must verify the complete Linux/Windows suite. The next stable AUR publish requires independently verified `AUR_KNOWN_HOSTS`.
+The user requested a PR for the complete launcher final-review report. [PR #106](https://github.com/fraa2a/Legio/pull/106), branch `fix/final-review`, starts at main `c0b1041` and includes the numbered fixes, localization, regression tests and release hardening described in [final-review-fixes.md](../reviews/final-review-fixes.md). Schema v22 and the changed frontend contracts are documented in [backend-contracts.md](../frontend/backend-contracts.md). No version bump, release or merge is part of this request. GitHub CI must verify the complete Linux/Windows suite. The next stable AUR publish requires independently verified `AUR_KNOWN_HOSTS`.
 
 The following September notes are historical. Their local checkout/PR assumptions must be checked against current GitHub state before new work. The current user request explicitly authorizes fixes to the frontend findings. PR #36 was not touched.
 

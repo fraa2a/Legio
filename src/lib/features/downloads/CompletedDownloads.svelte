@@ -39,7 +39,7 @@
       <div class="min-w-0 flex-1 basis-44">
         <div class="flex flex-wrap items-center gap-2">
           <p class="min-w-0 truncate font-medium text-zinc-50 light:text-zinc-900">{job.name}</p>
-          <Badge tone={statusTone(job.status)} title={statusBadge(job.status)} />
+          <Badge tone={statusTone(job.status)} title={statusBadge(job.status, $language)} />
         </div>
         <p class="mt-0.5 truncate text-xs text-zinc-400 light:text-zinc-600">{t("\n          Versione ", $language)}{job.releaseVersion} · {formatBytes(job.sizeBytes)} · {completedOn(job)}
         </p>
