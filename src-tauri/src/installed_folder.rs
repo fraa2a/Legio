@@ -87,12 +87,12 @@ fn disk_space(path: &Path) -> Result<(u64, u64), String> {
     ))
 }
 
-#[cfg(target_pointer_width = "64")]
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
 fn block_count(value: libc::c_ulong) -> u64 {
     value
 }
 
-#[cfg(not(target_pointer_width = "64"))]
+#[cfg(all(target_os = "linux", not(target_pointer_width = "64")))]
 fn block_count(value: libc::c_ulong) -> u64 {
     u64::from(value)
 }
