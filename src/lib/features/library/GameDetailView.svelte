@@ -154,10 +154,9 @@
   </p>
 {:else}
   <div class="flex min-h-full flex-col gap-4">
-    <section class="relative isolate z-10 w-full min-w-[1024px] rounded-2xl bg-zinc-800 light:bg-zinc-200 {customBannerUrl !== null ? 'aspect-[2.2/1]' : 'aspect-[3.1/1]'}">
-      <div class="absolute inset-0 overflow-hidden rounded-2xl">
+    <section class="relative isolate z-10 w-full min-h-[20rem] min-w-[1024px] overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200">
       {#if customBannerUrl !== null}
-        <img src={customBannerUrl} alt="Banner personalizzato di {name}" class="absolute inset-0 block size-full object-cover object-center" />
+        <img src={customBannerUrl} alt="Banner personalizzato di {name}" class="block h-auto w-full" />
       {:else if steamAppId !== null && (storeGame !== null || details !== null)}
         <SteamArtwork
           {steamAppId}
@@ -165,7 +164,7 @@
           fallbackAsset="header"
           version={detailsState?.cachedAt ?? null}
           caption={false}
-          class="absolute inset-0 block size-full object-cover object-center"
+          class="block h-auto w-full"
         >
           {#snippet placeholder()}{@render backdrop()}{/snippet}
         </SteamArtwork>
@@ -175,7 +174,6 @@
       {#if details !== null && customBannerUrl === null}
         <button type="button" class="absolute inset-0 z-0 cursor-zoom-in" aria-label="Ingrandisci copertina" onclick={() => (artworkOpen = true)}></button>
       {/if}
-      </div>
       <div class="absolute inset-x-0 bottom-0 z-10 flex flex-nowrap items-end justify-between gap-4 pb-5 pl-5 pr-7">
         <div class="flex flex-nowrap items-end gap-2">
           {#if storeGame !== null}
@@ -342,7 +340,7 @@
 
 {#snippet backdrop()}
   <div
-    class="absolute inset-0 bg-gradient-to-br from-zinc-700 to-zinc-900 light:from-zinc-300 light:to-zinc-100"
+    class="min-h-[20rem] bg-gradient-to-br from-zinc-700 to-zinc-900 light:from-zinc-300 light:to-zinc-100"
     aria-hidden="true"
   ></div>
 {/snippet}

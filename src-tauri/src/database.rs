@@ -10,7 +10,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 20;
+const SCHEMA_VERSION: i64 = 21;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1328,6 +1328,25 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             .execute_batch("PRAGMA user_version = 20;")
             .map_err(database_error)?;
     }
+    if version < 21 {
+        let existing: i64 = transaction
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('downloads') WHERE name = 'queue_position'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(database_error)?;
+        if existing == 0 {
+            transaction
+                .execute_batch(
+                    "ALTER TABLE downloads ADD COLUMN queue_position INTEGER NOT NULL DEFAULT 0;",
+                )
+                .map_err(database_error)?;
+        }
+        transaction
+            .execute_batch("PRAGMA user_version = 21;")
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }
 
@@ -1693,7 +1712,7 @@ mod tests {
     fn migrates_v9_staged_download_for_finalization() {
         let connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
-        connection.execute_batch("INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at, staged_path) VALUES ('job', 42, 'Game', '1', 'https://example.test', 'hash', 4, 'staged', 1, 1, '/stage'); ALTER TABLE downloads DROP COLUMN source_verified; ALTER TABLE downloads DROP COLUMN install_token; ALTER TABLE downloads DROP COLUMN executable_relative; ALTER TABLE downloads DROP COLUMN final_path; DROP TABLE game_native_launch_config; DROP TABLE game_sessions; DROP TABLE game_compatibility_overrides; DROP TABLE compatibility_defaults; PRAGMA user_version = 9;").unwrap();
+        connection.execute_batch("INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at, staged_path) VALUES ('job', 42, 'Game', '1', 'https://example.test', 'hash', 4, 'staged', 1, 1, '/stage'); ALTER TABLE downloads DROP COLUMN source_verified; ALTER TABLE downloads DROP COLUMN queue_position; ALTER TABLE downloads DROP COLUMN install_token; ALTER TABLE downloads DROP COLUMN executable_relative; ALTER TABLE downloads DROP COLUMN final_path; DROP TABLE game_native_launch_config; DROP TABLE game_sessions; DROP TABLE game_compatibility_overrides; DROP TABLE compatibility_defaults; PRAGMA user_version = 9;").unwrap();
         migrate(&connection).unwrap();
         let row: (String, String, Option<String>) = connection
             .query_row(
@@ -1703,6 +1722,33 @@ mod tests {
             )
             .unwrap();
         assert_eq!(row, ("staged".to_owned(), "/stage".to_owned(), None));
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn migration_21_adds_queue_position_without_changing_existing_downloads() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at)
+                 VALUES ('job', 42, 'Game', '1', 'https://example.test', 'hash', 4, 'queued', 7, 7);
+                 ALTER TABLE downloads DROP COLUMN queue_position;
+                 PRAGMA user_version = 20;",
+            )
+            .unwrap();
+        migrate(&connection).unwrap();
+        let (created_at, queue_position): (i64, i64) = connection
+            .query_row(
+                "SELECT created_at, queue_position FROM downloads WHERE id = 'job'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((created_at, queue_position), (7, 0));
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
@@ -1839,7 +1885,7 @@ mod tests {
         connection
             .execute_batch(
                 "INSERT INTO games (id, name_override) VALUES ('manual', 'Manual game');
-             ALTER TABLE downloads DROP COLUMN source_verified; ALTER TABLE downloads DROP COLUMN install_token;
+             ALTER TABLE downloads DROP COLUMN source_verified; ALTER TABLE downloads DROP COLUMN queue_position; ALTER TABLE downloads DROP COLUMN install_token;
              ALTER TABLE downloads DROP COLUMN executable_relative;
              ALTER TABLE downloads DROP COLUMN final_path;
              DROP TABLE game_compatibility_overrides;

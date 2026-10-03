@@ -12,6 +12,7 @@ use tauri::Manager;
 use crate::{
     database::DatabaseState,
     image_format::ImageFormat,
+    image_trim::trim_png,
     network::{NetworkState, is_steam_asset_url},
     steam_details::{SteamDetails, cached_details},
 };
@@ -48,7 +49,7 @@ impl AssetKind {
             Self::LibraryHeader if full => "library_header_2x.jpg",
             Self::LibraryHeader => "library_header.jpg",
             Self::HeroBlur => "library_hero_blur.jpg",
-            Self::ClientIcon => "clienticon.jpg",
+            Self::ClientIcon => "clienticon.ico",
             Self::Header | Self::Capsule | Self::Screenshot => return None,
         })
     }
@@ -144,7 +145,7 @@ impl AssetCacheState {
             return Ok(None);
         }
         let bytes = raw[split + 1..].to_vec();
-        let format = ImageFormat::from_bytes(&bytes)
+        let format = ImageFormat::from_steam_bytes(&bytes)
             .ok_or_else(|| "A cached image has invalid content.".to_owned())?;
         if format.content_type() != header.content_type {
             return Err("A cached image has mismatched content type.".to_owned());
@@ -265,6 +266,19 @@ fn selected_url(
     Ok(url.to_owned())
 }
 
+fn trimmed_asset_bytes(bytes: Vec<u8>, content_type: &str) -> Vec<u8> {
+    if content_type != "image/png" {
+        return bytes;
+    }
+    match trim_png(&bytes) {
+        Ok(trimmed) => trimmed,
+        Err(error) => {
+            eprintln!("Steam image trim failed: {error}");
+            bytes
+        }
+    }
+}
+
 async fn load_asset(
     cache: AssetCacheState,
     network: &NetworkState,
@@ -287,7 +301,7 @@ async fn load_asset(
     if previous.as_ref().is_some_and(|entry| !entry.stale) {
         let entry = previous.ok_or_else(|| "Image cache entry disappeared.".to_owned())?;
         return Ok(AssetResult {
-            bytes: entry.bytes,
+            bytes: trimmed_asset_bytes(entry.bytes, entry.content_type),
             content_type: entry.content_type,
             stale: false,
             cache_warning: None,
@@ -298,12 +312,13 @@ async fn load_asset(
         .await
         .map_err(|error| format!("Steam image request failed: {error:?}"))
         .and_then(|bytes| {
-            ImageFormat::from_bytes(&bytes)
+            ImageFormat::from_steam_bytes(&bytes)
                 .map(|format| (bytes, format.content_type()))
                 .ok_or_else(|| "Steam returned unsupported image content.".to_owned())
         });
     match fetched {
         Ok((bytes, content_type)) => {
+            let bytes = trimmed_asset_bytes(bytes, content_type);
             let writer = cache.clone();
             let write_key = key;
             let write_url = url;
@@ -325,7 +340,7 @@ async fn load_asset(
         }
         Err(error) => previous
             .map(|entry| AssetResult {
-                bytes: entry.bytes,
+                bytes: trimmed_asset_bytes(entry.bytes, entry.content_type),
                 content_type: entry.content_type,
                 stale: true,
                 cache_warning: None,
@@ -355,7 +370,7 @@ fn library_url(
             .or_else(|| assets.url(app_id, portrait))
     }) {
         Ok(url)
-    } else if filename == "clienticon.jpg" {
+    } else if filename == "clienticon.ico" {
         Err("Steam did not provide a client icon for this App ID.".to_owned())
     } else {
         Ok(format!(
@@ -551,7 +566,7 @@ mod tests {
             library_url(400, AssetKind::Logo.library_filename(true).unwrap(), None).unwrap(),
             "https://cdn.cloudflare.steamstatic.com/steam/apps/400/logo_2x.png"
         );
-        assert!(library_url(400, "clienticon.jpg", None).is_err());
+        assert!(library_url(400, "clienticon.ico", None).is_err());
     }
 
     #[test]
