@@ -48,7 +48,7 @@
     {/if}
   </div>
   <div class="flex min-h-0 flex-1 items-center justify-center">
-    <GameLogo {game} class="h-40 w-auto max-w-full object-contain object-center sm:h-56 lg:h-80" />
+    <GameLogo {game} class="h-24 w-auto max-w-full object-contain object-center sm:h-32 lg:h-40" />
   </div>
   <div class="flex shrink-0 flex-wrap items-center justify-center gap-2">
     <Button label={`Informazioni su ${game.name}`} variant="secondary" circle onClick={() => openGame(game.id)} class="!bg-zinc-950/60 hover:!bg-zinc-950/75"><Icon name="info" /></Button>

@@ -5,7 +5,7 @@
 
   let {
     game,
-    class: className = "h-20 w-80 max-w-full object-contain object-center",
+    class: className = "h-14 w-56 max-w-full object-contain object-center",
   }: {
     game: Game;
     class?: string;

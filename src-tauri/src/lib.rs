@@ -21,6 +21,7 @@ mod game_lifecycle;
 mod game_process;
 mod game_transfer;
 mod image_format;
+mod image_trim;
 mod installed_folder;
 pub mod legio_source;
 mod legio_source_cache;
