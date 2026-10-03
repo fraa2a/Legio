@@ -14,16 +14,19 @@ pub(crate) fn detected(database: &Database, game: &Game) -> Result<bool, String>
     };
     let executable = fs::canonicalize(executable)
         .map_err(|error| format!("Could not inspect game executable for OnlineFix: {error}"))?;
-    let installed_root: Option<String> = database.with_connection(|connection| {
-        connection
-            .query_row(
-                "SELECT final_path FROM downloads WHERE id = ?1 AND status = 'installed'",
-                [&game.id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|error| format!("Could not find installed game directory: {error}"))
-    })?;
+    let installed_root =
+        game.installation_root
+            .clone()
+            .or(database.with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT final_path FROM downloads WHERE id = ?1 AND status = 'installed'",
+                        [&game.id],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(|error| error.to_string())
+            })?);
     let installed_root = installed_root
         .as_deref()
         .map(|root| {
@@ -41,10 +44,16 @@ pub(crate) fn detected(database: &Database, game: &Game) -> Result<bool, String>
 
 fn contains_online_fix(root: &Path) -> Result<bool, String> {
     let mut pending = vec![PathBuf::from(root)];
+    let started = std::time::Instant::now();
+    let mut scanned = 0_u32;
     while let Some(directory) = pending.pop() {
         let entries = fs::read_dir(&directory)
             .map_err(|error| format!("Could not scan game directory for OnlineFix: {error}"))?;
         for entry in entries {
+            scanned += 1;
+            if scanned > 100_000 || started.elapsed() > std::time::Duration::from_secs(5) {
+                return Err("OnlineFix scan exceeded the game directory limit".to_owned());
+            }
             let entry = entry
                 .map_err(|error| format!("Could not scan game directory for OnlineFix: {error}"))?;
             let file_type = entry
@@ -128,7 +137,7 @@ mod tests {
     }
 
     #[test]
-    fn steam_managed_and_explicit_disable_win_over_detection() {
+    fn explicit_disable_overrides_detection() {
         assert!(!enabled(true, Some(true), true));
         assert!(!enabled(false, Some(false), true));
         assert!(enabled(false, None, true));

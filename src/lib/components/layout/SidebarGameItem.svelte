@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import type { Game } from "../../services/local-state";
   import SteamArtwork from "../../features/library/SteamArtwork.svelte";
   import { openGame } from "../../stores/navigation";
@@ -29,7 +30,7 @@
 <li>
   <button
     type="button"
-    aria-label={`Apri ${game.name}`}
+    aria-label={t("Apri {0}", $language, [game.name])}
     aria-current={selected ? "true" : undefined}
     class="group relative flex h-12 w-full items-center overflow-hidden rounded-lg border border-transparent transition-[border-color,background-color,box-shadow] duration-300 ease-out hover:shadow-md hover:shadow-black/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/80 light:focus-visible:ring-zinc-900/60 {selected
       ? 'border-white/30 light:border-zinc-900/40'

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import { canFinalizeDownload } from "../../services/downloads";
   import Badge from "../../components/ui/Badge.svelte";
   import Button from "../../components/ui/Button.svelte";
@@ -16,10 +17,10 @@
 
   const group = $props.id();
 
-  const signalLabels: Record<string, string> = {
-    game_name_match: "nome del gioco",
-    game_root: "cartella radice",
-  };
+  const signalLabels: Record<string, string> = $derived({
+    game_name_match: t("nome del gioco", $language),
+    game_root: t("cartella radice", $language),
+  });
 
   const canConfirm = $derived(
     $stagedInstall.status === "ready" &&
@@ -38,7 +39,7 @@
 
 <Dialog
   open={$stagedInstall.jobId !== null}
-  title="Installa {gameName}"
+  title="{t("Installa ", $language)}{gameName}"
   size="wide"
   onClose={resetStagedInstall}
 >
@@ -59,14 +60,12 @@
   {/if}
 
   {#if $stagedInstall.status === "empty"}
-    <p class="text-sm text-zinc-400 light:text-zinc-600">
-      Nessun eseguibile trovato nei file estratti.
-    </p>
+    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("\n      Nessun eseguibile trovato nei file estratti.\n    ", $language)}</p>
   {/if}
 
   {#if $stagedInstall.candidates.length > 0}
     <fieldset class="flex flex-col gap-2" disabled={$stagedInstall.finalizing}>
-      <legend class="sr-only">Eseguibili trovati</legend>
+      <legend class="sr-only">{t("Eseguibili trovati", $language)}</legend>
       {#each $stagedInstall.candidates as candidate (candidate.relativePath)}
         <label
           class="flex cursor-pointer items-start gap-3 rounded-lg bg-white/5 p-3 has-checked:bg-white/10 light:bg-zinc-100"
@@ -100,13 +99,13 @@
 
   <div class="flex justify-end gap-2">
     <Button
-      label="Annulla"
+      label={t("Annulla", $language)}
       variant="secondary"
       disabled={$stagedInstall.finalizing}
       onClick={resetStagedInstall}
     />
     <Button
-      label="Installa"
+      label={t("Installa", $language)}
       disabled={!canConfirm || $stagedInstall.finalizing}
       onClick={() => void confirm()}
     />

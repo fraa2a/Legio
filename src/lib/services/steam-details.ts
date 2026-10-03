@@ -1,3 +1,5 @@
+import { get } from "svelte/store";
+import { language } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 
 export interface SteamDetails {
@@ -33,7 +35,7 @@ export interface SteamDetailsError {
 }
 
 export function getSteamDetails(steamAppId: number, refresh: boolean): Promise<SteamDetailsResult> {
-  return invoke<SteamDetailsResult>("get_steam_details", { steamAppId, refresh });
+  return invoke<SteamDetailsResult>("get_steam_details", { steamAppId, refresh, language: get(language) });
 }
 
 export type SteamAssetKind = "header" | "capsule" | "screenshot" | "hero" | "logo" | "library_capsule" | "library_header" | "hero_blur" | "client_icon";

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import {
     type DownloadJob,
   } from "../../services/downloads";
@@ -42,7 +43,7 @@
     activeSpeed,
     isReorderable,
     reorderPayload,
-    requiredBytes,
+    downloadBytes,
     splitDownloads,
   } from "./downloads-model";
 
@@ -58,7 +59,7 @@
       (job): job is DownloadJob => job !== null,
     ),
   );
-  const required = $derived(requiredBytes(pending));
+  const required = $derived(downloadBytes(pending));
   const networkSpeed = $derived(activeSpeed(pending));
   const queueOffset = $derived(
     sections.primary !== null && isReorderable(sections.primary) ? 1 : 0,
@@ -118,19 +119,19 @@
   function play(job: DownloadJob): void {
     const game = $games.data.find((item) => item.steamAppId === job.steamAppId);
     if (game === undefined) {
-      actionError = `${job.name} non è presente in libreria.`;
+      actionError = t("{0} non è presente in libreria.", $language, [job.name]);
       return;
     }
     actionError = null;
     void playGame(game);
   }
 
-  const canPlay = (job: DownloadJob): boolean => {
+  const canPlay = $derived((job: DownloadJob): boolean => {
     const game = $games.data.find((item) => item.steamAppId === job.steamAppId);
     if (game === undefined) return false;
     const launch = $launchStateByGame.get(game.id);
     return $pendingGameId === null && (launch === undefined || launch.status === "idle");
-  };
+  });
 </script>
 
 <div class="flex min-h-full flex-col gap-4">
@@ -141,15 +142,15 @@
   <StateBlock
     status={$downloads.status}
     hasData={$downloads.data.length > 0}
-    loadingMessage="Caricamento dei download..."
+    loadingMessage={t("Caricamento dei download...", $language)}
     error={$downloads.error}
     onRetry={() => void downloads.load()}
   />
 
   {#if $downloads.status === "empty"}
     <section class="flex flex-col items-start justify-center gap-4 rounded-2xl bg-white/5 p-8 light:bg-zinc-100">
-      <h2 class="text-lg font-medium text-zinc-50 light:text-zinc-900">Nessun download</h2>
-      <Button label="Sfoglia lo store" variant="primary" onClick={() => selectSection("store")} />
+      <h2 class="text-lg font-medium text-zinc-50 light:text-zinc-900">{t("Nessun download", $language)}</h2>
+      <Button label={t("Sfoglia lo store", $language)} variant="primary" onClick={() => selectSection("store")} />
     </section>
   {/if}
 
@@ -173,7 +174,7 @@
         {/if}
 
         {#if sections.processing.length > 0}
-          <Panel title="In corso">
+          <Panel title={t("In corso", $language)}>
             <DownloadList
               jobs={sections.processing}
               busyJob={pendingJob}
@@ -188,11 +189,10 @@
         {/if}
 
         {#if sections.queue.length > 0}
-          <Panel title="Coda download">
+          <Panel title={t("Coda download", $language)}>
             {#snippet actions()}
               <span class="text-xs text-zinc-500 light:text-zinc-500">
-                {sections.queue.length} in attesa
-              </span>
+                {sections.queue.length}{t(" in attesa\n              ", $language)}</span>
             {/snippet}
             <DownloadList
               jobs={sections.queue}
@@ -212,11 +212,11 @@
         {/if}
 
         {#if sections.finished.length > 0}
-          <Panel title="Completati">
+          <Panel title={t("Completati", $language)}>
             {#snippet actions()}
               {#if $finishedDownloadCount > 0}
                 <Button
-                  label="Rimuovi completati ({$finishedDownloadCount})"
+                  label="{t("Rimuovi completati (", $language)}{$finishedDownloadCount})"
                   variant="secondary"
                   class="h-8! px-3! text-xs!"
                   disabled={clearingFinished || pendingJob !== null}
@@ -239,7 +239,7 @@
         folder={$installedFolder.data}
         status={$installedFolder.status}
         error={$installedFolder.error}
-        requiredBytes={required}
+        downloadBytes={required}
         speedBps={networkSpeed}
         bandwidthLimit={$bandwidthLimit.data}
         onRetry={() => void installedFolder.load()}
@@ -258,13 +258,11 @@
   />
 {/if}
 
-<Dialog open={removeTarget !== null} title="Rimuovi dalla coda" onClose={() => (removeTarget = null)}>
-  <p class="text-sm text-zinc-300 light:text-zinc-700">
-    Rimuovere {removeTarget?.name} dalla coda?
-  </p>
+<Dialog open={removeTarget !== null} title={t("Rimuovi dalla coda", $language)} onClose={() => (removeTarget = null)}>
+  <p class="text-sm text-zinc-300 light:text-zinc-700">{t("\n    Rimuovere ", $language)}{removeTarget?.name}{t(" dalla coda?\n  ", $language)}</p>
   <div class="flex justify-end gap-2">
-    <Button label="Indietro" variant="secondary" onClick={() => (removeTarget = null)} />
-    <Button label="Rimuovi" variant="danger" onClick={() => void confirmRemove()} />
+    <Button label={t("Indietro", $language)} variant="secondary" onClick={() => (removeTarget = null)} />
+    <Button label={t("Rimuovi", $language)} variant="danger" onClick={() => void confirmRemove()} />
   </div>
 </Dialog>
 
@@ -273,13 +271,11 @@
 {/if}
 
 {#if $accountSwitchGame !== null}
-  <Dialog open title="Cambio account Steam" onClose={dismissAccountSwitch}>
-    <p class="text-sm text-zinc-300 light:text-zinc-700">
-      Steam deve essere chiuso e riavviato per usare l'account salvato di {$accountSwitchGame.name}. Procedere?
-    </p>
+  <Dialog open title={t("Cambio account Steam", $language)} onClose={dismissAccountSwitch}>
+    <p class="text-sm text-zinc-300 light:text-zinc-700">{t("\n      Steam deve essere chiuso e riavviato per usare l'account salvato di ", $language)}{$accountSwitchGame.name}{t(". Procedere?\n    ", $language)}</p>
     <div class="flex justify-end gap-2">
-      <Button label="Annulla" variant="secondary" onClick={dismissAccountSwitch} />
-      <Button label="Riavvia e avvia" onClick={() => void confirmAccountSwitch()} />
+      <Button label={t("Annulla", $language)} variant="secondary" onClick={dismissAccountSwitch} />
+      <Button label={t("Riavvia e avvia", $language)} onClick={() => void confirmAccountSwitch()} />
     </div>
   </Dialog>
 {/if}

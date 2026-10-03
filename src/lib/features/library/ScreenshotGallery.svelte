@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import type { SteamDetails } from "../../services/steam-details";
   import ArtworkViewer from "./ArtworkViewer.svelte";
   import SteamArtwork from "./SteamArtwork.svelte";
@@ -34,7 +35,7 @@
   <button
     type="button"
     class="relative w-full cursor-zoom-in overflow-hidden rounded-2xl bg-white/5 ring-1 ring-white/10 light:bg-zinc-200"
-    aria-label="Ingrandisci schermata {active + 1} di {count}"
+    aria-label="{t("Ingrandisci schermata ", $language)}{active + 1}{t(" di ", $language)}{count}"
     onclick={() => (open = true)}
   >
     <SteamArtwork
@@ -43,7 +44,7 @@
       index={active}
       {version}
       full
-      alt="Schermata {active + 1} di {name}"
+      alt="{t("Schermata ", $language)}{active + 1}{t(" di ", $language)}{name}"
       caption={false}
       class="aspect-video w-full object-cover"
     />
@@ -66,7 +67,7 @@
             === active
             ? 'opacity-100 ring-2 ring-white light:ring-zinc-900'
             : 'opacity-60 ring-1 ring-white/10 hover:opacity-100'}"
-          aria-label="Mostra schermata {position + 1}"
+          aria-label="{t("Mostra schermata ", $language)}{position + 1}"
           aria-current={position === active}
           onclick={() => select(position)}
         >
@@ -92,7 +93,7 @@
     index={active}
     {count}
     {version}
-    alt="Schermata {active + 1} di {name}"
+    alt="{t("Schermata ", $language)}{active + 1}{t(" di ", $language)}{name}"
     onSelect={select}
     onClose={() => (open = false)}
   />

@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { derived, writable } from "svelte/store";
 import {
   cancelDownload,
@@ -26,11 +27,6 @@ export const downloads = createResource<DownloadJob[]>([], listDownloads, (jobs)
 export const activeDownloadCount = derived(
   downloads,
   (state) => state.data.filter((job) => isActiveDownloadStatus(job.status)).length,
-);
-
-export const pendingDownloadCount = derived(
-  downloads,
-  (state) => state.data.filter((job) => !isFinishedDownloadStatus(job.status)).length,
 );
 
 export const finishedDownloadCount = derived(
@@ -147,7 +143,7 @@ export async function browseInstalledFolder(): Promise<void> {
 export async function saveBandwidthLimit(bytesPerSecond: number): Promise<void> {
   bandwidthLimitError.set(null);
   if (!Number.isSafeInteger(bytesPerSecond) || bytesPerSecond < 0) {
-    bandwidthLimitError.set("Il limite di banda deve essere un numero intero di byte al secondo.");
+    bandwidthLimitError.set(t("Il limite di banda deve essere un numero intero di byte al secondo.", undefined));
     return;
   }
   try {

@@ -17,6 +17,7 @@ pub struct AppInfo {
     name: String,
     version: String,
     platform: String,
+    tray_available: bool,
     desktop_environment: Option<String>,
     startup_launch_game_id: Option<String>,
     startup_launch_error: Option<String>,
@@ -30,6 +31,7 @@ pub fn get_app_info(app: AppHandle) -> AppInfo {
         name: package_info.name.clone(),
         version: package_info.version.to_string(),
         platform: std::env::consts::OS.to_owned(),
+        tray_available: app.state::<crate::TrayAvailable>().0,
         desktop_environment: desktop_environment(),
         startup_launch_game_id: app.state::<crate::StartupLaunch>().game_id.clone(),
         startup_launch_error: app.state::<crate::StartupLaunch>().error.clone(),
@@ -64,23 +66,7 @@ pub fn get_settings(state: State<'_, DatabaseState>) -> Result<Settings, String>
 
 #[tauri::command]
 pub fn save_settings(app: AppHandle, settings: Settings) -> Result<Settings, String> {
-    let state = app.state::<DatabaseState>();
-    let previous = state.database()?.settings()?;
-    let saved = database::save_settings(&state, settings)?;
-    if saved.launch_on_system_start != previous.launch_on_system_start
-        && let Err(error) = crate::startup::set_enabled(saved.launch_on_system_start)
-    {
-        state.database()?.save_settings(previous)?;
-        return Err(error);
-    }
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?;
-    let root = state.database()?.storage_root(&data_dir)?;
-    app.state::<crate::download_queue::DownloadQueueState>()
-        .set_storage_root(&root)?;
-    Ok(saved)
+    crate::settings::save(&app, settings)
 }
 
 #[tauri::command]
@@ -213,35 +199,7 @@ pub async fn create_game_shortcut(
     location: crate::desktop_shortcuts::ShortcutLocation,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let database = app.state::<DatabaseState>();
-        let game = database.database()?.game(&game_id)?;
-        let steam_managed = game.steam_install_path.is_some();
-        let imported_arguments = if steam_managed {
-            crate::desktop_shortcuts::steam_shortcut_arguments(&game)?
-        } else {
-            None
-        };
-        let icon = app
-            .state::<crate::game_artwork::GameArtworkStore>()
-            .shortcut_icon_path(&game)?;
-        let path = crate::desktop_shortcuts::create(&game, location, icon.as_deref())?;
-        if steam_managed {
-            crate::desktop_shortcuts::create(
-                &game,
-                crate::desktop_shortcuts::ShortcutLocation::ApplicationsMenu,
-                icon.as_deref(),
-            )?;
-            if let Some(arguments) = imported_arguments {
-                database.database()?.save_steam_launch_config(
-                    &game.id,
-                    database::SteamLaunchConfig { arguments },
-                )?;
-            }
-            crate::desktop_shortcuts::remove_steam_shortcuts(&game)?;
-        }
-        path.to_str()
-            .map(str::to_owned)
-            .ok_or_else(|| "The desktop shortcut path is not valid UTF-8".to_owned())
+        crate::desktop_shortcuts::create_for_app(&app, &game_id, location)
     })
     .await
     .map_err(|error| format!("Game shortcut task failed: {error}"))?
@@ -335,6 +293,9 @@ pub fn update_game(
 
 #[tauri::command]
 pub fn remove_game(app: AppHandle, id: String) -> Result<(), String> {
+    let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
+    let _operation = manager.operation()?;
+    manager.require_idle(&id)?;
     database::remove_game(&app.state::<DatabaseState>(), &id)?;
     let mut errors = Vec::new();
     if let Err(error) = app
@@ -758,8 +719,16 @@ pub async fn get_steam_details(
     state: State<'_, NetworkState>,
     steam_app_id: u32,
     refresh: bool,
+    language: crate::locale::LanguagePreference,
 ) -> Result<crate::steam_details::DetailsResult, crate::steam_details::DetailsError> {
-    crate::steam_details::get_details(app, state.inner(), steam_app_id, refresh).await
+    crate::steam_details::get_details_localized(
+        app,
+        state.inner(),
+        steam_app_id,
+        refresh,
+        language.resolve(),
+    )
+    .await
 }
 
 #[tauri::command]

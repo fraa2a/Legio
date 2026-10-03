@@ -52,6 +52,7 @@ pub struct DownloadQueueState {
     directory: std::sync::Mutex<PathBuf>,
     client: reqwest::Client,
     running: AtomicBool,
+    active: std::sync::Mutex<Option<(String, std::sync::Arc<AtomicBool>)>>,
     bandwidth_limit: AtomicU64,
     wake: tokio::sync::Notify,
     staging: tokio::sync::Mutex<()>,
@@ -74,6 +75,7 @@ impl DownloadQueueState {
             ),
             client,
             running: AtomicBool::new(false),
+            active: std::sync::Mutex::new(None),
             bandwidth_limit: AtomicU64::new(0),
             wake: tokio::sync::Notify::new(),
             staging: tokio::sync::Mutex::new(()),
@@ -108,6 +110,19 @@ impl DownloadQueueState {
     pub(crate) fn set_bandwidth_limit(&self, bytes_per_second: u64) {
         self.bandwidth_limit
             .store(bytes_per_second, Ordering::Relaxed);
+    }
+
+    fn interrupt(&self, id: &str) -> Result<(), String> {
+        let active = self
+            .active
+            .lock()
+            .map_err(|_| "Download control lock was poisoned".to_owned())?;
+        if let Some((active_id, stopped)) = active.as_ref()
+            && active_id == id
+        {
+            stopped.store(true, Ordering::Release);
+        }
+        Ok(())
     }
 
     fn path(&self, id: &str, extension: &str) -> Result<PathBuf, String> {
@@ -619,7 +634,12 @@ async fn run_queue<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
             queue.wake.notified().await;
             continue;
         };
-        let outcome = transfer(&app.state::<DownloadQueueState>(), database, &job).await;
+        let outcome = transfer(
+            &app.state::<DownloadQueueState>(),
+            app.state::<DatabaseState>().shared_database()?,
+            &job,
+        )
+        .await;
         match outcome {
             Ok(()) => {
                 finish(database, &job.id, "downloaded", None)?;
@@ -629,7 +649,11 @@ async fn run_queue<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
                         if let Err(error) = app
                             .notification()
                             .builder()
-                            .title("Download completato")
+                            .title(
+                                settings
+                                    .language
+                                    .text("Download completato", "Download complete"),
+                            )
                             .body(&job.name)
                             .show()
                         {
@@ -704,11 +728,75 @@ fn resume_matches(response: &Response, job: &Transfer, offset: u64) -> bool {
             .is_none_or(|(stored, served)| stored == served)
 }
 
+struct BandwidthWindow {
+    limit: u64,
+    initial: u64,
+    started: Instant,
+}
+
+impl BandwidthWindow {
+    fn new(initial: u64, limit: u64) -> Self {
+        Self {
+            limit,
+            initial,
+            started: Instant::now(),
+        }
+    }
+
+    fn delay(&mut self, bytes: u64, limit: u64) -> Duration {
+        if limit != self.limit {
+            *self = Self::new(bytes, limit);
+        }
+        if limit == 0 {
+            return Duration::ZERO;
+        }
+        let target =
+            Duration::from_secs_f64(bytes.saturating_sub(self.initial) as f64 / limit as f64);
+        let delay = target.saturating_sub(self.started.elapsed());
+        if delay.is_zero() && self.started.elapsed() >= Duration::from_millis(250) {
+            *self = Self::new(bytes, limit);
+        }
+        delay
+    }
+}
+
+async fn persist_progress(
+    database: std::sync::Arc<Database>,
+    id: &str,
+    bytes: u64,
+    speed: u64,
+    eta: Option<u64>,
+    etag: Option<&str>,
+) -> Result<(), String> {
+    let id = id.to_owned();
+    let etag = etag.map(str::to_owned);
+    tauri::async_runtime::spawn_blocking(move || {
+        update_progress(&database, &id, bytes, speed, eta, etag.as_deref())
+    })
+    .await
+    .map_err(|error| format!("Progress task failed: {error}"))?
+}
+
 async fn transfer(
     queue: &DownloadQueueState,
-    database: &Database,
+    database: std::sync::Arc<Database>,
     job: &Transfer,
 ) -> Result<(), String> {
+    let stopped = std::sync::Arc::new(AtomicBool::new(false));
+    *queue
+        .active
+        .lock()
+        .map_err(|_| "Download control lock was poisoned".to_owned())? =
+        Some((job.id.clone(), stopped.clone()));
+    let checker = database.clone();
+    let check_id = job.id.clone();
+    if tauri::async_runtime::spawn_blocking(move || status(&checker, &check_id))
+        .await
+        .map_err(|error| error.to_string())??
+        != "downloading"
+    {
+        return Err("Download was stopped".to_owned());
+    }
     use tokio::io::AsyncWriteExt;
     let partial = queue.path(&job.id, "part")?;
     let archive = queue.path(&job.id, "archive")?;
@@ -766,15 +854,17 @@ async fn transfer(
         .open(&partial)
         .await
         .map_err(|error| format!("Could not open partial download: {error}"))?;
-    update_progress(database, &job.id, offset, 0, None, etag.as_deref())?;
+    persist_progress(database.clone(), &job.id, offset, 0, None, etag.as_deref()).await?;
     let started = Instant::now();
     let initial = offset;
+    let mut persisted = Instant::now();
+    let mut limiter = BandwidthWindow::new(offset, queue.bandwidth_limit.load(Ordering::Relaxed));
     while let Some(chunk) = response
         .chunk()
         .await
         .map_err(|error| format!("Network: {}", error.without_url()))?
     {
-        if status(database, &job.id)? != "downloading" {
+        if stopped.load(Ordering::Acquire) {
             return Err("Download was stopped".to_owned());
         }
         let next = offset
@@ -787,12 +877,17 @@ async fn transfer(
             .await
             .map_err(|error| format!("Could not write partial download: {error}"))?;
         offset = next;
-        let limit = queue.bandwidth_limit.load(Ordering::Relaxed);
-        if limit > 0 {
-            let target = Duration::from_secs_f64((offset - initial) as f64 / limit as f64);
-            if target > started.elapsed() {
-                tokio::time::sleep(target - started.elapsed()).await;
+        loop {
+            if stopped.load(Ordering::Acquire) {
+                persist_progress(database.clone(), &job.id, offset, 0, None, etag.as_deref())
+                    .await?;
+                return Err("Download was stopped".to_owned());
             }
+            let delay = limiter.delay(offset, queue.bandwidth_limit.load(Ordering::Relaxed));
+            if delay.is_zero() {
+                break;
+            }
+            tokio::time::sleep(delay.min(Duration::from_millis(50))).await;
         }
         let elapsed = started.elapsed().as_secs_f64();
         let speed = if elapsed > 0.0 {
@@ -805,7 +900,18 @@ async fn transfer(
         } else {
             None
         };
-        update_progress(database, &job.id, offset, speed, eta, etag.as_deref())?;
+        if persisted.elapsed() >= Duration::from_millis(500) {
+            persist_progress(
+                database.clone(),
+                &job.id,
+                offset,
+                speed,
+                eta,
+                etag.as_deref(),
+            )
+            .await?;
+            persisted = Instant::now();
+        }
     }
     if offset != job.size {
         return Err(format!(
@@ -813,11 +919,12 @@ async fn transfer(
             job.size
         ));
     }
+    persist_progress(database.clone(), &job.id, offset, 0, None, etag.as_deref()).await?;
     file.sync_all()
         .await
         .map_err(|error| format!("Could not sync download: {error}"))?;
     drop(file);
-    if status(database, &job.id)? != "downloading" {
+    if stopped.load(Ordering::Acquire) {
         return Err("Download was stopped".to_owned());
     }
     tokio::fs::rename(&partial, &archive)
@@ -866,7 +973,8 @@ pub async fn pause_download(app: AppHandle, id: String) -> Result<(), String> {
             &id,
             &["queued", "downloading", "waiting"],
             "paused",
-        )
+        )?;
+        app.state::<DownloadQueueState>().interrupt(&id)
     })
     .await
     .map_err(|error| format!("Pause task failed: {error}"))?
@@ -918,6 +1026,7 @@ pub async fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
             &["queued", "downloading", "paused", "waiting", "failed"],
             "cancelled",
         )?;
+        queue.interrupt(&id)?;
         if let Err(error) = remove_partial(&queue.path(&id, "part")?)
             && (error.kind() != std::io::ErrorKind::PermissionDenied || !was_downloading)
         {
@@ -964,10 +1073,12 @@ fn remove_entry(queue: &DownloadQueueState, database: &Database, id: &str) -> Re
     }
     finalize_install::remove_stage_directory(&queue.path(&id, "stage")?)?;
     database.with_connection(|connection| {
-        connection
+        let transaction = connection.unchecked_transaction().map_err(db_error)?;
+        transaction.execute("UPDATE games SET installation_root = COALESCE(installation_root, (SELECT final_path FROM downloads WHERE id = ?1 AND status = 'installed')) WHERE id = ?1", [&id]).map_err(db_error)?;
+        transaction
             .execute("DELETE FROM downloads WHERE id = ?1", [&id])
             .map_err(db_error)?;
-        Ok(())
+        transaction.commit().map_err(db_error)
     })
 }
 
@@ -1043,8 +1154,9 @@ fn reorder(database: &Database, ids: &[String]) -> Result<(), String> {
         parsed.push(id);
     }
     database.with_connection(|connection| {
+        let transaction = connection.unchecked_transaction().map_err(db_error)?;
         for id in &parsed {
-            let status: Option<String> = connection
+            let status: Option<String> = transaction
                 .query_row("SELECT status FROM downloads WHERE id = ?1", [id], |row| {
                     row.get(0)
                 })
@@ -1060,14 +1172,14 @@ fn reorder(database: &Database, ids: &[String]) -> Result<(), String> {
         for (index, id) in parsed.iter().enumerate() {
             let position =
                 i64::try_from(index).map_err(|_| "The queue is too long to reorder".to_owned())?;
-            connection
+            transaction
                 .execute(
                     "UPDATE downloads SET queue_position = ?2 WHERE id = ?1",
                     params![id, position],
                 )
                 .map_err(db_error)?;
         }
-        Ok(())
+        transaction.commit().map_err(db_error)
     })
 }
 
@@ -1262,6 +1374,53 @@ mod tests {
 
         drop(database);
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn reorder_rolls_back_when_a_later_update_fails() {
+        let (database, directory) = database_with_source();
+        let first = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
+        let mut second = first.clone();
+        second.id = Uuid::new_v4().to_string();
+        database.with_connection(|connection| {
+            connection.execute("INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at) SELECT ?2, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at FROM downloads WHERE id = ?1", params![first.id, second.id]).map_err(db_error)?;
+            Ok(())
+        }).unwrap();
+        database.with_connection(|connection| {
+            connection.execute("UPDATE downloads SET queue_position = 5 WHERE id = ?1", [&first.id]).map_err(db_error)?;
+            connection.execute("UPDATE downloads SET queue_position = 6 WHERE id = ?1", [&second.id]).map_err(db_error)?;
+            connection.execute_batch(&format!("CREATE TRIGGER fail_reorder BEFORE UPDATE OF queue_position ON downloads WHEN OLD.id = '{}' BEGIN SELECT RAISE(ABORT, 'injected'); END;", second.id)).map_err(db_error)
+        }).unwrap();
+        assert!(reorder(&database, &[first.id.clone(), second.id.clone()]).is_err());
+        let position: i64 = database
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT queue_position FROM downloads WHERE id = ?1",
+                        [&first.id],
+                        |row| row.get(0),
+                    )
+                    .map_err(db_error)
+            })
+            .unwrap();
+        assert_eq!(position, 5);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn changing_bandwidth_does_not_charge_previous_bytes() {
+        let mut window = BandwidthWindow::new(0, 0);
+        assert!(window.delay(100 * 1024 * 1024, 1024 * 1024).is_zero());
+        assert!(window.delay(101 * 1024 * 1024, 1024 * 1024) <= Duration::from_secs(1));
+        assert!(window.delay(101 * 1024 * 1024, 0).is_zero());
     }
 
     fn archive_fixture() -> (&'static [u8], String) {
@@ -1919,6 +2078,7 @@ mod tests {
             String::from_utf8(request).unwrap()
         });
         let (database, directory) = database_with_source();
+        let database = std::sync::Arc::new(database);
         let job = enqueue(
             &database,
             400,
@@ -1941,7 +2101,7 @@ mod tests {
         let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
         fs::write(queue.path(&job.id, "part").unwrap(), b"abcde").unwrap();
         let transfer_job = claim(&database).unwrap().unwrap();
-        tauri::async_runtime::block_on(transfer(&queue, &database, &transfer_job)).unwrap();
+        tauri::async_runtime::block_on(transfer(&queue, database.clone(), &transfer_job)).unwrap();
         assert_eq!(
             fs::read(queue.path(&job.id, "archive").unwrap()).unwrap(),
             b"abcdefghij"
@@ -1976,6 +2136,7 @@ mod tests {
             String::from_utf8(request).unwrap()
         });
         let (database, directory) = database_with_source();
+        let database = std::sync::Arc::new(database);
         let job = enqueue(
             &database,
             400,
@@ -1998,7 +2159,7 @@ mod tests {
         let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
         fs::write(queue.path(&job.id, "part").unwrap(), b"abcde").unwrap();
         let transfer_job = claim(&database).unwrap().unwrap();
-        tauri::async_runtime::block_on(transfer(&queue, &database, &transfer_job)).unwrap();
+        tauri::async_runtime::block_on(transfer(&queue, database.clone(), &transfer_job)).unwrap();
         assert_eq!(
             fs::read(queue.path(&job.id, "archive").unwrap()).unwrap(),
             b"abcdefghij"
@@ -2036,6 +2197,7 @@ mod tests {
             requests
         });
         let (database, directory) = database_with_source();
+        let database = std::sync::Arc::new(database);
         let job = enqueue(
             &database,
             400,
@@ -2058,7 +2220,7 @@ mod tests {
         let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
         fs::write(queue.path(&job.id, "part").unwrap(), b"abcde").unwrap();
         let transfer_job = claim(&database).unwrap().unwrap();
-        tauri::async_runtime::block_on(transfer(&queue, &database, &transfer_job)).unwrap();
+        tauri::async_runtime::block_on(transfer(&queue, database.clone(), &transfer_job)).unwrap();
         assert_eq!(
             fs::read(queue.path(&job.id, "archive").unwrap()).unwrap(),
             b"0123456789"
@@ -2092,6 +2254,7 @@ mod tests {
             requests
         });
         let (database, directory) = database_with_source();
+        let database = std::sync::Arc::new(database);
         let job = enqueue(
             &database,
             400,
@@ -2114,7 +2277,7 @@ mod tests {
         let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
         fs::write(queue.path(&job.id, "part").unwrap(), b"abcde").unwrap();
         let transfer_job = claim(&database).unwrap().unwrap();
-        tauri::async_runtime::block_on(transfer(&queue, &database, &transfer_job)).unwrap();
+        tauri::async_runtime::block_on(transfer(&queue, database.clone(), &transfer_job)).unwrap();
         assert_eq!(
             fs::read(queue.path(&job.id, "archive").unwrap()).unwrap(),
             b"0123456789"
@@ -2221,13 +2384,23 @@ mod tests {
         let (database, queue, job, directory) = downloaded_fixture();
         set_status(&database, &job.id, "installed");
         let installed = directory.join("installed").join(&job.id);
-        fs::create_dir_all(&installed).unwrap();
-        fs::write(installed.join("game.exe"), b"binary").unwrap();
+        fs::create_dir_all(installed.join("bin")).unwrap();
+        let executable = installed.join("bin/game.exe");
+        fs::write(&executable, b"binary").unwrap();
+        fs::write(installed.join("OnlineFix64.dll"), b"fix").unwrap();
+        database.with_connection(|connection| {
+            connection.execute("INSERT INTO games (id, automatic_name, executable_path) VALUES (?1, 'Game', ?2)", params![job.id, executable.to_string_lossy()]).map_err(db_error)?;
+            connection.execute("UPDATE downloads SET final_path = ?2 WHERE id = ?1", params![job.id, installed.to_string_lossy()]).map_err(db_error)?;
+            Ok(())
+        }).unwrap();
 
         remove_entry(&queue, &database, &job.id).unwrap();
 
         assert_eq!(status_of(&database, &job.id), None);
-        assert!(installed.join("game.exe").exists());
+        assert!(executable.exists());
+        let game = database.game(&job.id).unwrap();
+        assert_eq!(game.installation_root.as_deref(), installed.to_str());
+        assert!(crate::online_fix::detected(&database, &game).unwrap());
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }

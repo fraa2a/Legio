@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import type { SteamAssetKind } from "../../services/steam-details";
   import { fade } from "svelte/transition";
   import Button from "../../components/ui/Button.svelte";
@@ -66,13 +67,13 @@
   bind:this={overlay}
   role="dialog"
   aria-modal="true"
-  aria-label="Immagine a schermo intero"
+  aria-label={t("Immagine a schermo intero", $language)}
   tabindex="-1"
   class="fixed inset-0 z-50 flex flex-col bg-black/90 backdrop-blur-sm focus:outline-none light:bg-zinc-950/95"
 >
   <div class="flex shrink-0 items-center justify-between gap-3 p-4">
     <span class="text-sm text-zinc-300 tabular-nums">{position ?? ""}</span>
-    <Button label="Chiudi" variant="secondary" circle onClick={onClose} class="size-10">
+    <Button label={t("Chiudi", $language)} variant="secondary" circle onClick={onClose} class="size-10">
       <Icon name="close" size="h-5 w-5" />
     </Button>
   </div>
@@ -81,7 +82,7 @@
     <button
       type="button"
       class="absolute inset-0 cursor-zoom-out"
-      aria-label="Chiudi"
+      aria-label={t("Chiudi", $language)}
       aria-hidden="true"
       tabindex="-1"
       onclick={onClose}
@@ -108,7 +109,7 @@
     </div>
     {#if count > 1}
       <Button
-        label="Immagine precedente"
+        label={t("Immagine precedente", $language)}
         variant="secondary"
         circle
         onClick={previous}
@@ -117,7 +118,7 @@
         <Icon name="previous" size="h-6 w-6" />
       </Button>
       <Button
-        label="Immagine successiva"
+        label={t("Immagine successiva", $language)}
         variant="secondary"
         circle
         onClick={next}
@@ -136,7 +137,7 @@
           class="h-16 w-28 shrink-0 overflow-hidden rounded-lg transition-opacity {slot === index
             ? 'opacity-100 ring-2 ring-white'
             : 'opacity-50 hover:opacity-100'}"
-          aria-label="Vai all'immagine {slot + 1}"
+          aria-label="{t("Vai all'immagine ", $language)}{slot + 1}"
           aria-current={slot === index}
           onclick={() => onSelect?.(slot)}
         >

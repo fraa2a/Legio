@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import {
   checkSteamConnectivity,
   getNetworkStatus,
@@ -19,9 +20,9 @@ export const networkSummary = derived([network, connectivity], ([state, check]) 
     return { status: "Online", steam: "Raggiungibile", detail: null };
   }
   if (check === null) {
-    return { status: "Non verificato", steam: "Non verificato", detail: null };
+    return { status: t("Non verificato", undefined), steam: t("Non verificato", undefined), detail: null };
   }
-  return { status: "Non raggiungibile", steam: "Non raggiungibile", detail: check.detail };
+  return { status: t("Non raggiungibile", undefined), steam: t("Non raggiungibile", undefined), detail: check.detail };
 });
 
 export async function checkConnectivity(): Promise<void> {

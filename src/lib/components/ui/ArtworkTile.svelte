@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { language } from "../../i18n";
   import type { Snippet } from "svelte";
   import { peekSteamImage, type SteamAssetKind } from "../../services/steam-details";
   import { ensureSteamDetails, steamDetails } from "../../stores/steam-details";
@@ -43,6 +44,7 @@
   });
 
   $effect(() => {
+    void $language;
     if (visible && steamAppId !== null) ensureSteamDetails(steamAppId);
   });
 </script>

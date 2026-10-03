@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { derived, get, writable } from "svelte/store";
 import {
   cancelGameLaunch,
@@ -46,7 +47,7 @@ launchStates.subscribe((state) => {
       }
     } else if (launch.status === "running" && !hiddenForSession.has(launch.gameId)) {
       hiddenForSession.add(launch.gameId);
-      if (get(settings).data.hideOnGameStart) {
+      if (get(settings).data.hideOnGameStart && get(appInfo).data.trayAvailable) {
         restoreOnExit.add(launch.gameId);
         void hideWindow().catch((error) => {
           restoreOnExit.delete(launch.gameId);
@@ -84,19 +85,19 @@ export async function playGame(game: Game): Promise<void> {
       } else if (platform === "windows") {
         await launchNativeGame(game.id);
       } else {
-        throw new Error("L'avvio di giochi manuali non è disponibile su questa piattaforma.");
+        throw new Error(t("L'avvio di giochi manuali non è disponibile su questa piattaforma.", undefined));
       }
     } else {
-      throw new Error("Seleziona un eseguibile nelle impostazioni del gioco.");
+      throw new Error(t("Seleziona un eseguibile nelle impostazioni del gioco.", undefined));
     }
     await launchStates.load();
   } catch (error) {
     let message = toMessage(error);
     if (game.steamInstallPath === null && game.executablePath !== null && get(appInfo).data.platform === "linux") {
       try {
-        message += ` Log compatibilità: ${await getCompatibilityLogsDirectory()}`;
+        message += t(" Log compatibilità: {0}", undefined, [await getCompatibilityLogsDirectory()]);
       } catch (diagnosticsError) {
-        message += ` Impossibile trovare i log di compatibilità: ${toMessage(diagnosticsError)}`;
+        message += t(" Impossibile trovare i log di compatibilità: {0}", undefined, [toMessage(diagnosticsError)]);
       }
     }
     launchError.set(message);

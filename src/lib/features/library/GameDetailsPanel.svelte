@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import type { Game } from "../../services/local-state";
   import { toMessage } from "../../utils/errors";
   import { deleteGame, saveGame } from "../../stores/games";
@@ -105,11 +106,11 @@
       case "matched":
         return `App ID Steam rilevato: ${identityResult.game.automaticName} (${identityResult.game.steamAppId}).`;
       case "ambiguous":
-        return "Trovate più corrispondenze con lo stesso nome. Scegli quella corretta.";
+        return t("Trovate più corrispondenze con lo stesso nome. Scegli quella corretta.", $language);
       case "unavailable":
-        return identityResult.message ?? "Rilevazione Steam non disponibile.";
+        return identityResult.message ?? t("Rilevazione Steam non disponibile.", $language);
       case "no_match":
-        return "Nessuna corrispondenza esatta nel catalogo Steam.";
+        return t("Nessuna corrispondenza esatta nel catalogo Steam.", $language);
       default:
         return null;
     }
@@ -117,26 +118,26 @@
 </script>
 
 {#if section === "general"}
-<Panel title="Impostazioni">
+<Panel title={t("Impostazioni", $language)}>
   <TextField
     id="game-name"
-    label="Nome visualizzato"
+    label={t("Nome visualizzato", $language)}
     value={nameValue}
     oninput={handleNameInput}
     disabled={pending}
     hint={game.automaticName !== null
-      ? `Nome automatico: ${game.automaticName}`
-      : "Nessun nome automatico disponibile per questa voce."}
+      ? t("Nome automatico: {0}", $language, [game.automaticName])
+      : t("Nessun nome automatico disponibile per questa voce.", $language)}
   />
   <div class="flex flex-wrap gap-2">
     <Button
-      label="Salva nome"
+      label={t("Salva nome", $language)}
       disabled={pending || !nameChanged || trimmedName.length === 0}
       onClick={() => void saveName(trimmedName)}
     />
     {#if canResetName}
       <Button
-        label="Ripristina nome automatico"
+        label={t("Ripristina nome automatico", $language)}
         variant="secondary"
         disabled={pending}
         onClick={() => void saveName(null)}
@@ -146,18 +147,16 @@
 </Panel>
 
 {#if game.steamInstallPath === null && game.executablePath !== null}
-  <Panel title="Identità Steam">
+  <Panel title={t("Identità Steam", $language)}>
     {#if game.steamAppId !== null}
       <p class="text-sm text-zinc-300 light:text-zinc-700">
         {game.automaticName ?? game.name} <span class="text-zinc-500">({game.steamAppId})</span>
       </p>
     {:else}
-      <p class="text-sm text-zinc-400 light:text-zinc-600">
-        Legio confronta il nome dell'eseguibile e della cartella con il catalogo Steam.
-      </p>
+      <p class="text-sm text-zinc-400 light:text-zinc-600">{t("\n        Legio confronta il nome dell'eseguibile e della cartella con il catalogo Steam.\n      ", $language)}</p>
       <div>
         <Button
-          label={identityPending ? "Ricerca in corso..." : "Rileva Steam App ID"}
+          label={identityPending ? t("Ricerca in corso...", $language) : t("Rileva Steam App ID", $language)}
           variant="secondary"
           disabled={identityPending}
           onClick={() => void detectIdentity()}
@@ -178,7 +177,7 @@
               {candidate.name} <span class="text-zinc-500">({candidate.steamAppId})</span>
             </span>
             <Button
-              label="Collega"
+              label={t("Collega", $language)}
               variant="secondary"
               disabled={identityPending}
               onClick={() => void linkCandidate(candidate)}
@@ -191,24 +190,21 @@
 {/if}
 
 {:else}
-<Panel title="Rimuovi dalla libreria">
+<Panel title={t("Rimuovi dalla libreria", $language)}>
   {#if actionError !== null}
     <ErrorBanner message={actionError} />
   {/if}
   {#if confirmingRemove}
     <p class="text-sm text-zinc-300 light:text-zinc-700">
-      {game.name} verrà rimosso dalla libreria. I file installati non vengono eliminati.
-    </p>
+      {game.name}{t(" verrà rimosso dalla libreria. I file installati non vengono eliminati.\n    ", $language)}</p>
     <div class="flex flex-wrap gap-2">
-      <Button label="Annulla" variant="secondary" disabled={pending} onClick={() => (confirmingRemove = false)} />
-      <Button label="Rimuovi" variant="danger" disabled={pending} onClick={() => void remove()} />
+      <Button label={t("Annulla", $language)} variant="secondary" disabled={pending} onClick={() => (confirmingRemove = false)} />
+      <Button label={t("Rimuovi", $language)} variant="danger" disabled={pending} onClick={() => void remove()} />
     </div>
   {:else}
-    <p class="text-sm text-zinc-400 light:text-zinc-600">
-      Rimuovi questa voce senza toccare i file del gioco.
-    </p>
+    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("\n      Rimuovi questa voce senza toccare i file del gioco.\n    ", $language)}</p>
     <div>
-      <Button label="Rimuovi gioco" variant="danger" onClick={() => (confirmingRemove = true)} />
+      <Button label={t("Rimuovi gioco", $language)} variant="danger" onClick={() => (confirmingRemove = true)} />
     </div>
   {/if}
 </Panel>

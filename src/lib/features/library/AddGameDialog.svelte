@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import { untrack } from "svelte";
   import { toMessage } from "../../utils/errors";
   import { addGame, games } from "../../stores/games";
@@ -94,6 +95,7 @@
   });
 
   $effect(() => {
+    void $language;
     if (parsedAppId !== null) ensureSteamDetails(parsedAppId);
   });
 
@@ -162,43 +164,43 @@
   }
 </script>
 
-<Dialog open title="Aggiungi un gioco" size="wide" onClose={close}>
+<Dialog open title={t("Aggiungi un gioco", $language)} size="wide" onClose={close}>
   <div class="flex flex-col gap-5">
     <TextField
       id="add-game-name"
-      label="Nome gioco"
+      label={t("Nome gioco", $language)}
       value={$manualImport.gameName}
-      placeholder="Nome da mostrare in libreria"
+      placeholder={t("Nome da mostrare in libreria", $language)}
       disabled={pending || added}
       oninput={setScanGameName}
     />
-    {#if duplicateName}<p class="text-sm text-amber-300 light:text-amber-800" role="alert">Il nome è già usato per questo gioco Steam. Scegli un nome diverso.</p>{/if}
+    {#if duplicateName}<p class="text-sm text-amber-300 light:text-amber-800" role="alert">{t("Il nome è già usato per questo gioco Steam. Scegli un nome diverso.", $language)}</p>{/if}
 
     <div class="flex flex-col gap-2">
-      <span class="text-sm text-zinc-400 light:text-zinc-600">Eseguibile</span>
+      <span class="text-sm text-zinc-400 light:text-zinc-600">{t("Eseguibile", $language)}</span>
       <div class="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-3 light:border-zinc-900/10 light:bg-white">
         <span class="min-w-0 flex-1 break-all text-sm text-zinc-200 light:text-zinc-800">
-          {selectedPath ?? "Nessun file selezionato"}
+          {selectedPath ?? t("Nessun file selezionato", $language)}
         </span>
-        <Button label="Scegli .exe" variant="secondary" disabled={pending || added} onClick={() => void pickExecutable()} />
+        <Button label={t("Scegli .exe", $language)} variant="secondary" disabled={pending || added} onClick={() => void pickExecutable()} />
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <Button label="Scansiona cartella" variant="secondary" disabled={pending || added} onClick={() => void browseGameDirectory()} />
+        <Button label={t("Scansiona cartella", $language)} variant="secondary" disabled={pending || added} onClick={() => void browseGameDirectory()} />
         {#if $manualImport.directory !== null}
-          <Button label="Ripeti scansione" variant="secondary" disabled={pending || added} onClick={() => void rescanCurrentDirectory()} />
+          <Button label={t("Ripeti scansione", $language)} variant="secondary" disabled={pending || added} onClick={() => void rescanCurrentDirectory()} />
         {/if}
-        <span class="text-xs text-zinc-500">Puoi scegliere il file direttamente o cercarlo nella cartella del gioco.</span>
+        <span class="text-xs text-zinc-500">{t("Puoi scegliere il file direttamente o cercarlo nella cartella del gioco.", $language)}</span>
       </div>
       {#if $manualImport.status === "loading"}
-        <p class="text-sm text-zinc-400" role="status">Scansione degli eseguibili in corso...</p>
+        <p class="text-sm text-zinc-400" role="status">{t("Scansione degli eseguibili in corso...", $language)}</p>
       {:else if $manualImport.status === "empty"}
-        <p class="text-sm text-zinc-400">Nessun eseguibile trovato nella cartella.</p>
+        <p class="text-sm text-zinc-400">{t("Nessun eseguibile trovato nella cartella.", $language)}</p>
       {:else if $manualImport.status === "error" && $manualImport.error !== null}
         <ErrorBanner message={$manualImport.error} onRetry={() => void rescanCurrentDirectory()} />
       {/if}
       {#if $manualImport.candidates.length > 0}
         <fieldset class="max-h-40 space-y-1 overflow-y-auto rounded-lg bg-white/5 p-2 light:bg-zinc-100" disabled={pending || added}>
-          <legend class="sr-only">Eseguibili trovati</legend>
+          <legend class="sr-only">{t("Eseguibili trovati", $language)}</legend>
           {#each $manualImport.candidates as candidate (candidate.path)}
             <label class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-zinc-200 hover:bg-white/10 light:text-zinc-800 light:hover:bg-zinc-200">
               <input type="radio" name="add-game-executable" checked={selectedPath === candidate.path} onchange={() => chooseCandidate(candidate.path)} class="size-4 accent-white" />
@@ -211,16 +213,16 @@
 
     {#if selectedPath !== null || showSteamOnly}
       <div class="flex flex-col gap-2">
-        <TextField id="add-steam-game-search" label="Cerca gioco su Steam" type="search" value={steamQuery} placeholder="Cerca per nome" disabled={pending || added}
+        <TextField id="add-steam-game-search" label={t("Cerca gioco su Steam", $language)} type="search" value={steamQuery} placeholder={t("Cerca per nome", $language)} disabled={pending || added}
           oninput={(value) => { steamQuery = value; selectedSteamGame = null; }} />
         {#if searchStatus === "loading"}
-          <p class="text-xs text-zinc-400" role="status">Ricerca in corso...</p>
+          <p class="text-xs text-zinc-400" role="status">{t("Ricerca in corso...", $language)}</p>
         {:else if searchStatus === "empty" && searchError === null}
-          <p class="text-xs text-zinc-500">Nessun risultato per questa ricerca.</p>
+          <p class="text-xs text-zinc-500">{t("Nessun risultato per questa ricerca.", $language)}</p>
         {/if}
-        {#if searchError !== null}<p class="text-xs text-amber-300 light:text-amber-800">Ricerca non disponibile: {searchError}</p>{/if}
+        {#if searchError !== null}<p class="text-xs text-amber-300 light:text-amber-800">{t("Ricerca non disponibile: ", $language)}{searchError}</p>{/if}
         {#if searchResults.length > 0 && steamQuery.trim().length >= 2}
-          <ul class="max-h-36 overflow-y-auto rounded-lg border border-white/10 bg-white/5 light:border-zinc-900/10 light:bg-white" aria-label="Risultati Steam">
+          <ul class="max-h-36 overflow-y-auto rounded-lg border border-white/10 bg-white/5 light:border-zinc-900/10 light:bg-white" aria-label={t("Risultati Steam", $language)}>
             {#each searchResults as result (result.steamAppId)}
               <li>
                 <button type="button" class="flex h-12 w-full items-center px-3 text-left text-sm text-zinc-200 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white light:text-zinc-800 light:hover:bg-zinc-900/5 light:focus-visible:outline-zinc-900"
@@ -232,18 +234,18 @@
           </ul>
         {/if}
         {#if previewPending}
-          <p class="text-xs text-zinc-400" role="status">Rilevamento del gioco su Steam...</p>
+          <p class="text-xs text-zinc-400" role="status">{t("Rilevamento del gioco su Steam...", $language)}</p>
         {:else if previewError !== null}
-          <p class="text-xs text-amber-300 light:text-amber-800">Rilevamento non disponibile: {previewError}</p>
+          <p class="text-xs text-amber-300 light:text-amber-800">{t("Rilevamento non disponibile: ", $language)}{previewError}</p>
         {:else if preview?.status === "no_match"}
-          <p class="text-xs text-zinc-500">Nessuna corrispondenza esatta. Cerca il gioco per nome.</p>
+          <p class="text-xs text-zinc-500">{t("Nessuna corrispondenza esatta. Cerca il gioco per nome.", $language)}</p>
         {:else if preview?.status === "unavailable"}
-          <p class="text-xs text-amber-300 light:text-amber-800">Rilevamento non disponibile: {preview.message ?? "riprova più tardi"}.</p>
+          <p class="text-xs text-amber-300 light:text-amber-800">{t("Rilevamento non disponibile: ", $language)}{preview.message ?? t("riprova più tardi", $language)}.</p>
         {:else if preview?.status === "matched"}
-          <p class="text-xs text-emerald-300 light:text-emerald-700">Gioco Steam rilevato automaticamente. Puoi cambiarlo con la ricerca.</p>
+          <p class="text-xs text-emerald-300 light:text-emerald-700">{t("Gioco Steam rilevato automaticamente. Puoi cambiarlo con la ricerca.", $language)}</p>
         {/if}
         {#if preview?.status === "ambiguous"}
-          <div class="flex flex-wrap gap-2" aria-label="Corrispondenze Steam">
+          <div class="flex flex-wrap gap-2" aria-label={t("Corrispondenze Steam", $language)}>
             {#each preview.candidates as candidate (candidate.steamAppId)}
               <Button label={candidate.name} variant="secondary" disabled={pending || added} onClick={() => selectSteamGame(candidate)} />
             {/each}
@@ -255,23 +257,21 @@
               <SteamArtwork steamAppId={parsedAppId} asset="header" version={detailsState?.cachedAt ?? null} caption={false} alt="" class="size-full object-cover" />
             </div>
             <div class="min-w-0">
-              <p class="truncate text-sm font-medium text-zinc-100 light:text-zinc-900">{details?.name ?? selectedSteamGame?.name ?? "Gioco Steam"}</p>
-              <p class="text-xs text-zinc-500">Gioco selezionato</p>
-              {#if detailsState?.status === "error"}<p class="text-xs text-amber-300 light:text-amber-800">Copertina non disponibile.</p>{/if}
+              <p class="truncate text-sm font-medium text-zinc-100 light:text-zinc-900">{details?.name ?? selectedSteamGame?.name ?? t("Gioco Steam", $language)}</p>
+              <p class="text-xs text-zinc-500">{t("Gioco selezionato", $language)}</p>
+              {#if detailsState?.status === "error"}<p class="text-xs text-amber-300 light:text-amber-800">{t("Copertina non disponibile.", $language)}</p>{/if}
             </div>
           </div>
         {/if}
       </div>
     {:else}
-      <button type="button" class="self-start text-sm text-zinc-400 underline-offset-2 hover:text-zinc-100 hover:underline light:text-zinc-600 light:hover:text-zinc-900" onclick={() => (showSteamOnly = true)}>
-        Non hai un eseguibile? Cerca il gioco su Steam
-      </button>
+      <button type="button" class="self-start text-sm text-zinc-400 underline-offset-2 hover:text-zinc-100 hover:underline light:text-zinc-600 light:hover:text-zinc-900" onclick={() => (showSteamOnly = true)}>{t("\n        Non hai un eseguibile? Cerca il gioco su Steam\n      ", $language)}</button>
     {/if}
 
     {#if actionError !== null}<ErrorBanner message={actionError} />{/if}
     <div class="flex justify-end gap-2">
-      <Button label={added ? "Chiudi" : "Annulla"} variant="secondary" onClick={close} />
-      {#if !added}<Button label={pending ? "Aggiunta in corso..." : "Aggiungi alla libreria"} disabled={!canAdd} onClick={() => void add()} />{/if}
+      <Button label={added ? t("Chiudi", $language) : t("Annulla", $language)} variant="secondary" onClick={close} />
+      {#if !added}<Button label={pending ? t("Aggiunta in corso...", $language) : t("Aggiungi alla libreria", $language)} disabled={!canAdd} onClick={() => void add()} />{/if}
     </div>
   </div>
 </Dialog>

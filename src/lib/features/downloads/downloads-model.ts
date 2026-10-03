@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { type DownloadJob } from "../../services/downloads";
 
 const PROCESSING = ["downloading", "downloaded", "staging", "staged", "finalizing"];
@@ -57,13 +58,13 @@ export function statusBadge(status: string): string {
   const labels: Record<string, string> = {
     queued: "In coda",
     downloading: "Scaricamento",
-    waiting: "In attesa",
-    paused: "In pausa",
-    failed: "Errore",
+    waiting: t("In attesa", undefined),
+    paused: t("In pausa", undefined),
+    failed: t("Errore", undefined),
     downloaded: "Verifica",
-    staging: "Estrazione",
+    staging: t("Estrazione", undefined),
     staged: "Pronto",
-    finalizing: "Installazione",
+    finalizing: t("Installazione", undefined),
     installed: "Completato",
     cancelled: "Annullato",
   };
@@ -102,7 +103,7 @@ export function formatEta(seconds: number | null): string {
   return `${hours}h ${minutes % 60}m`;
 }
 
-export function requiredBytes(jobs: DownloadJob[]): number {
+export function downloadBytes(jobs: DownloadJob[]): number {
   return jobs.reduce((total, job) => total + job.sizeBytes, 0);
 }
 

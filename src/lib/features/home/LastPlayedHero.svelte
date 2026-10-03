@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import type { Game } from "../../services/local-state";
-  import { gameArtworkRevision, getGameBanner } from "../../services/game-artwork";
+  import { gameArtworkRevision, acquireGameArtwork } from "../../services/game-artwork";
   import { ensureSteamDetails, loadSteamDetails, steamDetails } from "../../stores/steam-details";
   import { abortGameLaunch, cancelPendingGameId, launchStateByGame, pendingGameId, playGame, stopGameProcess } from "../../stores/launch";
   import { openGame } from "../../stores/navigation";
@@ -13,29 +14,24 @@
   import SteamArtwork from "../library/SteamArtwork.svelte";
 
   let { game, onSettings }: { game: Game; onSettings: () => void } = $props();
+  const artworkGameId = $derived(game.id);
   const steamAppId = $derived(game.steamAppId);
   const detailsState = $derived(steamAppId === null ? null : $steamDetails[steamAppId]);
   const launch = $derived($launchStateByGame.get(game.id));
   let bannerUrl = $state<string | null>(null);
   let artworkError = $state<string | null>(null);
 
-  $effect(() => { if (steamAppId !== null) ensureSteamDetails(steamAppId); });
+  $effect(() => { void $language; if (steamAppId !== null) ensureSteamDetails(steamAppId); });
   $effect(() => {
-    const id = game.id;
-    void $gameArtworkRevision;
+    const id = artworkGameId;
+    void $gameArtworkRevision[`${id}:banner`];
+    const artwork = acquireGameArtwork(id, "banner");
     let cancelled = false;
-    let objectUrl: string | null = null;
-    bannerUrl = null;
+    bannerUrl = artwork.url;
     artworkError = null;
-    void getGameBanner(id).then((banner) => {
-      if (cancelled || banner === null) return;
-      objectUrl = URL.createObjectURL(new Blob([Uint8Array.from(banner.bytes)], { type: banner.contentType }));
-      bannerUrl = objectUrl;
-    }, (error: unknown) => { if (!cancelled) artworkError = toMessage(error); });
-    return () => {
-      cancelled = true;
-      if (objectUrl !== null) URL.revokeObjectURL(objectUrl);
-    };
+    void artwork.ready.then((url) => { if (!cancelled) bannerUrl = url; },
+      (error: unknown) => { if (!cancelled) artworkError = toMessage(error); });
+    return () => { cancelled = true; artwork.release(); };
   });
 </script>
 
@@ -51,14 +47,14 @@
     <GameLogo {game} class="h-24 w-auto max-w-full object-contain object-center sm:h-32 lg:h-40" />
   </div>
   <div class="flex shrink-0 flex-wrap items-center justify-center gap-2">
-    <Button label={`Informazioni su ${game.name}`} variant="secondary" circle onClick={() => openGame(game.id)} class="!bg-zinc-950/60 hover:!bg-zinc-950/75"><Icon name="info" /></Button>
-    <GameLaunchControls {game} {launch} playLabel="Continua a giocare" variant="primary" class="rounded-full! px-5"
+    <Button label={t("Informazioni su {0}", $language, [game.name])} variant="secondary" circle onClick={() => openGame(game.id)} class="!bg-zinc-950/60 hover:!bg-zinc-950/75"><Icon name="info" /></Button>
+    <GameLaunchControls {game} {launch} playLabel={t("Continua a giocare", $language)} variant="primary" class="rounded-full! px-5"
       actionPending={$pendingGameId === game.id} cancelPending={$cancelPendingGameId === game.id}
       onPlay={playGame} onCancel={abortGameLaunch} onStop={stopGameProcess} />
-    <Button label={`Impostazioni di ${game.name}`} variant="secondary" circle onClick={onSettings} class="!bg-zinc-950/60 hover:!bg-zinc-950/75"><Icon name="settings" /></Button>
+    <Button label={t("Impostazioni di {0}", $language, [game.name])} variant="secondary" circle onClick={onSettings} class="!bg-zinc-950/60 hover:!bg-zinc-950/75"><Icon name="settings" /></Button>
   </div>
 </section>
-{#if artworkError !== null}<ErrorBanner message={`Immagine del gioco: ${artworkError}`} />{/if}
+{#if artworkError !== null}<ErrorBanner message={t("Immagine del gioco: {0}", $language, [artworkError])} />{/if}
 {#if detailsState?.error && steamAppId !== null}
-  <ErrorBanner message={`Dettagli del gioco: ${detailsState.error}`} onRetry={() => { if (steamAppId !== null) void loadSteamDetails(steamAppId, false).catch(() => undefined); }} />
+  <ErrorBanner message={t("Dettagli del gioco: {0}", $language, [detailsState.error])} onRetry={() => { if (steamAppId !== null) void loadSteamDetails(steamAppId, false).catch(() => undefined); }} />
 {/if}

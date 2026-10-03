@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import {
     canCancelDownload,
     canFinalizeDownload,
@@ -133,14 +134,13 @@
           <p class="min-w-0 truncate font-medium text-zinc-50 light:text-zinc-900">{job.name}</p>
           <Badge tone={statusTone(job.status)} title={statusBadge(job.status)} />
         </div>
-        <p class="mt-0.5 truncate text-xs text-zinc-400 light:text-zinc-600">
-          Versione {job.releaseVersion} · {formatBytes(job.sizeBytes)}{#if phase !== null} · {phase}{/if}
+        <p class="mt-0.5 truncate text-xs text-zinc-400 light:text-zinc-600">{t("\n          Versione ", $language)}{job.releaseVersion} · {formatBytes(job.sizeBytes)}{#if phase !== null} · {phase}{/if}
         </p>
         {#if job.downloadedBytes > 0}
           <ProgressBar
             value={progressOf(job)}
             tone={barTone(job)}
-            label="Avanzamento di {job.name}"
+            label="{t("Avanzamento di ", $language)}{job.name}"
             class="mt-2 h-1.5"
           />
         {/if}
@@ -152,7 +152,7 @@
       <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
         {#if canFinalizeDownload(job.status)}
           <Button
-            label="Installa"
+            label={t("Installa", $language)}
             variant="primary"
             class="h-8! px-3! text-xs!"
             disabled={busyJob === job.id}
@@ -161,7 +161,7 @@
         {/if}
         {#if canPauseDownload(job.status)}
           <Button
-            label="Pausa"
+            label={t("Pausa", $language)}
             variant="secondary"
             class="h-8! px-3! text-xs!"
             disabled={busyJob === job.id}
@@ -170,7 +170,7 @@
         {/if}
         {#if canResumeDownload(job.status)}
           <Button
-            label="Riprendi"
+            label={t("Riprendi", $language)}
             variant="secondary"
             class="h-8! px-3! text-xs!"
             disabled={busyJob === job.id}
@@ -179,7 +179,7 @@
         {/if}
         {#if canRetryDownload(job.status)}
           <Button
-            label="Riprova"
+            label={t("Riprova", $language)}
             variant="primary"
             class="h-8! px-3! text-xs!"
             disabled={busyJob === job.id}
@@ -188,7 +188,7 @@
         {/if}
         {#if canCancelDownload(job.status)}
           <Button
-            label="Annulla"
+            label={t("Annulla", $language)}
             variant="danger"
             class="h-8! px-3! text-xs!"
             disabled={busyJob === job.id}
@@ -197,7 +197,7 @@
         {/if}
         {#if canRemoveDownload(job.status)}
           <Button
-            label="Rimuovi"
+            label={t("Rimuovi", $language)}
             variant="secondary"
             class="h-8! px-3! text-xs!"
             disabled={busyJob === job.id}
@@ -213,8 +213,8 @@
           <button
             type="button"
             class="flex size-5 items-center justify-center rounded text-zinc-500 transition-colors duration-200 hover:bg-white/10 hover:text-zinc-200 disabled:opacity-30 disabled:hover:bg-transparent light:text-zinc-400 light:hover:bg-zinc-200 light:hover:text-zinc-800"
-            aria-label="Sposta {job.name} in alto"
-            title="Sposta in alto"
+            aria-label="{t("Sposta ", $language)}{job.name}{t(" in alto", $language)}"
+            title={t("Sposta in alto", $language)}
             disabled={index === 0 || busyJob !== null}
             onclick={() => move(index, index - 1)}
           >
@@ -223,8 +223,8 @@
           <button
             type="button"
             class="flex size-5 items-center justify-center rounded text-zinc-500 transition-colors duration-200 hover:bg-white/10 hover:text-zinc-200 disabled:opacity-30 disabled:hover:bg-transparent light:text-zinc-400 light:hover:bg-zinc-200 light:hover:text-zinc-800"
-            aria-label="Sposta {job.name} in basso"
-            title="Sposta in basso"
+            aria-label="{t("Sposta ", $language)}{job.name}{t(" in basso", $language)}"
+            title={t("Sposta in basso", $language)}
             disabled={index === jobs.length - 1 || busyJob !== null}
             onclick={() => move(index, index + 1)}
           >

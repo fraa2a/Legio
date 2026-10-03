@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "./lib/i18n";
   import { onMount } from "svelte";
   import Sidebar from "./lib/components/layout/Sidebar.svelte";
   import MainContainer from "./lib/components/layout/MainContainer.svelte";
@@ -56,12 +57,12 @@
 
 {#if $updateState.version && !updateDismissed}
   <div class="fixed right-5 bottom-5 z-50 flex max-w-sm items-center gap-3 rounded-xl bg-zinc-800 p-4 text-sm text-white shadow-xl light:bg-white light:text-zinc-900" role="status">
-    <span>Legio {$updateState.version} disponibile.{#if $updateState.aur} Aggiorna tramite AUR.{/if}</span>
+    <span>Legio {$updateState.version}{t(" disponibile.", $language)}{#if $updateState.aur}{t("Aggiorna tramite AUR.", $language)}{/if}</span>
     {#if !$updateState.aur}
       <button type="button" class="rounded-lg bg-white px-3 py-2 text-zinc-900 disabled:opacity-50 light:bg-zinc-900 light:text-white" disabled={$updateState.installing} onclick={() => void installAppUpdate()}>
-        {$updateState.installing ? "Installazione..." : "Aggiorna"}
+        {$updateState.installing ? t("Installazione...", $language) : t("Aggiorna", $language)}
       </button>
     {/if}
-    <button type="button" class="text-zinc-400 hover:text-white light:hover:text-zinc-900" aria-label="Chiudi avviso aggiornamento" onclick={() => (updateDismissed = true)}>Chiudi</button>
+    <button type="button" class="text-zinc-400 hover:text-white light:hover:text-zinc-900" aria-label={t("Chiudi avviso aggiornamento", $language)} onclick={() => (updateDismissed = true)}>{t("Chiudi", $language)}</button>
   </div>
 {/if}

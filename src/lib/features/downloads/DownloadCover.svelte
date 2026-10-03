@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { language } from "../../i18n";
   import { ensureSteamDetails, steamDetails } from "../../stores/steam-details";
   import SteamArtwork from "../library/SteamArtwork.svelte";
 
@@ -17,7 +18,7 @@
   const details = $derived(detailsState?.details ?? null);
 
   $effect(() => {
-    if (steamAppId !== null) ensureSteamDetails(steamAppId);
+    void $language; if (steamAppId !== null) ensureSteamDetails(steamAppId);
   });
 </script>
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import type { Game } from "../../services/local-state";
   import type { GameLaunchState } from "../../services/steam-accounts";
   import Button from "../../components/ui/Button.svelte";
@@ -10,7 +11,7 @@
     actionPending = false,
     cancelPending = false,
     variant = "secondary",
-    playLabel = "GIOCA",
+    playLabel = t("GIOCA", $language),
     circle = false,
     revealOnHover = false,
     class: className = "",

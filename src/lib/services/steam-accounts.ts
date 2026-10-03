@@ -26,10 +26,6 @@ export function setGameSteamAccountPreference(gameId: string, steamId: string | 
   return invoke<Game>("set_game_steam_account_preference", { gameId, steamId });
 }
 
-export function checkGameSteamAccount(gameId: string): Promise<SteamAccountCheck> {
-  return invoke<SteamAccountCheck>("check_game_steam_account", { gameId });
-}
-
 export interface SteamLaunchResult {
   gameId: string;
   steamAppId: number;

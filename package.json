@@ -12,7 +12,8 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "lint": "eslint .",
     "test:home": "node --experimental-strip-types --test scripts/test_home.mjs",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:regressions": "node --test scripts/test_regressions.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.0",

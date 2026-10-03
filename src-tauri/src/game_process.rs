@@ -57,11 +57,6 @@ pub(crate) fn matching_pids(target: &ProcessTarget) -> Result<Vec<u32>, String> 
             ),
         }
     }
-    #[cfg(not(any(target_os = "linux", windows)))]
-    {
-        let _ = target;
-        Err("Game process inspection is unsupported on this platform".to_owned())
-    }
 }
 
 pub(crate) fn stop(target: &ProcessTarget) -> Result<(), String> {
@@ -463,11 +458,6 @@ fn stop_native_pid(pid: u32) -> Result<(), String> {
     } else {
         Err(format!("Could not stop game process {pid}: {status}"))
     }
-}
-
-#[cfg(not(any(target_os = "linux", windows)))]
-fn stop_pid(_pid: u32) -> Result<(), String> {
-    Err("Stopping games is unsupported on this platform".to_owned())
 }
 
 #[cfg(test)]

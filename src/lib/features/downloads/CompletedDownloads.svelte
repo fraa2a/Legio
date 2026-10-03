@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import type { DownloadJob } from "../../services/downloads";
   import Badge from "../../components/ui/Badge.svelte";
   import Button from "../../components/ui/Button.svelte";
@@ -22,7 +23,7 @@
   } = $props();
 
   function completedOn(job: DownloadJob): string {
-    return new Date(job.updatedAt * 1000).toLocaleDateString("it-IT", {
+    return new Date(job.updatedAt * 1000).toLocaleDateString(undefined, {
       day: "numeric",
       month: "short",
       year: "numeric",
@@ -40,14 +41,13 @@
           <p class="min-w-0 truncate font-medium text-zinc-50 light:text-zinc-900">{job.name}</p>
           <Badge tone={statusTone(job.status)} title={statusBadge(job.status)} />
         </div>
-        <p class="mt-0.5 truncate text-xs text-zinc-400 light:text-zinc-600">
-          Versione {job.releaseVersion} · {formatBytes(job.sizeBytes)} · {completedOn(job)}
+        <p class="mt-0.5 truncate text-xs text-zinc-400 light:text-zinc-600">{t("\n          Versione ", $language)}{job.releaseVersion} · {formatBytes(job.sizeBytes)} · {completedOn(job)}
         </p>
         {#if job.status === "installed"}
           <ProgressBar
             value={progressOf(job)}
             tone="success"
-            label="Avanzamento di {job.name}"
+            label="{t("Avanzamento di ", $language)}{job.name}"
             class="mt-2 h-1.5"
           />
         {/if}
@@ -59,7 +59,7 @@
       <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
         {#if job.status === "installed"}
           <Button
-            label="Gioca"
+            label={t("Gioca", $language)}
             variant="play"
             class="h-8! px-3! text-xs!"
             disabled={!canPlay(job)}
@@ -67,7 +67,7 @@
           />
         {/if}
         <Button
-          label="Rimuovi"
+          label={t("Rimuovi", $language)}
           variant="secondary"
           class="h-8! px-3! text-xs!"
           disabled={busyJob === job.id}

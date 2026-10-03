@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import { onMount } from "svelte";
   import Button from "../../components/ui/Button.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
@@ -41,13 +42,13 @@
           <LastPlayedHero game={lastPlayed.game} onSettings={() => settingsGameId = lastPlayed?.game.id ?? null} />
         {/key}
       {:else if loading}
-        <StateBlock status="loading" error={null} loadingMessage="Caricamento dell'ultima partita..." />
+        <StateBlock status="loading" error={null} loadingMessage={t("Caricamento dell'ultima partita...", $language)} />
       {:else}
         <section class="flex min-h-0 flex-1 flex-col items-start justify-center gap-4 overflow-hidden rounded-2xl bg-zinc-900 p-8 light:bg-zinc-100">
           <Icon name="play" size="size-10 text-legio-activity" />
-          <h1 class="text-3xl font-semibold text-zinc-50 light:text-zinc-900">La tua prossima partita ti aspetta</h1>
-          <p class="max-w-xl text-sm text-zinc-400 light:text-zinc-600">Avvia un gioco dalla libreria. Qui troverai l'ultima partita e la tua attività di gioco.</p>
-          <Button label="Apri la libreria" variant="secondary" onClick={() => selectSection('library')} />
+          <h1 class="text-3xl font-semibold text-zinc-50 light:text-zinc-900">{t("La tua prossima partita ti aspetta", $language)}</h1>
+          <p class="max-w-xl text-sm text-zinc-400 light:text-zinc-600">{t("Avvia un gioco dalla libreria. Qui troverai l'ultima partita e la tua attività di gioco.", $language)}</p>
+          <Button label={t("Apri la libreria", $language)} variant="secondary" onClick={() => selectSection('library')} />
         </section>
       {/if}
     </div>
@@ -62,8 +63,8 @@
 
   <section class="rounded-2xl bg-zinc-900 p-4 light:bg-zinc-100" aria-labelledby="recent-title">
     <div class="mb-2.5 flex flex-wrap items-center justify-between gap-2.5">
-      <h2 id="recent-title" class="text-lg font-medium text-zinc-50 light:text-zinc-900">Giocati di recente</h2>
-      <Button label="Libreria" variant="secondary" onClick={() => selectSection('library')} />
+      <h2 id="recent-title" class="text-lg font-medium text-zinc-50 light:text-zinc-900">{t("Giocati di recente", $language)}</h2>
+      <Button label={t("Libreria", $language)} variant="secondary" onClick={() => selectSection('library')} />
     </div>
     {#if recent.length > 1}
       <ul class="grid auto-rows-max grid-cols-2 gap-2.5 sm:grid-cols-3">
@@ -80,7 +81,7 @@
         {/each}
       </ul>
     {:else}
-      <p class="py-4 text-sm text-zinc-400 light:text-zinc-600">Gli altri giochi avviati di recente compariranno qui.</p>
+      <p class="py-4 text-sm text-zinc-400 light:text-zinc-600">{t("Gli altri giochi avviati di recente compariranno qui.", $language)}</p>
     {/if}
   </section>
 </div>
@@ -89,11 +90,11 @@
   <GameSettingsDialog game={settingsGame} onClose={() => settingsGameId = null} onRemoved={() => settingsGameId = null} />
 {/if}
 {#if $accountSwitchGame !== null}
-  <Dialog open title="Cambio account Steam" onClose={dismissAccountSwitch}>
-    <p class="text-sm text-zinc-300 light:text-zinc-700">Steam deve essere chiuso e riavviato per usare l'account salvato di {$accountSwitchGame.name}. Procedere?</p>
+  <Dialog open title={t("Cambio account Steam", $language)} onClose={dismissAccountSwitch}>
+    <p class="text-sm text-zinc-300 light:text-zinc-700">{t("Steam deve essere chiuso e riavviato per usare l'account salvato di ", $language)}{$accountSwitchGame.name}{t(". Procedere?", $language)}</p>
     <div class="flex justify-end gap-2">
-      <Button label="Annulla" variant="secondary" onClick={dismissAccountSwitch} />
-      <Button label="Riavvia e avvia" onClick={() => void confirmAccountSwitch()} />
+      <Button label={t("Annulla", $language)} variant="secondary" onClick={dismissAccountSwitch} />
+      <Button label={t("Riavvia e avvia", $language)} onClick={() => void confirmAccountSwitch()} />
     </div>
   </Dialog>
 {/if}
