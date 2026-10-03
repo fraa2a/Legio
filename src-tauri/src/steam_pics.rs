@@ -11,7 +11,8 @@ use steam_client::{AppsEvent, LogOnDetails, SteamClient, SteamEvent, utils::vdf:
 use tokio::io::AsyncReadExt;
 
 const CDN: &str = "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps";
-const COMMUNITY_ICON_CDN: &str = "https://shared.fastly.steamstatic.com/community_assets/images/apps";
+const COMMUNITY_ICON_CDN: &str =
+    "https://shared.fastly.steamstatic.com/community_assets/images/apps";
 const MAX_METADATA_BYTES: u64 = 16 * 1024;
 const FRESH_FOR: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -20,14 +21,13 @@ pub(crate) struct PicsAssets(BTreeMap<String, String>);
 
 impl PicsAssets {
     pub(crate) fn url(&self, app_id: u32, filename: &str) -> Option<String> {
-        let path = self
-            .0
-            .get(filename)
-            .or_else(|| (filename == "clienticon.ico").then(|| self.0.get("clienticon.jpg")).flatten())?;
+        let path = self.0.get(filename).or_else(|| {
+            (filename == "clienticon.ico")
+                .then(|| self.0.get("clienticon.jpg"))
+                .flatten()
+        })?;
         if filename == "clienticon.ico" {
-            valid_hash(path).then(|| format!(
-                "{COMMUNITY_ICON_CDN}/{app_id}/{path}.ico"
-            ))
+            valid_hash(path).then(|| format!("{COMMUNITY_ICON_CDN}/{app_id}/{path}.ico"))
         } else {
             valid_asset_path(path, filename).then(|| format!("{CDN}/{app_id}/{path}"))
         }
@@ -281,16 +281,12 @@ mod tests {
         );
         assert!(assets.url(4656000, "library_hero.jpg").is_none());
         assert_eq!(
-            assets
-                .url(4656000, "clienticon.ico"),
+            assets.url(4656000, "clienticon.ico"),
             Some(format!("{COMMUNITY_ICON_CDN}/4656000/{hash}.ico"))
         );
         assert_eq!(
-            PicsAssets(BTreeMap::from([(
-                "clienticon.jpg".into(),
-                hash.into(),
-            )]))
-            .url(4656000, "clienticon.ico"),
+            PicsAssets(BTreeMap::from([("clienticon.jpg".into(), hash.into(),)]))
+                .url(4656000, "clienticon.ico"),
             Some(format!("{COMMUNITY_ICON_CDN}/4656000/{hash}.ico"))
         );
         assert!(
