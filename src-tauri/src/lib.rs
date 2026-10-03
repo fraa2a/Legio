@@ -21,6 +21,7 @@ mod game_lifecycle;
 mod game_process;
 mod game_transfer;
 mod image_format;
+mod image_trim;
 mod installed_folder;
 pub mod legio_source;
 mod legio_source_cache;
@@ -273,7 +274,9 @@ pub fn run() -> tauri::Result<()> {
             download_queue::get_download_bandwidth_limit,
             download_queue::remove_download,
             download_queue::remove_finished_downloads,
+            download_queue::reorder_downloads,
             installed_folder::open_installed_folder,
+            installed_folder::get_installed_folder_info,
             commands::refresh_legio_source,
             commands::check_steam_connectivity,
             commands::search_catalog,

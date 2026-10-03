@@ -44,7 +44,7 @@
 
 <div class="flex h-dvh select-none bg-black light:bg-zinc-200">
   <Sidebar />
-  <div class="flex min-w-0 flex-1 flex-col pl-2.5 pr-1.5 pb-1.5">
+  <div class="flex min-w-0 flex-1 flex-col pl-2.5 pr-2.5 pb-1.5">
     <TitleBar />
     <MainContainer />
   </div>

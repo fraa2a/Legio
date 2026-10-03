@@ -1,37 +1,50 @@
 <script lang="ts">
   import {
-    canCancelDownload,
-    canFinalizeDownload,
-    canPauseDownload,
-    canRemoveDownload,
-    canResumeDownload,
-    canRetryDownload,
-    describeDownloadStatus,
-    downloadProgressPercent,
-    isActiveDownloadStatus,
     type DownloadJob,
   } from "../../services/downloads";
-  import { toMessage } from "../../utils/errors";
-  import { formatBytes } from "../../utils/format";
-  import Badge from "../../components/ui/Badge.svelte";
   import Button from "../../components/ui/Button.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
-  import ProgressBar from "../../components/ui/ProgressBar.svelte";
+  import Panel from "../../components/ui/Panel.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
+  import { games } from "../../stores/games";
   import {
+    accountSwitchGame,
+    confirmAccountSwitch,
+    dismissAccountSwitch,
+    launchStateByGame,
+    pendingGameId,
+    playGame,
+  } from "../../stores/launch";
+  import { selectSection } from "../../stores/navigation";
+  import {
+    bandwidthLimit,
+    browseInstalledFolder,
     downloads,
     finishedDownloadCount,
-    orderedDownloads,
+    installedFolder,
     pauseJob,
     removeFinishedJobs,
     removeJob,
+    reorderJobs,
     resumeJob,
     retryJob,
   } from "../../stores/downloads";
   import { openStagedInstall, stagedInstall } from "../../stores/staged-install";
+  import { toMessage } from "../../utils/errors";
+  import ActiveDownloadCard from "./ActiveDownloadCard.svelte";
+  import CompletedDownloads from "./CompletedDownloads.svelte";
+  import DownloadList from "./DownloadList.svelte";
+  import SystemInfoPanel from "./SystemInfoPanel.svelte";
   import CancelDownloadDialog from "./CancelDownloadDialog.svelte";
   import StagedInstallDialog from "./StagedInstallDialog.svelte";
+  import {
+    activeSpeed,
+    isReorderable,
+    reorderPayload,
+    requiredBytes,
+    splitDownloads,
+  } from "./downloads-model";
 
   let actionError = $state<string | null>(null);
   let pendingJob = $state<string | null>(null);
@@ -39,25 +52,20 @@
   let removeTarget = $state<DownloadJob | null>(null);
   let clearingFinished = $state(false);
 
+  const sections = $derived(splitDownloads($downloads.data));
+  const pending = $derived(
+    [sections.primary, ...sections.processing, ...sections.queue].filter(
+      (job): job is DownloadJob => job !== null,
+    ),
+  );
+  const required = $derived(requiredBytes(pending));
+  const networkSpeed = $derived(activeSpeed(pending));
+  const queueOffset = $derived(
+    sections.primary !== null && isReorderable(sections.primary) ? 1 : 0,
+  );
   const installTarget = $derived(
     $downloads.data.find((job) => job.id === $stagedInstall.jobId) ?? null,
   );
-
-  const formatEta = (seconds: number | null): string => {
-    if (seconds === null) return "-";
-    if (seconds < 60) return `${seconds}s`;
-    const minutes = Math.floor(seconds / 60);
-    return `${minutes}m ${seconds % 60}s`;
-  };
-
-  const statusTone = (job: DownloadJob): "neutral" | "info" | "success" | "danger" | "warning" => {
-    if (job.status === "failed") return "danger";
-    if (job.status === "installed") return "success";
-    if (job.status === "cancelled") return "neutral";
-    if (isActiveDownloadStatus(job.status)) return "info";
-    if (job.status === "downloaded" || job.status === "staged") return "warning";
-    return "neutral";
-  };
 
   async function run(action: (id: string) => Promise<void>, job: DownloadJob): Promise<void> {
     actionError = null;
@@ -89,113 +97,159 @@
       clearingFinished = false;
     }
   }
+
+  async function applyReorder(ids: string[]): Promise<void> {
+    actionError = null;
+    try {
+      await reorderJobs(ids);
+    } catch (error) {
+      actionError = toMessage(error);
+      await downloads.load();
+    }
+  }
+
+  function queueReordered(ids: string[]): void {
+    const ordered = ids
+      .map((id) => sections.queue.find((job) => job.id === id))
+      .filter((job): job is DownloadJob => job !== undefined);
+    void applyReorder(reorderPayload(sections.primary, ordered));
+  }
+
+  function play(job: DownloadJob): void {
+    const game = $games.data.find((item) => item.steamAppId === job.steamAppId);
+    if (game === undefined) {
+      actionError = `${job.name} non è presente in libreria.`;
+      return;
+    }
+    actionError = null;
+    void playGame(game);
+  }
+
+  const canPlay = (job: DownloadJob): boolean => {
+    const game = $games.data.find((item) => item.steamAppId === job.steamAppId);
+    if (game === undefined) return false;
+    const launch = $launchStateByGame.get(game.id);
+    return $pendingGameId === null && (launch === undefined || launch.status === "idle");
+  };
 </script>
 
-{#if actionError}
-  <div class="mb-4">
+<div class="flex min-h-full flex-col gap-4">
+  {#if actionError !== null}
     <ErrorBanner message={actionError} />
-  </div>
-{/if}
+  {/if}
 
-<StateBlock
-  status={$downloads.status}
-  hasData={$downloads.data.length > 0}
-  emptyMessage="Nessun download in coda."
-  error={$downloads.error}
-  onRetry={() => void downloads.load()}
-/>
+  <StateBlock
+    status={$downloads.status}
+    hasData={$downloads.data.length > 0}
+    loadingMessage="Caricamento dei download..."
+    error={$downloads.error}
+    onRetry={() => void downloads.load()}
+  />
 
-{#if $downloads.data.length > 0}
-  {#if $finishedDownloadCount > 0}
-    <div class="mb-4 flex justify-end">
-      <Button
-        label="Rimuovi completati ({$finishedDownloadCount})"
-        variant="secondary"
-        disabled={clearingFinished || pendingJob !== null}
-        onClick={() => void clearFinished()}
+  {#if $downloads.status === "empty"}
+    <section class="flex flex-col items-start justify-center gap-4 rounded-2xl bg-white/5 p-8 light:bg-zinc-100">
+      <h2 class="text-lg font-medium text-zinc-50 light:text-zinc-900">Nessun download</h2>
+      <Button label="Sfoglia lo store" variant="primary" onClick={() => selectSection("store")} />
+    </section>
+  {/if}
+
+  {#if $downloads.data.length > 0}
+    <div class="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_17rem]">
+      <div class="flex min-w-0 flex-col gap-4">
+        {#if sections.primary !== null}
+          {@const primary = sections.primary}
+          {#key primary.id}
+            <ActiveDownloadCard
+              job={primary}
+              busy={pendingJob === primary.id}
+              onPause={() => void run(pauseJob, primary)}
+              onResume={() => void run(resumeJob, primary)}
+              onRetry={() => void run(retryJob, primary)}
+              onCancel={() => (cancelTarget = primary)}
+              onRemove={() => (removeTarget = primary)}
+              onInstall={() => openStagedInstall(primary.id)}
+            />
+          {/key}
+        {/if}
+
+        {#if sections.processing.length > 0}
+          <Panel title="In corso">
+            <DownloadList
+              jobs={sections.processing}
+              busyJob={pendingJob}
+              onPause={(job) => void run(pauseJob, job)}
+              onResume={(job) => void run(resumeJob, job)}
+              onRetry={(job) => void run(retryJob, job)}
+              onCancel={(job) => (cancelTarget = job)}
+              onRemove={(job) => (removeTarget = job)}
+              onInstall={(job) => openStagedInstall(job.id)}
+            />
+          </Panel>
+        {/if}
+
+        {#if sections.queue.length > 0}
+          <Panel title="Coda download">
+            {#snippet actions()}
+              <span class="text-xs text-zinc-500 light:text-zinc-500">
+                {sections.queue.length} in attesa
+              </span>
+            {/snippet}
+            <DownloadList
+              jobs={sections.queue}
+              reorder
+              positions
+              positionOffset={queueOffset}
+              busyJob={pendingJob}
+              onReorder={queueReordered}
+              onPause={(job) => void run(pauseJob, job)}
+              onResume={(job) => void run(resumeJob, job)}
+              onRetry={(job) => void run(retryJob, job)}
+              onCancel={(job) => (cancelTarget = job)}
+              onRemove={(job) => (removeTarget = job)}
+              onInstall={(job) => openStagedInstall(job.id)}
+            />
+          </Panel>
+        {/if}
+
+        {#if sections.finished.length > 0}
+          <Panel title="Completati">
+            {#snippet actions()}
+              {#if $finishedDownloadCount > 0}
+                <Button
+                  label="Rimuovi completati ({$finishedDownloadCount})"
+                  variant="secondary"
+                  class="h-8! px-3! text-xs!"
+                  disabled={clearingFinished || pendingJob !== null}
+                  onClick={() => void clearFinished()}
+                />
+              {/if}
+            {/snippet}
+            <CompletedDownloads
+              jobs={sections.finished}
+              busyJob={pendingJob}
+              {canPlay}
+              onPlay={play}
+              onRemove={(job) => (removeTarget = job)}
+            />
+          </Panel>
+        {/if}
+      </div>
+
+      <SystemInfoPanel
+        folder={$installedFolder.data}
+        status={$installedFolder.status}
+        error={$installedFolder.error}
+        requiredBytes={required}
+        speedBps={networkSpeed}
+        bandwidthLimit={$bandwidthLimit.data}
+        onRetry={() => void installedFolder.load()}
+        onOpenFolder={() => void browseInstalledFolder()}
       />
     </div>
   {/if}
+</div>
 
-  <ul class="flex flex-col gap-3">
-    {#each $orderedDownloads as job (job.id)}
-      <li class="flex flex-col gap-3 rounded-xl bg-white/5 p-4 light:bg-zinc-100">
-        <div class="flex flex-wrap items-center gap-3">
-          <p class="min-w-0 flex-1 truncate font-medium text-zinc-50 light:text-zinc-900">{job.name}</p>
-          <Badge tone={statusTone(job)} title={describeDownloadStatus(job.status)} />
-        </div>
-
-        <ProgressBar value={downloadProgressPercent(job)} label="Avanzamento di {job.name}" />
-
-        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-400 light:text-zinc-600">
-          <span>Versione {job.releaseVersion}</span>
-          <span>{formatBytes(job.downloadedBytes)} / {formatBytes(job.sizeBytes)}</span>
-          {#if job.status === "downloading" || job.status === "queued" || job.status === "waiting"}
-            <span>{formatBytes(job.speedBps)}/s</span>
-            <span>Stima {formatEta(job.etaSeconds)}</span>
-          {/if}
-        </div>
-
-        {#if job.error}
-          <p class="text-xs text-red-300 light:text-red-700" role="alert">{job.error}</p>
-        {/if}
-
-        <div class="flex flex-wrap gap-2">
-          {#if canFinalizeDownload(job.status)}
-            <Button
-              label="Installa"
-              variant="primary"
-              disabled={pendingJob === job.id}
-              onClick={() => void openStagedInstall(job.id)}
-            />
-          {/if}
-          {#if canPauseDownload(job.status)}
-            <Button
-              label="Pausa"
-              variant="secondary"
-              disabled={pendingJob === job.id}
-              onClick={() => void run(pauseJob, job)}
-            />
-          {/if}
-          {#if canResumeDownload(job.status)}
-            <Button
-              label="Riprendi"
-              variant="secondary"
-              disabled={pendingJob === job.id}
-              onClick={() => void run(resumeJob, job)}
-            />
-          {/if}
-          {#if canRetryDownload(job.status)}
-            <Button
-              label="Riprova"
-              variant="secondary"
-              disabled={pendingJob === job.id}
-              onClick={() => void run(retryJob, job)}
-            />
-          {/if}
-          {#if canCancelDownload(job.status)}
-            <Button
-              label="Annulla"
-              variant="danger"
-              disabled={pendingJob === job.id}
-              onClick={() => (cancelTarget = job)}
-            />
-          {/if}
-          {#if canRemoveDownload(job.status)}
-            <Button
-              label="Rimuovi dalla coda"
-              variant="secondary"
-              disabled={pendingJob === job.id}
-              onClick={() => (removeTarget = job)}
-            />
-          {/if}
-        </div>
-      </li>
-    {/each}
-  </ul>
-{/if}
-
-{#if cancelTarget}
+{#if cancelTarget !== null}
   <CancelDownloadDialog
     open
     jobId={cancelTarget.id}
@@ -216,4 +270,16 @@
 
 {#if installTarget !== null}
   <StagedInstallDialog gameName={installTarget.name} status={installTarget.status} />
+{/if}
+
+{#if $accountSwitchGame !== null}
+  <Dialog open title="Cambio account Steam" onClose={dismissAccountSwitch}>
+    <p class="text-sm text-zinc-300 light:text-zinc-700">
+      Steam deve essere chiuso e riavviato per usare l'account salvato di {$accountSwitchGame.name}. Procedere?
+    </p>
+    <div class="flex justify-end gap-2">
+      <Button label="Annulla" variant="secondary" onClick={dismissAccountSwitch} />
+      <Button label="Riavvia e avvia" onClick={() => void confirmAccountSwitch()} />
+    </div>
+  </Dialog>
 {/if}

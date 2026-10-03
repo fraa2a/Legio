@@ -2,12 +2,22 @@
   let {
     value,
     label,
+    tone = "default",
     class: className = "",
   }: {
     value: number;
     label: string;
+    tone?: "default" | "accent" | "warning" | "danger" | "success";
     class?: string;
   } = $props();
+
+  const fillClass = $derived.by(() => {
+    if (tone === "accent") return "bg-legio-download";
+    if (tone === "warning") return "bg-amber-500";
+    if (tone === "danger") return "bg-red-500";
+    if (tone === "success") return "bg-emerald-500";
+    return "bg-zinc-100 light:bg-zinc-900";
+  });
 </script>
 
 <div
@@ -19,7 +29,7 @@
   aria-valuenow={Math.round(value)}
 >
   <div
-    class="h-full rounded-full bg-zinc-100 transition-[width] duration-300 light:bg-zinc-900"
+    class="h-full rounded-full transition-[width] duration-300 {fillClass}"
     style="width: {value}%"
   ></div>
 </div>
