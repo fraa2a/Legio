@@ -13,6 +13,13 @@ export interface DownloadJob {
   etaSeconds: number | null;
   status: string;
   error: string | null;
+  updatedAt: number;
+}
+
+export interface InstalledFolderInfo {
+  directory: string;
+  freeBytes: number;
+  totalBytes: number;
 }
 
 export interface StagedExecutableCandidate {
@@ -119,6 +126,10 @@ export function removeFinishedDownloads(): Promise<string[]> {
   return invoke<string[]>("remove_finished_downloads");
 }
 
+export function reorderDownloads(ids: string[]): Promise<void> {
+  return invoke<void>("reorder_downloads", { ids });
+}
+
 export function scanStagedExecutables(
   id: string,
   gameName: string | null,
@@ -140,4 +151,8 @@ export function setDownloadBandwidthLimit(bytesPerSecond: number): Promise<void>
 
 export function openInstalledFolder(): Promise<void> {
   return invoke<void>("open_installed_folder");
+}
+
+export function getInstalledFolderInfo(): Promise<InstalledFolderInfo> {
+  return invoke<InstalledFolderInfo>("get_installed_folder_info");
 }

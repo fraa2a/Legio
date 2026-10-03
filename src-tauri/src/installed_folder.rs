@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::process::Command;
 
+use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
 use crate::finalize_install;
@@ -38,6 +39,94 @@ const TERMINAL_IDS: &[&str] = &[
     "guake",
     "terminator",
 ];
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledFolderInfo {
+    directory: String,
+    free_bytes: u64,
+    total_bytes: u64,
+}
+
+#[tauri::command]
+pub fn get_installed_folder_info(app: AppHandle) -> Result<InstalledFolderInfo, String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Could not locate app data: {error}"))?;
+    let root = app
+        .state::<crate::database::DatabaseState>()
+        .database()?
+        .storage_root(&data_dir)?;
+    let directory = finalize_install::install_root(&root)?;
+    let (free_bytes, total_bytes) = disk_space(&directory)?;
+    Ok(InstalledFolderInfo {
+        directory: directory.to_string_lossy().into_owned(),
+        free_bytes,
+        total_bytes,
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn disk_space(path: &Path) -> Result<(u64, u64), String> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| "Install directory path contains an interior NUL byte".to_owned())?;
+    let mut stats: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(c_path.as_ptr(), &mut stats) } != 0 {
+        return Err(format!(
+            "Could not read free disk space: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    let block = block_count(stats.f_frsize);
+    Ok((
+        block_count(stats.f_bavail).saturating_mul(block),
+        block_count(stats.f_blocks).saturating_mul(block),
+    ))
+}
+
+#[cfg(target_pointer_width = "64")]
+fn block_count(value: libc::c_ulong) -> u64 {
+    value
+}
+
+#[cfg(not(target_pointer_width = "64"))]
+fn block_count(value: libc::c_ulong) -> u64 {
+    u64::from(value)
+}
+
+#[cfg(windows)]
+fn disk_space(path: &Path) -> Result<(u64, u64), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+
+    let directory: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut available = 0_u64;
+    let mut total = 0_u64;
+    let mut total_free = 0_u64;
+    let result = unsafe {
+        GetDiskFreeSpaceExW(
+            directory.as_ptr(),
+            &mut available,
+            &mut total,
+            &mut total_free,
+        )
+    };
+    if result == 0 {
+        return Err(format!(
+            "Could not read free disk space: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok((available, total))
+}
+
+#[cfg(not(any(target_os = "linux", windows)))]
+fn disk_space(_path: &Path) -> Result<(u64, u64), String> {
+    Err("Reading free disk space is unsupported on this platform".to_owned())
+}
 
 #[tauri::command]
 pub fn open_installed_folder(app: AppHandle) -> Result<(), String> {

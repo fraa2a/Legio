@@ -36,6 +36,7 @@ pub struct DownloadJob {
     eta_seconds: Option<u64>,
     status: String,
     error: Option<String>,
+    updated_at: i64,
 }
 
 #[derive(Debug)]
@@ -129,6 +130,7 @@ fn db_error(error: rusqlite::Error) -> String {
 
 fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DownloadJob> {
     let hash: String = row.get(10)?;
+    let updated_at: i64 = row.get(12)?;
     let app_id: i64 = row.get(1)?;
     let size: i64 = row.get(4)?;
     let downloaded: i64 = row.get(5)?;
@@ -155,6 +157,7 @@ fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DownloadJob> {
             .transpose()?,
         status: row.get(8)?,
         error: row.get(9)?,
+        updated_at,
     })
 }
 
@@ -163,7 +166,8 @@ fn list(database: &Database) -> Result<Vec<DownloadJob>, String> {
         let mut statement = connection
             .prepare(
                 "SELECT id, steam_app_id, name, release_version, size_bytes, downloaded_bytes,
-                    speed_bps, eta_seconds, status, error, sha256, url FROM downloads ORDER BY created_at, id",
+                    speed_bps, eta_seconds, status, error, sha256, url, updated_at
+                 FROM downloads ORDER BY queue_position, created_at, id",
             )
             .map_err(db_error)?;
         statement
@@ -226,12 +230,24 @@ pub fn enqueue(
     let id = Uuid::new_v4().to_string();
     let created = now()?;
     database.with_connection(|connection| {
-        connection.execute(
-            "INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256,
-             size_bytes, status, created_at, updated_at, source_verified) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'queued', ?8, ?8, ?9)",
-            params![id, app_id, entry.name, entry.release.version, entry.download.url,
-                entry.download.sha256.as_deref().unwrap_or(""), size, created, source_verified],
-        ).map_err(db_error)?;
+        connection
+            .execute(
+                "INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256,
+             size_bytes, status, created_at, updated_at, source_verified, queue_position)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'queued', ?8, ?8, ?9, ?8)",
+                params![
+                    id,
+                    app_id,
+                    entry.name,
+                    entry.release.version,
+                    entry.download.url,
+                    entry.download.sha256.as_deref().unwrap_or(""),
+                    size,
+                    created,
+                    source_verified
+                ],
+            )
+            .map_err(db_error)?;
         Ok(())
     })?;
     Ok(DownloadJob {
@@ -247,13 +263,14 @@ pub fn enqueue(
         eta_seconds: None,
         status: "queued".to_owned(),
         error: None,
+        updated_at: created,
     })
 }
 
 fn claim(database: &Database) -> Result<Option<Transfer>, String> {
     database.with_connection(|connection| {
         let row: Option<(String, String, String, i64, Option<String>)> = connection.query_row(
-            "SELECT id, name, url, size_bytes, etag FROM downloads WHERE status = 'queued' ORDER BY created_at, id LIMIT 1",
+            "SELECT id, name, url, size_bytes, etag FROM downloads WHERE status = 'queued' ORDER BY queue_position, created_at, id LIMIT 1",
             [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
         ).optional().map_err(db_error)?;
         let Some((id, name, url, size, etag)) = row else { return Ok(None); };
@@ -470,7 +487,7 @@ fn recover_staging(queue: &DownloadQueueState, database: &Database) -> Result<()
 fn downloaded_ids(database: &Database) -> Result<Vec<String>, String> {
     database.with_connection(|connection| {
         let mut statement = connection
-            .prepare("SELECT id FROM downloads WHERE status = 'downloaded' ORDER BY created_at, id")
+            .prepare("SELECT id FROM downloads WHERE status = 'downloaded' ORDER BY queue_position, created_at, id")
             .map_err(db_error)?;
         statement
             .query_map([], |row| row.get(0))
@@ -988,7 +1005,7 @@ pub async fn remove_finished_downloads(app: AppHandle) -> Result<Vec<String>, St
 fn finished_ids(database: &Database) -> Result<Vec<String>, String> {
     let placeholders = FINISHED.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
     let query = format!(
-        "SELECT id FROM downloads WHERE status IN ({placeholders}) ORDER BY created_at, id"
+        "SELECT id FROM downloads WHERE status IN ({placeholders}) ORDER BY queue_position, created_at, id"
     );
     database.with_connection(|connection| {
         let mut statement = connection.prepare(&query).map_err(db_error)?;
@@ -997,6 +1014,60 @@ fn finished_ids(database: &Database) -> Result<Vec<String>, String> {
             .map_err(db_error)?
             .collect::<Result<_, _>>()
             .map_err(db_error)
+    })
+}
+
+const REORDERABLE: [&str; 4] = ["queued", "paused", "waiting", "failed"];
+
+#[tauri::command]
+pub async fn reorder_downloads(app: AppHandle, ids: Vec<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        reorder(app.state::<DatabaseState>().database()?, &ids)
+    })
+    .await
+    .map_err(|error| format!("Reorder task failed: {error}"))?
+}
+
+fn reorder(database: &Database, ids: &[String]) -> Result<(), String> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let mut parsed = Vec::with_capacity(ids.len());
+    for id in ids {
+        let id = Uuid::parse_str(id)
+            .map_err(|_| "Download ID is invalid".to_owned())?
+            .to_string();
+        if parsed.contains(&id) {
+            return Err("The queue lists a download twice".to_owned());
+        }
+        parsed.push(id);
+    }
+    database.with_connection(|connection| {
+        for id in &parsed {
+            let status: Option<String> = connection
+                .query_row("SELECT status FROM downloads WHERE id = ?1", [id], |row| {
+                    row.get(0)
+                })
+                .optional()
+                .map_err(db_error)?;
+            let Some(status) = status else {
+                return Err("Download was not found".to_owned());
+            };
+            if !REORDERABLE.contains(&status.as_str()) {
+                return Err(format!("Cannot reorder a {status} download"));
+            }
+        }
+        for (index, id) in parsed.iter().enumerate() {
+            let position =
+                i64::try_from(index).map_err(|_| "The queue is too long to reorder".to_owned())?;
+            connection
+                .execute(
+                    "UPDATE downloads SET queue_position = ?2 WHERE id = ?1",
+                    params![id, position],
+                )
+                .map_err(db_error)?;
+        }
+        Ok(())
     })
 }
 
@@ -1136,6 +1207,58 @@ mod tests {
             )
             .is_err()
         );
+
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn reordering_rewrites_the_queue_order_and_worker_priority() {
+        let (database, directory) = database_with_source();
+        let first = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
+        let second = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
+
+        reorder(&database, &[second.id.clone(), first.id.clone()]).unwrap();
+        let ordered: Vec<String> = list(&database)
+            .unwrap()
+            .into_iter()
+            .map(|job| job.id)
+            .collect();
+        assert_eq!(ordered, vec![second.id.clone(), first.id.clone()]);
+
+        assert_eq!(claim(&database).unwrap().unwrap().id, second.id);
+        assert_eq!(
+            reorder(&database, &[first.id.clone(), second.id.clone()]).unwrap_err(),
+            "Cannot reorder a downloading download"
+        );
+        assert_eq!(
+            reorder(&database, &[first.id.clone(), first.id.clone()]).unwrap_err(),
+            "The queue lists a download twice"
+        );
+        assert_eq!(
+            reorder(&database, &["not-a-uuid".to_owned()]).unwrap_err(),
+            "Download ID is invalid"
+        );
+        let ordered: Vec<String> = list(&database)
+            .unwrap()
+            .into_iter()
+            .map(|job| job.id)
+            .collect();
+        assert_eq!(ordered, vec![second.id.clone(), first.id.clone()]);
 
         drop(database);
         fs::remove_dir_all(directory).unwrap();
@@ -1458,6 +1581,7 @@ mod tests {
                 connection
                     .execute_batch(
                         "ALTER TABLE downloads DROP COLUMN source_verified;
+                         ALTER TABLE downloads DROP COLUMN queue_position;
                          ALTER TABLE downloads DROP COLUMN install_token;
                          ALTER TABLE downloads DROP COLUMN executable_relative;
                          ALTER TABLE downloads DROP COLUMN final_path;

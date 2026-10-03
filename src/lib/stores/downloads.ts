@@ -2,6 +2,7 @@ import { derived, writable } from "svelte/store";
 import {
   cancelDownload,
   getDownloadBandwidthLimit,
+  getInstalledFolderInfo,
   isActiveDownloadStatus,
   isFinishedDownloadStatus,
   listDownloads,
@@ -10,10 +11,12 @@ import {
   queueDownload,
   removeDownload,
   removeFinishedDownloads,
+  reorderDownloads,
   resumeDownload,
   retryDownload,
   setDownloadBandwidthLimit,
   type DownloadJob,
+  type InstalledFolderInfo,
 } from "../services/downloads";
 import { toMessage } from "../utils/errors";
 import { createResource } from "./resource";
@@ -62,6 +65,12 @@ export const currentDownload = derived(orderedDownloads, (state) => {
 });
 
 export const bandwidthLimit = createResource(0, getDownloadBandwidthLimit);
+
+export const installedFolder = createResource<InstalledFolderInfo | null>(
+  null,
+  getInstalledFolderInfo,
+  (info) => info === null,
+);
 
 export const bandwidthLimitError = writable<string | null>(null);
 
@@ -119,6 +128,11 @@ export async function removeFinishedJobs(): Promise<number> {
   const removed = await removeFinishedDownloads();
   await downloads.load();
   return removed.length;
+}
+
+export async function reorderJobs(ids: string[]): Promise<void> {
+  await reorderDownloads(ids);
+  await downloads.load();
 }
 
 export async function browseInstalledFolder(): Promise<void> {
