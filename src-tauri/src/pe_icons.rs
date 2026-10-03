@@ -1,4 +1,6 @@
-use std::{fs, io::Cursor, path::Path};
+use std::{fs, path::Path};
+
+use crate::image_trim::trim_dynamic;
 
 const MAX_FRAME_DIMENSION: u16 = 256;
 
@@ -47,11 +49,8 @@ pub(crate) fn extract_png(executable: &Path) -> Result<Vec<u8>, String> {
         u32::from(MAX_FRAME_DIMENSION),
         u32::from(MAX_FRAME_DIMENSION),
     );
-    let mut output = Cursor::new(Vec::new());
-    thumbnail
-        .write_to(&mut output, image::ImageFormat::Png)
-        .map_err(|error| format!("Could not encode embedded game icon as PNG: {error}"))?;
-    Ok(output.into_inner())
+    trim_dynamic(&thumbnail)
+        .map_err(|error| format!("Could not encode embedded game icon as PNG: {error}"))
 }
 
 #[cfg(test)]

@@ -28,7 +28,7 @@
   });
 </script>
 
-<div class="flex h-full min-h-0 flex-col gap-2.5">
+<div class="flex h-full min-h-0 flex-col gap-2.5 overflow-hidden">
   <StateBlock status={$games.status} hasData={$games.data.length > 0} error={$games.error} onRetry={() => void games.load()} />
   {#if $playtime.error !== null}<ErrorBanner message={`Tempo di gioco: ${$playtime.error}`} onRetry={() => void playtime.load()} />{/if}
   {#if $launchStates.error !== null}<ErrorBanner message={`Stato dei giochi: ${$launchStates.error}`} onRetry={() => void launchStates.load()} />{/if}
@@ -66,7 +66,7 @@
       <Button label="Libreria" variant="secondary" onClick={() => selectSection('library')} />
     </div>
     {#if recent.length > 1}
-      <ul class="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+      <ul class="grid auto-rows-max grid-cols-2 gap-2.5 sm:grid-cols-3">
         {#each recent.slice(1, 4) as item (item.game.id)}
           <GameCard
             game={item.game}

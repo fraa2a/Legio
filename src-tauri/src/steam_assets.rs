@@ -12,6 +12,7 @@ use tauri::Manager;
 use crate::{
     database::DatabaseState,
     image_format::ImageFormat,
+    image_trim::trim_png,
     network::{NetworkState, is_steam_asset_url},
     steam_details::{SteamDetails, cached_details},
 };
@@ -265,6 +266,19 @@ fn selected_url(
     Ok(url.to_owned())
 }
 
+fn trimmed_asset_bytes(bytes: Vec<u8>, content_type: &str) -> Vec<u8> {
+    if content_type != "image/png" {
+        return bytes;
+    }
+    match trim_png(&bytes) {
+        Ok(trimmed) => trimmed,
+        Err(error) => {
+            eprintln!("Steam image trim failed: {error}");
+            bytes
+        }
+    }
+}
+
 async fn load_asset(
     cache: AssetCacheState,
     network: &NetworkState,
@@ -287,7 +301,7 @@ async fn load_asset(
     if previous.as_ref().is_some_and(|entry| !entry.stale) {
         let entry = previous.ok_or_else(|| "Image cache entry disappeared.".to_owned())?;
         return Ok(AssetResult {
-            bytes: entry.bytes,
+            bytes: trimmed_asset_bytes(entry.bytes, entry.content_type),
             content_type: entry.content_type,
             stale: false,
             cache_warning: None,
@@ -304,6 +318,7 @@ async fn load_asset(
         });
     match fetched {
         Ok((bytes, content_type)) => {
+            let bytes = trimmed_asset_bytes(bytes, content_type);
             let writer = cache.clone();
             let write_key = key;
             let write_url = url;
@@ -325,7 +340,7 @@ async fn load_asset(
         }
         Err(error) => previous
             .map(|entry| AssetResult {
-                bytes: entry.bytes,
+                bytes: trimmed_asset_bytes(entry.bytes, entry.content_type),
                 content_type: entry.content_type,
                 stale: true,
                 cache_warning: None,
