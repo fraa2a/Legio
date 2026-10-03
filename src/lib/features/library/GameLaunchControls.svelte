@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import type { Game } from "../../services/local-state";
   import type { GameLaunchState } from "../../services/steam-accounts";
   import Button from "../../components/ui/Button.svelte";
@@ -10,7 +11,7 @@
     actionPending = false,
     cancelPending = false,
     variant = "secondary",
-    playLabel = "GIOCA",
+    playLabel = t("GIOCA", $language),
     circle = false,
     revealOnHover = false,
     class: className = "",
@@ -54,7 +55,7 @@
     </Button>
   {:else if status === "launching"}
     <Button
-      label={cancelPending ? "ANNULLAMENTO..." : "LAUNCHING..."}
+      label={cancelPending ? t("ANNULLAMENTO...", $language) : t("AVVIO...", $language)}
       variant={actionVariant}
       class={className}
       disabled={cancelPending}
@@ -63,7 +64,7 @@
       <Icon name="close" size="h-6 w-6" />
     </Button>
   {:else}
-    <Button label="STOP" variant={actionVariant} class={className} disabled={actionPending} onClick={() => onStop(game)}>
+    <Button label={t("FERMA", $language)} variant={actionVariant} class={className} disabled={actionPending} onClick={() => onStop(game)}>
       <Icon name="stop" size="h-6 w-6" />
     </Button>
   {/if}

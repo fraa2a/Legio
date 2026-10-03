@@ -3,11 +3,20 @@ import { invoke } from "@tauri-apps/api/core";
 export type GraphicsRenderer = "runner_default" | "wine_d3d";
 export type WaylandMode = "runner_default" | "disabled" | "native";
 
+export function isGraphicsRenderer(value: string): value is GraphicsRenderer {
+  return value === "runner_default" || value === "wine_d3d";
+}
+
+export function isWaylandMode(value: string): value is WaylandMode {
+  return value === "runner_default" || value === "disabled" || value === "native";
+}
+
 export interface CompatibilityDefaults {
   runnerPath: string | null;
   prefixRoot: string | null;
   argumentsBefore: string[];
   argumentsAfter: string[];
+  /** Legacy persisted field; global working directories are intentionally ignored. */
   workingDirectory: string | null;
   environment: Record<string, string>;
   dllOverrides: Record<string, string>;

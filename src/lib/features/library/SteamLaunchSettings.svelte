@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import { onMount } from "svelte";
   import type { Game } from "../../services/local-state";
   import { getSteamLaunchConfig, saveSteamLaunchConfig } from "../../services/game-settings";
@@ -40,20 +41,20 @@
   }
 </script>
 
-<Panel title="Argomenti di avvio Steam">
+<Panel title={t("Argomenti di avvio Steam", $language)}>
   {#if error !== null}<ErrorBanner message={error} />{/if}
   <TextField
     id="steam-launch-arguments"
-    label="Opzioni di avvio"
+    label={t("Opzioni di avvio", $language)}
     value={argumentsText}
     placeholder="-windowed -novid"
-    hint="Aggiungi argomenti oppure racchiudi un valore con spazi tra virgolette."
+    hint={t("Aggiungi argomenti oppure racchiudi un valore con spazi tra virgolette.", $language)}
     disabled={loading || saving}
     oninput={(value) => (argumentsText = value)}
   />
-  <p class="text-xs text-zinc-500">Gli argomenti vengono passati a Steam quando avvii questo gioco da Legio.</p>
+  <p class="text-xs text-zinc-500">{t("Gli argomenti vengono passati a Steam quando avvii questo gioco da Legio.", $language)}</p>
   <div class="flex items-center gap-3">
-    <Button label={saving ? "Salvataggio..." : "Salva argomenti"} disabled={loading || saving} onClick={() => void save()} />
-    {#if saved}<span class="text-sm text-emerald-400" role="status">Salvato</span>{/if}
+    <Button label={saving ? t("Salvataggio...", $language) : t("Salva argomenti", $language)} disabled={loading || saving} onClick={() => void save()} />
+    {#if saved}<span class="text-sm text-emerald-400" role="status">{t("Salvato", $language)}</span>{/if}
   </div>
 </Panel>

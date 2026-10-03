@@ -20,9 +20,9 @@ Call these through `invoke` wrappers:
 
 | Command | Arguments | Result |
 | --- | --- | --- |
-| `get_app_info` | none | `{ name, version, platform, desktopEnvironment }` |
-| `get_settings` | none | `{ theme: "system" | "dark" | "light", steamLibraryPollMinutes: number }` |
-| `save_settings` | `{ settings: { theme, steamLibraryPollMinutes } }` | saved settings |
+| `get_app_info` | none | `{ name, version, platform, desktopEnvironment, trayAvailable }` |
+| `get_settings` | none | `Settings, including theme, language and steamLibraryPollMinutes` |
+| `save_settings` | `{ settings: Settings }` | saved settings |
 | `get_network_status` | none | `"unknown" | "online"` |
 | `check_steam_connectivity` | none | `{ status, detail }` |
 | `get_network_log_status` | none | `{ directory, lastError, droppedRecords, pendingRecords }` |
@@ -30,6 +30,8 @@ Call these through `invoke` wrappers:
 Suggested startup hydration: load app info, settings, `list_games`, `list_downloads`, cached `get_legio_source`, and `get_playtime_summaries`; show cached/local content immediately, then refresh connectivity and remote metadata in the background. `desktopEnvironment` is optional and is currently used only for platform-specific presentation such as Hyprland window controls.
 
 `steamLibraryPollMinutes` defaults to `30` and accepts values from `5` to `120`. Steam library detection always runs once after startup, then repeats at the saved interval.
+
+`Settings.language` is `"system" | "it" | "en"`, with `"system"` as the default. Hydrate settings before mounting the UI. Resolve UI language independently from regional number/date formatting, which uses the operating system locale. Pass the resolved language to Steam detail requests; cached descriptions are keyed by App ID and language. `trayAvailable` reports whether tray initialization succeeded. Hide-on-game-start and minimized startup require a working tray.
 
 ## Library and game settings
 
@@ -65,12 +67,17 @@ interface Game {
   steamInstallPath: string | null;
   steamAccountId: string | null;
   executablePath: string | null;
+  installationRoot: string | null;
 }
 ```
 
 The frontend's `Game` type must include `executablePath`; it is easy to miss because it was added to the backend after the initial service type. Import preview is read-only. Import is a separate action that updates the persistent library. After import, call `list_games` again. The backend preserves manual rows and user naming when it refreshes Steam-managed rows.
 
 For user-visible Steam redetection, call `scan_steam_installations` to show detected games and diagnostics, then call `import_steam_installations` only after the user chooses to import/update. The import command performs its own scan and reconciliation; the preview is not a transaction token and can differ if Steam changes between calls. Reload `list_games` after import. The serialized scan response does not expose excluded non-games such as compatibility tools.
+
+`installationRoot` is persistent installation metadata and survives removal of download history. It is null for older manual imports without a known root. Removing a game rejects launching/running games. Reload the library even if removal reports a subsequent artwork or shortcut cleanup failure.
+
+`transfer_game({ gameId, sourceDirectory, destinationDirectory })` returns `{ game, warning }`. The destination must be new and outside the source. A persisted copy/publication/commit intent recovers at startup. The original remains until all path references commit atomically. Native and compatibility working directories and compatibility prefix paths inside the source move with the game; external paths remain unchanged. A cleanup warning means the destination is committed but the old copy could not be removed.
 
 ### Manual executable import
 
@@ -200,7 +207,7 @@ The source manifest URL is `https://source.example.invalid/store.json`. Hydra an
 
 | Command | Arguments | Result |
 | --- | --- | --- |
-| `get_steam_details` | `{ steamAppId, refresh }` | `{ details, cachedAt, stale }` |
+| `get_steam_details` | `{ steamAppId, refresh, language: "it" | "en" }` | `{ details, cachedAt, stale }` |
 | `get_steam_asset` | `{ steamAppId, asset, index?, full? }` | `{ bytes, contentType, stale, cacheWarning }` |
 
 Details include name, type, `shortDescription`, `detailedDescription`, developers, publishers, genres, platform flags, release date, and Steam image URLs. Steam provides the detailed description as HTML. Render it with an allowlist of safe elements and attributes. Older cached details without `detailedDescription` are refreshed on the next request. Asset kinds are `header`, `capsule`, and `screenshot`; screenshot requires its zero-based `index`. The asset command returns a number array, not a URL or base64 string. Convert it to a `Blob` using `contentType`, create an object URL, and revoke the URL when replaced or unmounted.
@@ -251,7 +258,7 @@ interface DownloadJob {
 
 Current statuses are `queued`, `downloading`, `waiting`, `paused`, `failed`, `downloaded`, `staging`, `staged`, `finalizing`, `installed`, and `cancelled`. Treat status as an open string for forward compatibility. Typical actions: pause only `queued`/`downloading`/`waiting`; resume `paused`/`waiting`; retry `failed`; cancel active or queued states. The backend enforces valid transitions and reports invalid actions as rejected invokes.
 
-Cancellation only changes the queue status. `remove_download` is the explicit cleanup action and accepts only `cancelled`, `failed`, and `installed`. It removes queue-owned partial/archive/staging files before deleting the row, rejects states that can still progress, preserves unexpected non-directory staging content, and never deletes the finalized installed game. `remove_finished_downloads` clears `cancelled` and `installed` rows while deliberately leaving retryable `failed` rows visible. After either command, reload `list_downloads`.
+`sizeBytes` describes compressed download bytes, not required installation space. Extraction and temporary space are unknown until the archive is available. Cancellation persists the queue status and interrupts the active transfer. `remove_download` is the explicit cleanup action and accepts only `cancelled`, `failed`, and `installed`. It removes queue-owned partial/archive/staging files before deleting the row, rejects states that can still progress, preserves unexpected non-directory staging content, and never deletes the finalized installed game. The installed root is retained on the game row before the download row is deleted. `remove_finished_downloads` clears `cancelled` and `installed` rows while deliberately leaving retryable `failed` rows visible. After either command, reload `list_downloads`.
 
 `get_download_bandwidth_limit` reads the same persisted setting written by `set_download_bandwidth_limit`, so Settings can show the real value after restart. `open_installed_folder` accepts no path from the frontend and only opens Legio's own install root.
 

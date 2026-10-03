@@ -4,6 +4,7 @@ export type Theme = "system" | "dark" | "light";
 
 export interface Settings {
   theme: Theme;
+  language: "system" | "it" | "en";
   steamLibraryPollMinutes: number;
   downloadPath: string | null;
   closeToTray: boolean;
@@ -24,6 +25,7 @@ export interface Game {
   steamInstallPath: string | null;
   steamAccountId: string | null;
   executablePath: string | null;
+  installationRoot: string | null;
 }
 
 export interface CreateGameInput {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import Icon from "../../components/ui/Icon.svelte";
   import SteamArtwork from "./SteamArtwork.svelte";
 
@@ -46,7 +47,7 @@
 <div bind:this={root} class="relative z-20 h-[60px] w-[260px] shrink-0">
   <button
     type="button"
-    aria-label={`Seleziona versione: ${selected.name}, ${selected.subtitle}`}
+    aria-label={t("Seleziona versione: {0}, {1}", $language, [selected.name, selected.subtitle])}
     aria-expanded={open}
     onkeydown={handleKeydown}
     class="flex size-full items-center gap-2 border border-white/10 bg-zinc-950/60 px-3 text-left text-zinc-100 light:border-zinc-900/10 light:bg-zinc-100/70 light:text-zinc-900 {open ? 'rounded-t-xl border-b-0' : 'rounded-xl hover:bg-zinc-950/75 light:hover:bg-zinc-200'}"

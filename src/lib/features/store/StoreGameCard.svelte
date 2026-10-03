@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import Badge from "../../components/ui/Badge.svelte";
   import SteamArtwork from "../library/SteamArtwork.svelte";
   import { ensureSteamDetails, steamDetails } from "../../stores/steam-details";
@@ -30,6 +31,7 @@
   });
 
   $effect(() => {
+    void $language;
     if (visible) ensureSteamDetails(steamAppId);
   });
 </script>
@@ -38,7 +40,7 @@
   <button
     type="button"
     class="flex min-h-24 w-full items-center gap-3 p-2 text-left transition-colors hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-white light:hover:bg-zinc-900/5 light:focus-visible:outline-zinc-900"
-    aria-label="Dettagli di {name} nello Store"
+    aria-label="{t("Dettagli di ", $language)}{name}{t(" nello Store", $language)}"
     onclick={onOpen}
   >
     <div class="h-20 w-28 shrink-0 overflow-hidden rounded-lg bg-zinc-800 sm:h-24 sm:w-44 light:bg-zinc-200">
@@ -48,7 +50,7 @@
           asset="header"
           version={detailsState?.cachedAt ?? null}
           caption={false}
-          alt="Copertina di {name}"
+          alt="{t("Copertina di ", $language)}{name}"
           class="size-full object-cover"
         >
           {#snippet placeholder()}
@@ -63,10 +65,10 @@
       <div class="flex min-w-0 flex-1 flex-col justify-center gap-1">
         <span class="truncate text-base font-semibold text-zinc-100 light:text-zinc-900">{name}</span>
         {#if entry !== null}
-          <span class="text-xs text-zinc-400 light:text-zinc-500">Versione {entry.release.version} · {formatBytes(entry.download.sizeBytes)}</span>
+          <span class="text-xs text-zinc-400 light:text-zinc-500">{t("Versione ", $language)}{entry.release.version} · {formatBytes(entry.download.sizeBytes)}</span>
         {/if}
       </div>
-      <Badge tone={meta.tone} title={meta.label} />
+      <Badge tone={meta.tone} title={t(meta.label, $language)} />
     </div>
   </button>
 </li>

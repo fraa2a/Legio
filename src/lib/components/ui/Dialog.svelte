@@ -53,7 +53,7 @@
     if (event.target === dialog) onClose();
   }}
 >
-  <div class="{flush ? 'flex h-full min-h-0 flex-col' : 'flex flex-col gap-5 p-6'}">
+  <div class={flush ? 'flex h-full min-h-0 flex-col' : 'flex flex-col gap-5 p-6'}>
     <div
       class="flex items-center justify-between gap-4 {flush
         ? 'shrink-0 border-b border-white/15 px-6 py-4 light:border-zinc-900/15'

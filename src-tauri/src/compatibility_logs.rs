@@ -20,6 +20,7 @@ pub(crate) struct CompatibilityLogState {
     directory: PathBuf,
     output_error: Arc<Mutex<Option<String>>>,
     truncated: Arc<AtomicBool>,
+    redactions: Arc<Vec<Vec<u8>>>,
 }
 
 impl CompatibilityLogState {
@@ -131,6 +132,7 @@ impl CompatibilityLog {
                 directory,
                 output_error: Arc::new(Mutex::new(None)),
                 truncated: Arc::new(AtomicBool::new(false)),
+                redactions: Arc::new(redaction_values(config)),
             },
             stdout: Some(stdout),
             stderr: Some(stderr),
@@ -337,6 +339,80 @@ fn debug_environment(
     }
 }
 
+fn redaction_values(config: &EffectiveCompatibilityConfig) -> Vec<Vec<u8>> {
+    let mut values: Vec<Vec<u8>> = config
+        .environment
+        .values()
+        .filter(|value| !value.is_empty())
+        .map(|value| value.as_bytes().to_vec())
+        .collect();
+    values.extend(
+        std::env::vars_os()
+            .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+            .filter(|(key, value)| {
+                let key = key.to_ascii_uppercase();
+                !value.is_empty()
+                    && [
+                        "TOKEN",
+                        "PASSWORD",
+                        "SECRET",
+                        "CREDENTIAL",
+                        "API_KEY",
+                        "AUTH",
+                    ]
+                    .iter()
+                    .any(|part| key.contains(part))
+            })
+            .map(|(_, value)| value.into_bytes()),
+    );
+    values.sort_by_key(|value| std::cmp::Reverse(value.len()));
+    values.dedup();
+    values
+}
+
+struct StreamRedactor {
+    pending: Vec<u8>,
+    values: Arc<Vec<Vec<u8>>>,
+}
+
+impl StreamRedactor {
+    fn new(values: Arc<Vec<Vec<u8>>>) -> Self {
+        Self {
+            pending: Vec::new(),
+            values,
+        }
+    }
+
+    fn push(&mut self, bytes: &[u8], finished: bool) -> Vec<u8> {
+        self.pending.extend_from_slice(bytes);
+        let retained = if finished {
+            0
+        } else {
+            self.values
+                .first()
+                .map_or(0, |value| value.len().saturating_sub(1))
+        };
+        let safe = self.pending.len().saturating_sub(retained);
+        let mut offset = 0;
+        let mut output = Vec::new();
+        while offset < safe {
+            if let Some(value) = self
+                .values
+                .iter()
+                .find(|value| self.pending[offset..].starts_with(value))
+            {
+                output.extend_from_slice(b"[REDACTED]");
+                offset += value.len();
+            } else {
+                output.push(self.pending[offset]);
+                offset += 1;
+            }
+        }
+        self.pending.drain(..offset);
+        output
+    }
+}
+
 fn spawn_reader<R: Read + Send + 'static>(
     mut source: R,
     mut target: File,
@@ -346,6 +422,7 @@ fn spawn_reader<R: Read + Send + 'static>(
     thread::Builder::new()
         .name(format!("legio-compat-{stream}"))
         .spawn(move || {
+            let mut redactor = StreamRedactor::new(state.redactions.clone());
             let mut saved = 0_u64;
             let mut buffer = [0_u8; 8192];
             loop {
@@ -358,12 +435,13 @@ fn spawn_reader<R: Read + Send + 'static>(
                         break;
                     }
                 };
-                let writable = (MAX_STREAM_BYTES - saved).min(read as u64) as usize;
-                if writable < read {
+                let redacted = redactor.push(&buffer[..read], false);
+                let writable = (MAX_STREAM_BYTES - saved).min(redacted.len() as u64) as usize;
+                if writable < redacted.len() {
                     state.truncated.store(true, Ordering::Relaxed);
                 }
                 if writable > 0 {
-                    if let Err(error) = target.write_all(&buffer[..writable]) {
+                    if let Err(error) = target.write_all(&redacted[..writable]) {
                         state.report_error(&error, stream);
                         loop {
                             match source.read(&mut buffer) {
@@ -381,7 +459,15 @@ fn spawn_reader<R: Read + Send + 'static>(
                     saved += writable as u64;
                 }
             }
-            if let Err(error) = target.flush() {
+            let tail = redactor.push(&[], true);
+            let writable = (MAX_STREAM_BYTES - saved).min(tail.len() as u64) as usize;
+            if writable < tail.len() {
+                state.truncated.store(true, Ordering::Relaxed);
+            }
+            if let Err(error) = target
+                .write_all(&tail[..writable])
+                .and_then(|()| target.flush())
+            {
                 state.report_error(&error, stream);
             }
         })
@@ -393,6 +479,18 @@ mod tests {
     use super::*;
     use crate::database::{GraphicsRenderer, WaylandMode};
     use std::process::Stdio;
+
+    #[test]
+    fn redacts_values_split_across_reads() {
+        let mut redactor = StreamRedactor::new(Arc::new(vec![
+            b"secret-token".to_vec(),
+            b"password".to_vec(),
+        ]));
+        let mut output = redactor.push(b"before secret-", false);
+        output.extend(redactor.push(b"token after password", false));
+        output.extend(redactor.push(&[], true));
+        assert_eq!(output, b"before [REDACTED] after [REDACTED]");
+    }
 
     fn test_log(root: &Path, config: &EffectiveCompatibilityConfig) -> CompatibilityLog {
         let runner = InstalledRunner {

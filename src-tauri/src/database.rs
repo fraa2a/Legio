@@ -10,7 +10,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 21;
+const SCHEMA_VERSION: i64 = 22;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -51,6 +51,7 @@ pub struct CompatibilityDefaults {
     pub prefix_root: Option<String>,
     pub arguments_before: Vec<String>,
     pub arguments_after: Vec<String>,
+    /// Legacy persisted field; global working directories are intentionally ignored.
     pub working_directory: Option<String>,
     pub environment: BTreeMap<String, String>,
     pub dll_overrides: BTreeMap<String, String>,
@@ -142,6 +143,8 @@ impl Theme {
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub theme: Theme,
+    #[serde(default)]
+    pub language: crate::locale::LanguagePreference,
     #[serde(default = "default_steam_library_poll_minutes")]
     pub steam_library_poll_minutes: u32,
     #[serde(default)]
@@ -184,6 +187,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             theme: Theme::System,
+            language: crate::locale::LanguagePreference::System,
             steam_library_poll_minutes: DEFAULT_STEAM_LIBRARY_POLL_MINUTES,
             download_path: None,
             close_to_tray: true,
@@ -224,6 +228,7 @@ pub struct Game {
     pub steam_install_path: Option<String>,
     pub steam_account_id: Option<String>,
     pub executable_path: Option<String>,
+    pub installation_root: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -726,7 +731,7 @@ impl Database {
         self.with_connection(|connection| {
             let mut statement = connection
                 .prepare(
-                    "SELECT id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path
+                    "SELECT id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path, installation_root
                      FROM games ORDER BY COALESCE(name_override, automatic_name), id",
                 )
                 .map_err(database_error)?;
@@ -742,7 +747,7 @@ impl Database {
         self.with_connection(|connection| {
             connection
                 .query_row(
-                    "SELECT id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path FROM games WHERE id = ?1",
+                    "SELECT id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path, installation_root FROM games WHERE id = ?1",
                     [id],
                     game_from_row,
                 )
@@ -763,6 +768,7 @@ impl Database {
             steam_install_path: None,
             steam_account_id: None,
             executable_path: None,
+            installation_root: None,
         };
 
         self.with_connection(|connection| {
@@ -798,7 +804,7 @@ impl Database {
                          steam_account_id = CASE WHEN steam_app_id IS ?2 THEN steam_account_id ELSE NULL END,
                          steam_app_id = ?2, automatic_name = ?3, name_override = ?4
                      WHERE id = ?1
-                     RETURNING id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path",
+                     RETURNING id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path, installation_root",
                     params![id, input.steam_app_id, automatic_name, name_override],
                     game_from_row,
                 )
@@ -820,7 +826,7 @@ impl Database {
         self.with_connection(|connection| {
             connection.query_row(
                 "UPDATE games SET steam_account_id = ?2 WHERE id = ?1 AND (steam_app_id IS NOT NULL OR ?2 IS NULL)
-                 RETURNING id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path",
+                 RETURNING id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path, installation_root",
                 params![game_id, steam_id], game_from_row,
             ).optional().map_err(database_error)?.ok_or_else(|| "game was not found or has no Steam App ID".to_owned())
         })
@@ -1237,7 +1243,8 @@ fn migrate(connection: &Connection) -> Result<(), String> {
                     details TEXT NOT NULL CHECK (length(CAST(details AS BLOB)) BETWEEN 1 AND 524288),
                     fetched_at INTEGER NOT NULL CHECK (fetched_at >= 0)
                  );
-                 INSERT INTO steam_details_cache_v16 SELECT * FROM steam_details_cache;
+                 INSERT INTO steam_details_cache_v16 (steam_app_id, details, fetched_at)
+                 SELECT steam_app_id, details, fetched_at FROM steam_details_cache;
                  DROP TABLE steam_details_cache;
                  ALTER TABLE steam_details_cache_v16 RENAME TO steam_details_cache;
                  PRAGMA user_version = 16;",
@@ -1346,6 +1353,39 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         transaction
             .execute_batch("PRAGMA user_version = 21;")
             .map_err(database_error)?;
+    }
+    if version < 22 {
+        let existing: i64 = transaction
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('games') WHERE name = 'installation_root'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(database_error)?;
+        if existing == 0 {
+            transaction
+                .execute_batch("ALTER TABLE games ADD COLUMN installation_root TEXT;")
+                .map_err(database_error)?;
+        }
+        let localized: i64 = transaction.query_row("SELECT COUNT(*) FROM pragma_table_info('steam_details_cache') WHERE name = 'language'", [], |row| row.get(0)).map_err(database_error)?;
+        if localized == 0 {
+            transaction.execute_batch(
+                "ALTER TABLE steam_details_cache RENAME TO steam_details_legacy;
+                 CREATE TABLE steam_details_cache (steam_app_id INTEGER NOT NULL, details TEXT NOT NULL, fetched_at INTEGER NOT NULL, language TEXT NOT NULL DEFAULT 'en' CHECK (language IN ('it', 'en')), PRIMARY KEY (steam_app_id, language));
+                 INSERT INTO steam_details_cache (steam_app_id, details, fetched_at) SELECT steam_app_id, details, fetched_at FROM steam_details_legacy;
+                 DROP TABLE steam_details_legacy;"
+            ).map_err(database_error)?;
+        }
+        transaction.execute_batch(
+            "UPDATE games SET installation_root = (SELECT final_path FROM downloads WHERE downloads.id = games.id AND status = 'installed') WHERE installation_root IS NULL;
+             CREATE TABLE IF NOT EXISTS game_transfers (
+                game_id TEXT PRIMARY KEY REFERENCES games(id) ON DELETE RESTRICT,
+                source TEXT NOT NULL, destination TEXT NOT NULL, temporary TEXT NOT NULL,
+                executable_relative TEXT NOT NULL,
+                phase TEXT NOT NULL CHECK (phase IN ('prepared', 'copied', 'committed'))
+             );
+             PRAGMA user_version = 22;"
+        ).map_err(database_error)?;
     }
     transaction.commit().map_err(database_error)
 }
@@ -1565,6 +1605,7 @@ pub(crate) fn game_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Game> {
         steam_install_path: row.get(4)?,
         steam_account_id: row.get(5)?,
         executable_path: row.get(6)?,
+        installation_root: row.get(7)?,
     })
 }
 
@@ -1784,7 +1825,7 @@ mod tests {
     }
 
     #[test]
-    fn migration_adds_typed_options_and_removes_steam_fragments() {
+    fn migrates_typed_options() {
         let connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
         connection
@@ -1992,7 +2033,8 @@ mod tests {
                     name: "First copy".to_owned(),
                     steam_install_path: None,
                     steam_account_id: None,
-                    executable_path: None
+                    executable_path: None,
+                    installation_root: None
                 },
                 Game {
                     id: "second".to_owned(),
@@ -2002,7 +2044,8 @@ mod tests {
                     name: "Second copy".to_owned(),
                     steam_install_path: None,
                     steam_account_id: None,
-                    executable_path: None
+                    executable_path: None,
+                    installation_root: None
                 },
             ]
         );

@@ -22,11 +22,6 @@ pub(crate) fn create(
     {
         windows::create(game, location, icon_path)
     }
-    #[cfg(not(any(target_os = "linux", windows)))]
-    {
-        let _ = (game, location, icon_path);
-        Err("Game shortcuts are supported on Linux only".to_owned())
-    }
 }
 
 pub(crate) fn remove(game_id: &str) -> Result<(), String> {
@@ -37,11 +32,6 @@ pub(crate) fn remove(game_id: &str) -> Result<(), String> {
     #[cfg(windows)]
     {
         windows::remove(game_id)
-    }
-    #[cfg(not(any(target_os = "linux", windows)))]
-    {
-        let _ = game_id;
-        Ok(())
     }
 }
 
@@ -54,11 +44,6 @@ pub(crate) fn steam_shortcut_arguments(game: &Game) -> Result<Option<Vec<String>
     {
         windows::steam_shortcut_arguments(game)
     }
-    #[cfg(not(any(target_os = "linux", windows)))]
-    {
-        let _ = game;
-        Ok(None)
-    }
 }
 
 pub(crate) fn remove_steam_shortcuts(game: &Game) -> Result<(), String> {
@@ -69,11 +54,6 @@ pub(crate) fn remove_steam_shortcuts(game: &Game) -> Result<(), String> {
     #[cfg(windows)]
     {
         windows::remove_steam_shortcuts(game)
-    }
-    #[cfg(not(any(target_os = "linux", windows)))]
-    {
-        let _ = game;
-        Ok(())
     }
 }
 
@@ -776,7 +756,7 @@ mod linux {
         escaped
     }
 
-    fn quote_exec_argument(value: &str) -> Result<String, String> {
+    pub(crate) fn quote_exec_argument(value: &str) -> Result<String, String> {
         if value.chars().any(char::is_control) {
             return Err("Legio's executable path contains unsupported characters".to_owned());
         }
@@ -1229,6 +1209,7 @@ mod linux {
                 name: "Test Game".to_owned(),
                 steam_install_path: None,
                 steam_account_id: None,
+                installation_root: None,
                 executable_path: Some(executable.to_string_lossy().into_owned()),
             };
             assert_eq!(validate_game(&game).unwrap(), game.id);
@@ -1262,4 +1243,44 @@ mod linux {
             fs::remove_dir_all(root).unwrap();
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) use linux::quote_exec_argument;
+
+pub(crate) fn create_for_app(
+    app: &tauri::AppHandle,
+    game_id: &str,
+    location: ShortcutLocation,
+) -> Result<String, String> {
+    use crate::database::{self, DatabaseState};
+    use tauri::Manager;
+    let database = app.state::<DatabaseState>();
+    let game = database.database()?.game(game_id)?;
+    let steam_managed = game.steam_install_path.is_some();
+    let imported_arguments = if steam_managed {
+        crate::desktop_shortcuts::steam_shortcut_arguments(&game)?
+    } else {
+        None
+    };
+    let icon = app
+        .state::<crate::game_artwork::GameArtworkStore>()
+        .shortcut_icon_path(&game)?;
+    let path = crate::desktop_shortcuts::create(&game, location, icon.as_deref())?;
+    if steam_managed {
+        crate::desktop_shortcuts::create(
+            &game,
+            crate::desktop_shortcuts::ShortcutLocation::ApplicationsMenu,
+            icon.as_deref(),
+        )?;
+        if let Some(arguments) = imported_arguments {
+            database
+                .database()?
+                .save_steam_launch_config(&game.id, database::SteamLaunchConfig { arguments })?;
+        }
+        crate::desktop_shortcuts::remove_steam_shortcuts(&game)?;
+    }
+    path.to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "The desktop shortcut path is not valid UTF-8".to_owned())
 }

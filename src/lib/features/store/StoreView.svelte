@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import Badge from "../../components/ui/Badge.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
@@ -17,7 +18,7 @@
     status: SourceStatus;
   }
 
-  const collator = new Intl.Collator("it", { sensitivity: "base" });
+  const collator = new Intl.Collator(undefined, { sensitivity: "base" });
 
   const manifest = $derived($source.data.manifest);
   const trimmed = $derived($storeQuery.trim());
@@ -45,12 +46,12 @@
 
   const emptyMessage = $derived.by(() => {
     if (trimmed.length === 0) {
-      return "La sorgente Legio non pubblica ancora alcun titolo. Aggiorna la sorgente e riprova.";
+      return t("La sorgente Legio non pubblica ancora alcun titolo. Aggiorna la sorgente e riprova.", $language);
     }
     if ($catalog.results.length > 0) {
-      return "Nessuno dei risultati trovati è disponibile nella sorgente Legio.";
+      return t("Nessuno dei risultati trovati è disponibile nella sorgente Legio.", $language);
     }
-    return "Nessun risultato per questa ricerca.";
+    return t("Nessun risultato per questa ricerca.", $language);
   });
 
   // The catalog answers "ready" as soon as a search returns, but the store only
@@ -75,7 +76,7 @@
       <ErrorBanner
         message={$sourceRefreshError}
         onRetry={() => void refreshSource()}
-        retryLabel="Riprova"
+        retryLabel={t("Riprova", $language)}
       />
     {/if}
 
@@ -84,10 +85,10 @@
     {#if trimmed.length > 0 && $catalog.results.length > 0}
       <div class="flex flex-wrap items-center gap-3 text-xs text-zinc-500">
         {#if $catalog.refreshing}
-          <span role="status">Aggiornamento in corso...</span>
+          <span role="status">{t("Aggiornamento in corso...", $language)}</span>
         {/if}
         {#if $catalog.sourceStale}
-          <Badge tone="warning" title="Sorgente non aggiornata" />
+          <Badge tone="warning" title={t("Sorgente non aggiornata", $language)} />
         {/if}
       </div>
     {/if}
@@ -95,7 +96,7 @@
     <StateBlock
       status={listStatus}
       hasData={entries.length > 0}
-      loadingMessage="Ricerca in corso..."
+      loadingMessage={t("Ricerca in corso...", $language)}
       {emptyMessage}
       error={$catalog.error}
       onRetry={() => void runCatalogSearch($storeQuery)}

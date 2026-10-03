@@ -12,12 +12,11 @@
   } = $props();
 
   const detailsState = $derived(game.steamAppId === null ? null : ($steamDetails[game.steamAppId] ?? null));
-  const details = $derived(detailsState?.details ?? null);
 </script>
 
-{#if details !== null}
+{#if game.steamAppId !== null}
   <SteamArtwork
-    steamAppId={details.steamAppId}
+    steamAppId={game.steamAppId}
     asset="logo"
     version={detailsState?.cachedAt ?? null}
     caption={false}

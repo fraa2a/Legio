@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import {
     canCancelDownload,
     canPauseDownload,
@@ -27,13 +28,13 @@
   let busy = $state(false);
   let cancelTarget = $state<DownloadJob | null>(null);
 
-  const phaseLabels: Record<string, string> = {
-    downloaded: "In attesa di estrazione",
-    staging: "Estrazione",
-    finalizing: "Installazione",
-    waiting: "In attesa",
-    paused: "In pausa",
-  };
+  const phaseLabels: Record<string, string> = $derived({
+    downloaded: t("In attesa di estrazione", $language),
+    staging: t("Estrazione", $language),
+    finalizing: t("Installazione", $language),
+    waiting: t("In attesa", $language),
+    paused: t("In pausa", $language),
+  });
 
   const quickActionClass =
     "flex size-7 shrink-0 items-center justify-center rounded-md bg-white/10 text-zinc-200 transition-colors duration-150 hover:bg-white/25 hover:text-white focus-visible:bg-white/25 focus-visible:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/80 disabled:opacity-40 light:bg-zinc-900/10 light:text-zinc-700 light:hover:bg-zinc-900/20 light:hover:text-zinc-900 light:focus-visible:bg-zinc-900/20 light:focus-visible:outline-zinc-900/60";
@@ -56,24 +57,24 @@
     if (canResumeDownload(lead.status)) {
       actions.push({
         icon: "play",
-        label: `Riprendi il download di ${lead.name}`,
-        title: "Riprendi",
+        label: t("Riprendi il download di {0}", $language, [lead.name]),
+        title: t("Riprendi", $language),
         trigger: () => void run(resumeJob),
       });
     }
     if (canPauseDownload(lead.status)) {
       actions.push({
         icon: "pause",
-        label: `Metti in pausa il download di ${lead.name}`,
-        title: "Pausa",
+        label: t("Metti in pausa il download di {0}", $language, [lead.name]),
+        title: t("Pausa", $language),
         trigger: () => void run(pauseJob),
       });
     }
     if (canCancelDownload(lead.status)) {
       actions.push({
         icon: "stop",
-        label: `Annulla il download di ${lead.name}`,
-        title: "Annulla",
+        label: t("Annulla il download di {0}", $language, [lead.name]),
+        title: t("Annulla", $language),
         trigger: () => (cancelTarget = lead),
       });
     }
@@ -98,7 +99,7 @@
   {#if expanded}
     <div
       role="group"
-      aria-label="Download in corso: {lead.name}"
+      aria-label="{t("Download in corso: ", $language)}{lead.name}"
       class="group/download flex shrink-0 flex-col gap-2 rounded-lg border border-white/10 bg-white/5 p-2 light:border-zinc-900/15 light:bg-zinc-100"
     >
       <div class="relative flex min-h-7 items-center gap-2">
@@ -130,7 +131,7 @@
         </span>
       </div>
 
-      <ProgressBar value={percent} label="Avanzamento di {lead.name}" />
+      <ProgressBar value={percent} label="{t("Avanzamento di ", $language)}{lead.name}" />
 
       <div
         class="flex items-center justify-between gap-2 text-[0.65rem] text-zinc-400 light:text-zinc-600"
@@ -148,7 +149,7 @@
   {:else}
     <button
       type="button"
-      aria-label="Download in corso: {lead.name}, {percentLabel}. Apri la sezione Download"
+      aria-label="{t("Download in corso: ", $language)}{lead.name}, {percentLabel}{t(". Apri la sezione Download", $language)}"
       onclick={() => selectSection("downloads")}
       class="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/5 text-zinc-400 transition-colors duration-200 hover:bg-white/10 hover:text-white light:bg-zinc-900/5 light:text-zinc-500 light:hover:bg-zinc-900/10 light:hover:text-zinc-900"
     >

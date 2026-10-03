@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import Button from "../../components/ui/Button.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
   import { cancelJob } from "../../stores/downloads";
@@ -34,13 +35,13 @@
   }
 </script>
 
-<Dialog {open} title="Annulla download" {onClose}>
-  <p class="text-sm text-zinc-300 light:text-zinc-700">Annullare il download di {gameName}?</p>
+<Dialog {open} title={t("Annulla download", $language)} {onClose}>
+  <p class="text-sm text-zinc-300 light:text-zinc-700">{t("Annullare il download di ", $language)}{gameName}?</p>
   {#if actionError}
     <p class="mt-3 text-sm text-red-300 light:text-red-700" role="alert">{actionError}</p>
   {/if}
   <div class="mt-5 flex justify-end gap-2">
-    <Button label="Indietro" variant="secondary" onClick={onClose} />
-    <Button label="Annulla" variant="danger" disabled={pending} onClick={() => void confirm()} />
+    <Button label={t("Indietro", $language)} variant="secondary" onClick={onClose} />
+    <Button label={t("Annulla", $language)} variant="danger" disabled={pending} onClick={() => void confirm()} />
   </div>
 </Dialog>

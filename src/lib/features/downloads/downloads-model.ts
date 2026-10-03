@@ -1,3 +1,4 @@
+import { t, type Language } from "../../i18n";
 import { type DownloadJob } from "../../services/downloads";
 
 const PROCESSING = ["downloading", "downloaded", "staging", "staged", "finalizing"];
@@ -53,7 +54,7 @@ export function statusTone(status: string): StatusTone {
   return "neutral";
 }
 
-export function statusBadge(status: string): string {
+export function statusBadge(status: string, selected?: Language): string {
   const labels: Record<string, string> = {
     queued: "In coda",
     downloading: "Scaricamento",
@@ -67,10 +68,10 @@ export function statusBadge(status: string): string {
     installed: "Completato",
     cancelled: "Annullato",
   };
-  return labels[status] ?? status;
+  return t(labels[status] ?? status, selected);
 }
 
-export function phaseLabel(job: DownloadJob): string | null {
+export function phaseLabel(job: DownloadJob, selected?: Language): string | null {
   if (job.status === "downloading") return `Download ${Math.round(progressOf(job))}%`;
   // Lo stato "in coda" è già descritto dal badge.
   if (job.status === "queued") return null;
@@ -85,7 +86,7 @@ export function phaseLabel(job: DownloadJob): string | null {
     failed: "Download interrotto",
     cancelled: "Download annullato",
   };
-  return labels[job.status] ?? job.status;
+  return t(labels[job.status] ?? job.status, selected);
 }
 
 export function progressOf(job: DownloadJob): number {
@@ -102,7 +103,7 @@ export function formatEta(seconds: number | null): string {
   return `${hours}h ${minutes % 60}m`;
 }
 
-export function requiredBytes(jobs: DownloadJob[]): number {
+export function downloadBytes(jobs: DownloadJob[]): number {
   return jobs.reduce((total, job) => total + job.sizeBytes, 0);
 }
 

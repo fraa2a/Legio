@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import { untrack } from "svelte";
   import type { Game } from "../../services/local-state";
   import { toMessage } from "../../utils/errors";
@@ -20,9 +21,9 @@
   const accounts = $derived($savedSteamAccounts.data.accounts);
   const loading = $derived($savedSteamAccounts.status === "loading");
   const options = $derived.by(() => {
-    const options = [{ value: noAccount, label: "Nessun account" }];
+    const options = [{ value: noAccount, label: t("Nessun account", $language) }];
     if (game.steamAccountId !== null && !accounts.some((account) => account.steamId === game.steamAccountId)) {
-      options.push({ value: game.steamAccountId, label: `${game.steamAccountId} (non più salvato)` });
+      options.push({ value: game.steamAccountId, label: t("{0} (non più salvato)", $language, [game.steamAccountId]) });
     }
     for (const account of accounts) {
       options.push({ value: account.steamId, label: `${account.displayName} · ${account.steamId}` });
@@ -58,28 +59,25 @@
   }
 </script>
 
-<Panel title="Account Steam">
+<Panel title={t("Account Steam", $language)}>
   {#snippet actions()}
-    <Button label="Aggiorna" variant="secondary" disabled={loading} onClick={refresh} />
+    <Button label={t("Aggiorna", $language)} variant="secondary" disabled={loading} onClick={refresh} />
   {/snippet}
 
   <StateBlock
     status={$savedSteamAccounts.status}
     hasData={accounts.length > 0}
-    loadingMessage="Ricerca degli account Steam salvati..."
-    emptyMessage="Nessun account Steam salvato trovato su questo dispositivo."
+    loadingMessage={t("Ricerca degli account Steam salvati...", $language)}
+    emptyMessage={t("Nessun account Steam salvato trovato su questo dispositivo.", $language)}
     error={$savedSteamAccounts.error}
     onRetry={refresh}
   />
 
-  <p class="text-sm text-zinc-400 light:text-zinc-600">
-    L'account scelto viene applicato al prossimo avvio. Steam viene chiuso e riavviato quando serve
-    per passare all'account salvato.
-  </p>
+  <p class="text-sm text-zinc-400 light:text-zinc-600">{t("\n    L'account scelto viene applicato al prossimo avvio. Steam viene chiuso e riavviato quando serve\n    per passare all'account salvato.\n  ", $language)}</p>
 
   <SelectField
     id="steam-account"
-    label="Account per l'avvio"
+    label={t("Account per l'avvio", $language)}
     bind:value={selection}
     {options}
     disabled={pending || loading}
@@ -99,7 +97,7 @@
 
   <div class="flex justify-end">
     <Button
-      label={pending ? "Salvataggio..." : "Salva account"}
+      label={pending ? t("Salvataggio...", $language) : t("Salva account", $language)}
       disabled={pending || !changed}
       onClick={() => void save()}
     />

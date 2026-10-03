@@ -1,13 +1,10 @@
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
-#[cfg(any(target_os = "linux", windows))]
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Child;
-#[cfg(any(target_os = "linux", windows))]
 use std::process::Command;
-#[cfg(any(target_os = "linux", windows))]
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -154,6 +151,7 @@ impl LaunchTarget {
 #[derive(Default, Clone)]
 pub(crate) struct GameLaunchManager {
     entries: Arc<Mutex<HashMap<String, Entry>>>,
+    operations: Arc<Mutex<()>>,
     #[cfg(target_os = "linux")]
     compatibility_log_root: Option<Result<PathBuf, String>>,
 }
@@ -168,8 +166,26 @@ impl GameLaunchManager {
     pub(crate) fn with_log_directory(directory: Result<PathBuf, String>) -> Self {
         Self {
             entries: Arc::default(),
+            operations: Arc::default(),
             compatibility_log_root: Some(directory),
         }
+    }
+
+    pub(crate) fn operation(&self) -> Result<std::sync::MutexGuard<'_, ()>, String> {
+        self.operations
+            .lock()
+            .map_err(|_| "Game operation lock was poisoned".to_owned())
+    }
+
+    pub(crate) fn require_idle(&self, game_id: &str) -> Result<(), String> {
+        if self
+            .lock()?
+            .get(game_id)
+            .is_some_and(|entry| entry.status != GameStatus::Idle)
+        {
+            return Err("Stop the game before changing its installation".to_owned());
+        }
+        Ok(())
     }
 
     pub(crate) fn list(&self) -> Result<Vec<GameLaunchState>, String> {
@@ -228,6 +244,7 @@ impl GameLaunchManager {
         game_id: String,
         confirm_account_switch: bool,
     ) -> Result<steam_switch::SteamLaunchResult, String> {
+        let _operation = self.operation()?;
         let game = app.state::<DatabaseState>().database()?.game(&game_id)?;
         let app_id = game
             .steam_app_id
@@ -286,6 +303,7 @@ impl GameLaunchManager {
         app: AppHandle<R>,
         game_id: String,
     ) -> Result<(), String> {
+        let _operation = self.operation()?;
         let database = app.state::<DatabaseState>().shared_database()?;
         let game = database.game(&game_id)?;
         if game.steam_install_path.is_some() {
@@ -421,6 +439,7 @@ impl GameLaunchManager {
         mut config: EffectiveCompatibilityConfig,
         resolve_runner: impl FnOnce(&str) -> Result<runner_discovery::InstalledRunner, String>,
     ) -> Result<(), String> {
+        let _operation = self.operation()?;
         let database = app.state::<DatabaseState>().shared_database()?;
         let game = database.game(&game_id)?;
         if game.steam_install_path.is_some() {
@@ -1145,7 +1164,6 @@ fn create_prefix_directory(root: &Path, game_id: Option<&str>) -> Result<PathBuf
     Ok(prefix)
 }
 
-#[cfg(any(target_os = "linux", windows))]
 fn game_working_directory(path: Option<&str>, game_directory: &Path) -> Result<PathBuf, String> {
     let Some(path) = path.filter(|path| !path.is_empty()) else {
         return Ok(game_directory.to_path_buf());
@@ -1164,7 +1182,6 @@ fn game_working_directory(path: Option<&str>, game_directory: &Path) -> Result<P
     Ok(path)
 }
 
-#[cfg(any(target_os = "linux", windows))]
 fn validate_launch_arguments(arguments: &[String]) -> Result<(), String> {
     if arguments.iter().any(|argument| argument.contains('\0')) {
         return Err("Launch arguments cannot contain null characters".to_owned());
@@ -1474,6 +1491,25 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tauri::Manager;
+
+    #[test]
+    fn installation_changes_require_an_idle_game() {
+        let manager = GameLaunchManager::new();
+        let target = game_process::ProcessTarget::Steam {
+            app_id: 400,
+            install_path: PathBuf::from("game"),
+        };
+        manager.require_idle("game").unwrap();
+        manager
+            .reserve_launch("game", Some(400), target, None)
+            .unwrap();
+        assert!(manager.require_idle("game").is_err());
+        manager.require_idle("other-game").unwrap();
+        manager.set_state("game", GameStatus::Running, None);
+        assert!(manager.require_idle("game").is_err());
+        manager.set_state("game", GameStatus::Idle, None);
+        manager.require_idle("game").unwrap();
+    }
 
     #[cfg(target_os = "linux")]
     #[test]

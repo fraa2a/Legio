@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import type { Snippet } from "svelte";
   import { fade } from "svelte/transition";
   import {
@@ -103,12 +104,12 @@
   </div>
 {:else}
   <div class="flex items-center justify-center rounded-lg {className}">
-    <span role="status" class="sr-only">Caricamento immagine...</span>
+    <span role="status" class="sr-only">{t("Caricamento immagine...", $language)}</span>
   </div>
 {/if}
 
 {#if caption && (stale || warning !== null)}
   <p class="mt-1 text-xs text-amber-300 light:text-amber-800">
-    {warning ?? "Immagine servita dalla cache locale."}
+    {warning ?? t("Immagine servita dalla cache locale.", $language)}
   </p>
 {/if}

@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 export function parseLaunchArguments(value: string): string[] {
   const args: string[] = [];
   let current = "";
@@ -28,7 +29,7 @@ export function parseLaunchArguments(value: string): string[] {
     }
   }
 
-  if (quote !== null) throw new Error("Chiudi le virgolette negli argomenti di avvio.");
+  if (quote !== null) throw new Error(t("Chiudi le virgolette negli argomenti di avvio.", undefined));
   if (escaped) current += "\\";
   if (active || escaped) args.push(current);
   return args;

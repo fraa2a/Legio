@@ -1,4 +1,4 @@
-import { derived, get } from "svelte/store";
+import { get } from "svelte/store";
 import {
   createGame,
   listGames,
@@ -11,18 +11,6 @@ import {
 import { createResource } from "./resource";
 
 export const games = createResource<Game[]>([], listGames, (value) => value.length === 0);
-
-export const gameCount = derived(games, (state) => state.data.length);
-
-export const steamGameCount = derived(
-  games,
-  (state) => state.data.filter((game) => game.steamInstallPath !== null).length,
-);
-
-export const manualGameCount = derived(
-  games,
-  (state) => state.data.filter((game) => game.steamInstallPath === null).length,
-);
 
 export function reconcileGame(game: Game): void {
   const current = get(games).data;
@@ -43,6 +31,9 @@ export async function saveGame(input: UpdateGameInput): Promise<Game> {
 }
 
 export async function deleteGame(id: string): Promise<void> {
-  await removeGame(id);
-  await games.load();
+  try {
+    await removeGame(id);
+  } finally {
+    await games.load();
+  }
 }

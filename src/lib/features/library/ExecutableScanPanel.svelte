@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import {
     browseGameDirectory,
     chooseCandidate,
@@ -16,7 +17,7 @@
   let {
     hint,
     startPath = null,
-    nameLabel = "Nome del gioco",
+    nameLabel = t("Nome del gioco", $language),
     disabled = false,
   }: {
     hint: string;
@@ -34,10 +35,10 @@
       : null,
   );
 
-  const signalLabels: Record<string, string> = {
-    game_name_match: "nome del gioco",
-    game_root: "cartella radice",
-  };
+  const signalLabels: Record<string, string> = $derived({
+    game_name_match: t("nome del gioco", $language),
+    game_root: t("cartella radice", $language),
+  });
 
   function describeSignals(signals: string[]): string {
     return signals.map((signal) => signalLabels[signal] ?? signal).join(", ");
@@ -51,28 +52,28 @@
     id="{group}-game-name"
     label={nameLabel}
     value={$manualImport.gameName}
-    placeholder="Opzionale"
+    placeholder={t("Opzionale", $language)}
     {disabled}
     oninput={(value) => setScanGameName(value)}
   />
 
   <div class="flex flex-wrap gap-2">
     <Button
-      label="Scegli cartella..."
+      label={t("Scegli cartella...", $language)}
       variant="secondary"
       {disabled}
       onClick={() => void browseGameDirectory(startPath)}
     />
     {#if $manualImport.directory !== null}
       <Button
-        label="Riesegui scansione"
+        label={t("Riesegui scansione", $language)}
         variant="secondary"
         {disabled}
         onClick={() => void rescanCurrentDirectory()}
       />
     {/if}
     <Button
-      label="Scegli eseguibile..."
+      label={t("Scegli eseguibile...", $language)}
       variant="secondary"
       {disabled}
       onClick={() => void pickExecutable(startPath)}
@@ -87,9 +88,9 @@
     <div
       class="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-sky-500/10 p-3 text-sm text-sky-200 light:text-sky-900"
     >
-      <span class="min-w-0 break-all">Eseguibile scelto: {pickedPath}</span>
+      <span class="min-w-0 break-all">{t("Eseguibile scelto: ", $language)}{pickedPath}</span>
       <Button
-        label="Annulla scelta"
+        label={t("Annulla scelta", $language)}
         variant="secondary"
         {disabled}
         onClick={clearSelection}
@@ -102,9 +103,7 @@
       <span
         class="size-4 shrink-0 animate-spin rounded-full border-2 border-zinc-400 border-t-transparent"
         aria-hidden="true"
-      ></span>
-      Scansione degli eseguibili in corso...
-    </p>
+      ></span>{t("\n      Scansione degli eseguibili in corso...\n    ", $language)}</p>
   {/if}
 
   {#if $manualImport.status === "error" && $manualImport.error !== null}
@@ -112,19 +111,15 @@
   {/if}
 
   {#if $manualImport.status === "empty"}
-    <p class="text-sm text-zinc-400 light:text-zinc-600">
-      Nessun eseguibile trovato in questa cartella.
-    </p>
+    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("\n      Nessun eseguibile trovato in questa cartella.\n    ", $language)}</p>
   {/if}
 
   {#if $manualImport.candidates.length > 0}
     {#if $manualImport.suggestedPath === null}
-      <p class="text-sm text-amber-300 light:text-amber-800">
-        La scansione non ha un candidato chiaro: scegli l'eseguibile da usare.
-      </p>
+      <p class="text-sm text-amber-300 light:text-amber-800">{t("\n        La scansione non ha un candidato chiaro: scegli l'eseguibile da usare.\n      ", $language)}</p>
     {/if}
     <fieldset class="flex flex-col gap-2" {disabled}>
-      <legend class="sr-only">Candidati trovati</legend>
+      <legend class="sr-only">{t("Candidati trovati", $language)}</legend>
       {#each $manualImport.candidates as candidate (candidate.path)}
         <label
           class="flex cursor-pointer items-start gap-3 rounded-lg bg-white/5 p-3 has-checked:bg-white/10 light:bg-zinc-100"
@@ -141,7 +136,7 @@
               {candidate.path}
             </span>
             <span class="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-              <Badge tone="neutral" title={`Punteggio ${candidate.score}`} />
+              <Badge tone="neutral" title={t("Punteggio {0}", $language, [candidate.score])} />
               {#if candidate.signals.length > 0}
                 <span>{describeSignals(candidate.signals)}</span>
               {/if}

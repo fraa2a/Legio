@@ -49,12 +49,36 @@ pub(crate) fn set_enabled(enabled: bool) -> Result<(), String> {
             if launcher.chars().any(char::is_control) {
                 return Err("Legio executable path contains control characters".to_owned());
             }
-            let launcher = launcher.replace('\\', "\\\\").replace('"', "\\\"");
+            let launcher = crate::desktop_shortcuts::quote_exec_argument(launcher)?;
             let entry = format!(
-                "[Desktop Entry]\nType=Application\nName=Legio\nExec=\"{launcher}\" --minimized\nX-Legio-Autostart=true\n"
+                "[Desktop Entry]\nType=Application\nName=Legio\nExec={launcher} --minimized\nX-Legio-Autostart=true\n"
             );
-            fs::write(path, entry)
-                .map_err(|error| format!("Could not enable system startup: {error}"))?;
+            use std::io::Write;
+            use std::os::unix::fs::OpenOptionsExt;
+            let temporary =
+                directory.join(format!(".legio-autostart-{}.tmp", uuid::Uuid::new_v4()));
+            let result = (|| {
+                let mut file = fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(&temporary)
+                    .map_err(|error| format!("Could not create startup entry: {error}"))?;
+                file.write_all(entry.as_bytes())
+                    .and_then(|()| file.sync_all())
+                    .map_err(|error| format!("Could not write startup entry: {error}"))?;
+                fs::rename(&temporary, &path)
+                    .map_err(|error| format!("Could not enable system startup: {error}"))?;
+                crate::finalize_install::sync_directory(&directory)
+            })();
+            if let Err(error) = result {
+                if let Err(cleanup) = fs::remove_file(&temporary)
+                    && cleanup.kind() != std::io::ErrorKind::NotFound
+                {
+                    return Err(format!("{error}; startup cleanup failed: {cleanup}"));
+                }
+                return Err(error);
+            }
         } else if path.exists() {
             fs::remove_file(path)
                 .map_err(|error| format!("Could not disable system startup: {error}"))?;
@@ -83,10 +107,5 @@ pub(crate) fn set_enabled(enabled: bool) -> Result<(), String> {
                 Err(error) => Err(format!("Could not disable system startup: {error}")),
             }
         }
-    }
-    #[cfg(not(any(target_os = "linux", windows)))]
-    {
-        let _ = enabled;
-        Err("System startup is unavailable on this platform".to_owned())
     }
 }

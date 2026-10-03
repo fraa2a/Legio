@@ -1,14 +1,15 @@
 <script lang="ts">
+  import { t, language } from "../../i18n";
   import type { Theme } from "../../services/local-state";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import { changeTheme, settings, settingsError } from "../../stores/settings";
 
-  const themes: { value: Theme; label: string }[] = [
-    { value: "system", label: "Sistema" },
-    { value: "dark", label: "Scuro" },
-    { value: "light", label: "Chiaro" },
-  ];
+  const themes: { value: Theme; label: string }[] = $derived([
+    { value: "system", label: t("Sistema", $language) },
+    { value: "dark", label: t("Scuro", $language) },
+    { value: "light", label: t("Chiaro", $language) },
+  ]);
 
   let selectedTheme: Theme | null = $state(null);
 
@@ -27,8 +28,8 @@
   {/if}
 
   <SettingsGroup
-    title="Tema"
-    description="Scegli come Legio adatta i colori al sistema o forza uno schema fisso."
+    title={t("Tema", $language)}
+    description={t("Scegli come Legio adatta i colori al sistema o forza uno schema fisso.", $language)}
   >
     {#each themes as theme (theme.value)}
       <label class="flex cursor-pointer items-center justify-between gap-6">

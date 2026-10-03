@@ -68,6 +68,8 @@ pub struct AssetResult {
 struct CacheHeader {
     url: String,
     content_type: String,
+    #[serde(default)]
+    transform_version: u8,
 }
 
 struct CacheEntry {
@@ -141,7 +143,7 @@ impl AssetCacheState {
         }
         let header: CacheHeader = serde_json::from_slice(&raw[..split])
             .map_err(|_| "A cached image has an invalid header.".to_owned())?;
-        if header.url != url {
+        if header.url != url || header.transform_version != 1 {
             return Ok(None);
         }
         let bytes = raw[split + 1..].to_vec();
@@ -178,6 +180,7 @@ impl AssetCacheState {
             .map_err(|error| format!("Could not create the image cache: {error}"))?;
         let header = serde_json::to_vec(&CacheHeader {
             url: url.to_owned(),
+            transform_version: 1,
             content_type: content_type.to_owned(),
         })
         .map_err(|error| format!("Could not encode the image cache header: {error}"))?;
@@ -266,17 +269,24 @@ fn selected_url(
     Ok(url.to_owned())
 }
 
-fn trimmed_asset_bytes(bytes: Vec<u8>, content_type: &str) -> Vec<u8> {
+static IMAGE_WORKERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+
+async fn trimmed_asset_bytes(
+    bytes: Vec<u8>,
+    content_type: &'static str,
+) -> Result<Vec<u8>, String> {
     if content_type != "image/png" {
-        return bytes;
+        return Ok(bytes);
     }
-    match trim_png(&bytes) {
-        Ok(trimmed) => trimmed,
-        Err(error) => {
-            eprintln!("Steam image trim failed: {error}");
-            bytes
-        }
-    }
+    let permit = IMAGE_WORKERS
+        .acquire()
+        .await
+        .map_err(|error| error.to_string())?;
+    let result = tauri::async_runtime::spawn_blocking(move || trim_png(&bytes))
+        .await
+        .map_err(|error| format!("Artwork processing task failed: {error}"))?;
+    drop(permit);
+    result
 }
 
 async fn load_asset(
@@ -301,7 +311,7 @@ async fn load_asset(
     if previous.as_ref().is_some_and(|entry| !entry.stale) {
         let entry = previous.ok_or_else(|| "Image cache entry disappeared.".to_owned())?;
         return Ok(AssetResult {
-            bytes: trimmed_asset_bytes(entry.bytes, entry.content_type),
+            bytes: entry.bytes,
             content_type: entry.content_type,
             stale: false,
             cache_warning: None,
@@ -318,7 +328,7 @@ async fn load_asset(
         });
     match fetched {
         Ok((bytes, content_type)) => {
-            let bytes = trimmed_asset_bytes(bytes, content_type);
+            let bytes = trimmed_asset_bytes(bytes, content_type).await?;
             let writer = cache.clone();
             let write_key = key;
             let write_url = url;
@@ -340,7 +350,7 @@ async fn load_asset(
         }
         Err(error) => previous
             .map(|entry| AssetResult {
-                bytes: trimmed_asset_bytes(entry.bytes, entry.content_type),
+                bytes: entry.bytes,
                 content_type: entry.content_type,
                 stale: true,
                 cache_warning: None,
@@ -521,7 +531,7 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute(
-                        "INSERT INTO steam_details_cache VALUES (400, ?1, 0)",
+                        "INSERT INTO steam_details_cache (steam_app_id, details, fetched_at) VALUES (400, ?1, 0)",
                         [details],
                     )
                     .map_err(|error| error.to_string())
