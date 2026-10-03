@@ -46,6 +46,9 @@ jobs:
       - name: Test asynchronous stores and artwork cache
         run: corepack pnpm test:regressions
 
+      - name: Test library artwork on cold startup
+        run: corepack pnpm test:artwork
+
       - name: Test release manifest
         run: python -B -m unittest discover -s scripts
 

@@ -23,7 +23,6 @@
   } = $props();
 
   const detailsState = $derived(steamAppId === null ? null : ($steamDetails[steamAppId] ?? null));
-  const details = $derived(detailsState?.details ?? null);
   const asset = $derived(assetOverride ?? (portrait ? "library_capsule" : "hero_blur"));
   const fallbackAsset = $derived(portrait ? null : "header");
   const cachedCover = $derived(steamAppId !== null && peekSteamImage({
@@ -56,9 +55,9 @@
     bind:this={tile}
     class="absolute inset-0 transition-transform duration-300 ease-out group-hover:scale-105"
   >
-    {#if (visible || cachedCover) && details !== null}
+    {#if (visible || cachedCover) && steamAppId !== null}
       <SteamArtwork
-        steamAppId={details.steamAppId}
+        {steamAppId}
         {asset}
         {fallbackAsset}
         version={detailsState?.cachedAt ?? null}
