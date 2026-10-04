@@ -57,6 +57,10 @@ export interface CompatibilityRunner {
   path: string;
 }
 
+export function compatibilityRunnerLabel(runner: CompatibilityRunner): string {
+  return runner.kind === "wine" && runner.version ? `${runner.name} (${runner.version})` : runner.name;
+}
+
 export interface RunnerDiscovery {
   runners: CompatibilityRunner[];
   diagnostics: string[];

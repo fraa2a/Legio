@@ -574,7 +574,6 @@
   "Scegli dove salvare download e installazioni. Steam verrà rilevato automaticamente.": "Choose where to save downloads and installations. Steam will be detected automatically.",
   "La verifica aiuta a rilevare archivi corrotti o alterati. Ti consigliamo di lasciarla attiva.": "Verification helps detect corrupted or modified archives. We recommend keeping it enabled.",
   "Per i giochi Windows scegli Proton o Wine. Puoi mantenere la selezione automatica e configurare ogni gioco in seguito.": "For Windows games, choose Proton or Wine. You can keep automatic selection and configure each game later.",
-  "Cartella prefix predefinita": "Default prefix folder",
   "Scegli cartella prefix": "Choose prefix folder",
   "Nessun runner rilevato. Installa Proton tramite Steam o Wine per avviare giochi Windows.": "No runners detected. Install Proton through Steam or Wine to run Windows games.",
   "Salva la configurazione e apri la tua libreria. Potrai aggiungere giochi manualmente o cercarli nello store.": "Save your setup and open your library. You can add games manually or find them in the store.",

@@ -5,7 +5,9 @@
   import Button from "../../components/ui/Button.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
+  import TextField from "../../components/ui/TextField.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
+  import { compatibilityRunnerLabel } from "../../services/game-settings";
   import { onboarding, startOnboarding, changeOnboarding, changeCompatibility, chooseOnboardingDirectory, completeOnboarding, endOnboardingPreview } from "../../stores/onboarding";
   import { appInfo } from "../../stores/app-info";
   let step = $state(0);
@@ -55,10 +57,13 @@
         {#if $onboarding.loading}<p role="status">{t("Caricamento...", $language)}</p>{/if}
         {#if $onboarding.compatibility}
           <SelectField id="onboarding-runner" label={t("Runner", $language)} value={$onboarding.compatibility.runnerPath ?? ""} disabled={$onboarding.loading}
-            options={[{ value: "", label: t("Scelta automatica", $language) }, ...($onboarding.compatibility.runnerPath && !$onboarding.runners.some((r) => r.path === $onboarding.compatibility?.runnerPath) ? [{ value: $onboarding.compatibility.runnerPath, label: $onboarding.compatibility.runnerPath }] : []), ...$onboarding.runners.map((r) => ({ value: r.path, label: `${r.name} ${r.version}` }))]}
+            options={[{ value: "", label: t("Scelta automatica", $language) }, ...($onboarding.compatibility.runnerPath && !$onboarding.runners.some((r) => r.path === $onboarding.compatibility?.runnerPath) ? [{ value: $onboarding.compatibility.runnerPath, label: $onboarding.compatibility.runnerPath }] : []), ...$onboarding.runners.map((runner) => ({ value: runner.path, label: compatibilityRunnerLabel(runner) }))]}
             onChange={(value) => changeCompatibility({ runnerPath: value || null })} />
-          <p class="break-all text-sm text-zinc-400 light:text-zinc-600">{$onboarding.compatibility.prefixRoot ?? t("Cartella prefix predefinita", $language)}</p>
-          <Button label={t("Scegli cartella prefix", $language)} variant="secondary" onClick={() => void chooseOnboardingDirectory(true)} />
+          <TextField id="onboarding-prefix-root" label={t("Cartella predefinita dei prefix", $language)} value={$onboarding.compatibility.prefixRoot ?? ""} placeholder={t("Percorso opzionale", $language)} hint={t("Legio crea un prefix per gioco dentro questa cartella.", $language)} disabled={$onboarding.loading || $onboarding.saving} oninput={(value) => changeCompatibility({ prefixRoot: value || null })} />
+          <div class="flex flex-wrap gap-2">
+            <Button label={t("Scegli cartella prefix", $language)} variant="secondary" disabled={$onboarding.loading || $onboarding.saving} onClick={() => void chooseOnboardingDirectory(true)} />
+            {#if $onboarding.compatibility.prefixRoot !== null}<Button label={t("Ripristina cartella prefix", $language)} variant="secondary" disabled={$onboarding.saving} onClick={() => changeCompatibility({ prefixRoot: null })} />{/if}
+          </div>
           <Toggle label={t("Log di debug", $language)} checked={$onboarding.compatibility.debugLogging} onChange={(checked) => changeCompatibility({ debugLogging: checked })} />
         {/if}
         {#each $onboarding.diagnostics as diagnostic (diagnostic)}<p class="text-sm text-zinc-400 light:text-zinc-600">{diagnostic}</p>{/each}

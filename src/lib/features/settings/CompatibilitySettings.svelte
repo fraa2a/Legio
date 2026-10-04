@@ -1,6 +1,6 @@
 <script lang="ts">
   import { mapToText, parseMap, parseEnvironment } from "../../services/launch-fields";
-  import { isGraphicsRenderer, isWaylandMode } from "../../services/game-settings";
+  import { compatibilityRunnerLabel, isGraphicsRenderer, isWaylandMode } from "../../services/game-settings";
   import { t, language } from "../../i18n";
   import { onDestroy, onMount } from "svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
@@ -16,6 +16,7 @@
     listCompatibilityRunners,
     saveCompatibilityDefaults,
     type CompatibilityDefaults,
+    type CompatibilityRunner,
   } from "../../services/game-settings";
   import { appInfo } from "../../stores/app-info";
   import { toMessage } from "../../utils/errors";
@@ -25,7 +26,7 @@
   let argumentsAfter = $state("");
   let environmentText = $state("");
   let dllOverridesText = $state("");
-  let runners = $state<{ kind: string; name: string; version: string; path: string }[]>([]);
+  let runners = $state<CompatibilityRunner[]>([]);
   let runnerDiagnostics = $state<string[]>([]);
   let logsDirectory = $state<string | null>(null);
   let loading = $state(true);
@@ -146,7 +147,7 @@
       : []),
     ...runners.map((runner) => ({
       value: runner.path,
-      label: runner.kind === "wine" ? `${runner.name} (${runner.version})` : runner.name,
+      label: compatibilityRunnerLabel(runner),
     })),
   ]);
 
