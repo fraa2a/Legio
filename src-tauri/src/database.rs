@@ -1449,10 +1449,21 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         ).map_err(database_error)?;
     }
     if version < 23 {
-        transaction.execute_batch(
-            "ALTER TABLE game_native_launch_config ADD COLUMN environment TEXT NOT NULL DEFAULT '{}';
-             PRAGMA user_version = 23;"
-        ).map_err(database_error)?;
+        let existing: i64 = transaction
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('game_native_launch_config') WHERE name = 'environment'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(database_error)?;
+        if existing == 0 {
+            transaction
+                .execute_batch("ALTER TABLE game_native_launch_config ADD COLUMN environment TEXT NOT NULL DEFAULT '{}';")
+                .map_err(database_error)?;
+        }
+        transaction
+            .execute_batch("PRAGMA user_version = 23;")
+            .map_err(database_error)?;
     }
     transaction.commit().map_err(database_error)
 }
