@@ -38,14 +38,15 @@ const LOG_LINE_LIMIT: usize = 8 * 1024;
 #[cfg(target_os = "linux")]
 fn ensure_steam_for_launch(
     launch_via_steam: bool,
+    online_fix: bool,
     steam_root: Option<&Path>,
     ensure_running: impl FnOnce(&Path) -> Result<(), String>,
 ) -> Result<(), String> {
-    if !launch_via_steam {
+    if !launch_via_steam && !online_fix {
         return Ok(());
     }
-    let steam_root =
-        steam_root.ok_or_else(|| "Launch via Steam requires a Steam installation".to_owned())?;
+    let steam_root = steam_root
+        .ok_or_else(|| "Steam launch and Online Fix require a Steam installation".to_owned())?;
     ensure_running(steam_root)
 }
 
@@ -449,9 +450,6 @@ impl GameLaunchManager {
         let launch_via_steam = overrides
             .launch_via_steam
             .unwrap_or(game.steam_app_id.is_some());
-        if launch_via_steam && game.steam_app_id.is_none() {
-            return Err("Launch via Steam requires a Steam App ID".to_owned());
-        }
         let executable_path = game
             .executable_path
             .as_deref()
@@ -504,7 +502,9 @@ impl GameLaunchManager {
             config.prefix_root.as_deref(),
             config.prefix_path.as_deref(),
         )?;
-        let steam_root = if matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton) {
+        let steam_root = if config.online_fix
+            || matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton)
+        {
             Some(steam_client_root()?)
         } else {
             None
@@ -614,9 +614,12 @@ impl GameLaunchManager {
                         ..LaunchContext::default()
                     },
                     move |cancel| {
-                        ensure_steam_for_launch(launch_via_steam, steam_root.as_deref(), |root| {
-                            steam_process::ensure_running(root, STEAM_START_TIMEOUT, cancel)
-                        })?;
+                        ensure_steam_for_launch(
+                            launch_via_steam,
+                            config.online_fix,
+                            steam_root.as_deref(),
+                            |root| steam_process::ensure_running(root, STEAM_START_TIMEOUT, cancel),
+                        )?;
                         command.spawn().map(Some).map_err(|error| {
                             format!("Could not start compatibility runner: {error}")
                         })
@@ -698,6 +701,10 @@ impl GameLaunchManager {
         let mut child = match launch(&cancel) {
             Ok(child) => child,
             Err(error) => {
+                #[cfg(target_os = "linux")]
+                if let Some(log) = compatibility_log.as_mut() {
+                    log.record_launch_error(&error);
+                }
                 let error = (!cancel.load(Ordering::Acquire) || error != "Launch cancelled")
                     .then(|| format!("Launch stage failed: {error}"));
                 self.set_state(&game_id, GameStatus::Idle, error);
@@ -1513,19 +1520,27 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn steam_starts_only_for_launch_via_steam() {
+    fn steam_starts_for_steam_launch_or_online_fix() {
         let steam_root = Path::new("/steam");
         let mut started = false;
 
-        ensure_steam_for_launch(false, None, |_| {
+        ensure_steam_for_launch(false, false, None, |_| {
             started = true;
             Ok(())
         })
         .unwrap();
         assert!(!started);
 
-        ensure_steam_for_launch(true, Some(steam_root), |root| {
+        ensure_steam_for_launch(true, false, Some(steam_root), |root| {
             assert_eq!(root, steam_root);
+            started = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(started);
+
+        started = false;
+        ensure_steam_for_launch(false, true, Some(steam_root), |_| {
             started = true;
             Ok(())
         })
@@ -1536,14 +1551,15 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn launch_via_steam_requires_a_steam_installation() {
-        let error = ensure_steam_for_launch(true, None, |_| Ok(())).unwrap_err();
-        assert!(error.contains("Launch via Steam requires a Steam installation"));
+        let error = ensure_steam_for_launch(true, false, None, |_| Ok(())).unwrap_err();
+        assert!(error.contains("require a Steam installation"));
+        assert!(ensure_steam_for_launch(false, true, None, |_| Ok(())).is_err());
     }
 
     #[cfg(target_os = "linux")]
     #[test]
     fn steam_start_failure_is_reported_before_runner_launch() {
-        let error = ensure_steam_for_launch(true, Some(Path::new("/steam")), |_| {
+        let error = ensure_steam_for_launch(true, false, Some(Path::new("/steam")), |_| {
             Err("Could not start Steam: permission denied".to_owned())
         })
         .unwrap_err();

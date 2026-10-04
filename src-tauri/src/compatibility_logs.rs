@@ -71,6 +71,7 @@ struct LaunchReport<'a> {
     runner_version: &'a str,
     prefix_path: &'a Path,
     applied_options: &'a AppliedCompatibilityOptions,
+    online_fix: bool,
     configured_environment_variables: Vec<&'a str>,
     debug_environment: Vec<(&'static str, String)>,
     stdout_log: &'static str,
@@ -114,6 +115,7 @@ impl CompatibilityLog {
             runner_version: &runner.version,
             prefix_path,
             applied_options,
+            online_fix: config.online_fix,
             configured_environment_variables: config
                 .environment
                 .keys()
@@ -144,6 +146,17 @@ impl CompatibilityLog {
 
     pub(crate) fn state(&self) -> CompatibilityLogState {
         self.state.clone()
+    }
+
+    pub(crate) fn record_launch_error(&mut self, error: &str) {
+        let Some(stderr) = self.stderr.as_mut() else {
+            return;
+        };
+        let mut redactor = StreamRedactor::new(self.state.redactions.clone());
+        let message = redactor.push(format!("Launch stage failed: {error}\n").as_bytes(), true);
+        if let Err(error) = stderr.write_all(&message).and_then(|()| stderr.flush()) {
+            self.state.report_error(&error, "launch error");
+        }
     }
 
     pub(crate) fn capture_output(&mut self, child: &mut Child) -> Result<(), String> {
@@ -516,6 +529,28 @@ mod tests {
             &options,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn records_redacted_errors_before_the_runner_starts() {
+        let root = std::env::temp_dir().join(format!("legio-launch-error-{}", Uuid::new_v4()));
+        let config = EffectiveCompatibilityConfig {
+            environment: [("TOKEN".to_owned(), "private-value".to_owned())].into(),
+            online_fix: true,
+            ..EffectiveCompatibilityConfig::default()
+        };
+        let mut log = test_log(&root, &config);
+        log.record_launch_error("Steam could not start: private-value");
+        let directory = log.state().directory().to_path_buf();
+        assert_eq!(
+            fs::read_to_string(directory.join("stderr.log")).unwrap(),
+            "Launch stage failed: Steam could not start: [REDACTED]\n"
+        );
+        let report: serde_json::Value =
+            serde_json::from_slice(&fs::read(directory.join("launch.json")).unwrap()).unwrap();
+        assert_eq!(report["onlineFix"], true);
+        drop(log);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

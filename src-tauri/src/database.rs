@@ -669,10 +669,8 @@ impl Database {
         let game_id = parse_game_id(game_id)?;
         if overrides.launch_via_steam == Some(true) {
             let game = self.game(&game_id)?;
-            if game.steam_install_path.is_some() || game.steam_app_id.is_none() {
-                return Err(
-                    "Launch via Steam requires a manual game with a Steam App ID".to_owned(),
-                );
+            if game.steam_install_path.is_some() {
+                return Err("Launch via Steam requires a manually imported game".to_owned());
             }
         }
         let arguments_before = encode_optional_json(&overrides.arguments_before)?;
@@ -1748,6 +1746,32 @@ pub fn check_game_steam_account(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn manual_steam_launch_does_not_require_a_catalog_app_id() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let game = database
+            .create_game(CreateGameInput {
+                name: "Manual game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        let saved = database
+            .save_game_compatibility_overrides(
+                &game.id,
+                GameCompatibilityOverrides {
+                    launch_via_steam: Some(true),
+                    ..GameCompatibilityOverrides::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(saved.launch_via_steam, Some(true));
+        assert_eq!(database.game(&game.id).unwrap().steam_app_id, None);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn migrates_v9_staged_download_for_finalization() {
