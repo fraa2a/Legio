@@ -16,6 +16,7 @@
   import GameSettingsPanel from "./GameSettingsPanel.svelte";
   import SteamAccountPanel from "./SteamAccountPanel.svelte";
   import SteamLaunchSettings from "./SteamLaunchSettings.svelte";
+  import { appInfo } from "../../stores/app-info";
 
   let { game, onClose, onRemoved }: {
     game: Game;
@@ -31,7 +32,7 @@
     { id: "compatibility", label: t("Compatibilità", $language), icon: "wrench" },
     { id: "danger", label: t("Zona pericolosa", $language), icon: "warning" },
   ] satisfies { id: string; label: string; icon: "settings" | "folder" | "image" | "wrench" | "warning" }[]);
-  const categories = $derived(steamManaged
+  const categories = $derived((steamManaged || $appInfo.data.platform !== "linux")
     ? allCategories.filter((category) => category.id !== "compatibility")
     : allCategories);
   let active = $state("general");

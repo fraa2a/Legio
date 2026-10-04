@@ -19,7 +19,7 @@ use crate::{
 
 const MAX_ASSET_BYTES: usize = 2 * 1024 * 1024;
 const MAX_HEADER_BYTES: usize = 4096;
-const CACHE_FILES: usize = 128;
+const CACHE_FILES: usize = 1024;
 const FRESH_FOR: Duration = Duration::from_secs(72 * 60 * 60);
 const ORPHAN_AGE: Duration = Duration::from_secs(60 * 60);
 

@@ -2,7 +2,7 @@
   import { mapToText, parseMap, parseEnvironment } from "../../services/launch-fields";
   import { isGraphicsRenderer, isWaylandMode } from "../../services/game-settings";
   import { t, language } from "../../i18n";
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import type { Game } from "../../services/local-state";
   import {
     emptyGameCompatibilityOverrides,
@@ -23,6 +23,7 @@
   import Panel from "../../components/ui/Panel.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
   import TextField from "../../components/ui/TextField.svelte";
+  import Toggle from "../../components/ui/Toggle.svelte";
   import { toMessage } from "../../utils/errors";
   import { pickGameDirectory } from "../../services/dialog";
   import { formatLaunchArguments, parseLaunchArguments } from "../../utils/launch-arguments";
@@ -38,17 +39,37 @@
   let argumentsAfter = $state("");
   let environmentText = $state("");
   let dllOverridesText = $state("");
-  let nativeConfig = $state<NativeLaunchConfig>({ arguments: [], workingDirectory: null });
+  let nativeConfig = $state<NativeLaunchConfig>({ arguments: [], workingDirectory: null, environment: {} });
   let nativeArguments = $state("");
   let nativeWorkingDirectory = $state("");
+  let nativeEnvironmentText = $state("");
   let loading = $state(true);
   let saving = $state(false);
   let loadError = $state<string | null>(null);
   let saveError = $state<string | null>(null);
   let saved = $state(false);
+  let baseline = $state<string | null>(null);
+  let failedSnapshot: string | null = null;
+  let savingTask: Promise<void> | null = null;
+  const compatibilitySnapshot = $derived(JSON.stringify({ overrides, argumentsBefore, argumentsAfter, environmentText, dllOverridesText }));
+  const nativeSnapshot = $derived(JSON.stringify({ nativeArguments, nativeWorkingDirectory, nativeEnvironmentText }));
+  const currentSnapshot = $derived($appInfo.data.platform === "linux" ? compatibilitySnapshot : nativeSnapshot);
 
   onMount(() => {
     void load();
+  });
+
+  $effect(() => {
+    if (loading || loadError !== null || baseline === null || saving || currentSnapshot === baseline || currentSnapshot === failedSnapshot) return;
+    const timer = setTimeout(() => void persist(), 550);
+    return () => clearTimeout(timer);
+  });
+
+  onDestroy(() => {
+    void (async () => {
+      if (savingTask !== null) await savingTask;
+      if (!loading && loadError === null && baseline !== null && currentSnapshot !== baseline && currentSnapshot !== failedSnapshot) await persist();
+    })();
   });
 
   async function load(): Promise<void> {
@@ -93,10 +114,14 @@
         nativeConfig = await getNativeLaunchConfig(game.id);
         nativeArguments = formatLaunchArguments(nativeConfig.arguments);
         nativeWorkingDirectory = nativeConfig.workingDirectory ?? "";
+        nativeEnvironmentText = mapToText(nativeConfig.environment);
       } catch (error) {
         loadError = toMessage(error);
       }
     }
+    if (loadError === null) baseline = $appInfo.data.platform === "linux"
+      ? JSON.stringify({ overrides, argumentsBefore, argumentsAfter, environmentText, dllOverridesText })
+      : JSON.stringify({ nativeArguments, nativeWorkingDirectory, nativeEnvironmentText });
     loading = false;
   }
 
@@ -175,60 +200,80 @@
     setOverride("runnerPath", path === inheritedRunner ? null : path);
   }
 
+  function persist(): Promise<void> {
+    if (savingTask !== null) return savingTask;
+    savingTask = ($appInfo.data.platform === "linux" ? saveCompatibility() : saveNative()).finally(() => { savingTask = null; });
+    return savingTask;
+  }
+
   async function saveCompatibility(): Promise<void> {
+    const snapshot = compatibilitySnapshot;
+    const draft = structuredClone($state.snapshot(overrides));
+    const before = argumentsBefore;
+    const after = argumentsAfter;
+    const environment = environmentText;
+    const dll = dllOverridesText;
     saving = true;
     saveError = null;
     saved = false;
     try {
-      if (overrides.prefixPath !== null && overrides.prefixPath.trim().length === 0) {
+      if (draft.prefixPath !== null && draft.prefixPath.trim().length === 0) {
         throw new Error(t("Seleziona una cartella per il prefix personalizzato.", $language));
       }
-      overrides = await saveGameCompatibilityOverrides(game.id, {
-        ...overrides,
-        argumentsBefore: overrides.argumentsBefore === null ? null : parseLaunchArguments(argumentsBefore),
-        argumentsAfter: overrides.argumentsAfter === null ? null : parseLaunchArguments(argumentsAfter),
-        environment: overrides.environment === null ? null : parseEnvironment(environmentText, overrides.debugLogging ?? defaults?.debugLogging ?? false),
-        dllOverrides: overrides.dllOverrides === null ? null : parseMap(dllOverridesText, t("Override DLL", $language)),
+      const updated = await saveGameCompatibilityOverrides(game.id, {
+        ...draft,
+        argumentsBefore: draft.argumentsBefore === null ? null : parseLaunchArguments(before),
+        argumentsAfter: draft.argumentsAfter === null ? null : parseLaunchArguments(after),
+        environment: draft.environment === null ? null : parseEnvironment(environment, draft.debugLogging ?? defaults?.debugLogging ?? false),
+        dllOverrides: draft.dllOverrides === null ? null : parseMap(dll, t("Override DLL", $language)),
       });
+      baseline = JSON.stringify({ overrides: updated, argumentsBefore: before, argumentsAfter: after, environmentText: environment, dllOverridesText: dll });
+      if (compatibilitySnapshot === snapshot) overrides = updated;
+      failedSnapshot = null;
       saved = true;
     } catch (error) {
+      failedSnapshot = snapshot;
       saveError = toMessage(error);
     } finally {
       saving = false;
     }
   }
 
-  async function resetCompatibility(): Promise<void> {
-    saving = true;
+  function resetCompatibility(): void {
     saveError = null;
     saved = false;
-    try {
-      overrides = await saveGameCompatibilityOverrides(game.id, { ...emptyGameCompatibilityOverrides });
-      argumentsBefore = "";
-      argumentsAfter = "";
-      environmentText = "";
-      dllOverridesText = "";
-      saved = true;
-    } catch (error) {
-      saveError = toMessage(error);
-    } finally {
-      saving = false;
-    }
+    overrides = structuredClone(emptyGameCompatibilityOverrides);
+    argumentsBefore = "";
+    argumentsAfter = "";
+    environmentText = "";
+    dllOverridesText = "";
   }
 
   async function saveNative(): Promise<void> {
+    const snapshot = nativeSnapshot;
+    const argumentsText = nativeArguments;
+    const workingDirectory = nativeWorkingDirectory;
+    const environmentText = nativeEnvironmentText;
     saving = true;
     saveError = null;
     saved = false;
     try {
-      nativeConfig = await saveNativeLaunchConfig(game.id, {
-        arguments: parseLaunchArguments(nativeArguments),
-        workingDirectory: nativeWorkingDirectory || null,
+      const updated = await saveNativeLaunchConfig(game.id, {
+        arguments: parseLaunchArguments(argumentsText),
+        workingDirectory: workingDirectory || null,
+        environment: parseMap(environmentText, t("Variabili ambiente", $language)),
       });
-      nativeArguments = formatLaunchArguments(nativeConfig.arguments);
-      nativeWorkingDirectory = nativeConfig.workingDirectory ?? "";
+      baseline = JSON.stringify({ nativeArguments: formatLaunchArguments(updated.arguments), nativeWorkingDirectory: updated.workingDirectory ?? "", nativeEnvironmentText: mapToText(updated.environment) });
+      if (nativeSnapshot === snapshot) {
+        nativeConfig = updated;
+        nativeArguments = formatLaunchArguments(updated.arguments);
+        nativeWorkingDirectory = updated.workingDirectory ?? "";
+        nativeEnvironmentText = mapToText(updated.environment);
+      }
+      failedSnapshot = null;
       saved = true;
     } catch (error) {
+      failedSnapshot = snapshot;
       saveError = toMessage(error);
     } finally {
       saving = false;
@@ -245,26 +290,21 @@
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Il prefix predefinito è una cartella distinta per questo gioco sotto la radice globale. Avvio con Steam usa lo stesso percorso.", $language)}</p>
     <div class="grid gap-4">
       <div class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-        <span class="flex items-center gap-2">
-          <input type="checkbox" class="size-4 accent-white" checked={overrides.prefixPath !== null} onchange={(event) => togglePrefix(event.currentTarget.checked)} />{t("\n          Percorso del prefix personalizzato\n        ", $language)}</span>
+        <Toggle label={t("Percorso del prefix personalizzato", $language)} checked={overrides.prefixPath !== null} onChange={togglePrefix} />
         <div class="flex gap-2">
           <div class="min-w-0 flex-1"><TextField id="game-compat-prefix" label={t("Cartella del prefix", $language)} value={overrides.prefixPath ?? ""} disabled={overrides.prefixPath === null} placeholder={t("Percorso assoluto", $language)} oninput={(value) => setOverride("prefixPath", value)} /></div>
           <Button label={t("Sfoglia...", $language)} variant="secondary" disabled={overrides.prefixPath === null} onClick={() => void browsePrefix()} />
         </div>
       </div>
       <div class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-        <span class="flex items-center gap-2">
-          <input type="checkbox" class="size-4 accent-white" checked={overrides.workingDirectory !== null} onchange={(event) => toggleWorkingDirectory(event.currentTarget.checked)} />{t("\n          Cartella di lavoro personalizzata\n        ", $language)}</span>
+        <Toggle label={t("Cartella di lavoro personalizzata", $language)} checked={overrides.workingDirectory !== null} onChange={toggleWorkingDirectory} />
         <TextField id="game-compat-working-directory" label={t("Cartella di lavoro", $language)} value={overrides.workingDirectory ?? ""} disabled={overrides.workingDirectory === null} placeholder={t("Predefinita: cartella dell'eseguibile", $language)} oninput={(value) => setOverride("workingDirectory", value)} />
       </div>
     </div>
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
     {#if saved}<p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Percorsi salvati.", $language)}</p>{/if}
-    <div><Button label={saving ? t("Salvataggio...", $language) : t("Salva percorsi", $language)} disabled={saving} onClick={() => void saveCompatibility()} /></div>
   {:else if $appInfo.data.platform === "linux" && section === "compatibility"}
-    <label class="flex items-center gap-2 text-sm text-zinc-200 light:text-zinc-800">
-      <input type="checkbox" class="size-4 accent-white" checked={overrides.launchViaSteam ?? (game.steamAppId !== null)}
-        onchange={(event) => setOverride("launchViaSteam", event.currentTarget.checked)} />{t("\n        Avvio con Steam\n      ", $language)}</label>
+    <Toggle label={t("Avvio con Steam", $language)} checked={overrides.launchViaSteam ?? (game.steamAppId !== null)} onChange={(checked) => setOverride("launchViaSteam", checked)} />
     <p class="text-xs text-zinc-500">{t("Avvia Steam e il gioco con Proton usando il prefix della sezione Posizioni. Runtime e overlay vengono applicati automaticamente quando disponibili.", $language)}</p>
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("\n      Ogni campo eredita il default globale finché il relativo override resta disattivato. Una lista o una mappa vuota cancella il valore ereditato.\n    ", $language)}</p>
     {#if runnerDiagnostics.length > 0}
@@ -290,22 +330,22 @@
       {/if}
     </div>
     <div class="grid gap-4 md:grid-cols-2">
-      <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("\n        Variabili ambiente\n        ", $language)}<span class="flex items-center gap-2 text-xs">
-          <input type="checkbox" class="size-4 accent-white" checked={overrides.environment !== null} onchange={(event) => toggleEnvironment(event.currentTarget.checked)} />{t("\n          Personalizza le variabili\n        ", $language)}</span>
-        <textarea bind:value={environmentText} disabled={overrides.environment === null} rows="5" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 disabled:opacity-50 light:bg-white light:text-zinc-900"></textarea>
+      <div class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
+        <span>{t("Variabili ambiente", $language)}</span>
+        <Toggle label={t("Personalizza le variabili", $language)} checked={overrides.environment !== null} onChange={toggleEnvironment} />
+        <textarea bind:value={environmentText} aria-label={t("Variabili ambiente", $language)} disabled={overrides.environment === null} rows="5" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 disabled:opacity-50 light:bg-white light:text-zinc-900"></textarea>
         <span class="text-xs text-zinc-500">{t("Una voce KEY=VALUE per riga. I controlli tipizzati gestiscono le variabili riservate.", $language)}</span>
-      </label>
-      <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("\n        Override DLL\n        ", $language)}<span class="flex items-center gap-2 text-xs">
-          <input type="checkbox" class="size-4 accent-white" checked={overrides.dllOverrides !== null} onchange={(event) => toggleDllOverrides(event.currentTarget.checked)} />{t("\n          Personalizza gli override\n        ", $language)}</span>
-        <textarea bind:value={dllOverridesText} disabled={overrides.dllOverrides === null} rows="5" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 disabled:opacity-50 light:bg-white light:text-zinc-900"></textarea>
+      </div>
+      <div class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
+        <span>{t("Override DLL", $language)}</span>
+        <Toggle label={t("Personalizza gli override", $language)} checked={overrides.dllOverrides !== null} onChange={toggleDllOverrides} />
+        <textarea bind:value={dllOverridesText} aria-label={t("Override DLL", $language)} disabled={overrides.dllOverrides === null} rows="5" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 disabled:opacity-50 light:bg-white light:text-zinc-900"></textarea>
         <span class="text-xs text-zinc-500">{t("Una voce KEY=VALUE per riga, ad esempio d3d11=n,b.", $language)}</span>
-      </label>
+      </div>
     </div>
 
-    <label class="flex items-center gap-2 text-sm text-zinc-200 light:text-zinc-800">
-      <input type="checkbox" class="size-4 accent-white"
-        checked={overrides.onlineFix ?? onlineFixDetected}
-        onchange={(event) => setOverride("onlineFix", event.currentTarget.checked ? (onlineFixDetected ? null : true) : false)} />{t("\n      Avvia con OnlineFix\n    ", $language)}</label>
+    <Toggle label={t("Avvia con OnlineFix", $language)} checked={overrides.onlineFix ?? onlineFixDetected}
+      onChange={(checked) => setOverride("onlineFix", checked ? (onlineFixDetected ? null : true) : false)} />
     {#if onlineFixDetected}<p class="text-xs text-zinc-500">{t("OnlineFix64.dll rilevato nella cartella del gioco.", $language)}</p>{/if}
 
     <div class="grid gap-4 md:grid-cols-2">
@@ -317,39 +357,37 @@
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
     {#if saved}<p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Impostazioni salvate.", $language)}</p>{/if}
     <div class="flex flex-wrap gap-2">
-      <Button label={saving ? t("Salvataggio...", $language) : t("Salva impostazioni", $language)} disabled={saving} onClick={() => void saveCompatibility()} />
-      <Button label={t("Ripristina default globali", $language)} variant="secondary" disabled={saving} onClick={() => void resetCompatibility()} />
+      <Button label={t("Ripristina default globali", $language)} variant="secondary" disabled={saving} onClick={resetCompatibility} />
     </div>
   {:else if $appInfo.data.platform === "linux"}
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Aggiungi argomenti di avvio. Racchiudi tra virgolette i valori che contengono spazi.", $language)}</p>
     <div class="grid gap-4 md:grid-cols-2">
       <div class="flex flex-col gap-2">
-        <label class="flex items-center gap-2 text-sm text-zinc-300 light:text-zinc-700">
-          <input type="checkbox" class="size-4 accent-white" checked={overrides.argumentsBefore !== null} onchange={(event) => toggleArgumentsBefore(event.currentTarget.checked)} />{t("\n          Prima dell'eseguibile\n        ", $language)}</label>
+        <Toggle label={t("Prima dell'eseguibile", $language)} checked={overrides.argumentsBefore !== null} onChange={toggleArgumentsBefore} />
         <TextField id="arguments-before" label={t("Opzioni di avvio", $language)} value={argumentsBefore} disabled={overrides.argumentsBefore === null} placeholder="-windowed -novid" oninput={(value) => (argumentsBefore = value)} />
       </div>
       <div class="flex flex-col gap-2">
-        <label class="flex items-center gap-2 text-sm text-zinc-300 light:text-zinc-700">
-          <input type="checkbox" class="size-4 accent-white" checked={overrides.argumentsAfter !== null} onchange={(event) => toggleArgumentsAfter(event.currentTarget.checked)} />{t("\n          Dopo l'eseguibile\n        ", $language)}</label>
+        <Toggle label={t("Dopo l'eseguibile", $language)} checked={overrides.argumentsAfter !== null} onChange={toggleArgumentsAfter} />
         <TextField id="arguments-after" label={t("Opzioni di avvio", $language)} value={argumentsAfter} disabled={overrides.argumentsAfter === null} placeholder="-windowed -novid" oninput={(value) => (argumentsAfter = value)} />
       </div>
     </div>
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
     {#if saved}<p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Argomenti salvati.", $language)}</p>{/if}
-    <div><Button label={saving ? t("Salvataggio...", $language) : t("Salva opzioni", $language)} disabled={saving} onClick={() => void saveCompatibility()} /></div>
   {:else if $appInfo.data.platform === "windows" && section === "launch"}
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Aggiungi argomenti di avvio. Racchiudi tra virgolette i valori che contengono spazi.", $language)}</p>
     <TextField id="native-arguments" label={t("Opzioni di avvio", $language)} value={nativeArguments} placeholder="-windowed -novid" oninput={(value) => (nativeArguments = value)} />
+    <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("Variabili ambiente", $language)}
+      <textarea bind:value={nativeEnvironmentText} rows="4" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
+      <span class="text-xs text-zinc-500">{t("Una voce KEY=VALUE per riga. Applicate solo all'avvio di questo gioco.", $language)}</span>
+    </label>
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
     {#if saved}<p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Argomenti salvati.", $language)}</p>{/if}
-    <div><Button label={saving ? t("Salvataggio...", $language) : t("Salva opzioni", $language)} disabled={saving} onClick={() => void saveNative()} /></div>
   {:else if $appInfo.data.platform === "windows"}
     {#if section === "locations"}
       <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Imposta la cartella iniziale del processo per questo gioco.", $language)}</p>
       <TextField id="native-working-directory" label={t("Cartella di lavoro", $language)} value={nativeWorkingDirectory} placeholder={t("Cartella dell'eseguibile", $language)} oninput={(value) => (nativeWorkingDirectory = value)} />
       {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
       {#if saved}<p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Percorso salvato.", $language)}</p>{/if}
-      <div><Button label={saving ? t("Salvataggio...", $language) : t("Salva percorso", $language)} disabled={saving} onClick={() => void saveNative()} /></div>
     {:else}
       <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Le opzioni di compatibilità aggiuntive non sono disponibili per i runner nativi. Configura gli argomenti di avvio in Generali.", $language)}</p>
     {/if}

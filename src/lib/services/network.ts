@@ -8,6 +8,7 @@ export interface ConnectivityCheck {
 }
 
 export interface NetworkLogStatus {
+  enabled: boolean;
   directory: string | null;
   lastError: string | null;
   droppedRecords: number;

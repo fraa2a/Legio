@@ -12,6 +12,8 @@ pub(crate) fn save(app: &AppHandle, settings: Settings) -> Result<Settings, Stri
         state.database()?.save_settings(previous.clone())?;
         return Err(error);
     }
+    app.state::<crate::diagnostics::Diagnostics>()
+        .set_enabled(saved.diagnostics_enabled);
     let data_dir = app
         .path()
         .app_data_dir()

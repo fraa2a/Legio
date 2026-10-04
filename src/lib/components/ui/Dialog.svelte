@@ -12,7 +12,7 @@
   }: {
     open?: boolean;
     title: string;
-    size?: "default" | "wide";
+    size?: "default" | "wide" | "large";
     flush?: boolean;
     onClose: () => void;
     actions?: Snippet;
@@ -23,7 +23,7 @@
 
   let dialog: HTMLDialogElement | undefined = $state();
 
-  const widthClass = $derived(size === "wide" ? "w-[52rem]" : "w-[26rem]");
+  const widthClass = $derived(size === "large" ? "w-[72rem]" : size === "wide" ? "w-[52rem]" : "w-[26rem]");
 
   $effect(() => {
     if (!dialog) return;
@@ -42,7 +42,7 @@
   bind:this={dialog}
   aria-labelledby={titleId}
   class="m-auto {widthClass} max-w-[calc(100vw-2rem)] rounded-2xl border border-white/15 bg-zinc-900 text-zinc-100 shadow-2xl shadow-black/40 backdrop:bg-black/70 light:border-zinc-900/15 light:bg-zinc-50 light:text-zinc-900 {flush
-    ? 'h-[min(40rem,calc(100dvh-3rem))] overflow-hidden'
+    ? size === 'large' ? 'h-[min(48rem,calc(100dvh-3rem))] overflow-hidden' : 'h-[min(40rem,calc(100dvh-3rem))] overflow-hidden'
     : 'max-h-[calc(100dvh-3rem)] overflow-y-auto'}"
   oncancel={(event) => {
     event.preventDefault();

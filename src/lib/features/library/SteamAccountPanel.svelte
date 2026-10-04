@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
-  import { untrack } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import type { Game } from "../../services/local-state";
   import { toMessage } from "../../utils/errors";
   import {
@@ -9,6 +9,7 @@
     savedSteamAccounts,
   } from "../../stores/steam-accounts";
   import Button from "../../components/ui/Button.svelte";
+  import ResetSetting from "../../components/ui/ResetSetting.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
@@ -35,11 +36,20 @@
   let selection = $state(untrack(() => game.steamAccountId ?? noAccount));
   let pending = $state(false);
   let actionError = $state<string | null>(null);
+  let failedSelection: string | null = null;
 
   const selectedSteamId = $derived(selection === noAccount ? null : selection);
   const changed = $derived(selectedSteamId !== game.steamAccountId);
 
   $effect(() => ensureSavedSteamAccounts);
+
+  $effect(() => {
+    if (!changed || pending || loading || selection === failedSelection) return;
+    const timer = setTimeout(() => void save(), 200);
+    return () => clearTimeout(timer);
+  });
+
+  onDestroy(() => { if (changed && !pending && selection !== failedSelection) void save(); });
 
   function refresh(): void {
     actionError = null;
@@ -51,7 +61,9 @@
     pending = true;
     try {
       await saveGameSteamAccount(game.id, selectedSteamId);
+      failedSelection = null;
     } catch (error) {
+      failedSelection = selection;
       actionError = toMessage(error);
     } finally {
       pending = false;
@@ -75,13 +87,13 @@
 
   <p class="text-sm text-zinc-400 light:text-zinc-600">{t("\n    L'account scelto viene applicato al prossimo avvio. Steam viene chiuso e riavviato quando serve\n    per passare all'account salvato.\n  ", $language)}</p>
 
-  <SelectField
+  <div class="flex items-end gap-2"><div class="min-w-0 flex-1"><SelectField
     id="steam-account"
     label={t("Account per l'avvio", $language)}
     bind:value={selection}
     {options}
     disabled={pending || loading}
-  />
+  /></div><ResetSetting label={t("Ripristina account Steam", $language)} disabled={pending || loading || selection === noAccount} onClick={() => { selection = noAccount; }} /></div>
 
   {#if $savedSteamAccounts.data.diagnostics.length > 0}
     <ul class="flex flex-col gap-1 text-xs text-amber-300 light:text-amber-800">
@@ -95,11 +107,5 @@
     <ErrorBanner message={actionError} />
   {/if}
 
-  <div class="flex justify-end">
-    <Button
-      label={pending ? t("Salvataggio...", $language) : t("Salva account", $language)}
-      disabled={pending || !changed}
-      onClick={() => void save()}
-    />
-  </div>
+  {#if pending}<p class="text-sm text-zinc-400" role="status">{t("Salvataggio...", $language)}</p>{/if}
 </Panel>

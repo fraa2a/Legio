@@ -3,13 +3,14 @@ import { defaultAppearance } from "../services/appearance";
 import { writable } from "svelte/store";
 import { createResource } from "./resource";
 
-const fallback: Settings = {
+export const defaultSettings: Settings = {
   onboardingCompleted: false,
   appearance: defaultAppearance(), theme: "system", language: "system", steamLibraryPollMinutes: 30, downloadPath: null,
   closeToTray: true, hideOnGameStart: true, launchOnSystemStart: false,
   launchMinimized: false, launchInLibrary: false, downloadNotifications: true, verifyVerifiedDownloads: true,
+  diagnosticsEnabled: true,
 };
 
-export const settings = createResource<Settings>(fallback, getSettings);
+export const settings = createResource<Settings>(defaultSettings, getSettings);
 
 export const settingsError = writable<string | null>(null);

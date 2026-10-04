@@ -1,6 +1,8 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
+  import { SvelteMap } from "svelte/reactivity";
   import Badge from "../../components/ui/Badge.svelte";
+  import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
   import { catalog, runCatalogSearch } from "../../stores/catalog";
@@ -22,14 +24,15 @@
 
   const manifest = $derived($source.data.manifest);
   const trimmed = $derived($storeQuery.trim());
+  let visibleCount = $state(20);
 
   // Each title appears once; its releases are selected on the detail page.
   const entries = $derived.by((): StoreEntry[] => {
     if (trimmed.length === 0) {
-      if (manifest === null) return [];
-      return [...new Map([...manifest.verified, ...manifest.unverified].reverse()
-        .map((entry) => [entry.steamAppId, entry] as const)).values()]
-        .map((entry) => ({ steamAppId: entry.steamAppId, name: entry.name, status: sourceStatusFor(manifest, entry.steamAppId) }))
+      const sourceEntries = manifest === null ? [] : [...manifest.verified, ...manifest.unverified];
+      const names = new SvelteMap($catalog.results.map((entry) => [entry.steamAppId, entry.name]));
+      for (const entry of sourceEntries) names.set(entry.steamAppId, entry.name);
+      return [...names].map(([steamAppId, name]) => ({ steamAppId, name, status: sourceStatusFor(manifest, steamAppId) }))
         .sort((left, right) => collator.compare(left.name, right.name));
     }
     return $catalog.results
@@ -37,29 +40,22 @@
         steamAppId: result.steamAppId,
         name: result.name,
         status: sourceStatusFor(manifest, result.steamAppId),
-      }))
-      .filter(
-        (entry) =>
-          entry.status.availability === "verified" || entry.status.availability === "unverified",
-      );
+      }));
   });
 
   const emptyMessage = $derived.by(() => {
     if (trimmed.length === 0) {
-      return t("La sorgente Legio non pubblica ancora alcun titolo. Aggiorna la sorgente e riprova.", $language);
-    }
-    if ($catalog.results.length > 0) {
-      return t("Nessuno dei risultati trovati è disponibile nella sorgente Legio.", $language);
+      return t("Nessun gioco nella cache locale. Cerca un titolo o aggiorna la sorgente.", $language);
     }
     return t("Nessun risultato per questa ricerca.", $language);
   });
 
-  // The catalog answers "ready" as soon as a search returns, but the store only
-  // lists what the source can deliver, so emptiness is decided on the listing.
   const listStatus = $derived.by((): LoadStatus => {
     if ($catalog.status !== "ready" && trimmed.length > 0) return $catalog.status;
     return entries.length > 0 ? "ready" : "empty";
   });
+
+  $effect(() => { void $storeQuery; visibleCount = 20; });
 
   $effect(() => {
     const value = $storeQuery;
@@ -104,7 +100,7 @@
 
     {#if entries.length > 0}
       <ul class="flex flex-col gap-2">
-        {#each entries as entry (entry.steamAppId)}
+        {#each entries.slice(0, visibleCount) as entry (entry.steamAppId)}
           <StoreGameCard
             steamAppId={entry.steamAppId}
             name={entry.name}
@@ -113,6 +109,9 @@
           />
         {/each}
       </ul>
+      {#if entries.length > visibleCount}
+        <div class="flex justify-center pt-2"><Button label={t("Carica altri 20", $language)} variant="secondary" onClick={() => { visibleCount += 20; }} /></div>
+      {/if}
     {/if}
   </div>
 {/if}

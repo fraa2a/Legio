@@ -43,6 +43,19 @@ pub struct CustomTheme {
     pub palette: Palette,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AnimatedBackground {
+    #[default]
+    None,
+    Particles,
+    Aurora,
+}
+
+fn default_animated_opacity() -> u8 {
+    65
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct Appearance {
@@ -51,6 +64,8 @@ pub struct Appearance {
     pub background: Option<String>,
     pub background_blur: u8,
     pub background_opacity: u8,
+    pub animated_background: AnimatedBackground,
+    pub animated_opacity: u8,
     pub surface_opacity: u8,
     pub transparent: bool,
 }
@@ -63,6 +78,8 @@ impl Default for Appearance {
             background: None,
             background_blur: 0,
             background_opacity: 60,
+            animated_background: AnimatedBackground::None,
+            animated_opacity: default_animated_opacity(),
             surface_opacity: 90,
             transparent: false,
         }
@@ -79,6 +96,10 @@ struct ThemeFile {
     background_image: Option<String>,
     background_blur: u8,
     background_opacity: u8,
+    #[serde(default)]
+    animated_background: AnimatedBackground,
+    #[serde(default = "default_animated_opacity")]
+    animated_opacity: u8,
     surface_opacity: u8,
     transparent: bool,
 }
@@ -110,9 +131,10 @@ pub(crate) fn validate(appearance: &Appearance, theme: &Theme) -> Result<(), Str
     }
     if appearance.background_blur > 40
         || appearance.background_opacity > 100
+        || appearance.animated_opacity > 100
         || appearance.surface_opacity > 100
     {
-        return Err("Blur must be 0-40, image opacity 0-100 and panel opacity 0-100".to_owned());
+        return Err("Blur must be 0-40 and opacity values must be 0-100".to_owned());
     }
     Ok(())
 }
@@ -364,6 +386,8 @@ pub async fn import_theme_file(app: AppHandle, source: String) -> Result<Setting
         settings.appearance.background = None;
         settings.appearance.background_blur = document.background_blur;
         settings.appearance.background_opacity = document.background_opacity;
+        settings.appearance.animated_background = document.animated_background;
+        settings.appearance.animated_opacity = document.animated_opacity;
         settings.appearance.surface_opacity = document.surface_opacity;
         settings.appearance.transparent = document.transparent;
         validate(&settings.appearance, &settings.theme)?;
@@ -404,6 +428,8 @@ pub async fn export_theme_file(
             background_image,
             background_blur: settings.appearance.background_blur,
             background_opacity: settings.appearance.background_opacity,
+            animated_background: settings.appearance.animated_background,
+            animated_opacity: settings.appearance.animated_opacity,
             surface_opacity: settings.appearance.surface_opacity,
             transparent: settings.appearance.transparent,
         };
@@ -448,6 +474,9 @@ fn active_palette(settings: &Settings, prefers_dark: bool) -> Result<CustomTheme
         Theme::System | Theme::Light => "light",
         Theme::Dark => "dark",
         Theme::Eggplant => "eggplant",
+        Theme::Ocean => "ocean",
+        Theme::Forest => "forest",
+        Theme::Amber => "amber",
         Theme::Custom => return Err("Select a custom theme".to_owned()),
     };
     presets
@@ -557,6 +586,8 @@ mod tests {
             background_image: Some(STANDARD.encode(&normalized)),
             background_blur: 12,
             background_opacity: 50,
+            animated_background: AnimatedBackground::Particles,
+            animated_opacity: 70,
             surface_opacity: 80,
             transparent: true,
         };

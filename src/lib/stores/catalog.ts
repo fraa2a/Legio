@@ -1,5 +1,5 @@
 import { writable } from "svelte/store";
-import { refreshCatalog, searchCatalog, type CatalogGame, type CatalogSearch } from "../services/catalog";
+import { cachedCatalogSearch, refreshCatalogCached, searchCatalog, type CatalogGame, type CatalogSearch } from "../services/catalog";
 import { toMessage } from "../utils/errors";
 import type { LoadStatus } from "./resource";
 
@@ -47,6 +47,17 @@ export async function runCatalogSearch(query: string): Promise<void> {
   const trimmed = query.trim();
   if (trimmed.length === 0) {
     catalog.set(initial);
+    try {
+      const local = await searchCatalog("");
+      if (request === requestId) catalog.update((state) => applySearch(state, local, false));
+    } catch (error) {
+      if (request === requestId) catalog.update((state) => ({ ...state, error: toMessage(error) }));
+    }
+    return;
+  }
+  const cached = cachedCatalogSearch(trimmed);
+  if (cached !== null) {
+    catalog.update((state) => applySearch({ ...state, query: trimmed }, cached, false));
     return;
   }
   catalog.update((state) => ({ ...state, query: trimmed, status: "loading", error: null }));
@@ -63,7 +74,7 @@ export async function runCatalogSearch(query: string): Promise<void> {
   catalog.update((state) => applySearch(state, local, true));
 
   try {
-    const fresh = await refreshCatalog(trimmed);
+    const fresh = await refreshCatalogCached(trimmed);
     if (request !== requestId) return;
     catalog.update((state) => applySearch(state, fresh, false));
   } catch (error) {

@@ -87,7 +87,7 @@ test("unreadable editor drafts leave application controls usable", () => {
   assert.equal(appearance.accentText("#000000"), "#ffffff");
 });
 
-test("the theme editor previews without saving and preserves unrelated settings on save", async () => {
+test("the theme editor previews before auto save and preserves unrelated settings", async () => {
   const initial = { theme: "system", appearance: appearance.defaultAppearance(), language: "en", steamLibraryPollMinutes: 30 };
   settingsStore.set({ data: initial });
   const saved = [];
@@ -108,15 +108,15 @@ test("the theme editor previews without saving and preserves unrelated settings 
   assert.equal(get(previewStore).theme, "eggplant");
   assert.equal(saved.length, 0);
   assert.equal(get(settingsStore).data.theme, "system");
-  const opacity = [...target.querySelectorAll("label")].find((label) => label.textContent.includes("Opacità dei pannelli")).querySelector("input");
-  assert.equal(opacity.closest("label").htmlFor, opacity.id);
+  const opacity = target.querySelector("#theme-surfaceOpacity");
+  assert.match(target.querySelector(`label[for="${opacity.id}"]`)?.textContent ?? "", /Opacità dei pannelli/);
   opacity.value = "35";
   opacity.dispatchEvent(new Event("input", { bubbles: true }));
   await settle();
   assert.equal(get(previewStore).appearance.surfaceOpacity, 35);
   // Another global setting can change while the appearance editor is open.
   settingsStore.set({ data: { ...initial, language: "it" } });
-  [...target.querySelectorAll("button")].find((button) => button.textContent.includes("Salva aspetto")).click();
+  await new Promise((resolve) => setTimeout(resolve, 600));
   await settle();
   assert.equal(saved.length, 1);
   assert.equal(saved[0].theme, "eggplant");

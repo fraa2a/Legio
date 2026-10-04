@@ -99,7 +99,7 @@
             {fallbackAsset}
             {index}
             {version}
-            full
+            full={asset === "screenshot"}
             {alt}
             caption={false}
             class="h-full max-h-full w-auto max-w-full rounded-2xl object-contain"
