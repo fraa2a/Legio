@@ -2,9 +2,15 @@
   import { t } from "../../i18n";
   import { onDestroy } from "svelte";
   import { loadBackground } from "../../services/appearance";
+  import AnimatedBackground from "./AnimatedBackground.svelte";
   import { toMessage } from "../../utils/errors";
 
-  let { id }: { id: string | null } = $props();
+  let { id, animation, animationOpacity, accent }: {
+    id: string | null;
+    animation: "none" | "particles" | "aurora";
+    animationOpacity: number;
+    accent: string;
+  } = $props();
   const selectedId = $derived(id);
   let url = $state<string | null>(null);
   let error = $state<string | null>(null);
@@ -59,6 +65,9 @@
 
 <div class="legio-backdrop" aria-hidden="true">
   {#if url}<img src={url} alt="" class="legio-wallpaper" onerror={imageFailed} />{/if}
+  {#if animation !== "none"}
+    {#key animation}<AnimatedBackground kind={animation} opacity={animationOpacity} color={accent} />{/key}
+  {/if}
 </div>
 {#if error}
   <p class="fixed bottom-3 left-3 z-50 max-w-sm rounded-lg bg-zinc-900 p-3 text-sm text-red-400" role="alert">{error}</p>

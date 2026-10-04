@@ -130,8 +130,15 @@ pub fn run() -> tauri::Result<()> {
             ));
             #[cfg(not(target_os = "linux"))]
             app.manage(game_lifecycle::GameLaunchManager::new());
-            let diagnostics = diagnostics::Diagnostics::new(
+            let diagnostics_enabled = app
+                .state::<database::DatabaseState>()
+                .database()?
+                .settings()
+                .map_err(std::io::Error::other)?
+                .diagnostics_enabled;
+            let diagnostics = diagnostics::Diagnostics::with_enabled(
                 app.path().app_log_dir().map_err(|error| error.to_string()),
+                diagnostics_enabled,
             );
             app.manage(steam_assets::AssetCacheState::new(
                 app.path().app_cache_dir(),

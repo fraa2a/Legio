@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { t, language } from "../../i18n";
+  import { themePresets } from "../../services/appearance";
   import Button from "../../components/ui/Button.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
@@ -30,8 +31,8 @@
           onChange={(value) => { if (value === "system" || value === "it" || value === "en") changeOnboarding({ language: value }); }} />
       {:else if step === 1}
         <SelectField id="onboarding-theme" label={t("Tema", $language)} value={$onboarding.draft.theme} disabled={$onboarding.saving}
-          options={[{ value: "system", label: t("Sistema", $language) }, { value: "dark", label: t("Scuro", $language) }, { value: "light", label: t("Chiaro", $language) }, { value: "eggplant", label: "Palette Viola Melanzana" }, ...($onboarding.draft.theme === "custom" ? [{ value: "custom", label: t("Personalizzato", $language) }] : [])]}
-          onChange={(value) => { if (value === "system" || value === "dark" || value === "light" || value === "eggplant") changeOnboarding({ theme: value }); }} />
+          options={[{ value: "system", label: t("Sistema", $language) }, ...themePresets.map((preset) => ({ value: preset.id, label: t(preset.name, $language) })), ...($onboarding.draft.theme === "custom" ? [{ value: "custom", label: t("Personalizzato", $language) }] : [])]}
+          onChange={(value) => { if (value === "system" || value === "dark" || value === "light" || value === "eggplant" || value === "ocean" || value === "forest" || value === "amber") changeOnboarding({ theme: value }); }} />
         <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Sfondi, palette custom e trasparenza sono disponibili nelle impostazioni Aspetto.", $language)}</p>
       {:else if step === 2}
         <p class="text-sm text-zinc-300 light:text-zinc-700">{t("Scegli dove salvare download e installazioni. Steam verrà rilevato automaticamente.", $language)}</p>
@@ -66,7 +67,7 @@
         <p class="text-sm text-zinc-300 light:text-zinc-700">{t("Salva la configurazione e apri la tua libreria. Potrai aggiungere giochi manualmente o cercarli nello store.", $language)}</p>
         <dl class="grid grid-cols-2 gap-3 text-sm text-zinc-300 light:text-zinc-700">
           <dt>{t("Lingua", $language)}</dt><dd>{$onboarding.draft.language}</dd>
-          <dt>{t("Tema", $language)}</dt><dd>{$onboarding.draft.theme === "eggplant" ? "Palette Viola Melanzana" : $onboarding.draft.theme}</dd>
+          <dt>{t("Tema", $language)}</dt><dd>{t(themePresets.find((preset) => preset.id === $onboarding.draft?.theme)?.name ?? $onboarding.draft.theme, $language)}</dd>
           <dt>{t("Cartella giochi", $language)}</dt><dd class="break-all">{$onboarding.draft.downloadPath ?? t("Cartella predefinita di Legio", $language)}</dd>
         </dl>
       {/if}

@@ -47,6 +47,7 @@
       <SteamArtwork
         {steamAppId}
         asset="hero_blur"
+        fallbackAsset="header"
         version={detailsState?.cachedAt ?? null}
         caption={false}
         alt=""

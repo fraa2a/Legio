@@ -3,14 +3,13 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
-  import SettingsRow from "../../components/ui/SettingsRow.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
+  import ResetSetting from "../../components/ui/ResetSetting.svelte";
   import Button from "../../components/ui/Button.svelte";
-  import { pickGameDirectory } from "../../services/dialog";
   import { saveSettings, type Settings } from "../../services/local-state";
   import { configureSteamScanInterval } from "../../stores/bootstrap";
   import { closeSettings } from "../../stores/navigation";
-  import { settings, settingsError } from "../../stores/settings";
+  import { defaultSettings, settings, settingsError } from "../../stores/settings";
   import { toMessage } from "../../utils/errors";
   import { checkForAppUpdate, installAppUpdate, updateState } from "../../services/app-updater";
 
@@ -22,7 +21,6 @@
     { key: "launchOnSystemStart", label: t("Avvia Legio all'accesso al sistema", $language) },
     { key: "launchMinimized", label: t("Avvia Legio ridotto nell'area di notifica", $language) },
     { key: "launchInLibrary", label: t("Apri Legio sulla Libreria", $language) },
-    { key: "downloadNotifications", label: t("Notifica di sistema al termine del download", $language) },
   ]);
   let saving = $state(false);
   let saved = $state(false);
@@ -67,14 +65,7 @@
     }
   }
 
-  async function setDownloadPath(): Promise<void> {
-    try {
-      const path = await pickGameDirectory($settings.data.downloadPath, t("Imposta la cartella per download e installazioni", $language));
-      if (path !== null) await update({ downloadPath: path });
-    } catch (error) {
-      settingsError.set(toMessage(error));
-    }
-  }
+
 </script>
 
 <section class="flex flex-col gap-4">
@@ -83,12 +74,15 @@
   {/if}
 
   <SettingsGroup icon="translate" title={t("Lingua", $language)} description={t("I formati di data e numero seguono le impostazioni regionali del sistema.", $language)}>
-    <SelectField id="ui-language" label={t("Lingua dell'interfaccia", $language)} value={$settings.data.language}
+    <div class="flex items-end gap-2"><div class="min-w-0 flex-1"><SelectField id="ui-language" label={t("Lingua dell'interfaccia", $language)} value={$settings.data.language}
       options={[{ value: "system", label: t("Sistema", $language) }, { value: "it", label: "Italiano" }, { value: "en", label: "English" }]}
-      disabled={saving} onChange={(value) => void selectLanguage(value)} />
+      disabled={saving} onChange={(value) => void selectLanguage(value)} /></div>
+      <ResetSetting label={t("Ripristina lingua", $language)} disabled={saving || $settings.data.language === defaultSettings.language} onClick={() => void update({ language: defaultSettings.language })} />
+    </div>
   </SettingsGroup>
   <SettingsGroup icon="settings" title={t("Comportamento", $language)}>
     {#each behaviors as option (option.key)}
+      <div class="flex items-center gap-2"><div class="min-w-0 flex-1">
       <Toggle
         label={option.label}
         checked={Boolean($settings.data[option.key])}
@@ -96,20 +90,25 @@
         onChange={(checked) => void update({ [option.key]: checked,
           ...(option.key === "launchOnSystemStart" && !checked ? { launchMinimized: false } : {}) })}
       />
+      </div><ResetSetting label={t("Ripristina {0}", $language, [option.label])} disabled={saving || $settings.data[option.key] === defaultSettings[option.key]} onClick={() => void update({ [option.key]: defaultSettings[option.key], ...(option.key === "launchOnSystemStart" && !defaultSettings.launchOnSystemStart ? { launchMinimized: false } : {}) })} /></div>
     {/each}
   </SettingsGroup>
 
   <SettingsGroup
-    icon="check"
-    title={t("Integrità dei download: impostazione delicata", $language)}
-    description={t("Controlla SHA-256 per i giochi verified. Disabilita questa protezione solo su computer di fascia bassa con prestazioni molto scarse: Legio non potrà rilevare archivi alterati o corrotti tramite hash. I giochi unverified vengono sempre estratti senza controllo SHA-256. La modifica si applica alle estrazioni successive.", $language)}
+    icon="store"
+    title={t("Controllo Steam", $language)}
+    description={t("Legio controlla Steam all'avvio e ripete il controllo all'intervallo scelto.", $language)}
   >
-    <Toggle
-      label={t("Verifica SHA-256 dei giochi verified (consigliato)", $language)}
-      checked={$settings.data.verifyVerifiedDownloads}
-      disabled={saving || $settings.status === "loading" || $settings.status === "idle" || $settings.status === "error"}
-      onChange={(checked) => void update({ verifyVerifiedDownloads: checked })}
-    />
+    <div class="flex max-w-64 items-end gap-2"><div class="min-w-0 flex-1">
+      <SelectField
+        id="steam-library-poll-interval"
+        label={t("Intervallo di controllo", $language)}
+        value={String($settings.data.steamLibraryPollMinutes)}
+        {options}
+        disabled={saving || $settings.status === "loading" || $settings.status === "idle"}
+        onChange={(value) => void selectInterval(value)}
+      />
+    </div><ResetSetting label={t("Ripristina intervallo di controllo", $language)} disabled={saving || $settings.data.steamLibraryPollMinutes === defaultSettings.steamLibraryPollMinutes} onClick={() => void selectInterval(String(defaultSettings.steamLibraryPollMinutes))} /></div>
   </SettingsGroup>
 
   <SettingsGroup icon="settings" title={t("Configurazione iniziale", $language)}>
@@ -129,37 +128,6 @@
       {/if}
     </div>
     {#if $updateState.error}<ErrorBanner message={$updateState.error} />{/if}
-  </SettingsGroup>
-
-  <SettingsGroup icon="folder" title={t("Cartella per download e installazioni", $language)}>
-    <SettingsRow
-      label={t("Percorso di destinazione", $language)}
-      description={$settings.data.downloadPath ?? t("Cartella predefinita di Legio", $language)}
-    >
-      <div class="flex flex-col gap-2 sm:flex-row">
-        <Button label={t("Imposta cartella...", $language)} variant="secondary" disabled={saving} onClick={() => void setDownloadPath()} />
-        {#if $settings.data.downloadPath !== null}
-          <Button label={t("Usa cartella predefinita", $language)} variant="secondary" disabled={saving} onClick={() => void update({ downloadPath: null })} />
-        {/if}
-      </div>
-    </SettingsRow>
-  </SettingsGroup>
-
-  <SettingsGroup
-    icon="store"
-    title={t("Controllo Steam", $language)}
-    description={t("Legio controlla Steam all'avvio e ripete il controllo all'intervallo scelto.", $language)}
-  >
-    <div class="max-w-56">
-      <SelectField
-        id="steam-library-poll-interval"
-        label={t("Intervallo di controllo", $language)}
-        value={String($settings.data.steamLibraryPollMinutes)}
-        {options}
-        disabled={saving || $settings.status === "loading" || $settings.status === "idle"}
-        onChange={(value) => void selectInterval(value)}
-      />
-    </div>
   </SettingsGroup>
 
   {#if saved}

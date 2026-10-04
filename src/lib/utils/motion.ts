@@ -2,9 +2,9 @@ import type { TransitionConfig } from "svelte/transition";
 
 export const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-export const fadeDuration = reducedMotion ? 0 : 180;
+export const fadeDuration = reducedMotion ? 0 : 110;
 
-export const blurFadeDuration = reducedMotion ? 0 : 300;
+export const blurFadeDuration = reducedMotion ? 0 : 210;
 
 export function blurFade(_node: HTMLElement, params: { duration?: number } = {}): TransitionConfig {
   return {

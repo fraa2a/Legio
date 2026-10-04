@@ -43,6 +43,7 @@ export interface GameCompatibilityOverrides {
 export interface NativeLaunchConfig {
   arguments: string[];
   workingDirectory: string | null;
+  environment: Record<string, string>;
 }
 
 export interface SteamLaunchConfig {

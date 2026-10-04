@@ -430,6 +430,7 @@ mod tests {
                 NativeLaunchConfig {
                     arguments: vec!["--keep".to_owned()],
                     working_directory: Some(source.join("bin").to_string_lossy().into_owned()),
+                    environment: Default::default(),
                 },
             )
             .unwrap();

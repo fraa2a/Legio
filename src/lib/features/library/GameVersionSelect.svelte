@@ -15,16 +15,20 @@
     options,
     selectedId,
     onSelect,
+    onAdd,
   }: {
     steamAppId: number | null;
     options: VersionOption[];
     selectedId: string;
     onSelect: (id: string) => void;
+    onAdd?: () => void;
   } = $props();
 
   let open = $state(false);
   let root: HTMLDivElement;
   const selected = $derived(options.find((option) => option.id === selectedId) ?? options[0]);
+  const alternatives = $derived(options.filter((option) => option.id !== selectedId));
+  const hasChoices = $derived(alternatives.length > 0 || onAdd !== undefined);
 
   function outside(event: PointerEvent): void {
     if (root && !root.contains(event.target as Node)) open = false;
@@ -49,8 +53,9 @@
     type="button"
     aria-label={t("Seleziona versione: {0}, {1}", $language, [selected.name, selected.subtitle])}
     aria-expanded={open}
+    disabled={!hasChoices}
     onkeydown={handleKeydown}
-    class="flex size-full items-center gap-2 border border-white/10 bg-zinc-950/60 px-3 text-left text-zinc-100 light:border-zinc-900/10 light:bg-zinc-100/70 light:text-zinc-900 {open ? 'rounded-t-xl border-b-0' : 'rounded-xl hover:bg-zinc-950/75 light:hover:bg-zinc-200'}"
+    class="flex size-full items-center gap-2 border border-white/10 bg-zinc-950/60 px-3 text-left text-zinc-100 light:border-zinc-900/10 light:bg-zinc-100/70 light:text-zinc-900 {open ? 'rounded-b-xl border-t-0' : 'rounded-xl hover:bg-zinc-950/75 light:hover:bg-zinc-200'}"
     onclick={() => (open = !open)}
   >
     {#if steamAppId !== null}
@@ -67,11 +72,11 @@
       </span>
       <span class="truncate text-xs leading-4 text-zinc-400 light:text-zinc-600">{selected.subtitle}</span>
     </span>
-    <Icon name="chevron-down" size="h-4 w-4 shrink-0 text-zinc-400 light:text-zinc-600" />
+    {#if hasChoices}<span class="transition-transform duration-150 {open ? 'rotate-180' : ''}"><Icon name="chevron-down" size="h-4 w-4 shrink-0 text-zinc-400 light:text-zinc-600" /></span>{/if}
   </button>
   {#if open}
-    <div class="absolute left-0 top-full max-h-48 w-full overflow-y-auto rounded-b-xl border border-t-0 border-white/10 bg-zinc-950/60 p-1 light:border-zinc-900/10 light:bg-zinc-100/70">
-      {#each options as option (option.id)}
+    <div class="absolute bottom-full left-0 z-50 max-h-48 w-full overflow-y-auto rounded-t-xl border border-b-0 border-white/10 bg-zinc-950/95 p-1 shadow-xl backdrop-blur-xl light:border-zinc-900/10 light:bg-zinc-100/95">
+      {#each alternatives as option (option.id)}
         <button
           type="button"
           aria-current={option.id === selectedId ? "true" : undefined}
@@ -95,6 +100,11 @@
           </span>
         </button>
       {/each}
+      {#if onAdd}
+        <button type="button" class="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-200 hover:bg-white/10 focus-visible:bg-white/10 light:text-zinc-800 light:hover:bg-zinc-900/10" onclick={() => { open = false; onAdd(); }}>
+          <Icon name="plus" size="size-5" />{t("Aggiungi un'altra versione", $language)}
+        </button>
+      {/if}
     </div>
   {/if}
 </div>

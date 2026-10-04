@@ -333,6 +333,7 @@ impl GameLaunchManager {
         let mut command = Command::new(&executable);
         command
             .args(&config.arguments)
+            .envs(&config.environment)
             .current_dir(working_directory)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -1773,6 +1774,7 @@ mod tests {
                     crate::database::NativeLaunchConfig {
                         arguments: vec!["controlled_native_child_waits_for_stop".to_owned()],
                         working_directory: None,
+                        environment: Default::default(),
                     },
                 )
                 .unwrap();

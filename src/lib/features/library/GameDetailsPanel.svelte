@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
+  import { onDestroy } from "svelte";
   import type { Game } from "../../services/local-state";
   import { toMessage } from "../../utils/errors";
   import { deleteGame, saveGame } from "../../stores/games";
@@ -8,6 +9,7 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import TextField from "../../components/ui/TextField.svelte";
+  import ResetSetting from "../../components/ui/ResetSetting.svelte";
   import type { SteamIdentityCandidate, SteamIdentificationResult } from "../../services/manual-import";
 
   let { game, onRemoved, section = "general" }: {
@@ -23,11 +25,20 @@
   let identityPending = $state(false);
   let identityError = $state<string | null>(null);
   let identityResult = $state<SteamIdentificationResult | null>(null);
+  let failedName: string | null = null;
 
   const nameValue = $derived(nameDraft ?? game.nameOverride ?? game.name);
   const trimmedName = $derived(nameValue.trim());
-  const nameChanged = $derived(trimmedName !== (game.nameOverride ?? "").trim());
-  const canResetName = $derived(game.automaticName !== null && game.nameOverride !== null);
+  const nameChanged = $derived(nameDraft !== null && trimmedName !== (game.nameOverride ?? game.name).trim());
+  const canResetName = $derived(game.automaticName !== null && (game.nameOverride !== null || nameChanged));
+
+  $effect(() => {
+    if (!nameChanged || trimmedName.length === 0 || pending || trimmedName === failedName) return;
+    const timer = setTimeout(() => void saveName(trimmedName), 550);
+    return () => clearTimeout(timer);
+  });
+
+  onDestroy(() => { if (nameChanged && trimmedName.length > 0 && !pending && trimmedName !== failedName) void saveName(trimmedName); });
 
   function handleNameInput(value: string): void {
     nameDraft = value;
@@ -44,7 +55,9 @@
         nameOverride: override,
       });
       nameDraft = null;
+      failedName = null;
     } catch (error) {
+      failedName = override;
       actionError = toMessage(error);
     } finally {
       pending = false;
@@ -119,7 +132,7 @@
 
 {#if section === "general"}
 <Panel title={t("Impostazioni", $language)}>
-  <TextField
+  <div class="flex items-end gap-2"><div class="min-w-0 flex-1"><TextField
     id="game-name"
     label={t("Nome visualizzato", $language)}
     value={nameValue}
@@ -128,22 +141,11 @@
     hint={game.automaticName !== null
       ? t("Nome automatico: {0}", $language, [game.automaticName])
       : t("Nessun nome automatico disponibile per questa voce.", $language)}
-  />
-  <div class="flex flex-wrap gap-2">
-    <Button
-      label={t("Salva nome", $language)}
-      disabled={pending || !nameChanged || trimmedName.length === 0}
-      onClick={() => void saveName(trimmedName)}
-    />
-    {#if canResetName}
-      <Button
-        label={t("Ripristina nome automatico", $language)}
-        variant="secondary"
-        disabled={pending}
-        onClick={() => void saveName(null)}
-      />
-    {/if}
+  /></div>
+    {#if canResetName}<ResetSetting label={t("Ripristina nome automatico", $language)} disabled={pending} onClick={() => { nameDraft = null; if (game.nameOverride !== null) void saveName(null); }} />{/if}
   </div>
+  {#if actionError !== null}<ErrorBanner message={actionError} />{/if}
+  {#if pending}<p class="text-xs text-zinc-400" role="status">{t("Salvataggio...", $language)}</p>{/if}
 </Panel>
 
 {#if game.steamInstallPath === null && game.executablePath !== null}

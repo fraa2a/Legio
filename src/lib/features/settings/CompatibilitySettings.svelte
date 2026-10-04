@@ -2,13 +2,13 @@
   import { mapToText, parseMap, parseEnvironment } from "../../services/launch-fields";
   import { isGraphicsRenderer, isWaylandMode } from "../../services/game-settings";
   import { t, language } from "../../i18n";
-  import { onMount } from "svelte";
-  import Button from "../../components/ui/Button.svelte";
+  import { onDestroy, onMount } from "svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import TextField from "../../components/ui/TextField.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
+  import ResetSetting from "../../components/ui/ResetSetting.svelte";
   import {
     emptyCompatibilityDefaults,
     getCompatibilityDefaults,
@@ -33,9 +33,26 @@
   let loadError = $state<string | null>(null);
   let saveError = $state<string | null>(null);
   let saved = $state(false);
+  let baseline = $state<string | null>(null);
+  let failedSnapshot: string | null = null;
+  let savingTask: Promise<void> | null = null;
+  const serialized = $derived(JSON.stringify({ defaults, argumentsBefore, argumentsAfter, environmentText, dllOverridesText }));
 
   onMount(() => {
     void load();
+  });
+
+  $effect(() => {
+    if (baseline === null || serialized === baseline || serialized === failedSnapshot || saving) return;
+    const timer = setTimeout(() => void save(), 550);
+    return () => clearTimeout(timer);
+  });
+
+  onDestroy(() => {
+    void (async () => {
+      if (savingTask !== null) await savingTask;
+      if (baseline !== null && serialized !== baseline && serialized !== failedSnapshot) await save();
+    })();
   });
 
   async function load(): Promise<void> {
@@ -62,6 +79,7 @@
       argumentsAfter = defaults.argumentsAfter.join("\n");
       environmentText = mapToText(defaults.environment);
       dllOverridesText = mapToText(defaults.dllOverrides);
+      baseline = JSON.stringify({ defaults, argumentsBefore, argumentsAfter, environmentText, dllOverridesText });
     } else {
       loadError = toMessage(defaultsResult.reason);
     }
@@ -79,29 +97,46 @@
     return value === "" ? [] : value.split("\n").map((line) => line.replace(/\r$/, ""));
   }
 
-  async function save(): Promise<void> {
-    saving = true;
-    saveError = null;
-    saved = false;
-    try {
-      defaults = await saveCompatibilityDefaults({
-        ...defaults,
-        workingDirectory: null,
-        argumentsBefore: parseArguments(argumentsBefore),
-        argumentsAfter: parseArguments(argumentsAfter),
-        environment: parseEnvironment(environmentText, defaults.debugLogging),
-        dllOverrides: parseMap(dllOverridesText, t("Override DLL", $language)),
-      });
-      argumentsBefore = defaults.argumentsBefore.join("\n");
-      argumentsAfter = defaults.argumentsAfter.join("\n");
-      environmentText = mapToText(defaults.environment);
-      dllOverridesText = mapToText(defaults.dllOverrides);
-      saved = true;
-    } catch (error) {
-      saveError = toMessage(error);
-    } finally {
-      saving = false;
-    }
+  function save(): Promise<void> {
+    if (savingTask !== null) return savingTask;
+    const snapshot = serialized;
+    const draft = structuredClone($state.snapshot(defaults));
+    const before = argumentsBefore;
+    const after = argumentsAfter;
+    const environment = environmentText;
+    const dll = dllOverridesText;
+    savingTask = (async () => {
+      saving = true;
+      saveError = null;
+      saved = false;
+      try {
+        const updated = await saveCompatibilityDefaults({
+          ...draft,
+          workingDirectory: null,
+          argumentsBefore: parseArguments(before),
+          argumentsAfter: parseArguments(after),
+          environment: parseEnvironment(environment, draft.debugLogging),
+          dllOverrides: parseMap(dll, t("Override DLL", $language)),
+        });
+        if (serialized === snapshot) {
+          defaults = updated;
+          argumentsBefore = updated.argumentsBefore.join("\n");
+          argumentsAfter = updated.argumentsAfter.join("\n");
+          environmentText = mapToText(updated.environment);
+          dllOverridesText = mapToText(updated.dllOverrides);
+        }
+        baseline = JSON.stringify({ defaults: updated, argumentsBefore: updated.argumentsBefore.join("\n"), argumentsAfter: updated.argumentsAfter.join("\n"), environmentText: mapToText(updated.environment), dllOverridesText: mapToText(updated.dllOverrides) });
+        failedSnapshot = null;
+        saved = true;
+      } catch (error) {
+        failedSnapshot = snapshot;
+        saveError = toMessage(error);
+      } finally {
+        saving = false;
+        savingTask = null;
+      }
+    })();
+    return savingTask;
   }
 
   const runnerOptions = $derived([
@@ -150,7 +185,7 @@
       {#if runners.length === 0}
         <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Nessun runner compatibile rilevato.", $language)}</p>
       {/if}
-      <div class="max-w-sm">
+      <div class="flex max-w-sm items-end gap-2"><div class="min-w-0 flex-1">
         <SelectField
           id="compat-runner"
           label={t("Runner predefinito", $language)}
@@ -158,7 +193,7 @@
           options={runnerOptions}
           onChange={(value) => (defaults = { ...defaults, runnerPath: value || null })}
         />
-      </div>
+      </div><ResetSetting label={t("Ripristina runner predefinito", $language)} disabled={saving || defaults.runnerPath === null} onClick={() => { defaults = { ...defaults, runnerPath: null }; }} /></div>
       {#if logsDirectory !== null}
         <p class="break-all text-xs text-zinc-500 light:text-zinc-600">{t("Log compatibilità: ", $language)}{logsDirectory}</p>
       {/if}
@@ -166,54 +201,53 @@
 
     <SettingsGroup icon="settings" title={t("Configurazione di avvio", $language)}>
       <div class="grid gap-4 md:grid-cols-2">
-        <TextField
+        <div class="flex items-end gap-2"><div class="min-w-0 flex-1"><TextField
           id="compat-prefix-root"
           label={t("Cartella predefinita dei prefix", $language)}
           value={defaults.prefixRoot ?? ""}
           placeholder={t("Percorso opzionale", $language)}
           hint={t("Legio crea un prefix per gioco dentro questa cartella.", $language)}
           oninput={(value) => (defaults = { ...defaults, prefixRoot: value || null })}
-        />
-        <div class="self-end pb-2">
+        /></div><ResetSetting label={t("Ripristina cartella prefix", $language)} disabled={saving || defaults.prefixRoot === null} onClick={() => { defaults = { ...defaults, prefixRoot: null }; }} /></div>
+        <div class="flex items-center gap-2 self-end pb-2"><div class="min-w-0 flex-1">
           <Toggle
             label={t("Abilita log di debug per gli avvii", $language)}
             checked={defaults.debugLogging}
             onChange={(checked) => (defaults = { ...defaults, debugLogging: checked })}
-          />
-        </div>
+          /></div><ResetSetting label={t("Ripristina log di debug", $language)} disabled={saving || !defaults.debugLogging} onClick={() => { defaults = { ...defaults, debugLogging: false }; }} /></div>
       </div>
       <div class="grid gap-4 md:grid-cols-2">
-        <SelectField
+        <div class="flex items-end gap-2"><div class="min-w-0 flex-1"><SelectField
           id="compat-renderer"
           label={t("Renderer grafico", $language)}
           value={defaults.graphicsRenderer}
           options={[{ value: "runner_default", label: t("Predefinito del runner", $language) }, { value: "wine_d3d", label: "WineD3D" }]}
           onChange={setGraphicsRenderer}
-        />
-        <SelectField
+        /></div><ResetSetting label={t("Ripristina renderer grafico", $language)} disabled={saving || defaults.graphicsRenderer === "runner_default"} onClick={() => { defaults = { ...defaults, graphicsRenderer: "runner_default" }; }} /></div>
+        <div class="flex items-end gap-2"><div class="min-w-0 flex-1"><SelectField
           id="compat-wayland"
           label="Wayland"
           value={defaults.wayland}
           options={[{ value: "runner_default", label: t("Predefinito del runner", $language) }, { value: "disabled", label: t("Disattivato", $language) }, { value: "native", label: t("Nativo, solo GE-Proton", $language) }]}
           onChange={setWayland}
-        />
+        /></div><ResetSetting label={t("Ripristina Wayland", $language)} disabled={saving || defaults.wayland === "runner_default"} onClick={() => { defaults = { ...defaults, wayland: "runner_default" }; }} /></div>
       </div>
     </SettingsGroup>
 
     <SettingsGroup icon="info" title={t("Argomenti e ambiente", $language)}>
       <div class="grid gap-4 md:grid-cols-2">
-        <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("\n          Argomenti prima dell'eseguibile\n          ", $language)}<textarea bind:value={argumentsBefore} rows="4" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
+        <div class="relative"><label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("\n          Argomenti prima dell'eseguibile\n          ", $language)}<textarea bind:value={argumentsBefore} rows="4" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
           <span class="text-xs text-zinc-500">{t("Un argomento per riga. Le righe vuote rappresentano argomenti vuoti.", $language)}</span>
-        </label>
-        <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("\n          Argomenti dopo l'eseguibile\n          ", $language)}<textarea bind:value={argumentsAfter} rows="4" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
+        </label><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina argomenti iniziali", $language)} disabled={saving || argumentsBefore === ""} onClick={() => { argumentsBefore = ""; }} /></span></div>
+        <div class="relative"><label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("\n          Argomenti dopo l'eseguibile\n          ", $language)}<textarea bind:value={argumentsAfter} rows="4" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
           <span class="text-xs text-zinc-500">{t("Un argomento per riga, passato senza interpretazione shell.", $language)}</span>
-        </label>
-        <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("\n          Variabili ambiente\n          ", $language)}<textarea bind:value={environmentText} rows="5" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
+        </label><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina argomenti finali", $language)} disabled={saving || argumentsAfter === ""} onClick={() => { argumentsAfter = ""; }} /></span></div>
+        <div class="relative"><label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("\n          Variabili ambiente\n          ", $language)}<textarea bind:value={environmentText} rows="5" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
           <span class="text-xs text-zinc-500">{t("Una voce KEY=VALUE per riga. I controlli tipizzati hanno priorità.", $language)}</span>
-        </label>
-        <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("\n          Override DLL\n          ", $language)}<textarea bind:value={dllOverridesText} rows="5" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
+        </label><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina variabili ambiente", $language)} disabled={saving || environmentText === ""} onClick={() => { environmentText = ""; }} /></span></div>
+        <div class="relative"><label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("\n          Override DLL\n          ", $language)}<textarea bind:value={dllOverridesText} rows="5" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
           <span class="text-xs text-zinc-500">{t("Una voce KEY=VALUE per riga, ad esempio d3d11=n,b.", $language)}</span>
-        </label>
+        </label><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina override DLL", $language)} disabled={saving || dllOverridesText === ""} onClick={() => { dllOverridesText = ""; }} /></span></div>
       </div>
     </SettingsGroup>
 
@@ -224,7 +258,7 @@
       {#if saved}
         <p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Default salvati.", $language)}</p>
       {/if}
-      <Button label={saving ? t("Salvataggio...", $language) : t("Salva default", $language)} disabled={saving || loading} onClick={() => void save()} />
+      {#if saving}<p class="text-sm text-zinc-400" role="status">{t("Salvataggio...", $language)}</p>{/if}
     </div>
   {/if}
 </section>

@@ -49,6 +49,7 @@ struct Record {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogStatus {
+    enabled: bool,
     directory: Option<PathBuf>,
     last_error: Option<String>,
     dropped_records: u64,
@@ -63,8 +64,13 @@ pub struct Diagnostics {
 
 impl Diagnostics {
     pub fn new(directory: Result<PathBuf, String>) -> Self {
+        Self::with_enabled(directory, true)
+    }
+
+    pub fn with_enabled(directory: Result<PathBuf, String>, enabled: bool) -> Self {
         let (sender, receiver) = mpsc::sync_channel::<Record>(QUEUE_CAPACITY);
         let status = Arc::new(Mutex::new(LogStatus {
+            enabled,
             directory: directory.as_ref().ok().cloned(),
             last_error: directory
                 .as_ref()
@@ -76,14 +82,17 @@ impl Diagnostics {
         if let Ok(directory) = directory {
             let worker_status = Arc::clone(&status);
             let spawn = std::thread::Builder::new().name("local-diagnostics".to_owned()).spawn(move || {
-                if let Err(error) = prepare(&directory) {
+                if enabled && let Err(error) = prepare(&directory) {
                     let mut status = worker_status.lock().unwrap_or_else(|error| error.into_inner());
                     status.last_error = Some(format!("Could not initialize local logs ({:?}). Check directory permissions and free disk space.", error.kind()));
                 }
                 for record in receiver {
-                    let result = append(&directory, &record);
                     let mut status = worker_status.lock().unwrap_or_else(|error| error.into_inner());
                     status.pending_records -= 1;
+                    if !status.enabled {
+                        continue;
+                    }
+                    let result = append(&directory, &record);
                     match result {
                         Ok(()) => status.last_error = None,
                         Err(error) => {
@@ -112,6 +121,13 @@ impl Diagnostics {
             .clone()
     }
 
+    pub fn set_enabled(&self, enabled: bool) {
+        self.status
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .enabled = enabled;
+    }
+
     pub fn request(&self, operation: Operation) -> RequestLog<'_> {
         RequestLog {
             diagnostics: self,
@@ -128,6 +144,9 @@ impl Diagnostics {
             .status
             .lock()
             .unwrap_or_else(|error| error.into_inner());
+        if !status.enabled {
+            return;
+        }
         status.pending_records += 1;
         if let Err(error) = self.sender.try_send(record) {
             status.pending_records -= 1;
@@ -262,6 +281,7 @@ mod tests {
         let diagnostics = Diagnostics {
             sender,
             status: Arc::new(Mutex::new(LogStatus {
+                enabled: true,
                 directory: None,
                 last_error: None,
                 dropped_records: 0,

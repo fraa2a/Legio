@@ -1,21 +1,24 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
   import Dialog from "../../components/ui/Dialog.svelte";
-  import Icon from "../../components/ui/Icon.svelte";
+  import Icon, { type IconName } from "../../components/ui/Icon.svelte";
+  import { fade } from "svelte/transition";
+  import { fadeDuration } from "../../utils/motion";
   import DownloadSettings from "./DownloadSettings.svelte";
   import CompatibilitySettings from "./CompatibilitySettings.svelte";
-  import NetworkSettings from "./NetworkSettings.svelte";
+  import AdvancedSettings from "./AdvancedSettings.svelte";
   import ThemeSettings from "./ThemeSettings.svelte";
   import GeneralSettings from "./GeneralSettings.svelte";
+  import { appInfo } from "../../stores/app-info";
 
   let { onClose }: { onClose: () => void } = $props();
 
-  const categories = $derived([
+  const categories: { id: string; label: string; icon: IconName }[] = $derived([
     { id: "general", label: t("Generali", $language), icon: "settings" },
     { id: "appearance", label: t("Aspetto", $language), icon: "palette" },
-    { id: "network", label: t("Rete", $language), icon: "globe" },
     { id: "downloads", label: "Download", icon: "downloads" },
-    { id: "compatibility", label: t("Compatibilità", $language), icon: "wrench" },
+    ...($appInfo.data.platform === "linux" ? [{ id: "compatibility", label: t("Compatibilità", $language), icon: "wrench" } as const] : []),
+    { id: "advanced", label: t("Avanzate", $language), icon: "info" },
   ] as const);
 
   type CategoryId = (typeof categories)[number]["id"];
@@ -29,7 +32,7 @@
   }
 </script>
 
-<Dialog open title={t("Impostazioni", $language)} size="wide" flush {onClose}>
+<Dialog open title={t("Impostazioni", $language)} size="large" flush {onClose}>
   {#snippet actions()}
     <button
       type="button"
@@ -61,18 +64,20 @@
       {/each}
     </nav>
 
-    <div class="min-w-0 flex-1 overflow-y-auto p-6">
+    <div class="min-w-0 flex-1 overflow-y-auto p-6 lg:p-8">
+      {#key active}<div in:fade={{ duration: fadeDuration }}>
       {#if active === "general"}
         <GeneralSettings />
       {:else if active === "appearance"}
         <ThemeSettings />
-      {:else if active === "network"}
-        <NetworkSettings />
       {:else if active === "downloads"}
         <DownloadSettings />
-      {:else}
+      {:else if active === "compatibility" && $appInfo.data.platform === "linux"}
         <CompatibilitySettings />
+      {:else}
+        <AdvancedSettings />
       {/if}
+      </div>{/key}
     </div>
   </div>
 </Dialog>
