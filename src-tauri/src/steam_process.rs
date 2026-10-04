@@ -9,6 +9,10 @@ const POLL_INTERVAL: Duration = Duration::from_millis(250);
 const STEAM_ID64_BASE: u64 = 76_561_197_960_265_728;
 
 pub(crate) fn steam_executable(steam_root: &Path) -> Result<PathBuf, String> {
+    #[cfg(target_os = "linux")]
+    if let Some(launcher) = linux_steam_launcher(std::env::var_os("PATH").as_deref()) {
+        return Ok(launcher);
+    }
     executable_candidates(steam_root, cfg!(windows))
         .into_iter()
         .find(|path| path.is_file())
@@ -18,6 +22,22 @@ pub(crate) fn steam_executable(steam_root: &Path) -> Result<PathBuf, String> {
                 steam_root.display()
             )
         })
+}
+
+#[cfg(target_os = "linux")]
+fn linux_steam_launcher(path: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::env::split_paths(path?).find_map(|directory| {
+        if !directory.is_absolute() {
+            return None;
+        }
+        let launcher = directory.join("steam");
+        launcher
+            .metadata()
+            .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+            .then_some(launcher)
+    })
 }
 
 fn executable_candidates(steam_root: &Path, windows: bool) -> Vec<PathBuf> {
@@ -381,6 +401,32 @@ fn selected_account_id_from_loginusers(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_launcher_uses_the_executable_bootstrap_on_path() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root =
+            std::env::temp_dir().join(format!("legio-steam-launcher-{}", uuid::Uuid::new_v4()));
+        let ignored = root.join("ignored");
+        let packaged = root.join("packaged");
+        std::fs::create_dir_all(&ignored).unwrap();
+        std::fs::create_dir_all(&packaged).unwrap();
+        for (directory, mode) in [(&ignored, 0o600), (&packaged, 0o755)] {
+            let file = directory.join("steam");
+            std::fs::write(&file, b"#!/bin/sh\nexit 0\n").unwrap();
+            std::fs::set_permissions(file, std::fs::Permissions::from_mode(mode)).unwrap();
+        }
+        let path = std::env::join_paths([&ignored, &packaged]).unwrap();
+        assert_eq!(
+            linux_steam_launcher(Some(&path)),
+            Some(packaged.join("steam"))
+        );
+        assert!(linux_steam_launcher(None).is_none());
+        assert!(linux_steam_launcher(Some(std::ffi::OsStr::new("."))).is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn executable_candidates_follow_platform_names() {
