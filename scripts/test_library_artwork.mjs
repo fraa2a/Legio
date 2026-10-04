@@ -11,6 +11,7 @@ for (const key of ["window", "document", "navigator", "Node", "Text", "Comment",
   Object.defineProperty(globalThis, key, { configurable: true, value: typeof value === "function" && key.endsWith("AnimationFrame") ? value.bind(dom.window) : value });
 }
 const { mount, unmount, flushSync } = await import("svelte");
+const { writable } = await import("svelte/store");
 const dataModule = (code) => `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`;
 const mocks = {
   "@tauri-apps/api/core": dataModule("export const invoke = (...args) => globalThis.artworkInvoke(...args);"),
@@ -117,5 +118,46 @@ test("manual game keeps its name without requesting Steam artwork", async () => 
     assert.equal(requests.length, 0);
   } finally {
     await unmount(component);
+  }
+});
+
+test("library renders repeated Steam diagnostics and stays usable after refresh", async () => {
+  const games = writable({ data: [], status: "ready", error: null });
+  games.load = async () => {};
+  const steamLibrary = writable({ importing: false, error: null, importResult: null });
+  globalThis.libraryCrashFixture = { games, steamLibrary };
+  const storeImport = `import { writable } from "${import.meta.resolve("svelte/store")}";`;
+  Object.assign(mocks, {
+    "src/lib/stores/games": dataModule("export const games = globalThis.libraryCrashFixture.games;"),
+    "src/lib/stores/steam-library": dataModule("export const steamLibrary = globalThis.libraryCrashFixture.steamLibrary; export const importSteamLibrary = async () => {};"),
+    "src/lib/stores/library-ui": dataModule(storeImport + 'export const addGameDialogOpen = writable(false), libraryPortrait = writable(false), libraryQuery = writable("");'),
+    "src/lib/stores/launch": dataModule(storeImport + "export const launchError = writable(null), launchStateByGame = writable(new Map());"),
+    "src/lib/stores/playtime": dataModule(storeImport + "export const playtime = writable({data:[]}); playtime.load = async () => {};"),
+    "src/lib/stores/navigation": dataModule("export const openGame = () => {};"),
+    "src/lib/features/library/GameCard.svelte": dataModule(await resolveImports(compile('<script>let { game } = $props();</script><li>{game.name}</li>', { generate: "client" }).js.code, "card-fixture.svelte")),
+    "src/lib/features/library/AddGameDialog.svelte": dataModule("export default () => {};"),
+  });
+  const { default: LibraryView } = await import(await moduleUrl("src/lib/features/library/LibraryView.svelte"));
+  const target = document.createElement("div");
+  document.body.append(target);
+  let component;
+  try {
+    const warning = "ignored a Steam app without verified game type";
+    steamLibrary.set({ importing: false, error: null, importResult: { diagnostics: [warning, warning] } });
+    component = mount(LibraryView, { target });
+    await settle();
+    assert.equal(target.querySelectorAll('[aria-label="Diagnostica Steam"] li').length, 2);
+    games.set({ data: [{ id: "portal", name: "Portal", steamAppId: 400, steamInstallPath: "C:\\Steam\\Portal" }], status: "ready", error: null });
+    steamLibrary.set({ importing: false, error: null, importResult: { diagnostics: [warning, warning, warning] } });
+    await settle();
+    assert.equal(target.querySelectorAll('[aria-label="Diagnostica Steam"] li').length, 3);
+    assert.match(target.textContent, /Portal/);
+    steamLibrary.set({ importing: false, error: null, importResult: { diagnostics: [] } });
+    await settle();
+    assert.equal(target.querySelector('[aria-label="Diagnostica Steam"]'), null);
+    assert.match(target.textContent, /Portal/);
+  } finally {
+    if (component) await unmount(component);
+    target.remove();
   }
 });
