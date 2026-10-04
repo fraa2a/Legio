@@ -54,7 +54,7 @@
 </script>
 
 <aside
-  class="my-1.5 ml-1.5 flex shrink-0 flex-col overflow-hidden rounded-xl bg-zinc-900 light:bg-zinc-50 {expanded
+  class="legio-panel my-1.5 ml-1.5 flex shrink-0 flex-col overflow-hidden rounded-xl bg-zinc-900 light:bg-zinc-50 {expanded
     ? "w-[13.5rem]"
     : "w-16"} transition-[width] duration-300 ease-out"
 >

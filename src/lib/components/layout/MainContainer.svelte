@@ -24,7 +24,7 @@
 </script>
 
 <main
-  class="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl scrollbar-none bg-black light:bg-zinc-50"
+  class="legio-content relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl scrollbar-none bg-black light:bg-zinc-50"
 >
   {#each rendered as id (id)}
     <div

@@ -118,6 +118,8 @@ pub enum Theme {
     System,
     Dark,
     Light,
+    Eggplant,
+    Custom,
 }
 
 impl Theme {
@@ -126,6 +128,8 @@ impl Theme {
             "system" => Ok(Self::System),
             "dark" => Ok(Self::Dark),
             "light" => Ok(Self::Light),
+            "eggplant" => Ok(Self::Eggplant),
+            "custom" => Ok(Self::Custom),
             _ => Err(format!("stored theme is invalid: {value}")),
         }
     }
@@ -135,6 +139,8 @@ impl Theme {
             Self::System => "system",
             Self::Dark => "dark",
             Self::Light => "light",
+            Self::Eggplant => "eggplant",
+            Self::Custom => "custom",
         }
     }
 }
@@ -143,6 +149,8 @@ impl Theme {
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub theme: Theme,
+    #[serde(default)]
+    pub appearance: crate::appearance::Appearance,
     #[serde(default)]
     pub language: crate::locale::LanguagePreference,
     #[serde(default = "default_steam_library_poll_minutes")]
@@ -187,6 +195,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             theme: Theme::System,
+            appearance: crate::appearance::Appearance::default(),
             language: crate::locale::LanguagePreference::System,
             steam_library_poll_minutes: DEFAULT_STEAM_LIBRARY_POLL_MINUTES,
             download_path: None,
@@ -468,11 +477,13 @@ impl Database {
             )?;
             settings.theme = theme;
             settings.steam_library_poll_minutes = steam_library_poll_minutes;
+            crate::appearance::validate(&settings.appearance, &settings.theme)?;
             Ok(settings)
         })
     }
 
     pub fn save_settings(&self, settings: Settings) -> Result<Settings, String> {
+        crate::appearance::validate(&settings.appearance, &settings.theme)?;
         validate_steam_library_poll_minutes(settings.steam_library_poll_minutes)?;
         if settings.launch_minimized && !settings.launch_on_system_start {
             return Err("Launch minimized requires launch on system startup".to_owned());
@@ -1748,6 +1759,31 @@ mod tests {
     use super::*;
 
     #[cfg(target_os = "linux")]
+    #[test]
+    fn appearance_defaults_and_custom_palettes_survive_reopen() {
+        let old: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(old.appearance, crate::appearance::Appearance::default());
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let mut settings = Settings::default();
+        let mut presets: Vec<crate::appearance::CustomTheme> =
+            serde_json::from_str(include_str!("../../src/lib/services/theme-presets.json"))
+                .unwrap();
+        let mut custom = presets.remove(2);
+        custom.id = Uuid::new_v4().to_string();
+        settings.theme = Theme::Custom;
+        settings.appearance.custom_theme_id = Some(custom.id.clone());
+        settings.appearance.custom_themes.push(custom);
+        settings.appearance.background_blur = 16;
+        settings.appearance.transparent = true;
+        database.save_settings(settings.clone()).unwrap();
+        drop(database);
+        let reopened = Database::open(&directory).unwrap();
+        assert_eq!(reopened.settings().unwrap(), settings);
+        drop(reopened);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
     #[test]
     fn manual_steam_launch_does_not_require_a_catalog_app_id() {
         let directory = temporary_directory();
