@@ -38,9 +38,9 @@
   });
 </script>
 
-<li bind:this={row} class="tile group relative isolate overflow-hidden rounded-xl bg-zinc-900 light:bg-white">
+<li bind:this={row} class="tile group relative overflow-hidden rounded-xl bg-zinc-900 light:bg-white">
   <div
-    class="absolute inset-0 -z-10 bg-gradient-to-br from-zinc-800 to-zinc-950 transition-transform duration-300 ease-out group-hover:scale-105 light:from-zinc-200 light:to-zinc-100"
+    class="absolute inset-0 will-change-transform bg-gradient-to-br from-zinc-800 to-zinc-950 transition-transform duration-300 ease-out group-hover:scale-105 light:from-zinc-200 light:to-zinc-100"
     aria-hidden="true"
   >
     {#if visible}
@@ -57,12 +57,12 @@
     {/if}
   </div>
   <div
-    class="absolute inset-0 -z-10 bg-gradient-to-r from-zinc-950/40 via-zinc-950/70 to-zinc-950/90 light:from-white/60 light:via-white/85 light:to-white/95"
+    class="absolute inset-0 bg-gradient-to-r from-zinc-950/40 via-zinc-950/70 to-zinc-950/90 light:from-white/60 light:via-white/85 light:to-white/95"
     aria-hidden="true"
   ></div>
   <button
     type="button"
-    class="flex min-h-28 w-full items-stretch text-left transition-colors hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-white sm:min-h-32 light:hover:bg-zinc-900/5 light:focus-visible:outline-zinc-900"
+    class="relative flex min-h-28 w-full items-stretch text-left transition-colors hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-white sm:min-h-32 light:hover:bg-zinc-900/5 light:focus-visible:outline-zinc-900"
     aria-label="{t("Dettagli di ", $language)}{name}{t(" nello Store", $language)}"
     onclick={onOpen}
   >
