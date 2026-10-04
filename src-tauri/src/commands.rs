@@ -1,5 +1,6 @@
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_notification::NotificationExt;
 
 use crate::{
     database::{
@@ -36,6 +37,37 @@ pub fn get_app_info(app: AppHandle) -> AppInfo {
         startup_launch_game_id: app.state::<crate::StartupLaunch>().game_id.clone(),
         startup_launch_error: app.state::<crate::StartupLaunch>().error.clone(),
     }
+}
+
+#[tauri::command]
+pub fn notify_update_available(app: AppHandle, version: String, aur: bool) -> Result<(), String> {
+    if !cfg!(target_os = "linux") {
+        return Ok(());
+    }
+    if version.is_empty() || version.len() > 64 || version.chars().any(char::is_control) {
+        return Err("Update version is invalid".to_owned());
+    }
+    let settings = app.state::<DatabaseState>().database()?.settings()?;
+    let body = if aur {
+        format!(
+            "Legio {version}. {}",
+            settings
+                .language
+                .text("Aggiorna tramite AUR.", "Update through AUR.")
+        )
+    } else {
+        format!("Legio {version}")
+    };
+    app.notification()
+        .builder()
+        .title(
+            settings
+                .language
+                .text("Aggiornamento disponibile", "Update available"),
+        )
+        .body(body)
+        .show()
+        .map_err(|error| format!("Could not show update notification: {error}"))
 }
 
 pub(crate) fn desktop_environment() -> Option<String> {
@@ -700,8 +732,9 @@ pub async fn check_steam_connectivity(
 pub async fn search_catalog(
     app: AppHandle,
     query: String,
+    limit: Option<u32>,
 ) -> Result<crate::catalog::CatalogSearch, crate::catalog::CatalogError> {
-    crate::catalog::search_catalog(app, query).await
+    crate::catalog::search_catalog(app, query, limit).await
 }
 
 #[tauri::command]
@@ -709,8 +742,10 @@ pub async fn refresh_catalog(
     app: AppHandle,
     state: State<'_, NetworkState>,
     query: String,
+    skip: Option<usize>,
+    limit: Option<u32>,
 ) -> Result<crate::catalog::CatalogSearch, crate::catalog::CatalogError> {
-    crate::catalog::refresh_catalog(app, state.inner(), query).await
+    crate::catalog::refresh_catalog(app, state.inner(), query, skip, limit).await
 }
 
 #[tauri::command]

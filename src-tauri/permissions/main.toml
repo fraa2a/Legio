@@ -4,6 +4,7 @@ description = "Application commands available to the local main window"
 commands.allow = [
   "is_aur_package",
   "get_app_info",
+  "notify_update_available",
   "get_news",
   "refresh_news",
   "get_settings",
