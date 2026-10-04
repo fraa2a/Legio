@@ -6,7 +6,7 @@ import ts from "typescript";
 import { compile } from "svelte/compiler";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost" });
-for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputElement", "HTMLButtonElement", "Element", "Node", "Text", "Comment", "Event", "MouseEvent", "CustomEvent", "MutationObserver", "getComputedStyle"]) {
+for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputElement", "HTMLButtonElement", "HTMLImageElement", "HTMLMediaElement", "Element", "Node", "Text", "Comment", "Event", "MouseEvent", "CustomEvent", "MutationObserver", "getComputedStyle"]) {
   Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
 }
 window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} });

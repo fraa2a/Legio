@@ -110,9 +110,9 @@ pub(crate) fn validate(appearance: &Appearance, theme: &Theme) -> Result<(), Str
     }
     if appearance.background_blur > 40
         || appearance.background_opacity > 100
-        || !(40..=100).contains(&appearance.surface_opacity)
+        || appearance.surface_opacity > 100
     {
-        return Err("Blur must be 0-40, image opacity 0-100 and panel opacity 40-100".to_owned());
+        return Err("Blur must be 0-40, image opacity 0-100 and panel opacity 0-100".to_owned());
     }
     Ok(())
 }

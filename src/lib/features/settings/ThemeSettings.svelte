@@ -42,7 +42,7 @@
   const effects: { key: "backgroundBlur" | "backgroundOpacity" | "surfaceOpacity"; label: string; min: number; max: number; unit: string }[] = $derived([
     { key: "backgroundBlur", label: t("Blur dello sfondo", $language), min: 0, max: 40, unit: "px" },
     { key: "backgroundOpacity", label: t("Opacità dell'immagine", $language), min: 0, max: 100, unit: "%" },
-    { key: "surfaceOpacity", label: t("Opacità dei pannelli", $language), min: 40, max: 100, unit: "%" },
+    { key: "surfaceOpacity", label: t("Opacità dei pannelli", $language), min: 0, max: 100, unit: "%" },
   ]);
 
   $effect(() => {
