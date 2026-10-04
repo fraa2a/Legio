@@ -148,6 +148,8 @@ impl Theme {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
+    #[serde(default = "default_true")]
+    pub onboarding_completed: bool,
     pub theme: Theme,
     #[serde(default)]
     pub appearance: crate::appearance::Appearance,
@@ -194,6 +196,7 @@ fn validate_steam_library_poll_minutes(minutes: u32) -> Result<(), String> {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            onboarding_completed: false,
             theme: Theme::System,
             appearance: crate::appearance::Appearance::default(),
             language: crate::locale::LanguagePreference::System,
@@ -459,6 +462,13 @@ impl Database {
                 )
                 .optional()
                 .map_err(database_error)?;
+            let existing = stored_theme.is_some()
+                || stored_poll_minutes.is_some()
+                || connection
+                    .query_row("SELECT EXISTS(SELECT 1 FROM games)", [], |row| {
+                        row.get::<_, bool>(0)
+                    })
+                    .map_err(database_error)?;
             let theme = stored_theme.map_or(Ok(Theme::System), |value| Theme::parse(&value))?;
             let steam_library_poll_minutes =
                 stored_poll_minutes.map_or(Ok(DEFAULT_STEAM_LIBRARY_POLL_MINUTES), |value| {
@@ -467,8 +477,14 @@ impl Database {
                     })
                 })?;
             validate_steam_library_poll_minutes(steam_library_poll_minutes)?;
+            let initialize_preferences = stored_preferences.is_none();
             let mut settings = stored_preferences.map_or_else(
-                || Ok(Settings::default()),
+                || {
+                    Ok(Settings {
+                        onboarding_completed: existing,
+                        ..Settings::default()
+                    })
+                },
                 |value| {
                     serde_json::from_str::<Settings>(&value).map_err(|error| {
                         format!("stored application preferences are invalid: {error}")
@@ -478,6 +494,17 @@ impl Database {
             settings.theme = theme;
             settings.steam_library_poll_minutes = steam_library_poll_minutes;
             crate::appearance::validate(&settings.appearance, &settings.theme)?;
+            // Persist first-run detection before background Steam import can add games.
+            if initialize_preferences {
+                let preferences =
+                    serde_json::to_string(&settings).map_err(|error| error.to_string())?;
+                connection
+                    .execute(
+                        "INSERT INTO settings (key, value) VALUES ('app_preferences', ?1)",
+                        [preferences],
+                    )
+                    .map_err(database_error)?;
+            }
             Ok(settings)
         })
     }
@@ -1758,7 +1785,45 @@ pub fn check_game_steam_account(
 mod tests {
     use super::*;
 
-    #[cfg(target_os = "linux")]
+    #[test]
+    fn new_install_requires_onboarding_and_existing_preferences_skip_it() {
+        assert!(!Settings::default().onboarding_completed);
+        let existing: Settings =
+            serde_json::from_value(serde_json::json!({"theme":"system"})).unwrap();
+        assert!(existing.onboarding_completed);
+    }
+
+    #[test]
+    fn incomplete_onboarding_survives_steam_import_and_restart() {
+        let root = temporary_directory();
+        let state = DatabaseState::new(Ok(root.clone()));
+        let database = state.database().unwrap();
+        assert!(!database.settings().unwrap().onboarding_completed);
+        database.with_connection(|connection| {
+            connection.execute("INSERT INTO games (id, automatic_name) VALUES ('steam-imported', 'Portal')", [])
+                .map(|_| ()).map_err(database_error)
+        }).unwrap();
+        drop(state);
+        let state = DatabaseState::new(Ok(root.clone()));
+        let database = state.database().unwrap();
+        assert!(!database.settings().unwrap().onboarding_completed);
+        let mut settings = database.settings().unwrap();
+        settings.onboarding_completed = true;
+        database.save_settings(settings).unwrap();
+        drop(state);
+        let state = DatabaseState::new(Ok(root.clone()));
+        assert!(
+            state
+                .database()
+                .unwrap()
+                .settings()
+                .unwrap()
+                .onboarding_completed
+        );
+        drop(state);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn appearance_defaults_and_custom_palettes_survive_reopen() {
         let old: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();

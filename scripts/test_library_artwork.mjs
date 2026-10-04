@@ -121,6 +121,45 @@ test("manual game keeps its name without requesting Steam artwork", async () => 
   }
 });
 
+test("stale artwork stays visible during refresh and is replaced when ready", async () => {
+  const { default: SteamArtwork } = await import(await moduleUrl("src/lib/features/library/SteamArtwork.svelte"));
+  const calls = [];
+  let completeRefresh;
+  globalThis.artworkInvoke = (command, args) => {
+    calls.push(args);
+    if (args.refresh) return new Promise(resolve => { completeRefresh = resolve; });
+    return Promise.resolve({ bytes: [1], contentType: "image/webp", stale: true, cacheWarning: null, refreshAfter: 0 });
+  };
+  const target = document.createElement("div");
+  const component = mount(SteamArtwork, { target, props: { steamAppId: 501, asset: "hero" } });
+  try {
+    await settle();
+    const oldUrl = target.querySelector("img").src;
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1].refresh, true);
+    await settle();
+    assert.equal(target.querySelector("img").src, oldUrl);
+    completeRefresh({ bytes: [2], contentType: "image/webp", stale: false, cacheWarning: null, refreshAfter: Date.now() + 72 * 3600000 });
+    await settle();
+    assert.notEqual(target.querySelector("img").src, oldUrl);
+    assert.equal(calls.length, 2);
+  } finally { await unmount(component); }
+});
+
+test("failed background refresh preserves the cached cover", async () => {
+  const { default: SteamArtwork } = await import(await moduleUrl("src/lib/features/library/SteamArtwork.svelte"));
+  globalThis.artworkInvoke = (command, args) => args.refresh
+    ? Promise.reject(new Error("offline"))
+    : Promise.resolve({ bytes: [1], contentType: "image/webp", stale: true, cacheWarning: null });
+  const target = document.createElement("div");
+  const component = mount(SteamArtwork, { target, props: { steamAppId: 502, asset: "hero" } });
+  try {
+    await settle();
+    assert.match(target.querySelector("img").src, /^blob:/);
+    assert.match(target.textContent, /offline/);
+  } finally { await unmount(component); }
+});
+
 test("library renders repeated Steam diagnostics and stays usable after refresh", async () => {
   const games = writable({ data: [], status: "ready", error: null });
   games.load = async () => {};

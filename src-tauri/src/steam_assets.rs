@@ -12,15 +12,15 @@ use tauri::Manager;
 use crate::{
     database::DatabaseState,
     image_format::ImageFormat,
-    image_trim::trim_png,
+    image_trim::webp_asset,
     network::{NetworkState, is_steam_asset_url},
     steam_details::{SteamDetails, cached_details},
 };
 
 const MAX_ASSET_BYTES: usize = 2 * 1024 * 1024;
 const MAX_HEADER_BYTES: usize = 4096;
-const CACHE_FILES: usize = 64;
-const FRESH_FOR: Duration = Duration::from_secs(24 * 60 * 60);
+const CACHE_FILES: usize = 128;
+const FRESH_FOR: Duration = Duration::from_secs(72 * 60 * 60);
 const ORPHAN_AGE: Duration = Duration::from_secs(60 * 60);
 
 #[derive(Clone, Copy, Deserialize)]
@@ -61,6 +61,7 @@ pub struct AssetResult {
     bytes: Vec<u8>,
     content_type: &'static str,
     stale: bool,
+    refresh_after: u64,
     cache_warning: Option<String>,
 }
 
@@ -76,6 +77,7 @@ struct CacheEntry {
     bytes: Vec<u8>,
     content_type: &'static str,
     stale: bool,
+    refresh_after: u64,
 }
 
 #[derive(Clone)]
@@ -103,6 +105,10 @@ impl AssetCacheState {
     }
 
     fn read(&self, key: &str, url: &str) -> Result<Option<CacheEntry>, String> {
+        self.read_cached(key, Some(url))
+    }
+
+    fn read_cached(&self, key: &str, url: Option<&str>) -> Result<Option<CacheEntry>, String> {
         let _guard = self
             .lock
             .lock()
@@ -143,7 +149,7 @@ impl AssetCacheState {
         }
         let header: CacheHeader = serde_json::from_slice(&raw[..split])
             .map_err(|_| "A cached image has an invalid header.".to_owned())?;
-        if header.url != url || header.transform_version != 1 {
+        if url.is_some_and(|url| header.url != url) || !matches!(header.transform_version, 1 | 2) {
             return Ok(None);
         }
         let bytes = raw[split + 1..].to_vec();
@@ -156,11 +162,21 @@ impl AssetCacheState {
             .modified()
             .ok()
             .and_then(|modified| SystemTime::now().duration_since(modified).ok())
-            .is_none_or(|age| age >= FRESH_FOR);
+            .is_none_or(|age| age >= FRESH_FOR)
+            || header.transform_version != 2;
         Ok(Some(CacheEntry {
             bytes,
             content_type: format.content_type(),
             stale,
+            refresh_after: if stale {
+                0
+            } else {
+                metadata
+                    .modified()
+                    .ok()
+                    .and_then(|time| time.duration_since(SystemTime::UNIX_EPOCH).ok())
+                    .map_or(0, |time| (time + FRESH_FOR).as_millis() as u64)
+            },
         }))
     }
 
@@ -180,7 +196,7 @@ impl AssetCacheState {
             .map_err(|error| format!("Could not create the image cache: {error}"))?;
         let header = serde_json::to_vec(&CacheHeader {
             url: url.to_owned(),
-            transform_version: 1,
+            transform_version: if content_type == "image/webp" { 2 } else { 1 },
             content_type: content_type.to_owned(),
         })
         .map_err(|error| format!("Could not encode the image cache header: {error}"))?;
@@ -271,18 +287,12 @@ fn selected_url(
 
 static IMAGE_WORKERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 
-async fn trimmed_asset_bytes(
-    bytes: Vec<u8>,
-    content_type: &'static str,
-) -> Result<Vec<u8>, String> {
-    if content_type != "image/png" {
-        return Ok(bytes);
-    }
+async fn optimized_asset_bytes(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
     let permit = IMAGE_WORKERS
         .acquire()
         .await
         .map_err(|error| error.to_string())?;
-    let result = tauri::async_runtime::spawn_blocking(move || trim_png(&bytes))
+    let result = tauri::async_runtime::spawn_blocking(move || webp_asset(&bytes))
         .await
         .map_err(|error| format!("Artwork processing task failed: {error}"))?;
     drop(permit);
@@ -294,6 +304,7 @@ async fn load_asset(
     network: &NetworkState,
     key: String,
     url: String,
+    refresh: bool,
 ) -> Result<AssetResult, String> {
     let reader = cache.clone();
     let read_key = key.clone();
@@ -308,12 +319,13 @@ async fn load_asset(
             (None, Some(error))
         }
     };
-    if previous.as_ref().is_some_and(|entry| !entry.stale) {
+    if !refresh && previous.as_ref().is_some_and(|entry| !entry.stale) {
         let entry = previous.ok_or_else(|| "Image cache entry disappeared.".to_owned())?;
         return Ok(AssetResult {
             bytes: entry.bytes,
             content_type: entry.content_type,
             stale: false,
+            refresh_after: entry.refresh_after,
             cache_warning: None,
         });
     }
@@ -323,12 +335,16 @@ async fn load_asset(
         .map_err(|error| format!("Steam image request failed: {error:?}"))
         .and_then(|bytes| {
             ImageFormat::from_steam_bytes(&bytes)
-                .map(|format| (bytes, format.content_type()))
+                .map(|_| bytes)
                 .ok_or_else(|| "Steam returned unsupported image content.".to_owned())
         });
+    let fetched = match fetched {
+        Ok(bytes) => optimized_asset_bytes(bytes).await,
+        Err(error) => Err(error),
+    };
     match fetched {
-        Ok((bytes, content_type)) => {
-            let bytes = trimmed_asset_bytes(bytes, content_type).await?;
+        Ok(bytes) => {
+            let content_type = "image/webp";
             let writer = cache.clone();
             let write_key = key;
             let write_url = url;
@@ -343,6 +359,9 @@ async fn load_asset(
                 bytes,
                 content_type,
                 stale: false,
+                refresh_after: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .map_or(0, |time| (time + FRESH_FOR).as_millis() as u64),
                 cache_warning: write_result.err().map(|error| {
                     format!("Image is visible, but could not be saved locally: {error}")
                 }),
@@ -353,7 +372,8 @@ async fn load_asset(
                 bytes: entry.bytes,
                 content_type: entry.content_type,
                 stale: true,
-                cache_warning: None,
+                refresh_after: 0,
+                cache_warning: Some(error.clone()),
             })
             .ok_or_else(|| match read_error {
                 Some(cache_error) => {
@@ -396,6 +416,7 @@ pub async fn get_asset<R: tauri::Runtime>(
     asset: AssetKind,
     index: Option<usize>,
     full: bool,
+    refresh: bool,
 ) -> Result<AssetResult, String> {
     if app_id == 0 || (index.is_some() != matches!(asset, AssetKind::Screenshot)) {
         return Err("Invalid image selection.".to_owned());
@@ -415,6 +436,27 @@ pub async fn get_asset<R: tauri::Runtime>(
         Some(index) => format!("{app_id}-{kind}-{index}{suffix}"),
         None => format!("{app_id}-{kind}{suffix}"),
     };
+    if !refresh {
+        let reader = state.clone();
+        let read_key = key.clone();
+        let cached =
+            tauri::async_runtime::spawn_blocking(move || reader.read_cached(&read_key, None))
+                .await
+                .map_err(|error| format!("Image cache read task failed: {error}"))?;
+        match cached {
+            Ok(Some(entry)) => {
+                return Ok(AssetResult {
+                    bytes: entry.bytes,
+                    content_type: entry.content_type,
+                    stale: entry.stale,
+                    refresh_after: entry.refresh_after,
+                    cache_warning: None,
+                });
+            }
+            Ok(None) => {}
+            Err(error) => eprintln!("Steam image cache read failed: {error}"),
+        }
+    }
     let (selected, metadata_warning) = if let Some(filename) = filename {
         let path = state
             .directory()
@@ -443,7 +485,7 @@ pub async fn get_asset<R: tauri::Runtime>(
         (url, None)
     };
     let loaded = match selected {
-        Ok(url) => load_asset(state, network, key, url).await,
+        Ok(url) => load_asset(state, network, key, url, refresh).await,
         Err(error) => Err(error),
     };
     let mut result = loaded.map_err(|error| match metadata_warning.as_deref() {
@@ -468,7 +510,12 @@ mod tests {
         thread,
     };
 
-    const JPEG: &[u8] = b"\xff\xd8\xffimage";
+    const PNG: &[u8] = &[
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 2, 8, 2,
+        0, 0, 0, 253, 212, 154, 115, 0, 0, 0, 22, 73, 68, 65, 84, 120, 156, 99, 148, 11, 232, 97,
+        96, 96, 96, 98, 96, 96, 96, 96, 96, 0, 0, 11, 116, 0, 254, 223, 47, 23, 202, 0, 0, 0, 0,
+        73, 69, 78, 68, 174, 66, 96, 130,
+    ];
 
     fn cache() -> AssetCacheState {
         let directory =
@@ -506,7 +553,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn store_assets_load_from_cache_while_pics_lookup_is_locked() {
+    async fn cached_artwork_bypasses_locked_metadata_lookup() {
         let cache = cache();
         let root = cache.directory().unwrap().parent().unwrap();
         let mut context = tauri::test::mock_context(tauri::test::noop_assets());
@@ -544,19 +591,28 @@ mod tests {
         .unwrap();
         let _guard = cache.pics_lock.lock().await;
         for (asset, index, key) in [
+            (AssetKind::Hero, None, "400-hero"),
             (AssetKind::Header, None, "400-header"),
             (AssetKind::Capsule, None, "400-capsule"),
             (AssetKind::Screenshot, Some(0), "400-screenshot-0"),
         ] {
-            cache.write(key, url, JPEG, "image/jpeg").unwrap();
+            cache.write(key, url, PNG, "image/png").unwrap();
             let image = tokio::time::timeout(
                 Duration::from_secs(3),
-                get_asset(app.handle().clone(), &network, 400, asset, index, false),
+                get_asset(
+                    app.handle().clone(),
+                    &network,
+                    400,
+                    asset,
+                    index,
+                    false,
+                    false,
+                ),
             )
             .await
             .unwrap()
             .unwrap();
-            assert_eq!(image.bytes, JPEG);
+            assert_eq!(image.bytes, PNG);
             assert!(image.cache_warning.is_none());
         }
         assert!(!cache.directory().unwrap().join("pics").exists());
@@ -608,12 +664,18 @@ mod tests {
             crate::diagnostics::Diagnostics::new(Err("test".into())),
         )
         .unwrap();
-        let first = load_asset(cache.clone(), &network, "4656000-logo".into(), url.clone())
-            .await
-            .unwrap();
+        let first = load_asset(
+            cache.clone(),
+            &network,
+            "4656000-logo".into(),
+            url.clone(),
+            false,
+        )
+        .await
+        .unwrap();
         let second = cache.read("4656000-logo", &url).unwrap().unwrap();
         assert_eq!(first.bytes, second.bytes);
-        assert_eq!(first.content_type, "image/png");
+        assert_eq!(first.content_type, "image/webp");
         assert!(!second.stale);
         fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
     }
@@ -621,7 +683,7 @@ mod tests {
     #[test]
     fn cache_miss_fetches_once_then_serves_local_bytes() {
         let cache = cache();
-        let (url, server) = server(response(JPEG));
+        let (url, server) = server(response(PNG));
         let network = NetworkState::new(
             "0.1.0",
             crate::diagnostics::Diagnostics::new(Err("test".into())),
@@ -633,6 +695,7 @@ mod tests {
             &network,
             "400-header".into(),
             url.clone(),
+            false,
         ))
         .unwrap();
         server.join().unwrap();
@@ -641,10 +704,12 @@ mod tests {
             &network,
             "400-header".into(),
             url,
+            false,
         ))
         .unwrap();
-        assert_eq!(first.bytes, JPEG);
-        assert_eq!(second.bytes, JPEG);
+        assert_eq!(first.bytes, second.bytes);
+        assert_eq!(first.content_type, "image/webp");
+        assert!(image::load_from_memory(&first.bytes).is_ok());
         assert!(!second.stale);
         fs::remove_dir_all(cache.directory().unwrap()).unwrap();
     }
@@ -653,7 +718,7 @@ mod tests {
     fn stale_image_is_returned_when_refresh_has_invalid_content() {
         let cache = cache();
         let (url, server) = server(response(b"<html>not an image</html>"));
-        cache.write("400-header", &url, JPEG, "image/jpeg").unwrap();
+        cache.write("400-header", &url, PNG, "image/png").unwrap();
         let path = cache.directory().unwrap().join("400-header.asset");
         let old = SystemTime::now() - FRESH_FOR - Duration::from_secs(1);
         fs::File::open(&path)
@@ -670,10 +735,11 @@ mod tests {
             &network,
             "400-header".into(),
             url,
+            false,
         ))
         .unwrap();
         server.join().unwrap();
-        assert_eq!(result.bytes, JPEG);
+        assert_eq!(result.bytes, PNG);
         assert!(result.stale);
         fs::remove_dir_all(cache.directory().unwrap()).unwrap();
     }
@@ -684,7 +750,7 @@ mod tests {
         let unavailable =
             b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
         let (url, server) = server(unavailable.to_vec());
-        cache.write("400-header", &url, JPEG, "image/jpeg").unwrap();
+        cache.write("400-header", &url, PNG, "image/png").unwrap();
         let path = cache.directory().unwrap().join("400-header.asset");
         let old = SystemTime::now() - FRESH_FOR - Duration::from_secs(1);
         fs::File::open(&path)
@@ -702,10 +768,11 @@ mod tests {
             &network,
             "400-header".into(),
             url,
+            false,
         ))
         .unwrap();
         server.join().unwrap();
-        assert_eq!(result.bytes, JPEG);
+        assert_eq!(result.bytes, PNG);
         assert!(result.stale);
         fs::remove_dir_all(cache.directory().unwrap()).unwrap();
     }
@@ -761,7 +828,8 @@ mod tests {
                 cache.clone(),
                 &network,
                 "400-header".into(),
-                url
+                url,
+                false
             ))
             .is_err()
         );
@@ -781,15 +849,45 @@ mod tests {
     }
 
     #[test]
-    fn cache_is_limited_to_sixty_four_files() {
+    fn webp_cache_survives_reopen_and_expires_after_72_hours() {
+        let cache = cache();
+        let bytes = webp_asset(PNG).unwrap();
+        let url = "https://steamstatic.com/image.jpg";
+        cache
+            .write("400-header", url, &bytes, "image/webp")
+            .unwrap();
+        let reopened = AssetCacheState::new(Ok(cache
+            .directory()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf()));
+        let path = cache.directory().unwrap().join("400-header.asset");
+        for (hours, stale) in [(71, false), (73, true)] {
+            fs::File::open(&path)
+                .unwrap()
+                .set_times(
+                    fs::FileTimes::new()
+                        .set_modified(SystemTime::now() - Duration::from_secs(hours * 60 * 60)),
+                )
+                .unwrap();
+            let entry = reopened.read_cached("400-header", None).unwrap().unwrap();
+            assert_eq!(entry.bytes, bytes);
+            assert_eq!(entry.stale, stale);
+        }
+        fs::remove_dir_all(cache.directory().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn cache_is_limited_to_128_files() {
         let cache = cache();
         for index in 0..=CACHE_FILES {
             cache
                 .write(
                     &format!("400-screenshot-{index}"),
                     "https://steamstatic.com/image.jpg",
-                    JPEG,
-                    "image/jpeg",
+                    PNG,
+                    "image/png",
                 )
                 .unwrap();
         }
@@ -805,8 +903,8 @@ mod tests {
             .write(
                 "400-header",
                 "https://steamstatic.com/image.jpg",
-                JPEG,
-                "image/jpeg",
+                PNG,
+                "image/png",
             )
             .unwrap();
         let orphan = cache.directory().unwrap().join("orphan.tmp");
@@ -841,8 +939,8 @@ mod tests {
             .write(
                 "400-header",
                 "https://steamstatic.com/image.jpg",
-                JPEG,
-                "image/jpeg",
+                PNG,
+                "image/png",
             )
             .unwrap();
         std::os::unix::fs::symlink(
@@ -863,7 +961,7 @@ mod tests {
     fn broken_symlink_does_not_hide_other_cached_images() {
         let cache = cache();
         let url = "https://steamstatic.com/image.jpg";
-        cache.write("400-header", url, JPEG, "image/jpeg").unwrap();
+        cache.write("400-header", url, PNG, "image/png").unwrap();
         let directory = cache.directory().unwrap();
         std::os::unix::fs::symlink(
             directory.join("missing.asset"),
@@ -871,7 +969,7 @@ mod tests {
         )
         .unwrap();
         assert!(cache.read("400-header", url).unwrap().is_some());
-        cache.write("400-capsule", url, JPEG, "image/jpeg").unwrap();
+        cache.write("400-capsule", url, PNG, "image/png").unwrap();
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -882,8 +980,8 @@ mod tests {
             vec![b'x'; MAX_ASSET_BYTES + MAX_HEADER_BYTES + 1],
         ] {
             let cache = cache();
-            let (url, server) = server(response(JPEG));
-            cache.write("400-header", &url, JPEG, "image/jpeg").unwrap();
+            let (url, server) = server(response(PNG));
+            cache.write("400-header", &url, PNG, "image/png").unwrap();
             fs::write(cache.directory().unwrap().join("400-header.asset"), invalid).unwrap();
             let network = NetworkState::new(
                 "0.1.0",
@@ -895,10 +993,11 @@ mod tests {
                 &network,
                 "400-header".into(),
                 url.clone(),
+                false,
             ))
             .unwrap();
             server.join().unwrap();
-            assert_eq!(result.bytes, JPEG);
+            assert_eq!(result.content_type, "image/webp");
             assert!(cache.read("400-header", &url).unwrap().is_some());
             fs::remove_dir_all(cache.directory().unwrap()).unwrap();
         }
@@ -908,7 +1007,7 @@ mod tests {
     fn failed_refill_reports_both_network_and_cache_errors() {
         let cache = cache();
         let (url, server) = server(response(b"not an image"));
-        cache.write("400-header", &url, JPEG, "image/jpeg").unwrap();
+        cache.write("400-header", &url, PNG, "image/png").unwrap();
         fs::write(
             cache.directory().unwrap().join("400-header.asset"),
             b"broken",
@@ -924,6 +1023,7 @@ mod tests {
             &network,
             "400-header".into(),
             url,
+            false,
         ))
         .unwrap_err();
         server.join().unwrap();
@@ -938,7 +1038,7 @@ mod tests {
         let directory = cache.directory().unwrap();
         fs::create_dir_all(directory.parent().unwrap()).unwrap();
         fs::write(directory, b"not a directory").unwrap();
-        let (url, server) = server(response(JPEG));
+        let (url, server) = server(response(PNG));
         let network = NetworkState::new(
             "0.1.0",
             crate::diagnostics::Diagnostics::new(Err("test".into())),
@@ -949,10 +1049,11 @@ mod tests {
             &network,
             "400-header".into(),
             url,
+            false,
         ))
         .unwrap();
         server.join().unwrap();
-        assert_eq!(result.bytes, JPEG);
+        assert_eq!(result.content_type, "image/webp");
         assert!(
             result
                 .cache_warning
