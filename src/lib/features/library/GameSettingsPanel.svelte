@@ -262,12 +262,10 @@
     {#if saved}<p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Percorsi salvati.", $language)}</p>{/if}
     <div><Button label={saving ? t("Salvataggio...", $language) : t("Salva percorsi", $language)} disabled={saving} onClick={() => void saveCompatibility()} /></div>
   {:else if $appInfo.data.platform === "linux" && section === "compatibility"}
-    {#if game.steamAppId !== null}
-      <label class="flex items-center gap-2 text-sm text-zinc-200 light:text-zinc-800">
-        <input type="checkbox" class="size-4 accent-white" checked={overrides.launchViaSteam ?? true}
-          onchange={(event) => setOverride("launchViaSteam", event.currentTarget.checked)} />{t("\n        Avvio con Steam\n      ", $language)}</label>
-      <p class="text-xs text-zinc-500">{t("Avvia Steam e il gioco con Proton usando il prefix della sezione Posizioni. Runtime e overlay vengono applicati automaticamente quando disponibili.", $language)}</p>
-    {/if}
+    <label class="flex items-center gap-2 text-sm text-zinc-200 light:text-zinc-800">
+      <input type="checkbox" class="size-4 accent-white" checked={overrides.launchViaSteam ?? (game.steamAppId !== null)}
+        onchange={(event) => setOverride("launchViaSteam", event.currentTarget.checked)} />{t("\n        Avvio con Steam\n      ", $language)}</label>
+    <p class="text-xs text-zinc-500">{t("Avvia Steam e il gioco con Proton usando il prefix della sezione Posizioni. Runtime e overlay vengono applicati automaticamente quando disponibili.", $language)}</p>
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("\n      Ogni campo eredita il default globale finché il relativo override resta disattivato. Una lista o una mappa vuota cancella il valore ereditato.\n    ", $language)}</p>
     {#if runnerDiagnostics.length > 0}
       <div class="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-200 light:text-amber-900">
