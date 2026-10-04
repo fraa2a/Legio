@@ -43,6 +43,7 @@
   {/if}
 
   <SettingsGroup
+    icon="globe"
     title={t("Connessione", $language)}
     description={t("Stato della connessione e raggiungibilità dei server usati dallo store.", $language)}
   >
@@ -66,6 +67,7 @@
   </SettingsGroup>
 
   <SettingsGroup
+    icon="info"
     title={t("Diagnostica di rete", $language)}
     description={t("Ultimo errore registrato e stato della coda diagnostica locale.", $language)}
   >

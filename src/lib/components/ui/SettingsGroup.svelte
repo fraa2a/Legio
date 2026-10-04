@@ -1,25 +1,39 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import Icon, { type IconName } from "./Icon.svelte";
 
   let {
     title,
     description,
+    icon,
     children,
   }: {
-    title?: string;
+    title: string;
     description?: string;
+    icon?: IconName;
     children: Snippet;
   } = $props();
 </script>
 
-<section class="rounded-xl bg-white/5 p-5 light:bg-zinc-100">
-  {#if title}
-    <h3 class="text-sm font-semibold text-zinc-100 light:text-zinc-900">{title}</h3>
-  {/if}
-  {#if description}
-    <p class="mt-1 text-xs text-zinc-500 light:text-zinc-600">{description}</p>
-  {/if}
-  <div class="flex flex-col gap-4 {title || description ? 'mt-4' : ''}">
+<section
+  class="flex flex-col gap-4 rounded-2xl border border-white/10 bg-white/5 p-5 shadow-sm shadow-black/20 light:border-zinc-900/10 light:bg-zinc-100 light:shadow-zinc-900/5"
+>
+  <div class="flex items-start gap-3">
+    {#if icon}
+      <span
+        class="grid size-8 shrink-0 place-items-center rounded-lg bg-white/10 text-zinc-200 light:bg-zinc-900/10 light:text-zinc-800"
+      >
+        <Icon name={icon} size="size-4" />
+      </span>
+    {/if}
+    <div class="min-w-0">
+      <h3 class="text-sm font-semibold text-zinc-100 light:text-zinc-900">{title}</h3>
+      {#if description}
+        <p class="mt-1 text-xs leading-relaxed text-zinc-500 light:text-zinc-600">{description}</p>
+      {/if}
+    </div>
+  </div>
+  <div class="flex flex-col gap-4">
     {@render children()}
   </div>
 </section>

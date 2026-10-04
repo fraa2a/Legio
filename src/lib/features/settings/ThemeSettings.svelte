@@ -28,6 +28,7 @@
   {/if}
 
   <SettingsGroup
+    icon="palette"
     title={t("Tema", $language)}
     description={t("Scegli come Legio adatta i colori al sistema o forza uno schema fisso.", $language)}
   >
