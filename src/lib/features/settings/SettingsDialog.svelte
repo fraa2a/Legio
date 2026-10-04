@@ -11,21 +11,21 @@
   let { onClose }: { onClose: () => void } = $props();
 
   const categories = $derived([
-    { id: "general", label: t("Generali", $language) },
-    { id: "appearance", label: t("Aspetto", $language) },
-    { id: "network", label: t("Rete", $language) },
-    { id: "downloads", label: "Download" },
-    { id: "compatibility", label: t("Compatibilità", $language) },
+    { id: "general", label: t("Generali", $language), icon: "settings" },
+    { id: "appearance", label: t("Aspetto", $language), icon: "palette" },
+    { id: "network", label: t("Rete", $language), icon: "globe" },
+    { id: "downloads", label: "Download", icon: "downloads" },
+    { id: "compatibility", label: t("Compatibilità", $language), icon: "wrench" },
   ] as const);
 
-  type Category = (typeof categories)[number]["id"];
+  type CategoryId = (typeof categories)[number]["id"];
 
-  let active = $state<Category>("general");
+  let active = $state<CategoryId>("general");
 
   function categoryClass(isActive: boolean): string {
     return isActive
-      ? "bg-white/10 text-white light:bg-zinc-900/10 light:text-zinc-900"
-      : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100 light:text-zinc-600 light:hover:bg-zinc-900/5 light:hover:text-zinc-900";
+      ? "bg-white/10 font-semibold text-white light:bg-zinc-900/10 light:text-zinc-900"
+      : "font-medium text-zinc-400 hover:bg-white/5 hover:text-zinc-100 light:text-zinc-600 light:hover:bg-zinc-900/5 light:hover:text-zinc-900";
   }
 </script>
 
@@ -43,18 +43,19 @@
 
   <div class="flex min-h-0 flex-1">
     <nav
-      class="flex w-52 shrink-0 flex-col gap-1 overflow-y-auto border-r border-white/15 p-2 light:border-zinc-900/15"
+      class="flex w-60 shrink-0 flex-col gap-1 overflow-y-auto border-r border-white/15 p-3 light:border-zinc-900/15"
       aria-label={t("Categorie delle impostazioni", $language)}
     >
       {#each categories as category (category.id)}
         <button
           type="button"
           aria-current={active === category.id ? "true" : undefined}
-          class="rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors duration-200 {categoryClass(
+          class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors duration-200 {categoryClass(
             active === category.id,
           )}"
           onclick={() => (active = category.id)}
         >
+          <Icon name={category.icon} size="size-4 shrink-0" />
           {category.label}
         </button>
       {/each}
