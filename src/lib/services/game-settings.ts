@@ -43,6 +43,7 @@ export interface GameCompatibilityOverrides {
 export interface NativeLaunchConfig {
   arguments: string[];
   workingDirectory: string | null;
+  environment: Record<string, string>;
 }
 
 export interface SteamLaunchConfig {
@@ -54,6 +55,10 @@ export interface CompatibilityRunner {
   name: string;
   version: string;
   path: string;
+}
+
+export function compatibilityRunnerLabel(runner: CompatibilityRunner): string {
+  return runner.kind === "wine" && runner.version ? `${runner.name} (${runner.version})` : runner.name;
 }
 
 export interface RunnerDiscovery {

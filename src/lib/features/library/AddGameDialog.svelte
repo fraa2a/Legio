@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
-  import { untrack } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { toMessage } from "../../utils/errors";
   import { addGame, games } from "../../stores/games";
   import {
@@ -14,7 +14,7 @@
     setScanGameName,
   } from "../../stores/manual-import";
   import { ensureSteamDetails, steamDetails } from "../../stores/steam-details";
-  import { refreshCatalog, searchCatalog, type CatalogGame } from "../../services/catalog";
+  import { cachedCatalogSearch, refreshCatalogCached, searchCatalog, type CatalogGame } from "../../services/catalog";
   import { previewManualGameSteamAppId, type SteamIdentificationPreview } from "../../services/manual-import";
   import Button from "../../components/ui/Button.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
@@ -22,14 +22,13 @@
   import TextField from "../../components/ui/TextField.svelte";
   import SteamArtwork from "./SteamArtwork.svelte";
 
-  let { onClose }: { onClose: () => void } = $props();
+  let { onClose, prefill = null }: { onClose: () => void; prefill?: { steamAppId: number; name: string; suggestedName: string } | null } = $props();
 
   let selectedSteamGame = $state<{ steamAppId: number; name: string } | null>(null);
   let steamQuery = $state("");
   let searchResults = $state<CatalogGame[]>([]);
   let searchStatus = $state<"idle" | "loading" | "ready" | "empty">("idle");
   let searchError = $state<string | null>(null);
-  let showSteamOnly = $state(false);
   let preview = $state<SteamIdentificationPreview | null>(null);
   let previewPending = $state(false);
   let previewError = $state<string | null>(null);
@@ -38,6 +37,13 @@
   let actionError = $state<string | null>(null);
   let previewRequest = 0;
   let searchRequest = 0;
+
+  onMount(() => {
+    if (prefill !== null) {
+      selectedSteamGame = prefill;
+      setScanGameName(prefill.suggestedName);
+    }
+  });
 
   const selectedPath = $derived($manualImport.selectedPath);
   const parsedAppId = $derived(selectedSteamGame?.steamAppId ?? null);
@@ -68,9 +74,11 @@
     const request = ++previewRequest;
     preview = null;
     previewError = null;
-    selectedSteamGame = null;
-    steamQuery = "";
     if (path === null) {
+      previewPending = false;
+      return;
+    }
+    if (prefill !== null) {
       previewPending = false;
       return;
     }
@@ -108,6 +116,12 @@
       searchStatus = "idle";
       return;
     }
+    const known = cachedCatalogSearch(query);
+    if (known !== null) {
+      searchResults = known.games;
+      searchStatus = known.games.length > 0 ? "ready" : "empty";
+      return;
+    }
     searchStatus = "loading";
     const timer = setTimeout(() => {
       void (async () => {
@@ -116,7 +130,7 @@
           if (request !== searchRequest) return;
           searchResults = cached.games;
           searchStatus = cached.games.length > 0 ? "ready" : "empty";
-          const fresh = await refreshCatalog(query);
+          const fresh = await refreshCatalogCached(query);
           if (request !== searchRequest) return;
           searchResults = fresh.games;
           searchStatus = fresh.games.length > 0 ? "ready" : "empty";
@@ -166,53 +180,8 @@
 
 <Dialog open title={t("Aggiungi un gioco", $language)} size="wide" onClose={close}>
   <div class="flex flex-col gap-5">
-    <TextField
-      id="add-game-name"
-      label={t("Nome gioco", $language)}
-      value={$manualImport.gameName}
-      placeholder={t("Nome da mostrare in libreria", $language)}
-      disabled={pending || added}
-      oninput={setScanGameName}
-    />
-    {#if duplicateName}<p class="text-sm text-amber-300 light:text-amber-800" role="alert">{t("Il nome è già usato per questo gioco Steam. Scegli un nome diverso.", $language)}</p>{/if}
-
     <div class="flex flex-col gap-2">
-      <span class="text-sm text-zinc-400 light:text-zinc-600">{t("Eseguibile", $language)}</span>
-      <div class="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-3 light:border-zinc-900/10 light:bg-white">
-        <span class="min-w-0 flex-1 break-all text-sm text-zinc-200 light:text-zinc-800">
-          {selectedPath ?? t("Nessun file selezionato", $language)}
-        </span>
-        <Button label={t("Scegli .exe", $language)} variant="secondary" disabled={pending || added} onClick={() => void pickExecutable()} />
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <Button label={t("Scansiona cartella", $language)} variant="secondary" disabled={pending || added} onClick={() => void browseGameDirectory()} />
-        {#if $manualImport.directory !== null}
-          <Button label={t("Ripeti scansione", $language)} variant="secondary" disabled={pending || added} onClick={() => void rescanCurrentDirectory()} />
-        {/if}
-        <span class="text-xs text-zinc-500">{t("Puoi scegliere il file direttamente o cercarlo nella cartella del gioco.", $language)}</span>
-      </div>
-      {#if $manualImport.status === "loading"}
-        <p class="text-sm text-zinc-400" role="status">{t("Scansione degli eseguibili in corso...", $language)}</p>
-      {:else if $manualImport.status === "empty"}
-        <p class="text-sm text-zinc-400">{t("Nessun eseguibile trovato nella cartella.", $language)}</p>
-      {:else if $manualImport.status === "error" && $manualImport.error !== null}
-        <ErrorBanner message={$manualImport.error} onRetry={() => void rescanCurrentDirectory()} />
-      {/if}
-      {#if $manualImport.candidates.length > 0}
-        <fieldset class="max-h-40 space-y-1 overflow-y-auto rounded-lg bg-white/5 p-2 light:bg-zinc-100" disabled={pending || added}>
-          <legend class="sr-only">{t("Eseguibili trovati", $language)}</legend>
-          {#each $manualImport.candidates as candidate (candidate.path)}
-            <label class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-zinc-200 hover:bg-white/10 light:text-zinc-800 light:hover:bg-zinc-200">
-              <input type="radio" name="add-game-executable" checked={selectedPath === candidate.path} onchange={() => chooseCandidate(candidate.path)} class="size-4 accent-white" />
-              <span class="min-w-0 truncate" title={candidate.path}>{candidate.path}</span>
-            </label>
-          {/each}
-        </fieldset>
-      {/if}
-    </div>
-
-    {#if selectedPath !== null || showSteamOnly}
-      <div class="flex flex-col gap-2">
+        <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Associa il gioco corretto su Steam se il rilevamento automatico è errato o non trova il gioco.", $language)}</p>
         <TextField id="add-steam-game-search" label={t("Cerca gioco su Steam", $language)} type="search" value={steamQuery} placeholder={t("Cerca per nome", $language)} disabled={pending || added}
           oninput={(value) => { steamQuery = value; selectedSteamGame = null; }} />
         {#if searchStatus === "loading"}
@@ -264,9 +233,47 @@
           </div>
         {/if}
       </div>
-    {:else}
-      <button type="button" class="self-start text-sm text-zinc-400 underline-offset-2 hover:text-zinc-100 hover:underline light:text-zinc-600 light:hover:text-zinc-900" onclick={() => (showSteamOnly = true)}>{t("\n        Non hai un eseguibile? Cerca il gioco su Steam\n      ", $language)}</button>
-    {/if}
+
+    <TextField
+      id="add-game-name"
+      label={t("Nome gioco", $language)}
+      value={$manualImport.gameName}
+      placeholder={t("Nome da mostrare in libreria", $language)}
+      disabled={pending || added}
+      oninput={setScanGameName}
+    />
+    {#if duplicateName}<p class="text-sm text-amber-300 light:text-amber-800" role="alert">{t("Il nome è già usato per questo gioco Steam. Scegli un nome diverso.", $language)}</p>{/if}
+
+    <div class="flex flex-col gap-2 border-t border-white/10 pt-4 light:border-zinc-900/10">
+      <span class="text-sm font-medium text-zinc-100 light:text-zinc-900">{t("Eseguibile del gioco", $language)}</span>
+      <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Scegli il file del gioco oppure scansiona la sua cartella. Puoi aggiungerlo anche senza eseguibile se hai selezionato un gioco Steam.", $language)}</p>
+      <div class="flex flex-wrap items-center gap-2">
+        <Button label={t("Scegli .exe", $language)} variant="secondary" disabled={pending || added} onClick={() => void pickExecutable()} />
+        <Button label={t("Scansiona cartella", $language)} variant="secondary" disabled={pending || added} onClick={() => void browseGameDirectory()} />
+        {#if $manualImport.directory !== null}
+          <Button label={t("Ripeti scansione", $language)} variant="secondary" disabled={pending || added} onClick={() => void rescanCurrentDirectory()} />
+        {/if}
+      </div>
+      <p class="min-h-5 break-all text-xs text-zinc-400 light:text-zinc-600">{selectedPath ?? t("Nessun file selezionato", $language)}</p>
+      {#if $manualImport.status === "loading"}
+        <p class="text-sm text-zinc-400" role="status">{t("Scansione degli eseguibili in corso...", $language)}</p>
+      {:else if $manualImport.status === "empty"}
+        <p class="text-sm text-zinc-400">{t("Nessun eseguibile trovato nella cartella.", $language)}</p>
+      {:else if $manualImport.status === "error" && $manualImport.error !== null}
+        <ErrorBanner message={$manualImport.error} onRetry={() => void rescanCurrentDirectory()} />
+      {/if}
+      {#if $manualImport.candidates.length > 0}
+        <fieldset class="max-h-40 space-y-1 overflow-y-auto rounded-lg bg-white/5 p-2 light:bg-zinc-100" disabled={pending || added}>
+          <legend class="sr-only">{t("Eseguibili trovati", $language)}</legend>
+          {#each $manualImport.candidates as candidate (candidate.path)}
+            <label class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-zinc-200 hover:bg-white/10 light:text-zinc-800 light:hover:bg-zinc-200">
+              <input type="radio" name="add-game-executable" checked={selectedPath === candidate.path} onchange={() => chooseCandidate(candidate.path)} class="size-4 accent-white" />
+              <span class="min-w-0 truncate" title={candidate.path}>{candidate.path}</span>
+            </label>
+          {/each}
+        </fieldset>
+      {/if}
+    </div>
 
     {#if actionError !== null}<ErrorBanner message={actionError} />{/if}
     <div class="flex justify-end gap-2">

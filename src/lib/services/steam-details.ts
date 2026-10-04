@@ -91,7 +91,6 @@ function imageKey(request: SteamImageRequest): string {
     request.asset,
     request.fallbackAsset,
     request.index,
-    request.version,
     request.full,
   ]);
 }

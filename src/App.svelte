@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t, language } from "./lib/i18n";
-  import { applyAppearance } from "./lib/services/appearance";
+  import { activePalette, applyAppearance } from "./lib/services/appearance";
   import { appearancePreview } from "./lib/stores/appearance";
   import { appInfo } from "./lib/stores/app-info";
   import AppBackground from "./lib/components/layout/AppBackground.svelte";
@@ -18,8 +18,17 @@
 
   const appearance = $derived($appearancePreview?.appearance ?? $settings.data.appearance);
   const theme = $derived($appearancePreview?.theme ?? $settings.data.theme);
+  let prefersDark = $state(window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const accent = $derived(activePalette(theme, appearance, prefersDark).palette.accent);
 
   let updateDismissed = $state(false);
+
+  $effect(() => {
+    if (!$updateState.version || $appInfo.data.platform !== "linux") return;
+    updateDismissed = false;
+    const timer = setTimeout(() => { updateDismissed = true; }, 8000);
+    return () => clearTimeout(timer);
+  });
 
   onMount(() => {
     void hydrateApp().catch((reason) => console.error(reason));
@@ -27,6 +36,7 @@
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const applyTheme = () => {
+      prefersDark = media.matches;
       applyAppearance(document.documentElement, theme, appearance, media.matches,
         $appInfo.data.platform === "linux" && $appInfo.data.desktopEnvironment === "hyprland");
     };
@@ -40,8 +50,7 @@
   });
 
   $effect(() => {
-    applyAppearance(document.documentElement, theme, appearance,
-      window.matchMedia("(prefers-color-scheme: dark)").matches,
+    applyAppearance(document.documentElement, theme, appearance, prefersDark,
       $appInfo.data.platform === "linux" && $appInfo.data.desktopEnvironment === "hyprland");
   });
 
@@ -56,7 +65,7 @@
 
 <svelte:window oncontextmenu={blockContextMenu} />
 
-<AppBackground id={appearance.background} />
+<AppBackground id={appearance.background} animation={appearance.animatedBackground} animationOpacity={appearance.animatedOpacity} {accent} />
 <div class="legio-shell relative flex h-dvh select-none">
   {#if $settings.status === "ready" && $settings.data.onboardingCompleted}<Sidebar />{/if}
   <div class="flex min-w-0 flex-1 flex-col pl-2.5 pr-2.5 pb-1.5">
@@ -78,13 +87,15 @@
 {/if}
 
 {#if $updateState.version && !updateDismissed}
-  <div class="fixed right-5 bottom-5 z-50 flex max-w-sm items-center gap-3 rounded-xl bg-zinc-800 p-4 text-sm text-white shadow-xl light:bg-white light:text-zinc-900" role="status">
+  <div class="fixed right-5 bottom-5 z-50 flex max-w-sm items-center gap-3 rounded-xl border border-white/15 bg-zinc-900/95 p-4 text-sm text-white shadow-xl light:border-zinc-900/15 light:bg-white light:text-zinc-900" role="status">
     <span>Legio {$updateState.version}{t(" disponibile.", $language)}{#if $updateState.aur}{t("Aggiorna tramite AUR.", $language)}{/if}</span>
-    {#if !$updateState.aur}
+    {#if $appInfo.data.platform !== "linux" && !$updateState.aur}
       <button type="button" class="rounded-lg bg-white px-3 py-2 text-zinc-900 disabled:opacity-50 light:bg-zinc-900 light:text-white" disabled={$updateState.installing} onclick={() => void installAppUpdate()}>
         {$updateState.installing ? t("Installazione...", $language) : t("Aggiorna", $language)}
       </button>
     {/if}
-    <button type="button" class="text-zinc-400 hover:text-white light:hover:text-zinc-900" aria-label={t("Chiudi avviso aggiornamento", $language)} onclick={() => (updateDismissed = true)}>{t("Chiudi", $language)}</button>
+    {#if $appInfo.data.platform !== "linux"}
+      <button type="button" class="text-zinc-400 hover:text-white light:hover:text-zinc-900" aria-label={t("Chiudi avviso aggiornamento", $language)} onclick={() => (updateDismissed = true)}>{t("Chiudi", $language)}</button>
+    {/if}
   </div>
 {/if}

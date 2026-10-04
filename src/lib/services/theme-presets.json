@@ -25,5 +25,32 @@
       "background": "#170d20", "surface": "#25132e", "raised": "#361c42",
       "text": "#f5eafa", "muted": "#b9a4c6", "accent": "#c084fc"
     }
+  },
+  {
+    "id": "ocean",
+    "name": "Oceano",
+    "scheme": "dark",
+    "palette": {
+      "background": "#071721", "surface": "#102833", "raised": "#1a3944",
+      "text": "#effcff", "muted": "#a4c2ca", "accent": "#5ad8e8"
+    }
+  },
+  {
+    "id": "forest",
+    "name": "Foresta",
+    "scheme": "dark",
+    "palette": {
+      "background": "#0c1812", "surface": "#16271d", "raised": "#203929",
+      "text": "#f0f8ec", "muted": "#adbea9", "accent": "#9bdc80"
+    }
+  },
+  {
+    "id": "amber",
+    "name": "Ambra",
+    "scheme": "dark",
+    "palette": {
+      "background": "#1b1308", "surface": "#2b1f0e", "raised": "#3d2b13",
+      "text": "#fff4de", "muted": "#d1b996", "accent": "#f6b94c"
+    }
   }
 ]

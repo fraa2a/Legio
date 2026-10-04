@@ -1,10 +1,13 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { t, language } from "../../i18n";
+  import { themePresets } from "../../services/appearance";
   import Button from "../../components/ui/Button.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
+  import TextField from "../../components/ui/TextField.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
+  import { compatibilityRunnerLabel } from "../../services/game-settings";
   import { onboarding, startOnboarding, changeOnboarding, changeCompatibility, chooseOnboardingDirectory, completeOnboarding, endOnboardingPreview } from "../../stores/onboarding";
   import { appInfo } from "../../stores/app-info";
   let step = $state(0);
@@ -30,8 +33,8 @@
           onChange={(value) => { if (value === "system" || value === "it" || value === "en") changeOnboarding({ language: value }); }} />
       {:else if step === 1}
         <SelectField id="onboarding-theme" label={t("Tema", $language)} value={$onboarding.draft.theme} disabled={$onboarding.saving}
-          options={[{ value: "system", label: t("Sistema", $language) }, { value: "dark", label: t("Scuro", $language) }, { value: "light", label: t("Chiaro", $language) }, { value: "eggplant", label: "Palette Viola Melanzana" }, ...($onboarding.draft.theme === "custom" ? [{ value: "custom", label: t("Personalizzato", $language) }] : [])]}
-          onChange={(value) => { if (value === "system" || value === "dark" || value === "light" || value === "eggplant") changeOnboarding({ theme: value }); }} />
+          options={[{ value: "system", label: t("Sistema", $language) }, ...themePresets.map((preset) => ({ value: preset.id, label: t(preset.name, $language) })), ...($onboarding.draft.theme === "custom" ? [{ value: "custom", label: t("Personalizzato", $language) }] : [])]}
+          onChange={(value) => { if (value === "system" || value === "dark" || value === "light" || value === "eggplant" || value === "ocean" || value === "forest" || value === "amber") changeOnboarding({ theme: value }); }} />
         <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Sfondi, palette custom e trasparenza sono disponibili nelle impostazioni Aspetto.", $language)}</p>
       {:else if step === 2}
         <p class="text-sm text-zinc-300 light:text-zinc-700">{t("Scegli dove salvare download e installazioni. Steam verrà rilevato automaticamente.", $language)}</p>
@@ -54,10 +57,13 @@
         {#if $onboarding.loading}<p role="status">{t("Caricamento...", $language)}</p>{/if}
         {#if $onboarding.compatibility}
           <SelectField id="onboarding-runner" label={t("Runner", $language)} value={$onboarding.compatibility.runnerPath ?? ""} disabled={$onboarding.loading}
-            options={[{ value: "", label: t("Scelta automatica", $language) }, ...($onboarding.compatibility.runnerPath && !$onboarding.runners.some((r) => r.path === $onboarding.compatibility?.runnerPath) ? [{ value: $onboarding.compatibility.runnerPath, label: $onboarding.compatibility.runnerPath }] : []), ...$onboarding.runners.map((r) => ({ value: r.path, label: `${r.name} ${r.version}` }))]}
+            options={[{ value: "", label: t("Scelta automatica", $language) }, ...($onboarding.compatibility.runnerPath && !$onboarding.runners.some((r) => r.path === $onboarding.compatibility?.runnerPath) ? [{ value: $onboarding.compatibility.runnerPath, label: $onboarding.compatibility.runnerPath }] : []), ...$onboarding.runners.map((runner) => ({ value: runner.path, label: compatibilityRunnerLabel(runner) }))]}
             onChange={(value) => changeCompatibility({ runnerPath: value || null })} />
-          <p class="break-all text-sm text-zinc-400 light:text-zinc-600">{$onboarding.compatibility.prefixRoot ?? t("Cartella prefix predefinita", $language)}</p>
-          <Button label={t("Scegli cartella prefix", $language)} variant="secondary" onClick={() => void chooseOnboardingDirectory(true)} />
+          <TextField id="onboarding-prefix-root" label={t("Cartella predefinita dei prefix", $language)} value={$onboarding.compatibility.prefixRoot ?? ""} placeholder={t("Percorso opzionale", $language)} hint={t("Legio crea un prefix per gioco dentro questa cartella.", $language)} disabled={$onboarding.loading || $onboarding.saving} oninput={(value) => changeCompatibility({ prefixRoot: value || null })} />
+          <div class="flex flex-wrap gap-2">
+            <Button label={t("Scegli cartella prefix", $language)} variant="secondary" disabled={$onboarding.loading || $onboarding.saving} onClick={() => void chooseOnboardingDirectory(true)} />
+            {#if $onboarding.compatibility.prefixRoot !== null}<Button label={t("Ripristina cartella prefix", $language)} variant="secondary" disabled={$onboarding.saving} onClick={() => changeCompatibility({ prefixRoot: null })} />{/if}
+          </div>
           <Toggle label={t("Log di debug", $language)} checked={$onboarding.compatibility.debugLogging} onChange={(checked) => changeCompatibility({ debugLogging: checked })} />
         {/if}
         {#each $onboarding.diagnostics as diagnostic (diagnostic)}<p class="text-sm text-zinc-400 light:text-zinc-600">{diagnostic}</p>{/each}
@@ -66,7 +72,7 @@
         <p class="text-sm text-zinc-300 light:text-zinc-700">{t("Salva la configurazione e apri la tua libreria. Potrai aggiungere giochi manualmente o cercarli nello store.", $language)}</p>
         <dl class="grid grid-cols-2 gap-3 text-sm text-zinc-300 light:text-zinc-700">
           <dt>{t("Lingua", $language)}</dt><dd>{$onboarding.draft.language}</dd>
-          <dt>{t("Tema", $language)}</dt><dd>{$onboarding.draft.theme === "eggplant" ? "Palette Viola Melanzana" : $onboarding.draft.theme}</dd>
+          <dt>{t("Tema", $language)}</dt><dd>{t(themePresets.find((preset) => preset.id === $onboarding.draft?.theme)?.name ?? $onboarding.draft.theme, $language)}</dd>
           <dt>{t("Cartella giochi", $language)}</dt><dd class="break-all">{$onboarding.draft.downloadPath ?? t("Cartella predefinita di Legio", $language)}</dd>
         </dl>
       {/if}

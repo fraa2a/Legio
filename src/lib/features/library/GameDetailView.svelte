@@ -34,6 +34,7 @@
   import SystemRequirements from "./SystemRequirements.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import GameVersionSelect from "./GameVersionSelect.svelte";
+  import AddGameDialog from "./AddGameDialog.svelte";
   import { acquireGameArtwork, gameArtworkRevision } from "../../services/game-artwork";
   import { toMessage } from "../../utils/errors";
   import { sourceReleaseId, sourceReleasesFor } from "../store/source-status";
@@ -64,6 +65,7 @@
   const selectedVersionId = $derived(storeGame !== null ? (entry === null ? "" : sourceReleaseId(entry)) : (game?.id ?? ""));
 
   let artworkOpen = $state(false);
+  let addVersionOpen = $state(false);
   let gameSettingsOpen = $state(false);
   let customBannerUrl = $state<string | null>(null);
   let customIconUrl = $state<string | null>(null);
@@ -140,9 +142,9 @@
   <p class="rounded-xl bg-white/5 p-6 text-zinc-400 light:bg-zinc-100 light:text-zinc-600">{t("\n    Il gioco non è più disponibile.\n  ", $language)}</p>
 {:else}
   <div class="flex min-h-full flex-col gap-4">
-    <section class="relative isolate z-10 w-full min-h-[20rem] min-w-[1024px] overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200">
+    <section class="relative isolate z-10 aspect-[1920/620] w-full min-h-[20rem] min-w-[1024px] overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200">
       {#if customBannerUrl !== null}
-        <img src={customBannerUrl} alt="{t("Banner personalizzato di ", $language)}{name}" class="block h-auto w-full" />
+        <img src={customBannerUrl} alt="{t("Banner personalizzato di ", $language)}{name}" class="absolute inset-0 size-full object-cover" />
       {:else if steamAppId !== null && (storeGame !== null || details !== null)}
         <SteamArtwork
           {steamAppId}
@@ -150,7 +152,7 @@
           fallbackAsset="header"
           version={detailsState?.cachedAt ?? null}
           caption={false}
-          class="block h-auto w-full"
+          class="absolute inset-0 size-full object-cover"
         >
           {#snippet placeholder()}{@render backdrop()}{/snippet}
         </SteamArtwork>
@@ -190,7 +192,7 @@
             />
           {/if}
           {#if versionOptions.length > 0}
-            <GameVersionSelect {steamAppId} options={versionOptions} selectedId={selectedVersionId} onSelect={selectVersion} />
+            <GameVersionSelect {steamAppId} options={versionOptions} selectedId={selectedVersionId} onSelect={selectVersion} onAdd={game !== null && libraryVersions.length === 1 && steamAppId !== null ? () => { addVersionOpen = true; } : undefined} />
           {/if}
           {#if game !== null}
             <Button label={t("Impostazioni del gioco", $language)} square variant="secondary" class="h-[60px] w-[60px] shrink-0 rounded-xl border border-white/10 !bg-zinc-950/60 hover:!bg-zinc-950/75 light:!border-zinc-900/10 light:!bg-zinc-100/70 light:hover:!bg-zinc-200" onClick={() => (gameSettingsOpen = true)}>
@@ -288,6 +290,10 @@
     alt="{t("Copertina di ", $language)}{name}"
     onClose={() => (artworkOpen = false)}
   />
+{/if}
+
+{#if addVersionOpen && game !== null && steamAppId !== null}
+  <AddGameDialog prefill={{ steamAppId, name: details?.name ?? game.name, suggestedName: `${game.name} (2)` }} onClose={() => (addVersionOpen = false)} />
 {/if}
 
 {#if storeGame !== null}

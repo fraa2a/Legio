@@ -10,7 +10,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 22;
+const SCHEMA_VERSION: i64 = 23;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -23,6 +23,8 @@ pub struct SteamLaunchConfig {
 pub struct NativeLaunchConfig {
     pub arguments: Vec<String>,
     pub working_directory: Option<String>,
+    #[serde(default)]
+    pub environment: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -119,6 +121,9 @@ pub enum Theme {
     Dark,
     Light,
     Eggplant,
+    Ocean,
+    Forest,
+    Amber,
     Custom,
 }
 
@@ -129,6 +134,9 @@ impl Theme {
             "dark" => Ok(Self::Dark),
             "light" => Ok(Self::Light),
             "eggplant" => Ok(Self::Eggplant),
+            "ocean" => Ok(Self::Ocean),
+            "forest" => Ok(Self::Forest),
+            "amber" => Ok(Self::Amber),
             "custom" => Ok(Self::Custom),
             _ => Err(format!("stored theme is invalid: {value}")),
         }
@@ -140,6 +148,9 @@ impl Theme {
             Self::Dark => "dark",
             Self::Light => "light",
             Self::Eggplant => "eggplant",
+            Self::Ocean => "ocean",
+            Self::Forest => "forest",
+            Self::Amber => "amber",
             Self::Custom => "custom",
         }
     }
@@ -173,6 +184,8 @@ pub struct Settings {
     pub download_notifications: bool,
     #[serde(default = "default_true")]
     pub verify_verified_downloads: bool,
+    #[serde(default = "default_true")]
+    pub diagnostics_enabled: bool,
 }
 
 fn default_true() -> bool {
@@ -209,6 +222,7 @@ impl Default for Settings {
             launch_in_library: false,
             download_notifications: true,
             verify_verified_downloads: true,
+            diagnostics_enabled: true,
         }
     }
 }
@@ -370,20 +384,21 @@ impl Database {
             if !exists {
                 return Err("game was not found".to_owned());
             }
-            let config: Option<(String, Option<String>)> = connection
+            let config: Option<(String, Option<String>, String)> = connection
                 .query_row(
-                    "SELECT arguments, working_directory FROM game_native_launch_config WHERE game_id = ?1",
+                    "SELECT arguments, working_directory, environment FROM game_native_launch_config WHERE game_id = ?1",
                     [&game_id],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .optional()
                 .map_err(database_error)?;
             config.map_or_else(
                 || Ok(NativeLaunchConfig::default()),
-                |(arguments, working_directory)| {
+                |(arguments, working_directory, environment)| {
                     let arguments = serde_json::from_str(&arguments)
                         .map_err(|error| format!("stored native launch arguments are invalid: {error}"))?;
-                    Ok(NativeLaunchConfig { arguments, working_directory })
+                    let environment = decode_json(&environment)?;
+                    Ok(NativeLaunchConfig { arguments, working_directory, environment })
                 },
             )
         })
@@ -403,16 +418,26 @@ impl Database {
                 .working_directory
                 .as_deref()
                 .is_some_and(|path| path.contains('\0'))
+            || config.environment.iter().any(|(key, value)| {
+                key.is_empty()
+                    || key.contains('=')
+                    || key.chars().any(char::is_control)
+                    || value.contains('\0')
+            })
         {
-            return Err("Native launch settings cannot contain null characters".to_owned());
+            return Err(
+                "Native launch settings contain an invalid argument, path, or environment variable"
+                    .to_owned(),
+            );
         }
         let arguments = encode_json(&config.arguments)?;
+        let environment = encode_json(&config.environment)?;
         self.with_connection(|connection| {
             let changed = connection.execute(
-                "INSERT INTO game_native_launch_config (game_id, arguments, working_directory)
-                 SELECT ?1, ?2, ?3 WHERE EXISTS (SELECT 1 FROM games WHERE id = ?1)
-                 ON CONFLICT(game_id) DO UPDATE SET arguments = excluded.arguments, working_directory = excluded.working_directory",
-                params![game_id, arguments, config.working_directory],
+                "INSERT INTO game_native_launch_config (game_id, arguments, working_directory, environment)
+                 SELECT ?1, ?2, ?3, ?4 WHERE EXISTS (SELECT 1 FROM games WHERE id = ?1)
+                 ON CONFLICT(game_id) DO UPDATE SET arguments = excluded.arguments, working_directory = excluded.working_directory, environment = excluded.environment",
+                params![game_id, arguments, config.working_directory, environment],
             ).map_err(database_error)?;
             if changed == 0 { return Err("game was not found".to_owned()); }
             Ok(config)
@@ -1423,6 +1448,23 @@ fn migrate(connection: &Connection) -> Result<(), String> {
              PRAGMA user_version = 22;"
         ).map_err(database_error)?;
     }
+    if version < 23 {
+        let existing: i64 = transaction
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('game_native_launch_config') WHERE name = 'environment'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(database_error)?;
+        if existing == 0 {
+            transaction
+                .execute_batch("ALTER TABLE game_native_launch_config ADD COLUMN environment TEXT NOT NULL DEFAULT '{}';")
+                .map_err(database_error)?;
+        }
+        transaction
+            .execute_batch("PRAGMA user_version = 23;")
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }
 
@@ -2321,6 +2363,7 @@ mod tests {
         let config = NativeLaunchConfig {
             arguments: vec!["--profile".to_owned(), "Player One".to_owned()],
             working_directory: Some("C:\\Games\\Test".to_owned()),
+            environment: BTreeMap::new(),
         };
         database
             .save_native_launch_config(&game.id, config.clone())
@@ -2332,6 +2375,7 @@ mod tests {
                     NativeLaunchConfig {
                         arguments: vec!["bad\0argument".to_owned()],
                         working_directory: None,
+                        environment: BTreeMap::new(),
                     }
                 )
                 .is_err()
