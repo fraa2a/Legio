@@ -9,6 +9,7 @@
   import { pickGameDirectory } from "../../services/dialog";
   import { saveSettings, type Settings } from "../../services/local-state";
   import { configureSteamScanInterval } from "../../stores/bootstrap";
+  import { closeSettings } from "../../stores/navigation";
   import { settings, settingsError } from "../../stores/settings";
   import { toMessage } from "../../utils/errors";
   import { checkForAppUpdate, installAppUpdate, updateState } from "../../services/app-updater";
@@ -55,6 +56,7 @@
     settingsError.set(null);
     try {
       settings.set(await saveSettings({ ...$settings.data, ...changes }));
+      if (changes.onboardingCompleted === false) closeSettings();
       saved = true;
       return true;
     } catch (error) {
@@ -108,6 +110,10 @@
       disabled={saving || $settings.status === "loading" || $settings.status === "idle" || $settings.status === "error"}
       onChange={(checked) => void update({ verifyVerifiedDownloads: checked })}
     />
+  </SettingsGroup>
+
+  <SettingsGroup icon="settings" title={t("Configurazione iniziale", $language)}>
+    <Button label={t("Ripeti configurazione iniziale", $language)} variant="secondary" disabled={saving} onClick={() => void update({ onboardingCompleted: false })} />
   </SettingsGroup>
 
   <SettingsGroup icon="reload" title={t("Aggiornamenti", $language)} description={t("Controlla automaticamente all'avvio se è disponibile una nuova versione di Legio.", $language)}>
