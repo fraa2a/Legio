@@ -4,6 +4,7 @@
   import { fade } from "svelte/transition";
   import {
     loadSteamImage,
+    steamImageRevision,
     peekSteamImage,
     releaseSteamImage,
     retainSteamImage,
@@ -39,17 +40,22 @@
 
   const currentVersion = $derived(version ?? $steamDetails[steamAppId]?.cachedAt ?? null);
   const request = $derived({ steamAppId, asset, fallbackAsset, index, version: currentVersion, full });
-  const cached = $derived(peekSteamImage(request));
+  const cached = $derived.by(() => {
+    void $steamImageRevision;
+    return peekSteamImage(request);
+  });
 
   let url = $state<string | null>(null);
   let stale = $state(false);
   let warning = $state<string | null>(null);
   let error = $state<string | null>(null);
   let fromCache = $state(false);
+  let refreshAt = $state<number | null>(null);
   let loadedRequest = $state.raw<typeof request | null>(null);
   const displayedUrl = $derived(loadedRequest === request ? url : cached?.url ?? null);
 
   $effect(() => {
+    void $steamImageRevision;
     const current = request;
     const cached = retainSteamImage(current);
     if (cached !== undefined) {
@@ -59,6 +65,7 @@
       warning = cached.cacheWarning;
       error = null;
       fromCache = true;
+      refreshAt = cached.refreshAt;
       return () => releaseSteamImage(current);
     }
 
@@ -68,6 +75,7 @@
     warning = null;
     error = null;
     fromCache = false;
+    refreshAt = null;
 
     let cancelled = false;
     let retained = false;
@@ -81,6 +89,7 @@
         url = image.url;
         stale = image.stale;
         warning = image.cacheWarning;
+        refreshAt = image.refreshAt;
       },
       (failure: unknown) => {
         if (!cancelled) error = toMessage(failure);
@@ -91,6 +100,12 @@
       cancelled = true;
       if (retained) releaseSteamImage(current);
     };
+  });
+  $effect(() => {
+    const current = request;
+    if (refreshAt === null) return;
+    const timer = setTimeout(() => { void loadSteamImage(current); }, Math.max(0, refreshAt - Date.now()));
+    return () => clearTimeout(timer);
   });
 </script>
 

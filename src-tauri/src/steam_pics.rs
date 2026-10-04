@@ -14,7 +14,7 @@ const CDN: &str = "https://shared.fastly.steamstatic.com/store_item_assets/steam
 const COMMUNITY_ICON_CDN: &str =
     "https://shared.fastly.steamstatic.com/community_assets/images/apps";
 const MAX_METADATA_BYTES: u64 = 16 * 1024;
-const FRESH_FOR: Duration = Duration::from_secs(24 * 60 * 60);
+const FRESH_FOR: Duration = Duration::from_secs(72 * 60 * 60);
 
 #[derive(Deserialize, Serialize)]
 pub(crate) struct PicsAssets(BTreeMap<String, String>);
