@@ -117,6 +117,11 @@ impl NetworkState {
         .await
     }
 
+    pub async fn news(&self) -> Result<Vec<u8>, NetworkError> {
+        self.get(crate::news::URL, crate::news::MAX_BYTES, Operation::News)
+            .await
+    }
+
     async fn get(
         &self,
         url: &str,

@@ -148,6 +148,8 @@ impl Theme {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
+    #[serde(default = "default_true")]
+    pub onboarding_completed: bool,
     pub theme: Theme,
     #[serde(default)]
     pub appearance: crate::appearance::Appearance,
@@ -194,6 +196,7 @@ fn validate_steam_library_poll_minutes(minutes: u32) -> Result<(), String> {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            onboarding_completed: false,
             theme: Theme::System,
             appearance: crate::appearance::Appearance::default(),
             language: crate::locale::LanguagePreference::System,
@@ -459,6 +462,13 @@ impl Database {
                 )
                 .optional()
                 .map_err(database_error)?;
+            let existing = stored_theme.is_some()
+                || stored_poll_minutes.is_some()
+                || connection
+                    .query_row("SELECT EXISTS(SELECT 1 FROM games)", [], |row| {
+                        row.get::<_, bool>(0)
+                    })
+                    .map_err(database_error)?;
             let theme = stored_theme.map_or(Ok(Theme::System), |value| Theme::parse(&value))?;
             let steam_library_poll_minutes =
                 stored_poll_minutes.map_or(Ok(DEFAULT_STEAM_LIBRARY_POLL_MINUTES), |value| {
@@ -468,7 +478,12 @@ impl Database {
                 })?;
             validate_steam_library_poll_minutes(steam_library_poll_minutes)?;
             let mut settings = stored_preferences.map_or_else(
-                || Ok(Settings::default()),
+                || {
+                    Ok(Settings {
+                        onboarding_completed: existing,
+                        ..Settings::default()
+                    })
+                },
                 |value| {
                     serde_json::from_str::<Settings>(&value).map_err(|error| {
                         format!("stored application preferences are invalid: {error}")
@@ -1759,6 +1774,14 @@ mod tests {
     use super::*;
 
     #[cfg(target_os = "linux")]
+    #[test]
+    fn new_install_requires_onboarding_and_existing_preferences_skip_it() {
+        assert!(!Settings::default().onboarding_completed);
+        let existing: Settings =
+            serde_json::from_value(serde_json::json!({"theme":"system"})).unwrap();
+        assert!(existing.onboarding_completed);
+    }
+
     #[test]
     fn appearance_defaults_and_custom_palettes_survive_reopen() {
         let old: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();

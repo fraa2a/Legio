@@ -18,6 +18,7 @@ const QUEUE_CAPACITY: usize = 64;
 pub enum Operation {
     HydraSearch,
     LegioSource,
+    News,
     SteamDetails,
     SteamAsset,
     SteamConnectivity,

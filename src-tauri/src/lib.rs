@@ -32,6 +32,7 @@ mod legio_source_cache;
 mod locale;
 mod manual_import;
 mod network;
+mod news;
 mod online_fix;
 mod pe_icons;
 mod playtime_activity;
@@ -203,7 +204,9 @@ pub fn run() -> tauri::Result<()> {
                     .database()
                     .and_then(database::Database::settings)
                     .is_ok_and(|settings| {
-                        settings.launch_on_system_start && settings.launch_minimized
+                        settings.onboarding_completed
+                            && settings.launch_on_system_start
+                            && settings.launch_minimized
                     });
                 if minimized
                     && tray_result.is_ok()
@@ -247,6 +250,8 @@ pub fn run() -> tauri::Result<()> {
         .invoke_handler(tauri::generate_handler![
             commands::is_aur_package,
             commands::get_app_info,
+            commands::get_news,
+            commands::refresh_news,
             commands::get_settings,
             commands::save_settings,
             appearance::import_theme_background,
