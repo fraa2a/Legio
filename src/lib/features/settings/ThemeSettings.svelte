@@ -311,3 +311,7 @@
     {#if busy}<span class="text-xs text-zinc-400 light:text-zinc-600">{t("Salvataggio...", $language)}</span>{/if}
   </div>
 </section>
+
+<style>
+  .appearance-settings { min-width: 0; }
+</style>
