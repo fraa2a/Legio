@@ -57,6 +57,55 @@ pub(crate) fn trim_dynamic(source: &DynamicImage) -> Result<Vec<u8>, String> {
     Ok(output)
 }
 
+pub(crate) fn webp_asset(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let format = crate::image_format::ImageFormat::from_steam_bytes(bytes)
+        .ok_or("Steam returned unsupported image content.")?;
+    let png;
+    let (bytes, format) = if format == crate::image_format::ImageFormat::Png {
+        png = trim_png(bytes)?;
+        (png.as_slice(), ImageFormat::Png)
+    } else {
+        (
+            bytes,
+            match format {
+                crate::image_format::ImageFormat::Jpeg => ImageFormat::Jpeg,
+                crate::image_format::ImageFormat::Webp => ImageFormat::WebP,
+                crate::image_format::ImageFormat::Ico => ImageFormat::Ico,
+                crate::image_format::ImageFormat::Png => ImageFormat::Png,
+            },
+        )
+    };
+    let reader = ImageReader::with_format(Cursor::new(bytes), format);
+    let (width, height) = reader
+        .into_dimensions()
+        .map_err(|error| error.to_string())?;
+    validate_dimensions(width, height)?;
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_DIMENSION);
+    limits.max_image_height = Some(MAX_DIMENSION);
+    limits.max_alloc = Some(MAX_PIXELS * 8);
+    reader.limits(limits);
+    let image = reader.decode().map_err(|error| error.to_string())?;
+    if format == ImageFormat::WebP {
+        return Ok(bytes.to_vec());
+    }
+    let rgba = image.to_rgba8();
+    let encoder = webp::Encoder::from_rgba(&rgba, width, height);
+    let mut config = webp::WebPConfig::new().map_err(|_| "Could not initialize WebP encoder.")?;
+    config.quality = 85.0;
+    config.method = 4;
+    config.alpha_quality = 100;
+    let output = encoder
+        .encode_advanced(&config)
+        .map_err(|error| format!("Could not encode artwork as WebP: {error:?}"))?
+        .to_vec();
+    if output.len() > MAX_OUTPUT {
+        return Err("Optimized artwork exceeds the byte limit.".to_owned());
+    }
+    Ok(output)
+}
+
 fn validate_dimensions(width: u32, height: u32) -> Result<(), String> {
     if width > MAX_DIMENSION
         || height > MAX_DIMENSION
@@ -78,6 +127,39 @@ mod tests {
         assert!(validate_dimensions(8193, 1).is_err());
         assert!(validate_dimensions(4000, 4000).is_err());
         assert!(validate_dimensions(1920, 1080).is_ok());
+    }
+
+    #[test]
+    fn converts_supported_artwork_to_webp_with_alpha() {
+        let source = DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            2,
+            2,
+            image::Rgba([20, 40, 60, 120]),
+        ));
+        for format in [
+            ImageFormat::Png,
+            ImageFormat::WebP,
+            ImageFormat::Ico,
+            ImageFormat::Jpeg,
+        ] {
+            let mut input = Cursor::new(Vec::new());
+            let image = if format == ImageFormat::Jpeg {
+                DynamicImage::ImageRgb8(source.to_rgb8())
+            } else {
+                source.clone()
+            };
+            image.write_to(&mut input, format).unwrap();
+            let bytes = webp_asset(input.get_ref()).unwrap();
+            assert_eq!(
+                crate::image_format::ImageFormat::from_bytes(&bytes),
+                Some(crate::image_format::ImageFormat::Webp)
+            );
+            let result = image::load_from_memory(&bytes).unwrap();
+            assert_eq!((result.width(), result.height()), (2, 2));
+            if format != ImageFormat::Jpeg {
+                assert_eq!(result.to_rgba8().get_pixel(0, 0)[3], 120);
+            }
+        }
     }
 
     #[test]

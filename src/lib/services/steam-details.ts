@@ -1,4 +1,4 @@
-import { get } from "svelte/store";
+import { get, writable } from "svelte/store";
 import { language } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -45,6 +45,7 @@ export interface SteamAsset {
   contentType: string;
   stale: boolean;
   cacheWarning: string | null;
+  refreshAfter: number;
 }
 
 export function getSteamAsset(
@@ -52,8 +53,9 @@ export function getSteamAsset(
   asset: SteamAssetKind,
   index?: number,
   full?: boolean,
+  refresh = false,
 ): Promise<SteamAsset> {
-  return invoke<SteamAsset>("get_steam_asset", { steamAppId, asset, index, full });
+  return invoke<SteamAsset>("get_steam_asset", { steamAppId, asset, index, full, refresh });
 }
 
 export interface SteamImageRequest {
@@ -66,6 +68,7 @@ export interface SteamImageRequest {
 }
 
 export interface SteamImage {
+  refreshAt: number;
   url: string;
   stale: boolean;
   cacheWarning: string | null;
@@ -77,7 +80,10 @@ interface CachedSteamImage extends SteamImage {
 
 const imageCache = new Map<string, CachedSteamImage>();
 const pendingImages = new Map<string, Promise<SteamImage>>();
-const maxIdleImages = 64;
+const maxIdleImages = 128;
+const freshFor = 72 * 60 * 60 * 1000;
+const refreshing = new Set<string>();
+export const steamImageRevision = writable(0);
 
 function imageKey(request: SteamImageRequest): string {
   return JSON.stringify([
@@ -116,7 +122,10 @@ export function peekSteamImage(request: SteamImageRequest): SteamImage | undefin
 
 export function retainSteamImage(request: SteamImageRequest): SteamImage | undefined {
   const image = cachedImage(imageKey(request));
-  if (image !== undefined) image.users++;
+  if (image !== undefined) {
+    image.users++;
+    if (Date.now() >= image.refreshAt) refreshImage(request, imageKey(request), image);
+  }
   return image;
 }
 
@@ -129,7 +138,10 @@ export function releaseSteamImage(request: SteamImageRequest): void {
 export function loadSteamImage(request: SteamImageRequest): Promise<SteamImage> {
   const key = imageKey(request);
   const cached = cachedImage(key);
-  if (cached !== undefined) return Promise.resolve(cached);
+  if (cached !== undefined) {
+    if (Date.now() >= cached.refreshAt) refreshImage(request, key, cached);
+    return Promise.resolve(cached);
+  }
   const pending = pendingImages.get(key);
   if (pending !== undefined) return pending;
 
@@ -147,11 +159,46 @@ export function loadSteamImage(request: SteamImageRequest): Promise<SteamImage> 
       stale: result.stale,
       cacheWarning: result.cacheWarning,
       users: 0,
+      refreshAt: result.stale ? 0 : result.refreshAfter ?? Date.now() + freshFor,
     };
     imageCache.set(key, image);
     pruneImages(key);
+    if (result.stale) refreshImage(request, key, image);
     return image;
   }).finally(() => pendingImages.delete(key));
   pendingImages.set(key, load);
   return load;
+}
+
+function refreshImage(request: SteamImageRequest, key: string, previous: CachedSteamImage): void {
+  if (refreshing.has(key)) return;
+  refreshing.add(key);
+  previous.refreshAt = Date.now() + freshFor;
+  void getSteamAsset(request.steamAppId, request.asset, request.index ?? undefined, request.full, true)
+    .catch((error: unknown) => {
+      if (request.fallbackAsset === null) throw error;
+      return getSteamAsset(request.steamAppId, request.fallbackAsset, request.index ?? undefined, request.full, true);
+    })
+    .then((result) => {
+      if (imageCache.get(key) !== previous) return;
+      if (result.stale) {
+        previous.cacheWarning = result.cacheWarning;
+        previous.refreshAt = Date.now() + 5 * 60 * 1000;
+      } else {
+        const oldUrl = previous.url;
+        previous.url = URL.createObjectURL(new Blob([Uint8Array.from(result.bytes)], { type: result.contentType }));
+        previous.stale = false;
+        previous.refreshAt = result.refreshAfter ?? Date.now() + freshFor;
+        previous.cacheWarning = result.cacheWarning;
+        URL.revokeObjectURL(oldUrl);
+      }
+      steamImageRevision.update(value => value + 1);
+    })
+    .catch((error: unknown) => {
+      if (imageCache.get(key) !== previous) return;
+      previous.cacheWarning = error instanceof Error ? error.message : String(error);
+      previous.refreshAt = Date.now() + 5 * 60 * 1000;
+      steamImageRevision.update(value => value + 1);
+    })
+    .finally(() => refreshing.delete(key));
 }

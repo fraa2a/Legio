@@ -739,6 +739,7 @@ pub async fn get_steam_asset(
     asset: crate::steam_assets::AssetKind,
     index: Option<usize>,
     full: Option<bool>,
+    refresh: Option<bool>,
 ) -> Result<crate::steam_assets::AssetResult, String> {
     crate::steam_assets::get_asset(
         app,
@@ -747,6 +748,7 @@ pub async fn get_steam_asset(
         asset,
         index,
         full.unwrap_or(false),
+        refresh.unwrap_or(false),
     )
     .await
 }
