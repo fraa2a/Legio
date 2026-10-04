@@ -119,3 +119,113 @@ test("manual game keeps its name without requesting Steam artwork", async () => 
     await unmount(component);
   }
 });
+
+test("steam summary line strips markup, decodes entities once and collapses whitespace", async () => {
+  const { steamSummaryLine } = await import(await moduleUrl("src/lib/features/library/steam-description.ts"));
+  assert.equal(steamSummaryLine(null), null);
+  assert.equal(steamSummaryLine("   "), null);
+  assert.equal(steamSummaryLine("<p><br/></p>"), null);
+  assert.equal(steamSummaryLine("<p>Un&#039;avventura &quot;spaziale&quot;.</p>"), `Un'avventura "spaziale".`);
+  assert.equal(steamSummaryLine("Fate &lt;3 &amp; fate&nbsp;cosi"), "Fate <3 & fate cosi");
+  assert.equal(steamSummaryLine("&amp;lt;testo&amp;gt;"), "&lt;testo&gt;");
+  assert.equal(steamSummaryLine("riga\n\n  due\tspazi"), "riga due spazi");
+});
+
+test("store card keeps its footprint, loads a blurred background and shows the Steam blurb", async () => {
+  requests.length = 0;
+  let intersect;
+  globalThis.IntersectionObserver = class {
+    constructor(callback) { intersect = callback; }
+    observe() {}
+    disconnect() {}
+  };
+  const { default: StoreGameCard } = await import(await moduleUrl("src/lib/features/store/StoreGameCard.svelte"));
+  const target = document.createElement("div");
+  document.body.append(target);
+  const component = mount(StoreGameCard, {
+    target,
+    props: {
+      steamAppId: 620,
+      name: "Portal 2",
+      status: {
+        availability: "verified",
+        entry: {
+          steamAppId: 620,
+          name: "Portal 2",
+          release: { version: "1.0.0", publishedAt: "2020-01-01" },
+          download: { url: "https://example.test/portal2.zip", sizeBytes: 3 * 1024 * 1024 * 1024 },
+        },
+      },
+      onOpen: () => {},
+    },
+  });
+  try {
+    await settle();
+    assert.equal(requests.length, 0, "offscreen store cards must remain lazy");
+
+    const cover = target.querySelector("button > div");
+    for (const token of ["w-56", "sm:w-72"]) {
+      assert.ok(cover.className.split(" ").includes(token), `the cover keeps ${token}`);
+    }
+    assert.ok(!cover.className.includes("rounded"), "the sharp cover reaches the card edges");
+    const button = target.querySelector("button");
+    for (const token of ["items-stretch", "min-h-28", "sm:min-h-32"]) {
+      assert.ok(button.className.split(" ").includes(token), `the card keeps ${token}`);
+    }
+    assert.ok(!button.className.includes("p-2"), "the sharp cover keeps the horizontal space");
+    const card = target.querySelector("li");
+    assert.ok(card.className.includes("overflow-hidden") && card.className.includes("rounded-xl"), "the card clips the flush cover");
+    assert.ok(!card.className.includes("border"), "the card has no border");
+    assert.equal(target.querySelectorAll("li > div[aria-hidden]").length, 2, "gradient base and legibility scrim are always mounted");
+
+    intersect([{ isIntersecting: true }]);
+    await settle();
+    assert.ok(requests.some(([command, args]) => command === "get_steam_details" && args.steamAppId === 620));
+    assert.ok(requests.some(([command, args]) => command === "get_steam_asset" && args.steamAppId === 620 && args.asset === "hero_blur"));
+    const images = [...target.querySelectorAll("img")];
+    assert.equal(images.length, 2, "background and thumbnail both render artwork");
+    for (const image of images) assert.match(image.src, /^blob:/);
+    assert.ok(cover.querySelector("img").className.includes("object-contain"), "the sharp cover is never cropped");
+
+    const blurb = [...target.querySelectorAll("span")].find((node) => node.className.split(" ").includes("h-4"));
+    assert.ok(blurb, "the blurb row is reserved while details load");
+    assert.equal(blurb.textContent, "", "the reserved row must not push the layout when it is empty");
+    assert.match(target.textContent, /1\.0\.0/);
+    assert.match(target.textContent, /GB/);
+
+    detailsResolve({
+      details: {
+        steamAppId: 620,
+        name: "Portal 2",
+        appType: "game",
+        shortDescription: "<p>Un&#039;avventura &quot;spaziale&quot;.</p>",
+        detailedDescription: null,
+        systemRequirements: null,
+        developers: [],
+        publishers: [],
+        genres: [],
+        platforms: null,
+        releaseDate: null,
+        assets: { header: null, capsule: null, background: null, screenshots: [] },
+      },
+      cachedAt: 1,
+      stale: false,
+    });
+    await settle();
+    assert.equal(blurb.textContent, `Un'avventura "spaziale".`);
+  } finally {
+    await unmount(component);
+    target.remove();
+    delete globalThis.IntersectionObserver;
+  }
+});
+
+test("store badge reports download availability and drops the trust states", async () => {
+  const { sourceBadgeFor } = await import(await moduleUrl("src/lib/features/store/source-status.ts"));
+  for (const availability of ["verified", "unverified"]) {
+    assert.deepEqual(sourceBadgeFor(availability), { label: "Available", tone: "info" }, `${availability} has a download source`);
+  }
+  for (const availability of ["unavailable", "unknown"]) {
+    assert.deepEqual(sourceBadgeFor(availability), { label: "Unavailable", tone: "danger" }, `${availability} has no download source`);
+  }
+});

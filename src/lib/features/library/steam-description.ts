@@ -45,3 +45,20 @@ export function renderSteamDescription(target: HTMLElement, source: string): { u
   render(source);
   return { update: render };
 }
+
+// Steam sends short descriptions escaped and sometimes with markup, so a single
+// truncated line needs the entities decoded without the DOM pass above.
+export function steamSummaryLine(source: string | null): string | null {
+  if (source === null) return null;
+  const text = source
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length === 0 ? null : text;
+}
