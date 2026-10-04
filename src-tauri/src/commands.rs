@@ -756,3 +756,16 @@ pub async fn get_steam_asset(
 pub fn is_aur_package() -> bool {
     std::env::var_os("LEGIO_AUR_PACKAGE").is_some()
 }
+
+#[tauri::command]
+pub async fn get_news(app: AppHandle) -> Result<crate::news::Snapshot, String> {
+    crate::news::cached(app).await
+}
+
+#[tauri::command]
+pub async fn refresh_news(
+    app: AppHandle,
+    state: State<'_, crate::network::NetworkState>,
+) -> Result<crate::news::Snapshot, String> {
+    crate::news::refresh(app, state.inner()).await
+}

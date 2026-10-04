@@ -12,6 +12,7 @@
   import { playtime } from "../../stores/playtime";
   import GameCard from "../library/GameCard.svelte";
   import GameSettingsDialog from "../library/GameSettingsDialog.svelte";
+  import NewsPanel from "./NewsPanel.svelte";
   import ActivityCalendar from "./ActivityCalendar.svelte";
   import LastPlayedHero from "./LastPlayedHero.svelte";
   import { recentGames } from "./home-model";
@@ -55,9 +56,7 @@
 
     <div class="grid min-h-0 min-w-0 grid-rows-2 gap-2.5">
       <ActivityCalendar />
-      <section class="min-h-0 rounded-2xl bg-zinc-900 p-4 light:bg-zinc-100" aria-labelledby="news-title">
-        <h2 id="news-title" class="text-lg font-medium text-zinc-50 light:text-zinc-900">News</h2>
-      </section>
+      <NewsPanel />
     </div>
   </div>
 

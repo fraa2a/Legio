@@ -4,6 +4,8 @@ description = "Application commands available to the local main window"
 commands.allow = [
   "is_aur_package",
   "get_app_info",
+  "get_news",
+  "refresh_news",
   "get_settings",
   "save_settings",
   "import_theme_background",
@@ -56,7 +58,7 @@ commands.allow = [
   "set_game_executable",
   "get_network_status",
   "get_network_log_status",
-  "get_legio_source",
+    "get_legio_source",
   "list_downloads",
   "finalize_download",
   "scan_staged_executables",

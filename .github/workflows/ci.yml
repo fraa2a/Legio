@@ -52,6 +52,9 @@ jobs:
       - name: Test theme previews and image lifetime
         run: corepack pnpm test:appearance
 
+      - name: Test onboarding and persistent news
+        run: corepack pnpm test:onboarding
+
       - name: Test release manifest
         run: python -B -m unittest discover -s scripts
 
