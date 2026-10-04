@@ -1,9 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type Theme = "system" | "dark" | "light";
+import type { Appearance } from "./appearance";
+
+export type Theme = "system" | "dark" | "light" | "eggplant" | "custom";
 
 export interface Settings {
   theme: Theme;
+  appearance: Appearance;
   language: "system" | "it" | "en";
   steamLibraryPollMinutes: number;
   downloadPath: string | null;

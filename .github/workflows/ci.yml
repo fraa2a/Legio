@@ -49,6 +49,9 @@ jobs:
       - name: Test library artwork on cold startup
         run: corepack pnpm test:artwork
 
+      - name: Test theme previews and image lifetime
+        run: corepack pnpm test:appearance
+
       - name: Test release manifest
         run: python -B -m unittest discover -s scripts
 

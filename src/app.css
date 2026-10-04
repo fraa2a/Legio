@@ -3,6 +3,8 @@
 @custom-variant light (&:where([data-theme="light"], [data-theme="light"] *));
 
 @theme {
+  --color-legio-accent: var(--legio-accent);
+  --color-legio-accent-text: var(--legio-accent-text);
   --font-sans: "Motiva Sans", ui-sans-serif, system-ui, sans-serif;
   --color-legio-download: #2563eb;
   --color-legio-download-hover: #1d4ed8;
@@ -87,13 +89,34 @@
 }
 
 body {
-  background-color: #000;
+  background-color: transparent;
+  color: var(--legio-text, #fafafa);
   font-family: "Motiva Sans", system-ui, sans-serif;
 }
 
-html[data-theme="light"] body {
-  background-color: #e4e4e7;
+html, body, #app { min-height: 100%; }
+:root { --legio-background: #000000; --legio-surface: #18181b; --legio-text: #fafafa; }
+.legio-backdrop {
+  position: fixed; inset: 0; overflow: hidden; pointer-events: none;
+  background: var(--legio-background); z-index: 0;
 }
+:root[data-transparent="true"] .legio-backdrop {
+  background: transparent;
+}
+.legio-wallpaper {
+  width: 100%; height: 100%; object-fit: cover;
+  opacity: var(--legio-image-opacity); filter: blur(var(--legio-image-blur));
+  transform: scale(1.1);
+}
+.legio-shell { isolation: isolate; }
+.legio-panel { background-color: var(--legio-surface); }
+.legio-content { background-color: var(--legio-background); }
+:root[data-theme="light"] .legio-content { background-color: var(--legio-surface); }
+:root:is([data-wallpaper="true"], [data-transparent="true"]) .legio-panel,
+:root:is([data-wallpaper="true"], [data-transparent="true"]) .legio-content {
+  background-color: color-mix(in srgb, var(--legio-surface) calc(var(--legio-surface-opacity) * 100%), transparent);
+}
+input[type="radio"], input[type="checkbox"], input[type="range"] { accent-color: var(--legio-accent); }
 
 @layer base {
   :root {

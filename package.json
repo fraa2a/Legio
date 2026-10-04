@@ -14,7 +14,8 @@
     "test:home": "node --experimental-strip-types --test scripts/test_home.mjs",
     "tauri": "tauri",
     "test:regressions": "node --test scripts/test_regressions.mjs",
-    "test:artwork": "node --conditions=browser --test scripts/test_library_artwork.mjs"
+    "test:artwork": "node --conditions=browser --test scripts/test_library_artwork.mjs",
+    "test:appearance": "node --conditions=browser --test scripts/test_appearance.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.0",

@@ -40,7 +40,7 @@
     if (variant === "secondary") {
       return "bg-white/10 text-zinc-100 hover:bg-white/20 light:bg-zinc-200 light:text-zinc-900 light:hover:bg-zinc-300 disabled:hover:bg-zinc-200";
     }
-    return "bg-white text-zinc-900 hover:bg-zinc-200 disabled:hover:bg-white";
+    return "bg-legio-accent text-legio-accent-text hover:brightness-90 disabled:hover:brightness-100";
   });
 </script>
 
