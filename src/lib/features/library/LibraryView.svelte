@@ -55,7 +55,7 @@
 
   {#if $steamLibrary.importResult?.diagnostics.length}
     <ul class="rounded-xl border border-amber-400/20 bg-amber-400/5 px-4 py-3 text-xs text-amber-300 light:text-amber-800" aria-label={t("Diagnostica Steam", $language)}>
-      {#each $steamLibrary.importResult.diagnostics as diagnostic (diagnostic)}<li>{diagnostic}</li>{/each}
+      {#each $steamLibrary.importResult.diagnostics as diagnostic, index (index)}<li>{diagnostic}</li>{/each}
     </ul>
   {/if}
 
