@@ -38,9 +38,10 @@
   import { toMessage } from "../../utils/errors";
   import { sourceReleaseId, sourceReleasesFor } from "../store/source-status";
 
-  let { storeGame = null }: { storeGame?: StoreGameSelection | null } = $props();
+  let { storeGame = null, gameId = null }: { storeGame?: StoreGameSelection | null; gameId?: string | null } = $props();
 
-  const game = $derived(storeGame === null ? ($games.data.find((entry) => entry.id === $selectedGameId) ?? null) : null);
+  const selectedGame = $derived(gameId ?? $selectedGameId);
+  const game = $derived(storeGame === null ? ($games.data.find((entry) => entry.id === selectedGame) ?? null) : null);
   const artworkGameId = $derived(game?.id ?? null);
   const steamAppId = $derived(storeGame?.steamAppId ?? game?.steamAppId ?? null);
   const launch = $derived(game === null ? undefined : $launchStateByGame.get(game.id));
