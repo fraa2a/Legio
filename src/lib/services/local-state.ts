@@ -5,6 +5,7 @@ import type { Appearance } from "./appearance";
 export type Theme = "system" | "dark" | "light" | "eggplant" | "custom";
 
 export interface Settings {
+  onboardingComplete: boolean;
   theme: Theme;
   appearance: Appearance;
   language: "system" | "it" | "en";

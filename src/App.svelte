@@ -6,6 +6,8 @@
   import AppBackground from "./lib/components/layout/AppBackground.svelte";
   import { onMount } from "svelte";
   import Sidebar from "./lib/components/layout/Sidebar.svelte";
+  import OnboardingView from "./lib/features/onboarding/OnboardingView.svelte";
+  import ErrorBanner from "./lib/components/ui/ErrorBanner.svelte";
   import MainContainer from "./lib/components/layout/MainContainer.svelte";
   import TitleBar from "./lib/components/layout/TitleBar.svelte";
   import SettingsDialog from "./lib/features/settings/SettingsDialog.svelte";
@@ -56,10 +58,18 @@
 
 <AppBackground id={appearance.background} />
 <div class="legio-shell relative flex h-dvh select-none">
-  <Sidebar />
+  {#if $settings.status === "ready" && $settings.data.onboardingComplete}<Sidebar />{/if}
   <div class="flex min-w-0 flex-1 flex-col pl-2.5 pr-2.5 pb-1.5">
     <TitleBar />
-    <MainContainer />
+    {#if $settings.status === "error" || $appInfo.status === "error"}
+      <ErrorBanner message={$settings.error ?? $appInfo.error ?? "Could not load preferences"} onRetry={() => void hydrateApp()} />
+    {:else if $settings.status !== "ready" || $appInfo.status !== "ready"}
+      <p class="p-6" role="status">{t("Caricamento...", $language)}</p>
+    {:else if !$settings.data.onboardingComplete}
+      <OnboardingView />
+    {:else}
+      <MainContainer />
+    {/if}
   </div>
 </div>
 

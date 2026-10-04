@@ -148,6 +148,8 @@ impl Theme {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
+    #[serde(default = "default_true")]
+    pub onboarding_complete: bool,
     pub theme: Theme,
     #[serde(default)]
     pub appearance: crate::appearance::Appearance,
@@ -194,6 +196,7 @@ fn validate_steam_library_poll_minutes(minutes: u32) -> Result<(), String> {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            onboarding_complete: false,
             theme: Theme::System,
             appearance: crate::appearance::Appearance::default(),
             language: crate::locale::LanguagePreference::System,
@@ -459,6 +462,7 @@ impl Database {
                 )
                 .optional()
                 .map_err(database_error)?;
+            let existing = stored_theme.is_some() || stored_poll_minutes.is_some();
             let theme = stored_theme.map_or(Ok(Theme::System), |value| Theme::parse(&value))?;
             let steam_library_poll_minutes =
                 stored_poll_minutes.map_or(Ok(DEFAULT_STEAM_LIBRARY_POLL_MINUTES), |value| {
@@ -468,7 +472,12 @@ impl Database {
                 })?;
             validate_steam_library_poll_minutes(steam_library_poll_minutes)?;
             let mut settings = stored_preferences.map_or_else(
-                || Ok(Settings::default()),
+                || {
+                    Ok(Settings {
+                        onboarding_complete: existing,
+                        ..Settings::default()
+                    })
+                },
                 |value| {
                     serde_json::from_str::<Settings>(&value).map_err(|error| {
                         format!("stored application preferences are invalid: {error}")
@@ -1757,6 +1766,23 @@ pub fn check_game_steam_account(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn onboarding_persists_and_preserves_existing_installs() {
+        let old: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(old.onboarding_complete);
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let mut settings = database.settings().unwrap();
+        assert!(!settings.onboarding_complete);
+        settings.onboarding_complete = true;
+        database.save_settings(settings).unwrap();
+        drop(database);
+        let reopened = Database::open(&directory).unwrap();
+        assert!(reopened.settings().unwrap().onboarding_complete);
+        drop(reopened);
+        fs::remove_dir_all(directory).unwrap();
+    }
 
     #[cfg(target_os = "linux")]
     #[test]

@@ -32,6 +32,7 @@ mod legio_source_cache;
 mod locale;
 mod manual_import;
 mod network;
+mod news;
 mod online_fix;
 mod pe_icons;
 mod playtime_activity;
@@ -299,6 +300,8 @@ pub fn run() -> tauri::Result<()> {
             commands::set_game_executable,
             commands::get_network_status,
             commands::get_network_log_status,
+            news::get_news,
+            news::refresh_news,
             commands::get_legio_source,
             download_queue::list_downloads,
             finalize_install::finalize_download,

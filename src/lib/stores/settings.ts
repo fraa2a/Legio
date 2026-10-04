@@ -4,6 +4,7 @@ import { writable } from "svelte/store";
 import { createResource } from "./resource";
 
 const fallback: Settings = {
+  onboardingComplete: false,
   appearance: defaultAppearance(), theme: "system", language: "system", steamLibraryPollMinutes: 30, downloadPath: null,
   closeToTray: true, hideOnGameStart: true, launchOnSystemStart: false,
   launchMinimized: false, launchInLibrary: false, downloadNotifications: true, verifyVerifiedDownloads: true,
