@@ -257,6 +257,7 @@ pub fn run() -> tauri::Result<()> {
         .invoke_handler(tauri::generate_handler![
             commands::is_aur_package,
             commands::get_app_info,
+            commands::notify_update_available,
             commands::get_news,
             commands::refresh_news,
             commands::get_settings,

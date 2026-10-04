@@ -86,7 +86,7 @@
   <SettingsDialog onClose={closeSettings} />
 {/if}
 
-{#if $updateState.version && !updateDismissed}
+{#if $updateState.version && !updateDismissed && ($appInfo.data.platform !== "linux" || !$updateState.nativeNotified)}
   <div class="fixed right-5 bottom-5 z-50 flex max-w-sm items-center gap-3 rounded-xl border border-white/15 bg-zinc-900/95 p-4 text-sm text-white shadow-xl light:border-zinc-900/15 light:bg-white light:text-zinc-900" role="status">
     <span>Legio {$updateState.version}{t(" disponibile.", $language)}{#if $updateState.aur}{t("Aggiorna tramite AUR.", $language)}{/if}</span>
     {#if $appInfo.data.platform !== "linux" && !$updateState.aur}

@@ -664,8 +664,10 @@ impl Database {
     /// Saves the global compatibility defaults.
     pub fn save_compatibility_defaults(
         &self,
-        defaults: CompatibilityDefaults,
+        mut defaults: CompatibilityDefaults,
     ) -> Result<CompatibilityDefaults, String> {
+        defaults.prefix_root =
+            normalize_prefix_path(defaults.prefix_root)?.filter(|path| !path.is_empty());
         let arguments_before = encode_json(&defaults.arguments_before)?;
         let arguments_after = encode_json(&defaults.arguments_after)?;
         let environment = encode_json(&defaults.environment)?;
@@ -723,8 +725,9 @@ impl Database {
     pub fn save_game_compatibility_overrides(
         &self,
         game_id: &str,
-        overrides: GameCompatibilityOverrides,
+        mut overrides: GameCompatibilityOverrides,
     ) -> Result<GameCompatibilityOverrides, String> {
+        overrides.prefix_path = normalize_prefix_path(overrides.prefix_path)?;
         #[cfg(not(target_os = "linux"))]
         if overrides.launch_via_steam == Some(true) {
             return Err("Launch via Steam is available on Linux only".to_owned());
@@ -1744,6 +1747,36 @@ fn ensure_unique_game_name(
     Ok(())
 }
 
+fn normalize_prefix_path(value: Option<String>) -> Result<Option<String>, String> {
+    let Some(value) = value else { return Ok(None) };
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(Some(String::new()));
+    }
+    let path = Path::new(value);
+    if !path.is_absolute() || value.chars().any(char::is_control) {
+        return Err(
+            "Compatibility prefix paths must be absolute and contain no control characters"
+                .to_owned(),
+        );
+    }
+    let normalized = match fs::canonicalize(path) {
+        Ok(path) => {
+            if !path.is_dir() {
+                return Err("Compatibility prefix path is not a directory".to_owned());
+            }
+            path
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => path.components().collect(),
+        Err(error) => {
+            return Err(format!(
+                "Could not resolve compatibility prefix path: {error}"
+            ));
+        }
+    };
+    Ok(Some(normalized.to_string_lossy().into_owned()))
+}
+
 fn parse_game_id(value: &str) -> Result<String, String> {
     Uuid::parse_str(value)
         .map(|id| id.to_string())
@@ -2223,6 +2256,34 @@ mod tests {
             std::env::temp_dir().join(format!("legio-database-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&directory).unwrap();
         directory
+    }
+
+    #[test]
+    fn prefix_paths_are_normalized_and_invalid_values_are_rejected_on_save() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let prefix = format!("{}/./", directory.display());
+        let saved = database
+            .save_compatibility_defaults(CompatibilityDefaults {
+                prefix_root: Some(prefix),
+                ..CompatibilityDefaults::default()
+            })
+            .unwrap();
+        assert_eq!(
+            saved.prefix_root.as_deref(),
+            Some(directory.to_str().unwrap())
+        );
+        assert!(
+            database
+                .save_compatibility_defaults(CompatibilityDefaults {
+                    prefix_root: Some("relative/prefix".to_owned()),
+                    ..CompatibilityDefaults::default()
+                })
+                .is_err()
+        );
+        assert_eq!(database.compatibility_defaults().unwrap(), saved);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

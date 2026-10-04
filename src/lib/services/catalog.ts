@@ -9,18 +9,19 @@ export interface CatalogGame {
 export interface CatalogSearch {
   games: CatalogGame[];
   total: number;
+  nextOffset: number | null;
   cachedAt: number | null;
   stale: boolean;
   sourceCachedAt: number | null;
   sourceStale: boolean;
 }
 
-export function searchCatalog(query: string): Promise<CatalogSearch> {
-  return invoke<CatalogSearch>("search_catalog", { query });
+export function searchCatalog(query: string, limit?: number): Promise<CatalogSearch> {
+  return invoke<CatalogSearch>("search_catalog", { query, limit });
 }
 
-export function refreshCatalog(query: string): Promise<CatalogSearch> {
-  return invoke<CatalogSearch>("refresh_catalog", { query });
+export function refreshCatalog(query: string, skip = 0, limit?: number): Promise<CatalogSearch> {
+  return invoke<CatalogSearch>("refresh_catalog", { query, skip, limit });
 }
 
 const recent = new Map<string, { result: CatalogSearch; at: number }>();
@@ -38,14 +39,23 @@ export function refreshCatalogCached(query: string): Promise<CatalogSearch> {
   if (cached !== null) return Promise.resolve(cached);
   const active = pending.get(key);
   if (active !== undefined) return active;
-  const request = refreshCatalog(query).then((result) => {
-    recent.set(key, { result, at: Date.now() });
-    if (recent.size > 100) {
-      const oldest = recent.keys().next().value;
-      if (oldest !== undefined) recent.delete(oldest);
-    }
-    return result;
-  }).finally(() => pending.delete(key));
+  const request = refreshCatalogPage(query, 0).finally(() => pending.delete(key));
   pending.set(key, request);
   return request;
+}
+
+export async function refreshCatalogPage(query: string, skip: number, limit?: number): Promise<CatalogSearch> {
+  const result = await refreshCatalog(query, skip, limit);
+  rememberCatalogSearch(query, result);
+  return result;
+}
+
+export function rememberCatalogSearch(query: string, result: CatalogSearch): void {
+  const key = query.trim().toLocaleLowerCase();
+  recent.delete(key);
+  recent.set(key, { result, at: Date.now() });
+  if (recent.size > 100) {
+    const oldest = recent.keys().next().value;
+    if (oldest !== undefined) recent.delete(oldest);
+  }
 }
