@@ -2443,7 +2443,7 @@ dependencies = [
 name = "legio"
 version = "0.1.4"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "compress-tools",
  "icoextract_rs",
