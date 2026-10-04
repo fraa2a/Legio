@@ -113,6 +113,45 @@ test("language selection preserves regional formatting and interpolates translat
   assert.equal(t("  Chiudi  ", "en"), "  Close  ");
 });
 
+test("Steam image cache distinguishes metadata versions", async () => {
+  let requests = 0;
+  globalThis.legioInvokeMock = () => {
+    requests++;
+    return Promise.resolve({ bytes: [1], contentType: "image/png", stale: false, cacheWarning: null, refreshAfter: Date.now() + 60_000 });
+  };
+  const api = dataModule("export const invoke = (...args) => globalThis.legioInvokeMock(...args);");
+  const { loadSteamImage } = await loadModule("../src/lib/services/steam-details.ts", { "@tauri-apps/api/core": api });
+  const request = { steamAppId: 999, asset: "hero", fallbackAsset: null, index: null, version: 1, full: false };
+  const oldImage = await loadSteamImage(request);
+  const newImage = await loadSteamImage({ ...request, version: 2 });
+  assert.equal(requests, 2);
+  assert.notEqual(oldImage.url, newImage.url);
+  URL.revokeObjectURL(oldImage.url);
+  URL.revokeObjectURL(newImage.url);
+});
+
+test("catalog load more requests the next remote page", async () => {
+  const pages = [];
+  const game = { steamAppId: 400, name: "Portal", availability: "unavailable" };
+  const result = (games, nextOffset, total = games.length) => ({ games, total, nextOffset, cachedAt: 1, stale: false, sourceCachedAt: null, sourceStale: false });
+  globalThis.legioCatalogMock = {
+    cachedCatalogSearch: () => null,
+    searchCatalog: async (_query, limit) => result(limit ? [game, { ...game, steamAppId: 401 }] : [game], null),
+    refreshCatalogCached: async () => result([game], 50, 2),
+    refreshCatalogPage: async (_query, skip) => { pages.push(skip); return result([game, { ...game, steamAppId: 401 }, { ...game, steamAppId: 402 }], null); },
+    rememberCatalogSearch: () => {},
+  };
+  const service = dataModule("export const cachedCatalogSearch = (...args) => globalThis.legioCatalogMock.cachedCatalogSearch(...args); export const searchCatalog = (...args) => globalThis.legioCatalogMock.searchCatalog(...args); export const refreshCatalogCached = (...args) => globalThis.legioCatalogMock.refreshCatalogCached(...args); export const refreshCatalogPage = (...args) => globalThis.legioCatalogMock.refreshCatalogPage(...args); export const rememberCatalogSearch = (...args) => globalThis.legioCatalogMock.rememberCatalogSearch(...args);");
+  const { catalog: state, runCatalogSearch, loadMoreCatalog } = await loadModule("../src/lib/stores/catalog.ts", { "../services/catalog": service, "../utils/errors": errors });
+  await runCatalogSearch("portal");
+  assert.equal(get(state).nextOffset, 50);
+  await loadMoreCatalog("portal", 40);
+  assert.equal(get(state).nextOffset, 50);
+  await loadMoreCatalog("portal", 60);
+  assert.deepEqual(pages, [50]);
+  assert.equal(get(state).results.length, 3);
+});
+
 
 test("download presentation labels follow the selected language", async () => {
   const { statusBadge, phaseLabel } = await loadModule("../src/lib/features/downloads/downloads-model.ts", { "../../i18n": localeUrl });

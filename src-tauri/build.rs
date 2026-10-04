@@ -5,6 +5,7 @@ fn main() {
         tauri_build::AppManifest::new().commands(&[
             "is_aur_package",
             "get_app_info",
+            "notify_update_available",
             "get_news",
             "refresh_news",
             "get_settings",

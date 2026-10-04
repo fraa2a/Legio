@@ -41,6 +41,7 @@ pub enum SourceAvailability {
 pub struct CatalogSearch {
     pub games: Vec<CatalogGame>,
     pub total: u32,
+    pub next_offset: Option<usize>,
     pub cached_at: Option<i64>,
     pub stale: bool,
     pub source_cached_at: Option<i64>,
@@ -128,6 +129,7 @@ struct HydraGame {
 struct CatalogPage {
     games: Vec<CatalogGame>,
     remote_count: u32,
+    fetched_count: usize,
 }
 
 fn query(value: &str) -> Result<&str, CatalogError> {
@@ -154,7 +156,8 @@ fn decode(bytes: &[u8]) -> Result<CatalogPage, CatalogError> {
             "Hydra returned inconsistent result counts.",
         ));
     }
-    let mut seen = HashSet::with_capacity(response.edges.len());
+    let fetched_count = response.edges.len();
+    let mut seen = HashSet::with_capacity(fetched_count);
     let mut games = Vec::with_capacity(response.edges.len());
     for record in response.edges {
         if record.shop != "steam" {
@@ -191,6 +194,7 @@ fn decode(bytes: &[u8]) -> Result<CatalogPage, CatalogError> {
     Ok(CatalogPage {
         games,
         remote_count: response.count,
+        fetched_count,
     })
 }
 
@@ -327,10 +331,11 @@ fn store(
     }).map_err(CatalogError::database)
 }
 
-fn search(
+fn search_with_limit(
     database: &Database,
     query: &str,
     current_time: i64,
+    limit: u32,
 ) -> Result<CatalogSearch, CatalogError> {
     let patterns: Vec<_> = query
         .split_whitespace()
@@ -406,12 +411,13 @@ fn search(
             });
             let games = ranked
                 .into_iter()
-                .take(LOCAL_LIMIT as usize)
+                .take(limit as usize)
                 .map(|entry| entry.3)
                 .collect();
             Ok(CatalogSearch {
                 games,
                 total,
+                next_offset: None,
                 cached_at,
                 stale: cached_at.is_none_or(|time| {
                     time > current_time || current_time.saturating_sub(time) >= STALE_SECONDS
@@ -421,6 +427,15 @@ fn search(
             })
         })
         .map_err(CatalogError::database)
+}
+
+#[cfg(test)]
+fn search(
+    database: &Database,
+    query: &str,
+    current_time: i64,
+) -> Result<CatalogSearch, CatalogError> {
+    search_with_limit(database, query, current_time, LOCAL_LIMIT)
 }
 
 fn merge_source(
@@ -457,13 +472,15 @@ fn merge_source(
 pub async fn search_catalog<R: Runtime>(
     app: tauri::AppHandle<R>,
     value: String,
+    limit: Option<u32>,
 ) -> Result<CatalogSearch, CatalogError> {
     let query = query(&value)?.to_owned();
+    let limit = limit.unwrap_or(LOCAL_LIMIT).clamp(1, CACHE_LIMIT);
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatabaseState>();
         let database = state.database().map_err(CatalogError::database)?;
         let current_time = now()?;
-        let result = search(database, &query, current_time)?;
+        let result = search_with_limit(database, &query, current_time, limit)?;
         let source = legio_source_cache::cached(database).map_err(CatalogError::database)?;
         Ok(merge_source(result, source, current_time))
     })
@@ -475,12 +492,22 @@ pub async fn refresh_catalog(
     app: tauri::AppHandle,
     network: &NetworkState,
     value: String,
+    skip: Option<usize>,
+    limit: Option<u32>,
 ) -> Result<CatalogSearch, CatalogError> {
     let query = query(&value)?.to_owned();
+    let skip = skip.unwrap_or(0);
+    if skip >= CACHE_LIMIT as usize {
+        return Err(CatalogError::new(
+            CatalogErrorKind::InvalidQuery,
+            "Catalog page is outside the cache limit.",
+        ));
+    }
+    let limit = limit.unwrap_or(LOCAL_LIMIT).clamp(1, CACHE_LIMIT);
     let body = serde_json::to_vec(&HydraRequest {
         title: &query,
         take: REMOTE_LIMIT,
-        skip: 0,
+        skip,
     })
     .map_err(|error| CatalogError::new(CatalogErrorKind::Internal, error.to_string()))?;
     let bytes = network.hydra_search(body).await?;
@@ -490,7 +517,14 @@ pub async fn refresh_catalog(
         let database = state.database().map_err(CatalogError::database)?;
         let now = now()?;
         store(database, &query, &page, now)?;
-        let result = search(database, &query, now)?;
+        let mut result = search_with_limit(database, &query, now, limit)?;
+        let next = skip.saturating_add(page.fetched_count);
+        if page.fetched_count > 0
+            && next < page.remote_count as usize
+            && next < CACHE_LIMIT as usize
+        {
+            result.next_offset = Some(next);
+        }
         let source = legio_source_cache::cached(database).map_err(CatalogError::database)?;
         Ok(merge_source(result, source, now))
     })
@@ -526,6 +560,7 @@ mod tests {
         let search = CatalogSearch {
             games,
             total: 3,
+            next_offset: None,
             cached_at: Some(100),
             stale: false,
             source_cached_at: None,
@@ -559,6 +594,7 @@ mod tests {
     #[test]
     fn isolates_steam_identity_and_ignores_provider_download_sources() {
         let page = decode(br#"{"count":2,"edges":[{"objectId":"400","title":" Portal ","shop":"steam","downloadSources":[{"url":"https://untrusted.invalid"}]},{"objectId":"not-steam","title":"Other","shop":"gog"}]}"#).unwrap();
+        assert_eq!(page.fetched_count, 2);
         assert_eq!(
             page.games,
             vec![CatalogGame {
@@ -604,6 +640,7 @@ mod tests {
                 availability: SourceAvailability::Unknown,
             }],
             remote_count: 1,
+            fetched_count: 1,
         };
         store(database, "portal", &page, 100).unwrap();
         drop(state);
@@ -655,6 +692,7 @@ mod tests {
                 })
                 .collect(),
             remote_count: names.len() as u32,
+            fetched_count: names.len(),
         };
         store(database, "fixture", &page, 100).unwrap();
 
@@ -705,6 +743,7 @@ mod tests {
                 availability: SourceAvailability::Unknown,
             }],
             remote_count: 1,
+            fetched_count: 1,
         };
         let fetched_at = now().unwrap();
         store(
@@ -715,7 +754,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = search_catalog(app.handle().clone(), "risk rain".into())
+        let result = search_catalog(app.handle().clone(), "risk rain".into(), None)
             .await
             .unwrap();
         assert_eq!(result.games, page.games);
@@ -738,6 +777,7 @@ mod tests {
                 availability: SourceAvailability::Unknown,
             }],
             remote_count: 1,
+            fetched_count: 1,
         };
         store(database, "portal", &original, 100).unwrap();
         let invalid = CatalogPage {
@@ -754,6 +794,7 @@ mod tests {
                 },
             ],
             remote_count: 2,
+            fetched_count: 2,
         };
         assert!(store(database, "changed", &invalid, 200).is_err());
         let result = search(database, "", 201).unwrap();
@@ -778,6 +819,7 @@ mod tests {
                 })
                 .collect(),
             remote_count: CACHE_LIMIT + 1,
+            fetched_count: (CACHE_LIMIT + 1) as usize,
         };
         store(database, "", &page, 100).unwrap();
         let newer = CatalogPage {
@@ -787,11 +829,19 @@ mod tests {
                 availability: SourceAvailability::Unknown,
             }],
             remote_count: 1,
+            fetched_count: 1,
         };
         store(database, "newest", &newer, 200).unwrap();
         let result = search(database, "", 201).unwrap();
         assert_eq!(result.total, CACHE_LIMIT);
         assert_eq!(result.games.len(), LOCAL_LIMIT as usize);
+        assert_eq!(
+            search_with_limit(database, "", 201, 120)
+                .unwrap()
+                .games
+                .len(),
+            120
+        );
         let ranked = search(database, "Game 19999", 201).unwrap();
         assert_eq!(ranked.games[0].name, "Game 19999");
         assert_eq!(search(database, "newest", 201).unwrap().games, newer.games);

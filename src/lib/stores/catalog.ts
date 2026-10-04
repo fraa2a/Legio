@@ -1,5 +1,5 @@
-import { writable } from "svelte/store";
-import { cachedCatalogSearch, refreshCatalogCached, searchCatalog, type CatalogGame, type CatalogSearch } from "../services/catalog";
+import { get, writable } from "svelte/store";
+import { cachedCatalogSearch, refreshCatalogCached, refreshCatalogPage, rememberCatalogSearch, searchCatalog, type CatalogGame, type CatalogSearch } from "../services/catalog";
 import { toMessage } from "../utils/errors";
 import type { LoadStatus } from "./resource";
 
@@ -8,6 +8,7 @@ interface CatalogState {
   status: LoadStatus;
   results: CatalogGame[];
   total: number;
+  nextOffset: number | null;
   sourceStale: boolean;
   stale: boolean;
   refreshing: boolean;
@@ -19,6 +20,7 @@ const initial: CatalogState = {
   status: "idle",
   results: [],
   total: 0,
+  nextOffset: null,
   sourceStale: false,
   stale: false,
   refreshing: false,
@@ -35,6 +37,7 @@ function applySearch(state: CatalogState, search: CatalogSearch, refreshing: boo
     status: search.games.length === 0 ? "empty" : "ready",
     results: search.games,
     total: search.total,
+    nextOffset: search.nextOffset,
     stale: search.stale,
     sourceStale: search.sourceStale,
     refreshing,
@@ -45,22 +48,12 @@ function applySearch(state: CatalogState, search: CatalogSearch, refreshing: boo
 export async function runCatalogSearch(query: string): Promise<void> {
   const request = ++requestId;
   const trimmed = query.trim();
-  if (trimmed.length === 0) {
-    catalog.set(initial);
-    try {
-      const local = await searchCatalog("");
-      if (request === requestId) catalog.update((state) => applySearch(state, local, false));
-    } catch (error) {
-      if (request === requestId) catalog.update((state) => ({ ...state, error: toMessage(error) }));
-    }
-    return;
-  }
   const cached = cachedCatalogSearch(trimmed);
   if (cached !== null) {
     catalog.update((state) => applySearch({ ...state, query: trimmed }, cached, false));
     return;
   }
-  catalog.update((state) => ({ ...state, query: trimmed, status: "loading", error: null }));
+  catalog.update(() => ({ ...initial, query: trimmed, status: "loading" }));
 
   let local: CatalogSearch;
   try {
@@ -80,5 +73,26 @@ export async function runCatalogSearch(query: string): Promise<void> {
   } catch (error) {
     if (request !== requestId) return;
     catalog.update((state) => ({ ...state, refreshing: false, error: toMessage(error) }));
+  }
+}
+
+export async function loadMoreCatalog(query: string, limit: number): Promise<void> {
+  const current = get(catalog);
+  if (current.query !== query.trim() || current.refreshing) return;
+  const request = requestId;
+  catalog.update((state) => ({ ...state, refreshing: true, error: null }));
+  try {
+    let result: CatalogSearch | null = null;
+    if (current.total > current.results.length) {
+      result = { ...await searchCatalog(current.query, limit), nextOffset: current.nextOffset };
+      if (request === requestId) rememberCatalogSearch(current.query, result);
+    } else if (current.nextOffset !== null) {
+      result = await refreshCatalogPage(current.query, current.nextOffset, limit);
+    }
+    if (request !== requestId) return;
+    if (result !== null) catalog.update((state) => applySearch(state, result, false));
+    else catalog.update((state) => ({ ...state, refreshing: false }));
+  } catch (error) {
+    if (request === requestId) catalog.update((state) => ({ ...state, refreshing: false, error: toMessage(error) }));
   }
 }

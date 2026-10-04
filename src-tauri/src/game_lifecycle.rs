@@ -29,7 +29,10 @@ use crate::{game_process, runner_discovery, steam_local, steam_switch};
 const START_TIMEOUT: Duration = Duration::from_secs(120);
 #[cfg(target_os = "linux")]
 const STEAM_START_TIMEOUT: Duration = Duration::from_secs(60);
+#[cfg(target_os = "linux")]
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
+#[cfg(windows)]
+const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const EXIT_GRACE: Duration = Duration::from_secs(3);
 const SESSION_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 const LOG_READ_LIMIT: u64 = 128 * 1024;

@@ -52,6 +52,7 @@ pub struct DownloadQueueState {
     directory: std::sync::Mutex<PathBuf>,
     client: reqwest::Client,
     running: AtomicBool,
+    starting: AtomicBool,
     active: std::sync::Mutex<Option<(String, std::sync::Arc<AtomicBool>)>>,
     bandwidth_limit: AtomicU64,
     wake: tokio::sync::Notify,
@@ -75,6 +76,7 @@ impl DownloadQueueState {
             ),
             client,
             running: AtomicBool::new(false),
+            starting: AtomicBool::new(false),
             active: std::sync::Mutex::new(None),
             bandwidth_limit: AtomicU64::new(0),
             wake: tokio::sync::Notify::new(),
@@ -602,6 +604,9 @@ pub(crate) async fn resume_waiting<R: Runtime>(app: AppHandle<R>) -> Result<(), 
 
 fn kick<R: Runtime>(app: AppHandle<R>) {
     let queue = app.state::<DownloadQueueState>();
+    if queue.starting.load(Ordering::Acquire) {
+        return;
+    }
     queue.wake.notify_one();
     if queue.running.swap(true, Ordering::AcqRel) {
         return;
@@ -1193,13 +1198,13 @@ pub fn set_download_bandwidth_limit(app: AppHandle, bytes_per_second: u64) -> Re
     Ok(())
 }
 
-pub fn start(app: AppHandle) -> Result<(), String> {
+fn recover_on_start(app: &AppHandle) -> Result<(), String> {
     let database = app.state::<DatabaseState>();
     let database = database.database()?;
     clean_cancelled(&app.state::<DownloadQueueState>(), database)?;
     recover_staging(&app.state::<DownloadQueueState>(), database)?;
     for id in downloaded_ids(database)? {
-        spawn_staging(&app, &id);
+        spawn_staging(app, &id);
     }
     let data_dir = app
         .path()
@@ -1207,8 +1212,38 @@ pub fn start(app: AppHandle) -> Result<(), String> {
         .map_err(|error| format!("Could not locate app data: {error}"))?;
     finalize_install::recover(database, &database.storage_root(&data_dir)?)?;
     recover(database)?;
-    kick(app);
     Ok(())
+}
+
+pub fn start(app: AppHandle) -> Result<(), String> {
+    app.state::<DownloadQueueState>()
+        .starting
+        .store(true, Ordering::Release);
+    std::thread::Builder::new()
+        .name("download-recovery".to_owned())
+        .spawn(move || {
+            let result = recover_on_start(&app);
+            app.state::<DownloadQueueState>()
+                .starting
+                .store(false, Ordering::Release);
+            if let Err(error) = result {
+                eprintln!("Could not recover downloads: {error}");
+                if let Err(notification_error) = app
+                    .notification()
+                    .builder()
+                    .title("Legio download recovery failed")
+                    .body(&error)
+                    .show()
+                {
+                    eprintln!(
+                        "Could not show download recovery notification: {notification_error}"
+                    );
+                }
+            }
+            kick(app);
+        })
+        .map(|_| ())
+        .map_err(|error| format!("Could not start download recovery: {error}"))
 }
 
 #[cfg(test)]

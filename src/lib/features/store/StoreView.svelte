@@ -5,7 +5,7 @@
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
-  import { catalog, runCatalogSearch } from "../../stores/catalog";
+  import { catalog, loadMoreCatalog, runCatalogSearch } from "../../stores/catalog";
   import { storeQuery } from "../../stores/library-ui";
   import { openStoreGame, selectedStoreGame } from "../../stores/navigation";
   import type { LoadStatus } from "../../stores/resource";
@@ -109,9 +109,15 @@
           />
         {/each}
       </ul>
-      {#if entries.length > visibleCount}
-        <div class="flex justify-center pt-2"><Button label={t("Carica altri 20", $language)} variant="secondary" onClick={() => { visibleCount += 20; }} /></div>
-      {/if}
+    {/if}
+    {#if entries.length > visibleCount || $catalog.total > $catalog.results.length || $catalog.nextOffset !== null}
+      <div class="flex justify-center pt-2">
+        <Button label={t("Carica altri 20", $language)} variant="secondary" disabled={$catalog.refreshing}
+          onClick={() => {
+            visibleCount += 20;
+            if (entries.length <= visibleCount) void loadMoreCatalog($storeQuery, Math.max(visibleCount, $catalog.results.length + 20));
+          }} />
+      </div>
     {/if}
   </div>
 {/if}
