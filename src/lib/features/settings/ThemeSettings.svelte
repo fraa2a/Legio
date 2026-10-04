@@ -1,6 +1,6 @@
 <script lang="ts">
   import { get } from "svelte/store";
-  import { onDestroy } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { t, language } from "../../i18n";
   import type { Theme } from "../../services/local-state";
   import { saveSettings } from "../../services/local-state";
@@ -26,10 +26,11 @@
   let error = $state<string | null>(null);
   let notice = $state<string | null>(null);
   let disposed = false;
+  let prefersDark = $state(window.matchMedia("(prefers-color-scheme: dark)").matches);
 
   const dirty = $derived(JSON.stringify({ theme, appearance: draft }) !== baseline);
   const hyprland = $derived($appInfo.data.platform === "linux" && $appInfo.data.desktopEnvironment === "hyprland");
-  const palette = $derived(activePalette(theme, draft, window.matchMedia("(prefers-color-scheme: dark)").matches));
+  const palette = $derived(activePalette(theme, draft, prefersDark));
   const editable = $derived(theme === "custom" && draft.customThemeId !== null);
   const colorFields: { key: keyof Palette; label: string }[] = $derived([
     { key: "background", label: t("Sfondo", $language) },
@@ -47,6 +48,15 @@
 
   $effect(() => {
     appearancePreview.set({ theme, appearance: structuredClone($state.snapshot(draft)) });
+  });
+
+  $effect(() => { if (dirty) notice = null; });
+
+  onMount(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const changed = () => { prefersDark = media.matches; };
+    media.addEventListener("change", changed);
+    return () => media.removeEventListener("change", changed);
   });
 
   onDestroy(() => {
@@ -239,9 +249,9 @@
     </div>
     <p class="text-xs text-zinc-500">{t("PNG, JPEG o WebP, fino a 16 MiB e 16 megapixel.", $language)}</p>
     {#each effects as effect (effect.key)}
-      <label class="flex flex-col gap-2 text-sm text-zinc-300 light:text-zinc-700">
-        <span class="flex justify-between gap-3"><span>{effect.label}</span><output>{draft[effect.key]} {effect.unit}</output></span>
-        <input type="range" min={effect.min} max={effect.max} step="1" value={draft[effect.key]}
+      <label for={"theme-" + effect.key} class="flex flex-col gap-2 text-sm text-zinc-300 light:text-zinc-700">
+        <span class="flex justify-between gap-3"><span>{effect.label}</span><output for={"theme-" + effect.key}>{draft[effect.key]} {effect.unit}</output></span>
+        <input id={"theme-" + effect.key} type="range" min={effect.min} max={effect.max} step="1" value={draft[effect.key]}
           disabled={busy || (effect.key !== "surfaceOpacity" && draft.background === null)}
           oninput={(event) => { draft[effect.key] = Number(event.currentTarget.value); }} />
       </label>

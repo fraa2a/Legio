@@ -7,7 +7,7 @@ use std::{
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 use crate::database::{DatabaseState, Settings, Theme};
@@ -457,26 +457,28 @@ fn active_palette(settings: &Settings, prefers_dark: bool) -> Result<CustomTheme
 }
 
 #[tauri::command]
-pub fn cleanup_theme_backgrounds(
-    app: AppHandle,
-    state: State<'_, DatabaseState>,
-) -> Result<(), String> {
-    let current = state.database()?.settings()?.appearance.background;
-    let directory = background_directory(&app)?;
-    for entry in fs::read_dir(directory).map_err(|error| error.to_string())? {
-        let entry = entry.map_err(|error| error.to_string())?;
-        let path = entry.path();
-        let Some(id) = path.file_stem().and_then(|id| id.to_str()) else {
-            continue;
-        };
-        if path.extension().is_some_and(|extension| extension == "png")
-            && validate_id(id).is_ok()
-            && Some(id) != current.as_deref()
-        {
-            fs::remove_file(path).map_err(|error| error.to_string())?;
+pub async fn cleanup_theme_backgrounds(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatabaseState>();
+        let current = state.database()?.settings()?.appearance.background;
+        let directory = background_directory(&app)?;
+        for entry in fs::read_dir(directory).map_err(|error| error.to_string())? {
+            let entry = entry.map_err(|error| error.to_string())?;
+            let path = entry.path();
+            let Some(id) = path.file_stem().and_then(|id| id.to_str()) else {
+                continue;
+            };
+            if path.extension().is_some_and(|extension| extension == "png")
+                && validate_id(id).is_ok()
+                && Some(id) != current.as_deref()
+            {
+                fs::remove_file(path).map_err(|error| error.to_string())?;
+            }
         }
-    }
-    Ok(())
+        Ok(())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[cfg(test)]
