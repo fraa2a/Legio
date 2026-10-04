@@ -1,5 +1,9 @@
 <script lang="ts">
   import { t, language } from "./lib/i18n";
+  import { applyAppearance } from "./lib/services/appearance";
+  import { appearancePreview } from "./lib/stores/appearance";
+  import { appInfo } from "./lib/stores/app-info";
+  import AppBackground from "./lib/components/layout/AppBackground.svelte";
   import { onMount } from "svelte";
   import Sidebar from "./lib/components/layout/Sidebar.svelte";
   import MainContainer from "./lib/components/layout/MainContainer.svelte";
@@ -7,8 +11,11 @@
   import SettingsDialog from "./lib/features/settings/SettingsDialog.svelte";
   import { hydrateApp } from "./lib/stores/bootstrap";
   import { closeSettings, settingsOpen } from "./lib/stores/navigation";
-  import { resolvedTheme, settings } from "./lib/stores/settings";
+  import { settings } from "./lib/stores/settings";
   import { checkForAppUpdate, installAppUpdate, updateState } from "./lib/services/app-updater";
+
+  const appearance = $derived($appearancePreview?.appearance ?? $settings.data.appearance);
+  const theme = $derived($appearancePreview?.theme ?? $settings.data.theme);
 
   let updateDismissed = $state(false);
 
@@ -18,18 +25,22 @@
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const applyTheme = () => {
-      const theme = $settings.data.theme;
-      document.documentElement.dataset.theme = resolvedTheme(theme, media.matches);
+      applyAppearance(document.documentElement, theme, appearance, media.matches,
+        $appInfo.data.platform === "linux" && $appInfo.data.desktopEnvironment === "hyprland");
     };
 
     applyTheme();
-    const unsubscribe = settings.subscribe(applyTheme);
     media.addEventListener("change", applyTheme);
 
     return () => {
-      unsubscribe();
       media.removeEventListener("change", applyTheme);
     };
+  });
+
+  $effect(() => {
+    applyAppearance(document.documentElement, theme, appearance,
+      window.matchMedia("(prefers-color-scheme: dark)").matches,
+      $appInfo.data.platform === "linux" && $appInfo.data.desktopEnvironment === "hyprland");
   });
 
   function blockContextMenu(event: MouseEvent) {
@@ -43,7 +54,8 @@
 
 <svelte:window oncontextmenu={blockContextMenu} />
 
-<div class="flex h-dvh select-none bg-black light:bg-zinc-200">
+<AppBackground id={appearance.background} />
+<div class="legio-shell relative flex h-dvh select-none">
   <Sidebar />
   <div class="flex min-w-0 flex-1 flex-col pl-2.5 pr-2.5 pb-1.5">
     <TitleBar />

@@ -14,6 +14,22 @@ The UI should call Tauri only from a feature service module. Components should c
 - There are currently no queue or game-lifecycle push events. Refresh state by polling the corresponding list command while the view is active. Avoid one poll loop per row.
 - Do not persist backend-owned state in browser storage. Rehydrate it from commands on app startup and after mutations.
 
+## Appearance and portable themes
+
+Global settings now include theme values "system", "dark", "light", "eggplant" and "custom", plus an appearance object. Existing preferences default to the previous system theme and no image or transparency. The third built-in palette is named **Palette Viola Melanzana**. Built-in colors are shared between Rust and Svelte through src/lib/services/theme-presets.json.
+
+Appearance contains customThemes (up to 20 named palettes), customThemeId, background (an application-owned UUID or null), backgroundBlur (0-40 pixels), backgroundOpacity (0-100%), surfaceOpacity (40-100%) and transparent. Each custom palette has id, name, scheme ("dark" or "light") and six #RRGGBB colors: background, surface, raised, text, muted and accent. Rust validates IDs, names, effect ranges, palette contrast and consistency with the control scheme before saving. The appearance editor previews changes without persisting them until **Save appearance**. Closing the editor discards unsaved changes.
+
+The native window enables alpha support at startup only when the existing desktop detection reports Hyprland. The transparency toggle is exposed only in that session. Imported transparency preferences remain portable but are ignored on other desktops and Windows. Image blur affects the application's wallpaper; blur of the desktop behind the window is controlled by Hyprland.
+
+- import_theme_background(source) copies a selected local PNG, JPEG or WebP into application storage and returns its UUID. Input is limited to 16 MiB and 16 megapixels, decoded and normalized to PNG at no more than 2560 pixels per axis. It does not upscale small images.
+- get_theme_background(id) returns raw binary PNG bytes. The app keeps one object URL for the current image across page changes and opacity/blur edits, revoking it on replacement or shutdown.
+- import_theme_file(source) validates a version 1 JSON file, adds its named custom palette, applies its appearance options and returns saved global settings.
+- export_theme_file(destination, prefersDark) exports the saved palette and effects with an optional base64 PNG in backgroundImage. The system palette resolves using prefersDark. Export requires a new absolute .json filename; existing files are preserved.
+- cleanup_theme_backgrounds() removes abandoned image previews while retaining the image referenced by saved settings.
+
+Theme JSON uses schemaVersion, name, scheme, palette, nullable backgroundImage, backgroundBlur, backgroundOpacity, surfaceOpacity and transparent. The 24 MiB JSON limit includes the embedded image. No local paths, CSS, scripts, remote URLs or unrelated application preferences are accepted. Background decoding and theme file I/O run on blocking worker threads; image IPC uses binary responses rather than JSON byte arrays.
+
 ## App startup and preferences
 
 Call these through `invoke` wrappers:

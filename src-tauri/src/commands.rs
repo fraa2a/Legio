@@ -38,7 +38,7 @@ pub fn get_app_info(app: AppHandle) -> AppInfo {
     }
 }
 
-fn desktop_environment() -> Option<String> {
+pub(crate) fn desktop_environment() -> Option<String> {
     if !cfg!(target_os = "linux") {
         return None;
     }

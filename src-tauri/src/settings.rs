@@ -2,6 +2,7 @@ use crate::database::{self, DatabaseState, Settings};
 use tauri::{AppHandle, Manager};
 
 pub(crate) fn save(app: &AppHandle, settings: Settings) -> Result<Settings, String> {
+    crate::appearance::validate_background(app, &settings.appearance)?;
     let state = app.state::<DatabaseState>();
     let previous = state.database()?.settings()?;
     let saved = database::save_settings(&state, settings)?;

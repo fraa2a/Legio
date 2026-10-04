@@ -17,6 +17,7 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-start-dragging",
     "dialog:allow-open",
+    "dialog:allow-save",
     "updater:default",
     "process:allow-restart",
     "main-commands"

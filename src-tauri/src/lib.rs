@@ -7,6 +7,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 
+mod appearance;
 pub mod archive_install;
 mod catalog;
 mod commands;
@@ -56,6 +57,17 @@ mod steam_vdf;
 pub fn run() -> tauri::Result<()> {
     let shortcut_game_id = desktop_shortcuts::requested_game_id(std::env::args_os().skip(1))
         .map_err(std::io::Error::other)?;
+
+    let mut context = tauri::generate_context!();
+    if let Some(window) = context
+        .config_mut()
+        .app
+        .windows
+        .iter_mut()
+        .find(|window| window.label == "main")
+    {
+        window.transparent = appearance::supports_transparency();
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -237,6 +249,11 @@ pub fn run() -> tauri::Result<()> {
             commands::get_app_info,
             commands::get_settings,
             commands::save_settings,
+            appearance::import_theme_background,
+            appearance::get_theme_background,
+            appearance::import_theme_file,
+            appearance::export_theme_file,
+            appearance::cleanup_theme_backgrounds,
             commands::get_compatibility_defaults,
             commands::save_compatibility_defaults,
             commands::get_game_compatibility_overrides,
@@ -306,7 +323,7 @@ pub fn run() -> tauri::Result<()> {
             commands::get_steam_asset,
             runner_discovery::list_compatibility_runners,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
 }
 
 fn show_main_window(app: &tauri::AppHandle) {

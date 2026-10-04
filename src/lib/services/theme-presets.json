@@ -1,0 +1,29 @@
+[
+  {
+    "id": "dark",
+    "name": "Scuro",
+    "scheme": "dark",
+    "palette": {
+      "background": "#000000", "surface": "#18181b", "raised": "#27272a",
+      "text": "#fafafa", "muted": "#a1a1aa", "accent": "#fafafa"
+    }
+  },
+  {
+    "id": "light",
+    "name": "Chiaro",
+    "scheme": "light",
+    "palette": {
+      "background": "#e4e4e7", "surface": "#fafafa", "raised": "#ffffff",
+      "text": "#18181b", "muted": "#71717a", "accent": "#18181b"
+    }
+  },
+  {
+    "id": "eggplant",
+    "name": "Palette Viola Melanzana",
+    "scheme": "dark",
+    "palette": {
+      "background": "#170d20", "surface": "#25132e", "raised": "#361c42",
+      "text": "#f5eafa", "muted": "#b9a4c6", "accent": "#c084fc"
+    }
+  }
+]
