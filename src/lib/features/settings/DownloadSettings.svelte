@@ -63,7 +63,7 @@
       <ErrorBanner message={$bandwidthLimitError} />
     {/if}
 
-    <SettingsGroup title={t("Velocità di download", $language)} description={limitDescription}>
+    <SettingsGroup icon="download" title={t("Velocità di download", $language)} description={limitDescription}>
       <div class="flex flex-wrap items-end gap-3">
         <div class="w-56">
           <TextField
@@ -86,7 +86,7 @@
       <ErrorBanner message={$installedFolderError} />
     {/if}
 
-    <SettingsGroup title={t("Cartella dei giochi installati", $language)}>
+    <SettingsGroup icon="folder" title={t("Cartella dei giochi installati", $language)}>
       <SettingsRow label={t("Posizione dei giochi installati dallo store", $language)}>
         <Button label={t("Sfoglia", $language)} variant="secondary" disabled={openingFolder} onClick={() => void browseFolder()} />
       </SettingsRow>

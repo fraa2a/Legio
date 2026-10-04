@@ -4,6 +4,7 @@
   import SelectField from "../../components/ui/SelectField.svelte";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import SettingsRow from "../../components/ui/SettingsRow.svelte";
+  import Toggle from "../../components/ui/Toggle.svelte";
   import Button from "../../components/ui/Button.svelte";
   import { pickGameDirectory } from "../../services/dialog";
   import { saveSettings, type Settings } from "../../services/local-state";
@@ -79,44 +80,37 @@
     <ErrorBanner message={$settingsError} />
   {/if}
 
-  <SettingsGroup title={t("Lingua", $language)} description={t("I formati di data e numero seguono le impostazioni regionali del sistema.", $language)}>
+  <SettingsGroup icon="translate" title={t("Lingua", $language)} description={t("I formati di data e numero seguono le impostazioni regionali del sistema.", $language)}>
     <SelectField id="ui-language" label={t("Lingua dell'interfaccia", $language)} value={$settings.data.language}
       options={[{ value: "system", label: t("Sistema", $language) }, { value: "it", label: "Italiano" }, { value: "en", label: "English" }]}
       disabled={saving} onChange={(value) => void selectLanguage(value)} />
   </SettingsGroup>
-  <SettingsGroup title={t("Comportamento", $language)}>
+  <SettingsGroup icon="settings" title={t("Comportamento", $language)}>
     {#each behaviors as option (option.key)}
-      <label class="flex cursor-pointer items-center justify-between gap-6">
-        <span class="text-sm text-zinc-100 light:text-zinc-900">{option.label}</span>
-        <input
-          type="checkbox"
-          class="size-4 accent-white"
-          checked={Boolean($settings.data[option.key])}
-          disabled={saving || (option.key === "launchMinimized" && !$settings.data.launchOnSystemStart)}
-          onchange={(event) => void update({ [option.key]: event.currentTarget.checked,
-            ...(option.key === "launchOnSystemStart" && !event.currentTarget.checked ? { launchMinimized: false } : {}) })}
-        />
-      </label>
+      <Toggle
+        label={option.label}
+        checked={Boolean($settings.data[option.key])}
+        disabled={saving || (option.key === "launchMinimized" && !$settings.data.launchOnSystemStart)}
+        onChange={(checked) => void update({ [option.key]: checked,
+          ...(option.key === "launchOnSystemStart" && !checked ? { launchMinimized: false } : {}) })}
+      />
     {/each}
   </SettingsGroup>
 
   <SettingsGroup
+    icon="check"
     title={t("Integrità dei download: impostazione delicata", $language)}
     description={t("Controlla SHA-256 per i giochi verified. Disabilita questa protezione solo su computer di fascia bassa con prestazioni molto scarse: Legio non potrà rilevare archivi alterati o corrotti tramite hash. I giochi unverified vengono sempre estratti senza controllo SHA-256. La modifica si applica alle estrazioni successive.", $language)}
   >
-    <label class="flex cursor-pointer items-center justify-between gap-6">
-      <span class="text-sm text-zinc-100 light:text-zinc-900">{t("Verifica SHA-256 dei giochi verified (consigliato)", $language)}</span>
-      <input
-        type="checkbox"
-        class="size-4 accent-white"
-        checked={$settings.data.verifyVerifiedDownloads}
-        disabled={saving || $settings.status === "loading" || $settings.status === "idle" || $settings.status === "error"}
-        onchange={(event) => void update({ verifyVerifiedDownloads: event.currentTarget.checked })}
-      />
-    </label>
+    <Toggle
+      label={t("Verifica SHA-256 dei giochi verified (consigliato)", $language)}
+      checked={$settings.data.verifyVerifiedDownloads}
+      disabled={saving || $settings.status === "loading" || $settings.status === "idle" || $settings.status === "error"}
+      onChange={(checked) => void update({ verifyVerifiedDownloads: checked })}
+    />
   </SettingsGroup>
 
-  <SettingsGroup title={t("Aggiornamenti", $language)} description={t("Controlla automaticamente all'avvio se è disponibile una nuova versione di Legio.", $language)}>
+  <SettingsGroup icon="reload" title={t("Aggiornamenti", $language)} description={t("Controlla automaticamente all'avvio se è disponibile una nuova versione di Legio.", $language)}>
     <div class="flex flex-wrap items-center gap-3">
       <Button label={$updateState.checking ? t("Controllo...", $language) : t("Controlla aggiornamenti", $language)} variant="secondary" disabled={$updateState.checking || $updateState.installing} onClick={() => void checkForAppUpdate()} />
       {#if $updateState.version}
@@ -131,7 +125,7 @@
     {#if $updateState.error}<ErrorBanner message={$updateState.error} />{/if}
   </SettingsGroup>
 
-  <SettingsGroup title={t("Cartella per download e installazioni", $language)}>
+  <SettingsGroup icon="folder" title={t("Cartella per download e installazioni", $language)}>
     <SettingsRow
       label={t("Percorso di destinazione", $language)}
       description={$settings.data.downloadPath ?? t("Cartella predefinita di Legio", $language)}
@@ -146,6 +140,7 @@
   </SettingsGroup>
 
   <SettingsGroup
+    icon="store"
     title={t("Controllo Steam", $language)}
     description={t("Legio controlla Steam all'avvio e ripete il controllo all'intervallo scelto.", $language)}
   >

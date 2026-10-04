@@ -8,6 +8,7 @@
   import SelectField from "../../components/ui/SelectField.svelte";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import TextField from "../../components/ui/TextField.svelte";
+  import Toggle from "../../components/ui/Toggle.svelte";
   import {
     emptyCompatibilityDefaults,
     getCompatibilityDefaults,
@@ -135,7 +136,7 @@
       <ErrorBanner message={loadError} onRetry={() => void load()} />
     {/if}
 
-    <SettingsGroup title="Runner">
+    <SettingsGroup icon="wrench" title="Runner">
       {#if runnerDiagnostics.length > 0}
         <div class="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-200 light:text-amber-900">
           <p class="font-medium">{t("Rilevamento runner", $language)}</p>
@@ -163,7 +164,7 @@
       {/if}
     </SettingsGroup>
 
-    <SettingsGroup title={t("Configurazione di avvio", $language)}>
+    <SettingsGroup icon="settings" title={t("Configurazione di avvio", $language)}>
       <div class="grid gap-4 md:grid-cols-2">
         <TextField
           id="compat-prefix-root"
@@ -173,13 +174,13 @@
           hint={t("Legio crea un prefix per gioco dentro questa cartella.", $language)}
           oninput={(value) => (defaults = { ...defaults, prefixRoot: value || null })}
         />
-        <label class="flex items-center gap-2 self-end pb-2 text-sm text-zinc-300 light:text-zinc-700">
-          <input
-            type="checkbox"
-            class="size-4 accent-white"
+        <div class="self-end pb-2">
+          <Toggle
+            label={t("Abilita log di debug per gli avvii", $language)}
             checked={defaults.debugLogging}
-            onchange={(event) => (defaults = { ...defaults, debugLogging: event.currentTarget.checked })}
-          />{t("\n          Abilita log di debug per gli avvii\n        ", $language)}</label>
+            onChange={(checked) => (defaults = { ...defaults, debugLogging: checked })}
+          />
+        </div>
       </div>
       <div class="grid gap-4 md:grid-cols-2">
         <SelectField
@@ -199,7 +200,7 @@
       </div>
     </SettingsGroup>
 
-    <SettingsGroup title={t("Argomenti e ambiente", $language)}>
+    <SettingsGroup icon="info" title={t("Argomenti e ambiente", $language)}>
       <div class="grid gap-4 md:grid-cols-2">
         <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("\n          Argomenti prima dell'eseguibile\n          ", $language)}<textarea bind:value={argumentsBefore} rows="4" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
           <span class="text-xs text-zinc-500">{t("Un argomento per riga. Le righe vuote rappresentano argomenti vuoti.", $language)}</span>
