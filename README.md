@@ -7,6 +7,8 @@
 
 Legio is a desktop game launcher for Windows and Linux. Import games from Steam or add them manually, configure how each game launches, and keep your library and playtime in one place.
 
+![Legio Launcher home screen with recently played games and play activity](_meta/screenshots/legio-launcher.png)
+
 ## Features
 
 - **A Steam account for each game.** If you use multiple accounts, assign the right one to each title. Legio asks before restarting Steam to switch accounts when needed.
@@ -27,6 +29,11 @@ Legio does not support or promote piracy. Use this option only with a legitimate
 Get the latest version from [Releases](https://github.com/fraa2a/Legio/releases). Packages are available for Windows and Linux. To run Windows games on Linux, install a compatible runner such as Proton or Wine first.
 
 Steam must be installed for Steam integration and for games that require it.
+
+## Documentation
+
+- [Source schemas and download flow](_meta/docs/SCHEMA.md)
+- [Releases and updates](_meta/docs/UPDATING.md)
 
 ## License
 
