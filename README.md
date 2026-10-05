@@ -1,74 +1,38 @@
-# Legio
+<div align="center">
+  <img src="src-tauri/icons/icon.png" alt="Legio" width="96" />
+  <h1>Legio</h1>
+  <p>La tua libreria di giochi, con avvii e impostazioni pronti per ogni titolo.</p>
+  <p><a href="https://github.com/fraa2a/Legio/releases">Scarica Legio</a></p>
+</div>
 
-Legio is a desktop game launcher and downloader for Windows and Linux. Rust owns application logic and system integration. Svelte owns presentation and interaction inside a Tauri 2 desktop shell.
+<p align="center">
+  <img src="docs/frontend/screenshots/home-dark.png" alt="Schermata Home di Legio in modalità scura" width="900" />
+</p>
 
-The canonical product requirements are in [`PLAN.md`](PLAN.md). The maintained implementation roadmap is in [`docs/plans/README.md`](docs/plans/README.md).
+Legio è un launcher desktop per Windows e Linux. Importa i giochi da Steam o aggiungili manualmente, configura come avviarli e tieni sotto controllo download e tempo di gioco.
 
-## Current scope
+## Funzionalità
 
-Phase 01 establishes the repository toolchains and a minimal application shell. The current desktop screen performs one real Tauri IPC call and displays the application name, Cargo version, and platform supplied by Rust. Database, settings, game-library, Steam, download, installation, and launch behavior begin in later roadmap phases.
+- **Un account Steam per ogni gioco.** Se usi più account, assegna quello giusto a ciascun titolo. Quando serve cambiare account, Legio ti chiede conferma prima di riavviare Steam.
+- **Impostazioni di avvio per gioco.** Su Linux avvia giochi nativi o giochi Windows con Proton, GE-Proton o Wine e configura prefix, argomenti, variabili d'ambiente e override DLL. Su Windows imposta argomenti, cartella di lavoro e variabili d'ambiente.
+- **Importazione flessibile.** Rileva la libreria Steam oppure aggiungi giochi e relativi eseguibili manualmente.
+- **Download sotto controllo.** Metti in pausa e riprendi i download, riordina la coda, riprova quelli non riusciti e imposta un limite di banda. I download verificati possono essere controllati con SHA-256.
+- **Attività di gioco a colpo d'occhio.** Consulta gli ultimi giochi avviati, il tempo di gioco e il calendario delle tue sessioni.
+- **Una Home più personale.** Scegli un tema, modifica colori e sfondo e trova copertine e dettagli dei giochi nella libreria.
+- **Collegamenti sul desktop.** Avvia i tuoi giochi anche dal desktop del sistema.
 
-## Required toolchains
+## Online Fix
 
-- Node.js 22.x
-- Corepack with pnpm 12.5.1, as pinned by `package.json`
-- Rust 1.98.1 with rustfmt and Clippy, as pinned by `rust-toolchain.toml`
+Legio include un'opzione Online Fix per i giochi compatibili. È uno strumento di configurazione dell'avvio: Legio non fornisce né distribuisce file di gioco o file Online Fix.
 
-Enable Corepack once if it is not already enabled:
+Legio non supporta né promuove la pirateria. Usa questa opzione solo con una copia del gioco regolarmente acquistata e per giocare offline, nel rispetto della licenza del gioco e delle leggi applicabili. L'utente è responsabile del proprio utilizzo; Legio non si assume responsabilità per usi impropri.
 
-```sh
-corepack enable
-```
+## Download
 
-## Native prerequisites
+Scarica l'ultima versione dalla pagina [Releases](https://github.com/fraa2a/Legio/releases). Sono disponibili pacchetti per Windows e Linux. Per avviare giochi Windows su Linux, installa prima un runner compatibile come Proton o Wine.
 
-Tauri requires platform development tools in addition to the pinned language toolchains.
+Per Steam e i giochi che lo richiedono è necessario avere Steam installato sul dispositivo.
 
-### Linux
+## Licenza
 
-Install a C compiler and linker, WebKitGTK 4.1 development headers, GTK-related development libraries, OpenSSL development headers, and the platform packages required by Tauri 2. On Debian or Ubuntu, the CI workflow in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) is the maintained package reference.
-
-### Windows
-
-Install Microsoft C++ Build Tools with the Desktop development with C++ workload and the Microsoft Edge WebView2 runtime. Use a supported Windows SDK.
-
-## Install dependencies
-
-```sh
-corepack pnpm install --frozen-lockfile
-cargo fetch --manifest-path src-tauri/Cargo.toml --locked
-```
-
-## Development
-
-Start the native application:
-
-```sh
-corepack pnpm tauri dev
-```
-
-Run the browser-only frontend when testing the explicit backend-unavailable state:
-
-```sh
-corepack pnpm dev
-```
-
-## Checks
-
-```sh
-corepack pnpm check
-corepack pnpm lint
-corepack pnpm build
-cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --locked -- -D warnings
-cargo test --manifest-path src-tauri/Cargo.toml --all-features --locked
-corepack pnpm tauri build --debug --no-bundle
-```
-
-## Production build
-
-```sh
-corepack pnpm tauri build
-```
-
-The application version is owned only by `src-tauri/Cargo.toml`. Normal development must not change it.
+Consulta [LICENSE](LICENSE) per i termini di utilizzo e distribuzione.
