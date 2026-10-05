@@ -107,7 +107,7 @@
 <div class="my-1.5 grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2" data-tauri-drag-region>
   <div class="col-start-1 flex items-center">
     {#if libraryList}
-      <div class="flex h-11 items-center rounded-xl bg-zinc-900 p-1 light:bg-zinc-50">
+      <div class="legio-glass flex h-11 items-center rounded-xl bg-zinc-900 p-1 light:bg-zinc-50">
         <button
           type="button"
           aria-label={t("Aggiungi gioco", $language)}
@@ -129,7 +129,7 @@
         </button>
       </div>
     {:else if detail !== null}
-      <div class="flex h-11 items-center rounded-xl bg-zinc-900 p-1 light:bg-zinc-50">
+      <div class="legio-glass flex h-11 items-center rounded-xl bg-zinc-900 p-1 light:bg-zinc-50">
         <button
           type="button"
           class="flex h-9 items-center gap-1.5 rounded-xl px-3 text-sm text-zinc-400 transition-colors duration-200 hover:bg-white/10 hover:text-zinc-100 light:hover:bg-zinc-900/10 light:hover:text-zinc-900"
@@ -144,7 +144,7 @@
     {/if}
   </div>
   {#if searchList}
-    <div class="col-start-2 flex h-11 w-[min(32rem,calc(100vw-24rem))] min-w-0 items-center gap-2 rounded-xl bg-zinc-900 px-3 light:bg-zinc-50">
+    <div class="legio-glass col-start-2 flex h-11 w-[min(32rem,calc(100vw-24rem))] min-w-0 items-center gap-2 rounded-xl bg-zinc-900 px-3 light:bg-zinc-50">
       <Icon name="search" size="h-4 w-4 shrink-0 text-zinc-500" />
       <input
         bind:this={searchInput}
@@ -168,7 +168,7 @@
       {/if}
     </div>
   {:else}
-    <div class="col-start-2 flex h-11 items-center rounded-xl bg-zinc-900 px-4 light:bg-zinc-50">
+    <div class="legio-glass col-start-2 flex h-11 items-center rounded-xl bg-zinc-900 px-4 light:bg-zinc-50">
       <h1
         bind:this={heading}
         data-page-heading
@@ -180,7 +180,7 @@
     </div>
   {/if}
   <div class="col-start-3 flex items-center justify-end">
-    <div class="flex h-11 items-center gap-1 rounded-xl bg-zinc-900 p-1 light:bg-zinc-50">
+    <div class="legio-glass flex h-11 items-center gap-1 rounded-xl bg-zinc-900 p-1 light:bg-zinc-50">
       <WindowControlButton label={t("Riduci a icona", $language)} onClick={handleMinimize}>
         <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
           <path d="M19,13H5V11H19V13Z" />

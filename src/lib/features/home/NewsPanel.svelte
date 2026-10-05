@@ -16,7 +16,7 @@
   });
 </script>
 
-<section class="flex min-h-0 flex-col gap-3 rounded-2xl bg-zinc-900 p-4 light:bg-zinc-100" aria-labelledby="news-title">
+<section class="legio-glass flex min-h-0 flex-col gap-3 rounded-2xl bg-zinc-900 p-4 light:bg-zinc-100" aria-labelledby="news-title">
   <div class="flex items-center justify-between gap-2">
     <h2 id="news-title" class="text-lg font-medium text-zinc-50 light:text-zinc-900">{t("Novità", $language)}</h2>
     <button type="button" class="text-xs text-zinc-400 hover:text-zinc-100 light:hover:text-zinc-900" onclick={() => void loadNews(true)}>{t("Aggiorna", $language)}</button>
