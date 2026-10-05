@@ -259,11 +259,13 @@
 {/if}
 
 <Dialog open={removeTarget !== null} title={t("Rimuovi dalla coda", $language)} onClose={() => (removeTarget = null)}>
+  {#snippet children(dismiss)}
   <p class="text-sm text-zinc-300 light:text-zinc-700">{t("\n    Rimuovere ", $language)}{removeTarget?.name}{t(" dalla coda?\n  ", $language)}</p>
   <div class="flex justify-end gap-2">
-    <Button label={t("Indietro", $language)} variant="secondary" onClick={() => (removeTarget = null)} />
+    <Button label={t("Indietro", $language)} variant="secondary" onClick={dismiss} />
     <Button label={t("Rimuovi", $language)} variant="danger" onClick={() => void confirmRemove()} />
   </div>
+  {/snippet}
 </Dialog>
 
 {#if installTarget !== null}
@@ -272,10 +274,12 @@
 
 {#if $accountSwitchGame !== null}
   <Dialog open title={t("Cambio account Steam", $language)} onClose={dismissAccountSwitch}>
+  {#snippet children(dismiss)}
     <p class="text-sm text-zinc-300 light:text-zinc-700">{t("\n      Steam deve essere chiuso e riavviato per usare l'account salvato di ", $language)}{$accountSwitchGame.name}{t(". Procedere?\n    ", $language)}</p>
     <div class="flex justify-end gap-2">
-      <Button label={t("Annulla", $language)} variant="secondary" onClick={dismissAccountSwitch} />
+      <Button label={t("Annulla", $language)} variant="secondary" onClick={dismiss} />
       <Button label={t("Riavvia e avvia", $language)} onClick={() => void confirmAccountSwitch()} />
     </div>
-  </Dialog>
+    {/snippet}
+</Dialog>
 {/if}

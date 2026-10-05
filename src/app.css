@@ -51,10 +51,7 @@ html, body, #app { min-height: 100%; }
 :root { --legio-background: #000000; --legio-surface: #18181b; --legio-text: #fafafa; }
 .legio-backdrop {
   position: fixed; inset: 0; overflow: hidden; pointer-events: none;
-  background: var(--legio-background); z-index: 0;
-}
-:root[data-transparent="true"] .legio-backdrop {
-  background: transparent;
+  background: transparent; z-index: 0;
 }
 .legio-wallpaper {
   width: 100%; height: 100%; object-fit: cover;
@@ -63,14 +60,57 @@ html, body, #app { min-height: 100%; }
 }
 .legio-shell { isolation: isolate; }
 .legio-panel { background-color: var(--legio-surface); }
-.legio-content { background-color: var(--legio-background); }
-:root[data-theme="light"] .legio-content { background-color: var(--legio-surface); }
-:root:is([data-wallpaper="true"], [data-transparent="true"]) .legio-panel,
-:root:is([data-wallpaper="true"], [data-transparent="true"]) .legio-content {
+.legio-content { background-color: transparent; }
+dialog.legio-dialog {
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+dialog.legio-dialog[data-visible="true"] {
+  opacity: 1;
+}
+dialog.legio-dialog::backdrop {
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+dialog.legio-dialog[data-visible="true"]::backdrop { opacity: 1; }
+.legio-toast {
+  position: fixed;
+  inset: auto 1.25rem 1.25rem auto;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: calc(100vw - 2.5rem);
+  margin: 0;
+  opacity: 0;
+  transform: translateY(calc(100vh + 100%));
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+.legio-toast[data-visible="true"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+:root:is([data-wallpaper="true"], [data-transparent="true"]) .legio-panel {
   background-color: color-mix(in srgb, var(--legio-surface) calc(var(--legio-surface-opacity) * 100%), transparent);
 }
-:root:is([data-wallpaper="true"], [data-transparent="true"]):not([data-theme="light"]) .legio-glass {
-  background-color: color-mix(in srgb, var(--color-white) 5%, transparent);
+:root:is([data-wallpaper="true"], [data-transparent="true"]) .legio-glass {
+  background-color: color-mix(in srgb, var(--legio-surface) calc(var(--legio-surface-opacity) * 100%), transparent);
+  -webkit-backdrop-filter: blur(var(--legio-surface-blur));
+  backdrop-filter: blur(var(--legio-surface-blur));
+}
+:root:is([data-wallpaper="true"], [data-transparent="true"]) .legio-dialog {
+  background-color: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root:is([data-wallpaper="true"], [data-transparent="true"]) .legio-dialog::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background-color: color-mix(in srgb, var(--legio-surface) calc(var(--legio-dialog-opacity) * 100%), transparent);
+  -webkit-backdrop-filter: blur(var(--legio-dialog-blur));
+  backdrop-filter: blur(var(--legio-dialog-blur));
+  pointer-events: none;
 }
 input[type="radio"], input[type="checkbox"], input[type="range"] { accent-color: var(--legio-accent); }
 

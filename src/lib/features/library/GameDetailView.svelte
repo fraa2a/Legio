@@ -298,12 +298,14 @@
 
 {#if storeGame !== null}
   <Dialog open={confirmOpen} title={t("Rilascio non verificato", $language)} onClose={() => (confirmOpen = false)}>
+  {#snippet children(dismiss)}
     <p class="text-sm text-zinc-300 light:text-zinc-700">{t("\n      Il rilascio di ", $language)}{name}{t(" non è stato verificato dallo staff Legio. Un archivio non verificato può contenere\n      programmi dannosi. Procedere con il download e l'installazione?\n    ", $language)}</p>
     <div class="flex justify-end gap-2">
-      <Button label={t("Annulla", $language)} variant="secondary" onClick={() => (confirmOpen = false)} />
+      <Button label={t("Annulla", $language)} variant="secondary" onClick={dismiss} />
       <Button label={t("Scarica comunque", $language)} variant="danger" disabled={queueing} onClick={() => { confirmOpen = false; if (confirmEntry !== null) void startDownload(confirmEntry.download.url, confirmEntry.release.version, true); }} />
     </div>
-  </Dialog>
+    {/snippet}
+</Dialog>
 {/if}
 
 {#if storeGame === null && $accountSwitchGame !== null}
@@ -312,11 +314,13 @@
   title={t("Cambio account Steam", $language)}
   onClose={dismissAccountSwitch}
 >
+  {#snippet children(dismiss)}
   <p class="text-sm text-zinc-300 light:text-zinc-700">{t("\n    Steam deve essere chiuso e riavviato per usare l'account salvato di ", $language)}{$accountSwitchGame?.name}{t(".\n    Procedere?\n  ", $language)}</p>
   <div class="flex justify-end gap-2">
-    <Button label={t("Annulla", $language)} variant="secondary" onClick={dismissAccountSwitch} />
+    <Button label={t("Annulla", $language)} variant="secondary" onClick={dismiss} />
     <Button label={t("Riavvia e avvia", $language)} onClick={() => void confirmAccountSwitch()} />
   </div>
+  {/snippet}
 </Dialog>
 {/if}
 

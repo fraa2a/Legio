@@ -11,6 +11,7 @@
   import MainContainer from "./lib/components/layout/MainContainer.svelte";
   import TitleBar from "./lib/components/layout/TitleBar.svelte";
   import SettingsDialog from "./lib/features/settings/SettingsDialog.svelte";
+  import ToastNotice from "./lib/components/ui/ToastNotice.svelte";
   import { hydrateApp } from "./lib/stores/bootstrap";
   import { closeSettings, settingsOpen } from "./lib/stores/navigation";
   import { settings } from "./lib/stores/settings";
@@ -82,6 +83,8 @@
 {#if $settingsOpen}
   <SettingsDialog onClose={closeSettings} />
 {/if}
+
+<ToastNotice />
 
 {#if $updateState.version && !updateDismissed && ($appInfo.data.platform !== "linux" || !$updateState.nativeNotified)}
   <div class="fixed right-5 bottom-5 z-50 flex max-w-sm items-center gap-3 rounded-xl border border-white/15 bg-zinc-900/95 p-4 text-sm text-white shadow-xl light:border-zinc-900/15 light:bg-white light:text-zinc-900" role="status">

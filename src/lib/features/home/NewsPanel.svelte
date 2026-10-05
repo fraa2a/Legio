@@ -40,8 +40,12 @@
 </section>
 {#if selected}
   <Dialog open title={selected.title[$language]} onClose={() => selected = null}>
+  {#snippet children(dismiss)}
+    {#if selected}
     <time class="text-xs text-zinc-400" datetime={selected.publishedAt}>{date(selected.publishedAt)}</time>
     <p class="mt-4 whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-200 light:text-zinc-800">{selected.body[$language]}</p>
-    <div class="mt-6 flex justify-end"><Button label={t("Chiudi", $language)} variant="secondary" onClick={() => selected = null} /></div>
-  </Dialog>
+    <div class="mt-6 flex justify-end"><Button label={t("Chiudi", $language)} variant="secondary" onClick={dismiss} /></div>
+    {/if}
+  {/snippet}
+</Dialog>
 {/if}

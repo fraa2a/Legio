@@ -91,8 +91,8 @@
 </script>
 
 <Dialog open title={game.name} size="wide" flush {onClose}>
-  {#snippet actions()}
-    <button type="button" aria-label={t("Chiudi le impostazioni del gioco", $language)} class="rounded-lg p-1.5 text-zinc-400 hover:bg-white/10 hover:text-zinc-100 light:text-zinc-500 light:hover:bg-zinc-900/10 light:hover:text-zinc-900" onclick={onClose}>
+  {#snippet actions(close)}
+    <button type="button" aria-label={t("Chiudi le impostazioni del gioco", $language)} class="rounded-lg p-1.5 text-zinc-400 hover:bg-white/10 hover:text-zinc-100 light:text-zinc-500 light:hover:bg-zinc-900/10 light:hover:text-zinc-900" onclick={close}>
       <Icon name="close" size="h-5 w-5" />
     </button>
   {/snippet}

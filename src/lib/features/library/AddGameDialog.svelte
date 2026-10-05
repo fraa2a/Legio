@@ -182,6 +182,7 @@
 </script>
 
 <Dialog open title={t("Aggiungi un gioco", $language)} size="wide" onClose={close}>
+  {#snippet children(dismiss)}
   <div class="flex flex-col gap-5">
     <div class="flex flex-col gap-2">
         <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Associa il gioco corretto su Steam se il rilevamento automatico è errato o non trova il gioco.", $language)}</p>
@@ -280,8 +281,9 @@
 
     {#if actionError !== null}<ErrorBanner message={actionError} />{/if}
     <div class="flex justify-end gap-2">
-      <Button label={added ? t("Chiudi", $language) : t("Annulla", $language)} variant="secondary" onClick={close} />
+      <Button label={added ? t("Chiudi", $language) : t("Annulla", $language)} variant="secondary" onClick={dismiss} />
       {#if !added}<Button label={pending ? t("Aggiunta in corso...", $language) : t("Aggiungi alla libreria", $language)} disabled={!canAdd} onClick={() => void add()} />{/if}
     </div>
   </div>
+  {/snippet}
 </Dialog>

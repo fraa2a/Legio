@@ -27,7 +27,7 @@ const mocks = {
   "src/lib/i18n": locale,
   "src/lib/utils/errors": errors,
   "src/lib/services/theme-presets.json": dataModule("export default " + JSON.stringify(presetData)),
-  "src/lib/stores/settings": dataModule("export const settings = globalThis.themeSettings;"),
+  "src/lib/stores/settings": dataModule("export const settings = { subscribe: globalThis.themeSettings.subscribe, set: value => globalThis.themeSettings.set({data: value}) };"),
   "src/lib/stores/appearance": dataModule("export const appearancePreview = globalThis.themePreview;"),
   "src/lib/stores/app-info": dataModule('import { writable } from "' + import.meta.resolve("svelte/store") + '"; export const appInfo = writable({data:{platform:"linux",desktopEnvironment:"hyprland"}});'),
   "src/lib/services/local-state": dataModule("export const saveSettings = value => globalThis.themeSave(value);"),
@@ -40,7 +40,7 @@ const settle = async () => {
 };
 
 test("system palette follows the OS and Hyprland alone can enable window transparency", () => {
-  const options = { ...appearance.defaultAppearance(), transparent: true, background: "image", backgroundBlur: 12 };
+  const options = { ...appearance.defaultAppearance(), transparent: true, background: "image", backgroundBlur: 12, surfaceBlur: 8, dialogBlur: 16 };
   appearance.applyAppearance(document.documentElement, "system", options, false, false);
   assert.equal(document.documentElement.dataset.theme, "light");
   assert.equal(document.documentElement.dataset.transparent, "false");
@@ -49,6 +49,13 @@ test("system palette follows the OS and Hyprland alone can enable window transpa
   assert.equal(document.documentElement.dataset.transparent, "true");
   assert.equal(document.documentElement.style.getPropertyValue("--legio-background"), "#170d20");
   assert.equal(document.documentElement.style.getPropertyValue("--legio-image-blur"), "12px");
+  assert.equal(document.documentElement.style.getPropertyValue("--legio-surface-blur"), "8px");
+  assert.equal(document.documentElement.style.getPropertyValue("--legio-dialog-blur"), "16px");
+  options.surfaceOpacity = 100;
+  options.dialogOpacity = 100;
+  appearance.applyAppearance(document.documentElement, "eggplant", options, true, true);
+  assert.equal(document.documentElement.style.getPropertyValue("--legio-surface-blur"), "0px");
+  assert.equal(document.documentElement.style.getPropertyValue("--legio-dialog-blur"), "0px");
   assert.equal(appearance.activePalette("system", options, false).id, "light");
 });
 
@@ -68,9 +75,10 @@ test("the theme editor previews before auto save and preserves unrelated setting
   const initial = { theme: "system", appearance: appearance.defaultAppearance(), language: "en", steamLibraryPollMinutes: 30 };
   settingsStore.set({ data: initial });
   const saved = [];
+  const pendingSaves = [];
   globalThis.themeSave = async (value) => {
     saved.push(value);
-    return value;
+    return new Promise((resolve) => pendingSaves.push(() => resolve(value)));
   };
   globalThis.themeInvoke = async (command) => { assert.equal(command, "cleanup_theme_backgrounds"); };
   const component = (await import(await load("src/lib/features/settings/ThemeSettings.svelte"))).default;
@@ -86,18 +94,62 @@ test("the theme editor previews before auto save and preserves unrelated setting
   assert.equal(saved.length, 0);
   assert.equal(get(settingsStore).data.theme, "system");
   const opacity = target.querySelector("#theme-surfaceOpacity");
-  assert.match(target.querySelector(`label[for="${opacity.id}"]`)?.textContent ?? "", /Opacità dei pannelli/);
+  assert.match(target.querySelector(`label[for="${opacity.id}"]`)?.textContent ?? "", /Opacità/);
   opacity.value = "35";
   opacity.dispatchEvent(new Event("input", { bubbles: true }));
   await settle();
   assert.equal(get(previewStore).appearance.surfaceOpacity, 35);
+  const blur = target.querySelector("#theme-surfaceBlur");
+  assert.equal(blur.disabled, false);
+  blur.value = "14";
+  blur.dispatchEvent(new Event("input", { bubbles: true }));
+  await settle();
+  assert.equal(get(previewStore).appearance.surfaceBlur, 14);
+  const dialogOpacity = target.querySelector("#theme-dialogOpacity");
+  const dialogBlur = target.querySelector("#theme-dialogBlur");
+  assert.equal(dialogBlur.disabled, false);
+  dialogOpacity.value = "70";
+  dialogOpacity.dispatchEvent(new Event("input", { bubbles: true }));
+  dialogBlur.value = "10";
+  dialogBlur.dispatchEvent(new Event("input", { bubbles: true }));
+  await settle();
+  assert.equal(get(previewStore).appearance.dialogOpacity, 70);
+  assert.equal(get(previewStore).appearance.dialogBlur, 10);
+  dialogOpacity.value = "100";
+  dialogOpacity.dispatchEvent(new Event("input", { bubbles: true }));
+  await settle();
+  assert.equal(dialogBlur.disabled, true);
+  opacity.value = "100";
+  opacity.dispatchEvent(new Event("input", { bubbles: true }));
+  await settle();
+  assert.equal(blur.disabled, true);
   // Another global setting can change while the appearance editor is open.
+  opacity.dispatchEvent(new Event("pointerdown", { bubbles: true }));
   settingsStore.set({ data: { ...initial, language: "it" } });
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  await settle();
+  assert.equal(saved.length, 0);
+  window.dispatchEvent(new Event("pointerup"));
   await new Promise((resolve) => setTimeout(resolve, 600));
   await settle();
   assert.equal(saved.length, 1);
   assert.equal(saved[0].theme, "eggplant");
   assert.equal(saved[0].language, "it");
+  assert.equal(opacity.disabled, false);
+  opacity.value = "42";
+  opacity.dispatchEvent(new Event("input", { bubbles: true }));
+  await settle();
+  pendingSaves.shift()();
+  await settle();
+  assert.equal(opacity.value, "42");
+  assert.equal(get(previewStore).appearance.surfaceOpacity, 42);
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  await settle();
+  assert.equal(saved.length, 2);
+  assert.equal(saved[1].appearance.surfaceOpacity, 42);
+  pendingSaves.shift()();
+  await settle();
+  assert.equal(get(settingsStore).data.appearance.surfaceOpacity, 42);
   await unmount(instance);
   assert.equal(get(previewStore), null);
   target.remove();

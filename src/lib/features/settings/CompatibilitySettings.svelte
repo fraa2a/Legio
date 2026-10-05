@@ -192,6 +192,7 @@
           label={t("Runner predefinito", $language)}
           value={defaults.runnerPath ?? ""}
           options={runnerOptions}
+          borderless
           onChange={(value) => (defaults = { ...defaults, runnerPath: value || null })}
         />
       </div><ResetSetting label={t("Ripristina runner predefinito", $language)} disabled={saving || defaults.runnerPath === null} onClick={() => { defaults = { ...defaults, runnerPath: null }; }} /></div>
@@ -223,6 +224,7 @@
           label={t("Renderer grafico", $language)}
           value={defaults.graphicsRenderer}
           options={[{ value: "runner_default", label: t("Predefinito del runner", $language) }, { value: "wine_d3d", label: "WineD3D" }]}
+          borderless
           onChange={setGraphicsRenderer}
         /></div><ResetSetting label={t("Ripristina renderer grafico", $language)} disabled={saving || defaults.graphicsRenderer === "runner_default"} onClick={() => { defaults = { ...defaults, graphicsRenderer: "runner_default" }; }} /></div>
         <div class="flex items-end gap-2"><div class="min-w-0 flex-1"><SelectField
@@ -230,6 +232,7 @@
           label="Wayland"
           value={defaults.wayland}
           options={[{ value: "runner_default", label: t("Predefinito del runner", $language) }, { value: "disabled", label: t("Disattivato", $language) }, { value: "native", label: t("Nativo, solo GE-Proton", $language) }]}
+          borderless
           onChange={setWayland}
         /></div><ResetSetting label={t("Ripristina Wayland", $language)} disabled={saving || defaults.wayland === "runner_default"} onClick={() => { defaults = { ...defaults, wayland: "runner_default" }; }} /></div>
       </div>

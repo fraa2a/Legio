@@ -2,8 +2,6 @@
   import { t, language } from "../../i18n";
   import Dialog from "../../components/ui/Dialog.svelte";
   import Icon, { type IconName } from "../../components/ui/Icon.svelte";
-  import { fade } from "svelte/transition";
-  import { fadeDuration } from "../../utils/motion";
   import DownloadSettings from "./DownloadSettings.svelte";
   import CompatibilitySettings from "./CompatibilitySettings.svelte";
   import AdvancedSettings from "./AdvancedSettings.svelte";
@@ -33,12 +31,12 @@
 </script>
 
 <Dialog open title={t("Impostazioni", $language)} size="large" flush {onClose}>
-  {#snippet actions()}
+  {#snippet actions(close)}
     <button
       type="button"
       aria-label={t("Chiudi le impostazioni", $language)}
       class="rounded-lg p-1.5 text-zinc-400 transition-colors duration-200 hover:bg-white/10 hover:text-zinc-100 light:text-zinc-500 light:hover:bg-zinc-900/10 light:hover:text-zinc-900"
-      onclick={onClose}
+      onclick={close}
     >
       <Icon name="close" size="h-5 w-5" />
     </button>
@@ -65,7 +63,6 @@
     </nav>
 
     <div class="min-w-0 flex-1 overflow-y-auto p-6 lg:p-8">
-      {#key active}<div in:fade={{ duration: fadeDuration }}>
       {#if active === "general"}
         <GeneralSettings />
       {:else if active === "appearance"}
@@ -77,7 +74,6 @@
       {:else}
         <AdvancedSettings />
       {/if}
-      </div>{/key}
     </div>
   </div>
 </Dialog>
