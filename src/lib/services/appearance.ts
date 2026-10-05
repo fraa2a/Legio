@@ -26,7 +26,7 @@ export interface Appearance {
   background: string | null;
   backgroundBlur: number;
   backgroundOpacity: number;
-  animatedBackground: "none" | "particles" | "aurora";
+  animatedBackground: "none" | "particles" | "dither";
   animatedOpacity: number;
   surfaceOpacity: number;
   surfaceBlur: number;
@@ -120,7 +120,6 @@ export function applyAppearance(
   root.dataset.theme = palette.scheme;
   root.dataset.palette = theme;
   root.dataset.transparent = String(appearance.transparent && hyprland);
-  root.dataset.wallpaper = String(appearance.background !== null || appearance.animatedBackground !== "none");
   root.style.colorScheme = palette.scheme;
   for (const [key, value] of Object.entries(paletteVariables(palette))) root.style.setProperty(key, value);
   root.style.setProperty("--legio-image-blur", appearance.backgroundBlur + "px");

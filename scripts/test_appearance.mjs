@@ -86,9 +86,12 @@ test("the theme editor previews before auto save and preserves unrelated setting
   document.body.append(target);
   const instance = mount(component, { target });
   await settle();
-  const eggplant = [...target.querySelectorAll("label")].find((label) => label.textContent.includes("Palette Viola Melanzana")).querySelector("input");
-  eggplant.checked = true;
-  eggplant.dispatchEvent(new Event("change", { bubbles: true }));
+  assert.equal(target.querySelectorAll('input[name="theme"]').length, 2);
+  assert.equal(target.querySelector('[role="listbox"]'), null);
+  target.querySelector("#theme-additional").click();
+  await settle();
+  const eggplant = [...target.querySelectorAll('[role="option"]')].find((option) => option.textContent.includes("Palette Viola Melanzana"));
+  eggplant.click();
   await settle();
   assert.equal(get(previewStore).theme, "eggplant");
   assert.equal(saved.length, 0);
@@ -167,7 +170,7 @@ test("background URL is retained for the same image and revoked when replaced", 
     return new Uint8Array([1, 2, 3]).buffer;
   };
   const component = (await import(await load("src/lib/components/layout/AppBackground.svelte"))).default;
-  const wrapperSource = '<script>import AppBackground from "./src/lib/components/layout/AppBackground.svelte"; let { state } = $props();</script><AppBackground id={$state.id} />';
+  const wrapperSource = '<script>import AppBackground from "./src/lib/components/layout/AppBackground.svelte"; let { state } = $props();</script><AppBackground id={$state.id} animation="none" animationOpacity={65} accent="#ffffff" />';
   let code = compile(wrapperSource, { generate: "client" }).js.code;
   code = code.replace('"./src/lib/components/layout/AppBackground.svelte"', JSON.stringify(await load("src/lib/components/layout/AppBackground.svelte")));
   for (const match of [...code.matchAll(/(?:from|import)\s*["']([^"']+)["']/g)]) {
@@ -194,4 +197,44 @@ test("background URL is retained for the same image and revoked when replaced", 
   await unmount(instance);
   assert.deepEqual(revoked, ["blob:theme-1", "blob:theme-2"]);
   target.remove();
+});
+
+
+test("Dither renders the accent pattern without animation under reduced motion", async () => {
+  const calls = [];
+  const context = {
+    fillStyle: "", setTransform() {}, clearRect() {},
+    fillRect(...bounds) { calls.push({ color: this.fillStyle, bounds }); },
+  };
+  const originalContext = window.HTMLCanvasElement.prototype.getContext;
+  const originalBounds = window.HTMLElement.prototype.getBoundingClientRect;
+  window.HTMLCanvasElement.prototype.getContext = () => context;
+  window.HTMLElement.prototype.getBoundingClientRect = () => ({ width: 240, height: 120 });
+  let disconnected = false;
+  globalThis.ResizeObserver = class {
+    observe() {}
+    disconnect() { disconnected = true; }
+  };
+  globalThis.cancelAnimationFrame = () => {};
+  globalThis.requestAnimationFrame = () => { throw new Error("Reduced motion must not schedule animation"); };
+  const target = document.createElement("div");
+  document.body.append(target);
+  try {
+    const component = (await import(await load("src/lib/components/layout/AnimatedBackground.svelte"))).default;
+    const instance = mount(component, { target, props: { kind: "dither", opacity: 50, color: "#aa66cc" } });
+    await settle();
+    assert.ok(target.querySelector("canvas"));
+    assert.ok(calls.length > 0 && calls.length < 800);
+    assert.ok(calls.every((call) => call.color === "#aa66cc"));
+    assert.equal(target.firstElementChild.style.opacity, "0.5");
+    await unmount(instance);
+    assert.equal(disconnected, true);
+  } finally {
+    window.HTMLCanvasElement.prototype.getContext = originalContext;
+    window.HTMLElement.prototype.getBoundingClientRect = originalBounds;
+    delete globalThis.ResizeObserver;
+    delete globalThis.cancelAnimationFrame;
+    delete globalThis.requestAnimationFrame;
+    target.remove();
+  }
 });

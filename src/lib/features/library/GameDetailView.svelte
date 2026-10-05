@@ -139,7 +139,7 @@
 </script>
 
 {#if storeGame === null && game === null}
-  <p class="rounded-xl bg-white/5 p-6 text-zinc-400 light:bg-zinc-100 light:text-zinc-600">{t("\n    Il gioco non è più disponibile.\n  ", $language)}</p>
+  <p class="legio-glass rounded-xl p-6 text-zinc-400 light:text-zinc-600">{t("\n    Il gioco non è più disponibile.\n  ", $language)}</p>
 {:else}
   <div class="flex min-h-full flex-col gap-4">
     <section class="relative isolate z-10 aspect-[1920/620] w-full min-h-[20rem] min-w-[1024px] overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200">
