@@ -68,21 +68,13 @@ pub(crate) fn launch_command(
     } else {
         Command::new(program)
     };
-    match runner.kind {
-        RunnerKind::Proton | RunnerKind::GeProton => {
-            command
-                .arg("run")
-                .args(arguments_before)
-                .arg(executable)
-                .args(arguments_after);
-        }
-        RunnerKind::Wine => {
-            command
-                .args(arguments_before)
-                .arg(executable)
-                .args(arguments_after);
-        }
+    if matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton) {
+        command.arg("run");
     }
+    command
+        .args(arguments_before)
+        .arg(executable)
+        .args(arguments_after);
     command
 }
 

@@ -43,6 +43,7 @@ test("recent games select the last played installation and exclude unplayed game
     { gameId: "deleted", lastPlayedAt: 400 },
   ];
   assert.deepEqual(recentGames(games, summaries).map(({ game }) => game.id), ["manual", "other"]);
+  assert.deepEqual(recentGames(games, summaries.filter(({ gameId }) => gameId !== "steam")).map(({ game }) => game.id), ["manual", "other"]);
 });
 
 test("activity intensity increases continuously and saturates at eight hours", () => {

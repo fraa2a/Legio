@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFile } from "node:fs/promises";
 import { JSDOM } from "jsdom";
-import ts from "typescript";
 import { compile } from "svelte/compiler";
+import { createModuleLoader, dataModule } from "./test_module_loader.mjs";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost" });
 for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputElement", "HTMLButtonElement", "HTMLImageElement", "HTMLMediaElement", "Element", "Node", "Text", "Comment", "Event", "MouseEvent", "CustomEvent", "MutationObserver", "getComputedStyle"]) {
@@ -12,9 +12,7 @@ for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputE
 window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} });
 const { mount, unmount, flushSync } = await import("svelte");
 const { get, writable } = await import("svelte/store");
-const dataModule = (code) => "data:text/javascript;base64," + Buffer.from(code).toString("base64");
 const presetData = JSON.parse(await readFile(new URL("../src/lib/services/theme-presets.json", import.meta.url), "utf8"));
-const modules = new Map();
 const locale = dataModule('import { writable } from "' + import.meta.resolve("svelte/store") + '"; export const language = writable("it"); export const t = message => message;');
 const invoke = dataModule("export const invoke = (...args) => globalThis.themeInvoke(...args);");
 const dialog = dataModule("export const open = () => Promise.resolve(null); export const save = () => Promise.resolve(null);");
@@ -35,28 +33,7 @@ const mocks = {
   "src/lib/services/local-state": dataModule("export const saveSettings = value => globalThis.themeSave(value);"),
 };
 
-async function load(path) {
-  if (mocks[path]) return mocks[path];
-  if (modules.has(path)) return modules.get(path);
-  const source = await readFile(new URL("../" + path, import.meta.url), "utf8");
-  let code = path.endsWith(".svelte")
-    ? compile(source, { generate: "client", filename: path }).js.code
-    : ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
-  for (const match of [...code.matchAll(/(?:from\s*|import\s*)["']([^"']+)["']/g)]) {
-    const specifier = match[1];
-    let url;
-    if (specifier.startsWith(".")) {
-      const resolved = new URL(specifier, "file:///" + path).pathname.slice(1);
-      url = await load(mocks[resolved] || resolved.endsWith(".json") || resolved.endsWith(".svelte") ? resolved : resolved + ".ts");
-    } else {
-      url = mocks[specifier] ?? import.meta.resolve(specifier);
-    }
-    code = code.replaceAll('"' + specifier + '"', JSON.stringify(url)).replaceAll("'" + specifier + "'", JSON.stringify(url));
-  }
-  const url = dataModule(code);
-  modules.set(path, url);
-  return url;
-}
+const { load } = createModuleLoader(mocks);
 const appearance = await import(await load("src/lib/services/appearance.ts"));
 const settle = async () => {
   for (let index = 0; index < 6; index++) { await new Promise((resolve) => setImmediate(resolve)); flushSync(); }

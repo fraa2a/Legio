@@ -624,24 +624,12 @@ fn clean_cancelled(queue: &DownloadQueueState, database: &Database) -> Result<()
     Ok(())
 }
 
-fn has_queued(database: &Database) -> Result<bool, String> {
+fn has_status(database: &Database, status: DownloadStatus) -> Result<bool, String> {
     database.with_connection(|connection| {
         connection
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM downloads WHERE status = 'queued')",
-                [],
-                |row| row.get(0),
-            )
-            .map_err(db_error)
-    })
-}
-
-fn has_waiting(database: &Database) -> Result<bool, String> {
-    database.with_connection(|connection| {
-        connection
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM downloads WHERE status = 'waiting')",
-                [],
+                "SELECT EXISTS(SELECT 1 FROM downloads WHERE status = ?1)",
+                [status.as_str()],
                 |row| row.get(0),
             )
             .map_err(db_error)
@@ -688,7 +676,11 @@ fn kick<R: Runtime>(app: AppHandle<R>) {
             .running
             .store(false, Ordering::Release);
         // A command may enqueue after the last claim and before the flag is cleared.
-        match app.state::<DatabaseState>().database().and_then(has_queued) {
+        match app
+            .state::<DatabaseState>()
+            .database()
+            .and_then(|database| has_status(database, DownloadStatus::Queued))
+        {
             Ok(true) => kick(app),
             Ok(false) => {}
             Err(error) => eprintln!("Could not restart download queue: {error}"),
@@ -701,7 +693,7 @@ async fn run_queue<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         let database = app.state::<DatabaseState>();
         let database = database.database()?;
         let Some(job) = claim(database)? else {
-            if !has_waiting(database)? {
+            if !has_status(database, DownloadStatus::Waiting)? {
                 break;
             }
             let queue = app.state::<DownloadQueueState>();

@@ -14,7 +14,7 @@
   import ProgressBar from "../../components/ui/ProgressBar.svelte";
   import { formatBytes } from "../../utils/format";
   import DownloadCover from "./DownloadCover.svelte";
-  import { formatEta, phaseLabel, progressOf, statusBadge, statusTone } from "./downloads-model";
+  import { formatEta, phaseLabel, progressOf, progressTone, statusBadge, statusTone } from "./downloads-model";
 
   let {
     job,
@@ -43,14 +43,6 @@
     ["downloading", "downloaded", "staging", "finalizing"].includes(job.status),
   );
 
-  const barTone = $derived.by(() => {
-    if (job.status === "failed") return "danger" as const;
-    if (job.status === "paused") return "warning" as const;
-    if (job.status === "installed") return "success" as const;
-    if (downloading) return "accent" as const;
-    if (["downloaded", "staging", "staged", "finalizing"].includes(job.status)) return "accent" as const;
-    return "default" as const;
-  });
 </script>
 
 <section
@@ -88,7 +80,7 @@
       <div class="mt-4">
         <ProgressBar
           value={progress}
-          tone={barTone}
+          tone={progressTone(job.status)}
           label="{t("Avanzamento di ", $language)}{job.name}"
           class="h-2.5"
         />
