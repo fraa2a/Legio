@@ -41,7 +41,7 @@
 <dialog
   bind:this={dialog}
   aria-labelledby={titleId}
-  class="m-auto {widthClass} max-w-[calc(100vw-2rem)] rounded-2xl border border-white/15 bg-zinc-900 text-zinc-100 shadow-2xl shadow-black/40 backdrop:bg-black/70 light:border-zinc-900/15 light:bg-zinc-50 light:text-zinc-900 {flush
+  class="legio-glass m-auto {widthClass} max-w-[calc(100vw-2rem)] rounded-2xl border border-white/15 bg-zinc-900 text-zinc-100 shadow-2xl shadow-black/40 backdrop:bg-black/70 light:border-zinc-900/15 light:bg-zinc-50 light:text-zinc-900 {flush
     ? size === 'large' ? 'h-[min(48rem,calc(100dvh-3rem))] overflow-hidden' : 'h-[min(40rem,calc(100dvh-3rem))] overflow-hidden'
     : 'max-h-[calc(100dvh-3rem)] overflow-y-auto'}"
   oncancel={(event) => {
