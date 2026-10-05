@@ -156,9 +156,12 @@
           name: details?.name ?? selectedSteamGame?.name ?? name,
         };
         const result = await importScannedGame(name, identity);
-        if (result.linkingError !== null) {
+        if (result.linkingError !== null || result.shortcutWarning !== null) {
           added = true;
-          actionError = t("Gioco aggiunto. Collegamento Steam non riuscito: {0}", $language, [result.linkingError]);
+          actionError = [
+            result.linkingError === null ? null : t("Gioco aggiunto. Collegamento Steam non riuscito: {0}", $language, [result.linkingError]),
+            result.shortcutWarning,
+          ].filter((message) => message !== null).join(" ");
           return;
         }
       } else if (parsedAppId !== null) {

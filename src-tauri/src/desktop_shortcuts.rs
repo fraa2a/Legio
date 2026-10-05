@@ -1248,11 +1248,31 @@ mod linux {
 #[cfg(target_os = "linux")]
 pub(crate) use linux::quote_exec_argument;
 
-pub(crate) fn create_for_app(
+pub(crate) fn create_application_menu(
+    app: &tauri::AppHandle,
+    game: &crate::database::Game,
+) -> Result<Option<String>, String> {
+    use tauri::Manager;
+
+    let (icon, warning) = app
+        .state::<crate::game_artwork::GameArtworkStore>()
+        .shortcut_icon_path(game)?;
+    create(game, ShortcutLocation::ApplicationsMenu, icon.as_deref())?;
+    Ok(warning)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ShortcutCreationResult {
+    path: String,
+    warning: Option<String>,
+}
+
+pub(crate) fn create_for_game(
     app: &tauri::AppHandle,
     game_id: &str,
     location: ShortcutLocation,
-) -> Result<String, String> {
+) -> Result<ShortcutCreationResult, String> {
     use crate::database::{self, DatabaseState};
     use tauri::Manager;
     let database = app.state::<DatabaseState>();
@@ -1263,7 +1283,7 @@ pub(crate) fn create_for_app(
     } else {
         None
     };
-    let icon = app
+    let (icon, warning) = app
         .state::<crate::game_artwork::GameArtworkStore>()
         .shortcut_icon_path(&game)?;
     let path = crate::desktop_shortcuts::create(&game, location, icon.as_deref())?;
@@ -1280,7 +1300,11 @@ pub(crate) fn create_for_app(
         }
         crate::desktop_shortcuts::remove_steam_shortcuts(&game)?;
     }
-    path.to_str()
-        .map(str::to_owned)
-        .ok_or_else(|| "The desktop shortcut path is not valid UTF-8".to_owned())
+    Ok(ShortcutCreationResult {
+        path: path
+            .to_str()
+            .ok_or_else(|| "The desktop shortcut path is not valid UTF-8".to_owned())?
+            .to_owned(),
+        warning,
+    })
 }

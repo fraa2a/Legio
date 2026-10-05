@@ -40,8 +40,9 @@
     actionError = null;
     pending = true;
     try {
-      const updated = await saveExecutableForGame(game.id, executablePath.trim());
-      executablePath = updated.executablePath ?? "";
+      const result = await saveExecutableForGame(game.id, executablePath.trim());
+      executablePath = result.game.executablePath ?? "";
+      actionError = result.shortcutWarning;
       failedPath = null;
     } catch (error) {
       failedPath = executablePath.trim();

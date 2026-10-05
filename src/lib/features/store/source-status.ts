@@ -17,29 +17,23 @@ export interface SourceReleaseStatus {
 
 export const availabilityMeta: Record<
   SourceAvailability,
-  { label: string; tone: SourceTone; description: string }
+  { label: string; tone: SourceTone }
 > = {
   verified: {
     label: "Verificato",
     tone: "success",
-    description: "",
   },
   unverified: {
     label: "Non verificato",
     tone: "warning",
-    description:
-      "",
   },
   unavailable: {
     label: "Non disponibile",
     tone: "danger",
-    description: "",
   },
   unknown: {
     label: "Sconosciuto",
     tone: "neutral",
-    description:
-      "",
   },
 };
 

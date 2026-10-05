@@ -562,15 +562,22 @@ pub async fn finalize_download(
         let root = database.storage_root(&data_dir)?;
         finalize(database, &root, &id, &executable_relative)?;
         let game = database.game(&id)?;
-        let icon = app
-            .state::<crate::game_artwork::GameArtworkStore>()
-            .shortcut_icon_path(&game)?;
-        if let Err(error) = crate::desktop_shortcuts::create(
-            &game,
-            crate::desktop_shortcuts::ShortcutLocation::ApplicationsMenu,
-            icon.as_deref(),
-        ) {
-            eprintln!("Could not create application-menu shortcut: {error}");
+        let shortcut_warning = crate::desktop_shortcuts::create_application_menu(&app, &game)
+            .unwrap_or_else(|error| {
+                Some(format!(
+                    "Could not create application-menu shortcut: {error}"
+                ))
+            });
+        if let Some(warning) = shortcut_warning {
+            database.with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET error = ?2 WHERE id = ?1",
+                        [&id, &warning],
+                    )
+                    .map_err(database_error)?;
+                Ok(())
+            })?;
         }
         Ok(())
     })

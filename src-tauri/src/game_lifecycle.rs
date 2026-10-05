@@ -113,7 +113,7 @@ struct LaunchContext {
 
 impl SessionTracking {
     fn start(database: Arc<Database>, game_id: &str) -> Result<Self, String> {
-        database.start_game_session(game_id, crate::database::now_milliseconds())?;
+        database.start_game_session(game_id, crate::database::now_milliseconds()?)?;
         Ok(Self {
             database,
             game_id: game_id.to_owned(),
@@ -126,14 +126,14 @@ impl SessionTracking {
             return Ok(());
         }
         self.database
-            .heartbeat_game_session(&self.game_id, crate::database::now_milliseconds())?;
+            .heartbeat_game_session(&self.game_id, crate::database::now_milliseconds()?)?;
         self.last_heartbeat = Instant::now();
         Ok(())
     }
 
     fn finish(self) -> Result<(), String> {
         self.database
-            .end_game_session(&self.game_id, crate::database::now_milliseconds())
+            .end_game_session(&self.game_id, crate::database::now_milliseconds()?)
     }
 }
 
@@ -343,7 +343,7 @@ impl GameLaunchManager {
             .stderr(Stdio::null());
         let process_target = game_process::ProcessTarget::Native {
             game_directory: game_directory.to_path_buf(),
-            started_after_ms: crate::database::now_milliseconds(),
+            started_after_ms: crate::database::now_milliseconds()?,
             launcher_pid: None,
             known_pids: Arc::default(),
         };
@@ -1089,8 +1089,11 @@ impl GameLaunchManager {
     }
 
     fn set_runner_exit_code(&self, game_id: &str, code: i32) {
-        if let Ok(mut entries) = self.entries.lock()
-            && let Some(entry) = entries.get_mut(game_id)
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(entry) = entries.get_mut(game_id)
             && entry.compatibility_options.is_some()
         {
             entry.runner_exit_code = Some(code);
@@ -1113,9 +1116,11 @@ impl GameLaunchManager {
     }
 
     fn set_state(&self, game_id: &str, status: GameStatus, error: Option<String>) {
-        if let Ok(mut entries) = self.entries.lock()
-            && let Some(entry) = entries.get_mut(game_id)
-        {
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(entry) = entries.get_mut(game_id) {
             entry.status = status;
             entry.error = error;
         }
@@ -1791,7 +1796,7 @@ mod tests {
         let state = wait_for_native_status(&manager, &game.id, GameStatus::Running);
         assert_eq!(state.error, None);
         let active = database
-            .playtime_summaries(crate::database::now_milliseconds())
+            .playtime_summaries(crate::database::now_milliseconds().unwrap())
             .unwrap()
             .into_iter()
             .find(|summary| summary.game_id == game.id)
@@ -1803,7 +1808,7 @@ mod tests {
         assert_eq!(state.error, None);
         let reopened = Database::open(&database_dir).unwrap();
         let summary = reopened
-            .playtime_summaries(crate::database::now_milliseconds())
+            .playtime_summaries(crate::database::now_milliseconds().unwrap())
             .unwrap()
             .into_iter()
             .find(|summary| summary.game_id == game.id)
@@ -2015,7 +2020,7 @@ mod tests {
         drop(database);
         let reopened = Database::open(&database_dir).unwrap();
         let summaries = reopened
-            .playtime_summaries(crate::database::now_milliseconds())
+            .playtime_summaries(crate::database::now_milliseconds().unwrap())
             .unwrap();
         let summary = summaries
             .iter()
@@ -2096,7 +2101,7 @@ mod tests {
         wait_for_status(&manager, &game.id, GameStatus::Running);
         assert_eq!(
             database
-                .playtime_summaries(crate::database::now_milliseconds())
+                .playtime_summaries(crate::database::now_milliseconds().unwrap())
                 .unwrap()[0]
                 .active_sessions,
             1
@@ -2130,7 +2135,7 @@ mod tests {
         drop(database);
         let reopened = Database::open(&database_dir).unwrap();
         let summary = reopened
-            .playtime_summaries(crate::database::now_milliseconds())
+            .playtime_summaries(crate::database::now_milliseconds().unwrap())
             .unwrap()
             .into_iter()
             .find(|summary| summary.game_id == game.id)
@@ -2281,7 +2286,7 @@ mod tests {
             )
         });
         let active = database
-            .playtime_summaries(crate::database::now_milliseconds())
+            .playtime_summaries(crate::database::now_milliseconds().unwrap())
             .unwrap()
             .into_iter()
             .find(|summary| summary.game_id == game.id)
@@ -2295,7 +2300,7 @@ mod tests {
         drop(database);
         let reopened = Database::open(&database_dir).unwrap();
         let summary = reopened
-            .playtime_summaries(crate::database::now_milliseconds())
+            .playtime_summaries(crate::database::now_milliseconds().unwrap())
             .unwrap()
             .into_iter()
             .find(|summary| summary.game_id == game.id)

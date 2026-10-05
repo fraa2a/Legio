@@ -20,6 +20,7 @@
   import SidebarDownloadStatus from "./SidebarDownloadStatus.svelte";
   import SidebarGameItem from "./SidebarGameItem.svelte";
   import { fadeDuration } from "../../utils/motion";
+  import { recentGames } from "../../features/home/home-model";
 
   const fadeMs = fadeDuration > 0 ? 100 : 0;
 
@@ -32,25 +33,7 @@
 
   let expanded = $state(true);
 
-  const collator = new Intl.Collator(undefined, { sensitivity: "base" });
-
-  const gamesList = $derived.by(() => {
-    const lastPlayed = new Map($playtime.data.map((entry) => [entry.gameId, entry.lastPlayedAt]));
-    const groups: Record<string, typeof $games.data> = Object.create(null);
-    for (const game of $games.data) {
-      const key = game.steamAppId === null ? game.id : `steam:${game.steamAppId}`;
-      const group = groups[key] ?? [];
-      group.push(game);
-      groups[key] = group;
-    }
-    return Object.values(groups)
-      .map((group) => group.find((game) => game.steamInstallPath !== null) ?? group[0])
-      .map((game) => ({ game, playedAt: lastPlayed.get(game.id) ?? -1 }))
-      .filter((entry) => entry.playedAt >= 0)
-      .sort((left, right) => right.playedAt - left.playedAt || collator.compare(left.game.name, right.game.name))
-      .slice(0, 5)
-      .map((entry) => entry.game);
-  });
+  const gamesList = $derived(recentGames($games.data, $playtime.data).slice(0, 5).map(({ game }) => game));
 </script>
 
 <aside

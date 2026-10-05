@@ -153,10 +153,12 @@ test("catalog load more requests the next remote page", async () => {
 });
 
 
-test("download presentation labels follow the selected language", async () => {
-  const { statusBadge, phaseLabel } = await loadModule("../src/lib/features/downloads/downloads-model.ts", { "../../i18n": localeUrl });
+test("download presentation labels and progress tones follow status", async () => {
+  const { statusBadge, phaseLabel, progressTone } = await loadModule("../src/lib/features/downloads/downloads-model.ts", { "../../i18n": localeUrl });
   assert.equal(statusBadge("installed", "en"), "Completed");
   assert.equal(statusBadge("installed", "it"), "Completato");
   assert.equal(phaseLabel({ status: "staged" }, "en"), "Ready to install");
+  assert.equal(progressTone("staged"), "accent");
+  assert.equal(progressTone("paused"), "warning");
   assert.equal(statusBadge("future", "en"), "future");
 });

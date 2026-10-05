@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readFile } from "node:fs/promises";
-import ts from "typescript";
 import { get, writable } from "svelte/store";
+import { createModuleLoader, dataModule as data } from "./test_module_loader.mjs";
 
-const data = code => `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`;
 const store = writable({ data: {} });
 globalThis.setupSettings = { subscribe: store.subscribe, set: value => store.set({ data: value }) };
 globalThis.setupAppInfo = writable({ data: { platform: "windows" } });
@@ -20,19 +18,7 @@ const mocks = {
   "src/lib/stores/appearance": data("export const appearancePreview = globalThis.setupPreview;"),
   "src/lib/stores/navigation": data("export const activeSection = globalThis.setupSection;"),
 };
-const modules = new Map();
-async function load(path) {
-  if (mocks[path]) return mocks[path];
-  if (modules.has(path)) return modules.get(path);
-  let code = ts.transpileModule(await readFile(new URL("../" + path, import.meta.url), "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
-  for (const match of [...code.matchAll(/from\s*["']([^"']+)["']/g)]) {
-    const specifier = match[1];
-    const resolved = specifier.startsWith(".") ? new URL(specifier, "file:///" + path).pathname.slice(1) : specifier;
-    const url = specifier.startsWith(".") ? await load(mocks[resolved] ? resolved : resolved + ".ts") : mocks[specifier] ?? import.meta.resolve(specifier);
-    code = code.replaceAll(JSON.stringify(specifier), JSON.stringify(url));
-  }
-  const url = data(code); modules.set(path, url); return url;
-}
+const { load } = createModuleLoader(mocks);
 const setup = await import(await load("src/lib/stores/onboarding.ts"));
 const prefs = { onboardingCompleted: false, theme: "system", language: "system", appearance: {}, downloadPath: null, launchOnSystemStart: false, launchMinimized: false, launchInLibrary: false, verifyVerifiedDownloads: true };
 

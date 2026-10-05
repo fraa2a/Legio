@@ -370,14 +370,12 @@ fn linux_selected_account_id(steam_root: &Path) -> Result<Option<String>, String
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(format!("Could not read Steam account selection: {error}")),
     };
-    selected_account_id_from_loginusers(&bytes)
+    account_id_from_loginusers(&bytes)
         .map_err(|error| format!("Could not read Steam account selection: {error}"))
 }
 
 #[cfg(target_os = "linux")]
-fn selected_account_id_from_loginusers(
-    bytes: &[u8],
-) -> Result<Option<String>, crate::steam_vdf::VdfError> {
+fn account_id_from_loginusers(bytes: &[u8]) -> Result<Option<String>, crate::steam_vdf::VdfError> {
     let selected = crate::steam_vdf::selected_account_id(bytes)?;
     if selected.is_some() {
         return Ok(selected);
@@ -543,7 +541,7 @@ mod tests {
             "76561198000000002" { "AutoLogin" "0" }
         }"#;
         assert_eq!(
-            selected_account_id_from_loginusers(loginusers).unwrap(),
+            account_id_from_loginusers(loginusers).unwrap(),
             Some("76561198000000001".to_owned())
         );
     }
@@ -559,14 +557,8 @@ mod tests {
             "76561198000000001" { "AutoLogin" "1" "MostRecent" "0" }
             "76561198000000002" { "AutoLogin" "0" "MostRecent" "1" }
         }"#;
-        assert_eq!(
-            selected_account_id_from_loginusers(ambiguous).unwrap(),
-            None
-        );
-        assert_eq!(
-            selected_account_id_from_loginusers(conflicting).unwrap(),
-            None
-        );
+        assert_eq!(account_id_from_loginusers(ambiguous).unwrap(), None);
+        assert_eq!(account_id_from_loginusers(conflicting).unwrap(), None);
     }
 
     #[test]

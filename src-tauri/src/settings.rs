@@ -1,11 +1,11 @@
-use crate::database::{self, DatabaseState, Settings};
+use crate::database::{DatabaseState, Settings};
 use tauri::{AppHandle, Manager};
 
 pub(crate) fn save(app: &AppHandle, settings: Settings) -> Result<Settings, String> {
     crate::appearance::validate_background(app, &settings.appearance)?;
     let state = app.state::<DatabaseState>();
     let previous = state.database()?.settings()?;
-    let saved = database::save_settings(&state, settings)?;
+    let saved = state.database()?.save_settings(settings)?;
     if saved.launch_on_system_start != previous.launch_on_system_start
         && let Err(error) = crate::startup::set_enabled(saved.launch_on_system_start)
     {

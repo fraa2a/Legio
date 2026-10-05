@@ -69,8 +69,8 @@ export function removeGame(id: string): Promise<void> {
   return invoke<void>("remove_game", { id });
 }
 
-export function createDesktopShortcut(gameId: string): Promise<string> {
-  return invoke<string>("create_game_shortcut", { gameId, location: "desktop" });
+export function createDesktopShortcut(gameId: string): Promise<{ path: string; warning: string | null }> {
+  return invoke("create_game_shortcut", { gameId, location: "desktop" });
 }
 
 export function transferGame(gameId: string, sourceDirectory: string, destinationDirectory: string): Promise<{ game: Game; warning: string | null }> {
