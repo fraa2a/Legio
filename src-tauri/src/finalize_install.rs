@@ -45,8 +45,12 @@ fn timestamp() -> Result<i64, String> {
         .ok_or_else(|| "System clock is outside the supported date range".to_owned())
 }
 
-pub(crate) fn install_root(data_dir: &Path) -> Result<PathBuf, String> {
-    let root = data_dir.join("installed");
+pub(crate) fn install_root(database: &Database, data_dir: &Path) -> Result<PathBuf, String> {
+    let root = if database.settings()?.download_path.is_some() {
+        data_dir.to_path_buf()
+    } else {
+        data_dir.join("installed")
+    };
     fs::create_dir_all(&root)
         .map_err(|error| format!("Could not create install directory: {error}"))?;
     let metadata = fs::symlink_metadata(&root)
@@ -118,7 +122,7 @@ fn claim(
     let stage = data_dir.join("downloads").join(format!("{id}.stage"));
     regular_directory(&data_dir.join("downloads"), "download directory")?;
     regular_executable(&stage, &executable)?;
-    let target = install_root(data_dir)?.join(&id);
+    let target = install_root(database, data_dir)?.join(&id);
     let token = Uuid::new_v4().to_string();
     database.with_connection(|connection| {
         let row: Option<(i64, String, Option<String>, String)> = connection.query_row(
@@ -144,6 +148,7 @@ fn load_intent(database: &Database, data_dir: &Path, id: &str) -> Result<Intent,
     let id = Uuid::parse_str(id)
         .map_err(|_| "Download ID is invalid".to_owned())?
         .to_string();
+    let install_root = install_root(database, data_dir)?;
     database.with_connection(|connection| {
         let row: Option<StoredIntent> = connection.query_row(
             "SELECT steam_app_id, name, staged_path, final_path, executable_relative, install_token FROM downloads WHERE id = ?1 AND status = 'finalizing'",
@@ -151,15 +156,23 @@ fn load_intent(database: &Database, data_dir: &Path, id: &str) -> Result<Intent,
         ).optional().map_err(database_error)?;
         let Some((app_id, name, stage, target, executable, token)) = row else { return Err("Finalization intent was not found".to_owned()); };
         let expected_stage = data_dir.join("downloads").join(format!("{id}.stage"));
-        let expected_target = install_root(data_dir)?.join(&id);
-        if stage.as_deref() != Some(expected_stage.to_string_lossy().as_ref())
-            || target.as_deref() != Some(expected_target.to_string_lossy().as_ref()) {
+        let expected_target = install_root.join(&id);
+        let legacy_target = data_dir.join("installed").join(&id);
+        if stage.as_deref() != Some(expected_stage.to_string_lossy().as_ref()) {
             return Err("Finalization paths do not match the app-owned paths".to_owned());
         }
+        let target = match target.as_deref() {
+            Some(path) if path == expected_target.to_string_lossy() => expected_target,
+            Some(path) if install_root == data_dir && path == legacy_target.to_string_lossy() => {
+                regular_directory(&data_dir.join("installed"), "legacy install directory")?;
+                legacy_target
+            }
+            _ => return Err("Finalization paths do not match the app-owned paths".to_owned()),
+        };
         let executable = safe_relative_path(executable.as_deref().ok_or("Finalization executable is missing")?)?;
         let token = token.ok_or("Finalization token is missing")?;
         Uuid::parse_str(&token).map_err(|_| "Finalization token is invalid".to_owned())?;
-        Ok(Intent { id, app_id, name, stage: expected_stage, target: expected_target, executable, token })
+        Ok(Intent { id, app_id, name, stage: expected_stage, target, executable, token })
     })
 }
 
@@ -611,8 +624,17 @@ mod tests {
     use super::*;
 
     fn fixture() -> (Database, PathBuf, String) {
+        fixture_with_custom_path(false)
+    }
+
+    fn fixture_with_custom_path(custom_path: bool) -> (Database, PathBuf, String) {
         let data_dir = std::env::temp_dir().join(format!("legio-finalize-test-{}", Uuid::new_v4()));
         let database = Database::open(&data_dir).unwrap();
+        if custom_path {
+            let mut settings = database.settings().unwrap();
+            settings.download_path = Some(data_dir.to_string_lossy().into_owned());
+            database.save_settings(settings).unwrap();
+        }
         let id = Uuid::new_v4().to_string();
         let stage = data_dir.join("downloads").join(format!("{id}.stage"));
         fs::create_dir_all(stage.join("bin")).unwrap();
@@ -698,6 +720,47 @@ mod tests {
             games[0].executable_path.as_deref(),
             Some(target.join("bin/game.exe").to_str().unwrap())
         );
+        fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
+    fn custom_folder_is_the_install_root() {
+        let (database, data_dir, id) = fixture_with_custom_path(true);
+        finalize(&database, &data_dir, &id, "bin/game.exe").unwrap();
+        let target = data_dir.join(&id);
+        assert_eq!(fs::read(target.join("bin/game.exe")).unwrap(), b"game");
+        assert!(!data_dir.join("installed").exists());
+        assert_eq!(
+            database.games().unwrap()[0].installation_root.as_deref(),
+            target.to_str()
+        );
+        fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
+    fn recovers_an_install_started_in_the_old_custom_subfolder() {
+        let (database, data_dir, id) = fixture_with_custom_path(true);
+        let legacy_root = data_dir.join("installed");
+        fs::create_dir(&legacy_root).unwrap();
+        claim(&database, &data_dir, &id, "bin/game.exe").unwrap();
+        let legacy_target = legacy_root.join(&id);
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET final_path = ?2 WHERE id = ?1",
+                        params![id, legacy_target.to_string_lossy()],
+                    )
+                    .map_err(database_error)?;
+                Ok(())
+            })
+            .unwrap();
+        recover(&database, &data_dir).unwrap();
+        assert_eq!(
+            fs::read(legacy_target.join("bin/game.exe")).unwrap(),
+            b"game"
+        );
+        assert_eq!(state(&database, &id).0, "installed");
         fs::remove_dir_all(data_dir).unwrap();
     }
 
