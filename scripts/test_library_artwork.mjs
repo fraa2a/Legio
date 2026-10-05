@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { compile } from "svelte/compiler";
-import ts from "typescript";
 import { JSDOM } from "jsdom";
+import { createModuleLoader, dataModule } from "./test_module_loader.mjs";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBeVisual: true });
 for (const key of ["window", "document", "navigator", "Node", "Text", "Comment", "Element", "HTMLElement", "Event", "CustomEvent", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"]) {
@@ -12,40 +11,12 @@ for (const key of ["window", "document", "navigator", "Node", "Text", "Comment",
 }
 const { mount, unmount, flushSync } = await import("svelte");
 const { writable } = await import("svelte/store");
-const dataModule = (code) => `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`;
 const mocks = {
   "@tauri-apps/api/core": dataModule("export const invoke = (...args) => globalThis.artworkInvoke(...args);"),
   "src/lib/i18n": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const language = writable("en"); export const t = value => value;`),
   "src/lib/utils/motion": dataModule("export const fadeDuration = 0;"),
 };
-const modules = new Map();
-async function moduleUrl(path) {
-  if (mocks[path]) return mocks[path];
-  if (modules.has(path)) return modules.get(path);
-  const loading = (async () => {
-    const source = await readFile(new URL(`../${path}`, import.meta.url), "utf8");
-    const code = path.endsWith(".svelte")
-      ? compile(source, { filename: path, generate: "client" }).js.code
-      : ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
-    return dataModule(await resolveImports(code, path));
-  })();
-  modules.set(path, loading);
-  return loading;
-}
-async function resolveImports(code, path) {
-  for (const match of [...code.matchAll(/(?:from|import)\s*["']([^"']+)["']/g)]) {
-    const specifier = match[1];
-    let url;
-    if (specifier.startsWith(".")) {
-      const resolved = new URL(specifier, `file:///${path}`).pathname.slice(1);
-      url = await moduleUrl(resolved.endsWith(".svelte") ? resolved : resolved + (mocks[resolved] ? "" : ".ts"));
-    } else {
-      url = mocks[specifier] ?? import.meta.resolve(specifier);
-    }
-    code = code.replaceAll(`"${specifier}"`, JSON.stringify(url)).replaceAll(`'${specifier}'`, JSON.stringify(url));
-  }
-  return code;
-}
+const { load: moduleUrl, resolveImports } = createModuleLoader(mocks);
 const requests = [];
 let detailsResolve;
 globalThis.artworkInvoke = (command, args) => {

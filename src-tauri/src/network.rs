@@ -256,9 +256,11 @@ impl NetworkState {
     }
 
     fn update(&self, status: NetworkStatus, detail: Option<String>) -> ConnectivityCheck {
-        if let Ok(mut current) = self.status.lock() {
-            *current = status;
-        }
+        let mut current = self
+            .status
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        *current = status;
         ConnectivityCheck { status, detail }
     }
 }

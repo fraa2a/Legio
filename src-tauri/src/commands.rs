@@ -24,6 +24,13 @@ pub struct AppInfo {
     startup_launch_error: Option<String>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameActionResult {
+    game: Game,
+    shortcut_warning: Option<String>,
+}
+
 #[tauri::command]
 pub fn get_app_info(app: AppHandle) -> AppInfo {
     let package_info = app.package_info();
@@ -93,7 +100,7 @@ fn normalize_desktop_environment(hyprland: bool, current_desktop: Option<&str>) 
 
 #[tauri::command]
 pub fn get_settings(state: State<'_, DatabaseState>) -> Result<Settings, String> {
-    database::get_settings(&state)
+    state.database()?.settings()
 }
 
 #[tauri::command]
@@ -187,7 +194,7 @@ pub fn save_game_compatibility_overrides(
 
 #[tauri::command]
 pub fn list_games(state: State<'_, DatabaseState>) -> Result<Vec<Game>, String> {
-    database::list_games(&state)
+    state.database()?.games()
 }
 
 #[tauri::command]
@@ -196,7 +203,7 @@ pub fn get_playtime_summaries(
 ) -> Result<Vec<database::PlaytimeSummary>, String> {
     state
         .database()?
-        .playtime_summaries(database::now_milliseconds())
+        .playtime_summaries(database::now_milliseconds()?)
 }
 
 #[tauri::command]
@@ -209,7 +216,7 @@ pub async fn get_playtime_activity(
         crate::playtime_activity::daily_playtime(
             state.database()?,
             &day_boundaries,
-            database::now_milliseconds(),
+            database::now_milliseconds()?,
         )
     })
     .await
@@ -221,7 +228,7 @@ pub fn create_game(
     state: State<'_, DatabaseState>,
     input: CreateGameInput,
 ) -> Result<Game, String> {
-    database::create_game(&state, input)
+    state.database()?.create_game(input)
 }
 
 #[tauri::command]
@@ -229,9 +236,9 @@ pub async fn create_game_shortcut(
     app: AppHandle,
     game_id: String,
     location: crate::desktop_shortcuts::ShortcutLocation,
-) -> Result<String, String> {
+) -> Result<crate::desktop_shortcuts::ShortcutCreationResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        crate::desktop_shortcuts::create_for_app(&app, &game_id, location)
+        crate::desktop_shortcuts::create_for_game(&app, &game_id, location)
     })
     .await
     .map_err(|error| format!("Game shortcut task failed: {error}"))?
@@ -320,7 +327,7 @@ pub fn update_game(
     state: State<'_, DatabaseState>,
     input: UpdateGameInput,
 ) -> Result<Game, String> {
-    database::update_game(&state, input)
+    state.database()?.update_game(input)
 }
 
 #[tauri::command]
@@ -328,7 +335,7 @@ pub fn remove_game(app: AppHandle, id: String) -> Result<(), String> {
     let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
     let _operation = manager.operation()?;
     manager.require_idle(&id)?;
-    database::remove_game(&app.state::<DatabaseState>(), &id)?;
+    app.state::<DatabaseState>().database()?.remove_game(&id)?;
     let mut errors = Vec::new();
     if let Err(error) = app
         .state::<crate::game_artwork::GameArtworkStore>()
@@ -468,11 +475,9 @@ pub async fn set_game_steam_account_preference(
                 return Err("Steam account is not in the local saved account list".to_owned());
             }
         }
-        database::set_game_steam_account(
-            &app.state::<DatabaseState>(),
-            &game_id,
-            steam_id.as_deref(),
-        )
+        app.state::<DatabaseState>()
+            .database()?
+            .set_game_steam_account(&game_id, steam_id.as_deref())
     })
     .await
     .map_err(|error| format!("Steam account preference task failed: {error}"))?
@@ -484,33 +489,20 @@ pub async fn check_game_steam_account(
     game_id: String,
 ) -> Result<AccountCheck, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let check = database::check_game_steam_account(&app.state::<DatabaseState>(), &game_id)?;
+        let check = app
+            .state::<DatabaseState>()
+            .database()?
+            .check_game_steam_account(&game_id)?;
         if check.selected_steam_id.is_none() {
             return Ok(check);
         }
-        Ok(check_saved_account_presence(
+        Ok(steam_local::check_saved_account_presence(
             check,
             &steam_local::scan_saved_accounts(),
         ))
     })
     .await
     .map_err(|error| format!("Steam account check task failed: {error}"))?
-}
-
-fn check_saved_account_presence(
-    mut check: AccountCheck,
-    saved: &steam_local::SavedSteamAccounts,
-) -> AccountCheck {
-    if let Some(ref id) = check.selected_steam_id
-        && !saved.accounts.iter().any(|account| account.steam_id == *id)
-        && saved.diagnostics.is_empty()
-    {
-        check.status = database::AccountCheckStatus::MissingSavedAccount;
-        check.message = Some(
-            "Selected Steam account is no longer saved. Choose another saved account or clear the preference.",
-        );
-    }
-    check
 }
 
 #[cfg(test)]
@@ -541,50 +533,6 @@ mod desktop_environment_tests {
     fn missing_or_empty_current_desktop_is_unknown() {
         assert_eq!(normalize_desktop_environment(false, None), None);
         assert_eq!(normalize_desktop_environment(false, Some("  ")), None);
-    }
-}
-
-#[cfg(test)]
-mod account_tests {
-    use super::*;
-    use database::AccountCheckStatus;
-
-    #[test]
-    fn missing_saved_account_is_distinct_from_uncertain_metadata() {
-        let check = AccountCheck {
-            status: AccountCheckStatus::Unknown,
-            account_requirement_met: false,
-            selected_steam_id: Some("76561198000000001".to_owned()),
-            message: None,
-        };
-        let empty = steam_local::SavedSteamAccounts {
-            accounts: vec![],
-            diagnostics: vec![],
-        };
-        let missing = check_saved_account_presence(check.clone(), &empty);
-        assert_eq!(missing.status, AccountCheckStatus::MissingSavedAccount);
-        assert!(!missing.account_requirement_met);
-        assert!(missing.message.unwrap().contains("Choose another"));
-        let uncertain = steam_local::SavedSteamAccounts {
-            accounts: vec![],
-            diagnostics: vec!["unreadable metadata".to_owned()],
-        };
-        assert_eq!(
-            check_saved_account_presence(check.clone(), &uncertain).status,
-            AccountCheckStatus::Unknown
-        );
-        let saved = steam_local::SavedSteamAccounts {
-            accounts: vec![steam_local::SavedSteamAccount {
-                steam_id: "76561198000000001".to_owned(),
-                display_name: "Display".to_owned(),
-                account_name: None,
-            }],
-            diagnostics: vec![],
-        };
-        assert_eq!(
-            check_saved_account_presence(check, &saved).status,
-            AccountCheckStatus::Unknown
-        );
     }
 }
 
@@ -622,20 +570,18 @@ pub async fn scan_game_executables(
 pub async fn import_manual_game(
     app: AppHandle,
     input: manual_import::ManualImportInput,
-) -> Result<Game, String> {
+) -> Result<GameActionResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let game = manual_import::import(&app.state::<DatabaseState>(), input)?;
-        let icon = app
-            .state::<crate::game_artwork::GameArtworkStore>()
-            .shortcut_icon_path(&game)?;
-        if let Err(error) = crate::desktop_shortcuts::create(
-            &game,
-            crate::desktop_shortcuts::ShortcutLocation::ApplicationsMenu,
-            icon.as_deref(),
-        ) {
-            eprintln!("Could not create application-menu shortcut: {error}");
-        }
-        Ok(game)
+        Ok(GameActionResult {
+            shortcut_warning: crate::desktop_shortcuts::create_application_menu(&app, &game)
+                .unwrap_or_else(|error| {
+                    Some(format!(
+                        "Could not create application-menu shortcut: {error}"
+                    ))
+                }),
+            game,
+        })
     })
     .await
     .map_err(|error| format!("Manual import task failed: {error}"))?
@@ -664,24 +610,22 @@ pub async fn set_game_executable(
     app: AppHandle,
     game_id: String,
     executable_path: String,
-) -> Result<Game, String> {
+) -> Result<GameActionResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let game = manual_import::set_executable(
             &app.state::<DatabaseState>(),
             &game_id,
             &executable_path,
         )?;
-        let icon = app
-            .state::<crate::game_artwork::GameArtworkStore>()
-            .shortcut_icon_path(&game)?;
-        if let Err(error) = crate::desktop_shortcuts::create(
-            &game,
-            crate::desktop_shortcuts::ShortcutLocation::ApplicationsMenu,
-            icon.as_deref(),
-        ) {
-            eprintln!("Could not create application-menu shortcut: {error}");
-        }
-        Ok(game)
+        Ok(GameActionResult {
+            shortcut_warning: crate::desktop_shortcuts::create_application_menu(&app, &game)
+                .unwrap_or_else(|error| {
+                    Some(format!(
+                        "Could not create application-menu shortcut: {error}"
+                    ))
+                }),
+            game,
+        })
     })
     .await
     .map_err(|error| format!("Executable selection task failed: {error}"))?

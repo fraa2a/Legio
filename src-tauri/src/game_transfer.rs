@@ -216,11 +216,9 @@ struct TransferIntent {
 }
 
 fn remap(value: Option<String>, source: &Path, destination: &Path) -> Option<String> {
-    value.map(|value| {
-        Path::new(&value).strip_prefix(source).map_or_else(
-            |_| value.clone(),
-            |relative| destination.join(relative).to_string_lossy().into_owned(),
-        )
+    value.map(|value| match Path::new(&value).strip_prefix(source) {
+        Ok(relative) => destination.join(relative).to_string_lossy().into_owned(),
+        Err(_) => value,
     })
 }
 

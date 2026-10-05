@@ -89,7 +89,6 @@ pub(crate) fn stop(target: &ProcessTarget) -> Result<(), String> {
 #[cfg(target_os = "linux")]
 fn linux_matching_pids(app_id: u32) -> Result<Vec<u32>, String> {
     use std::fs;
-    use std::io::Read;
 
     let mut pids = Vec::new();
     for entry in fs::read_dir("/proc")
@@ -115,23 +114,14 @@ fn linux_matching_pids(app_id: u32) -> Result<Vec<u32>, String> {
         if is_steam_helper(comm.trim()) {
             continue;
         }
-        let mut environ = Vec::new();
-        match fs::File::open(process.join("environ")) {
-            Ok(file) => match file.take(1024 * 1024).read_to_end(&mut environ) {
-                Ok(_) => {}
-                Err(error) if process_disappeared(&error) => continue,
-                Err(error) => {
-                    return Err(format!("Could not inspect game process {pid}: {error}"));
-                }
-            },
-            Err(error) if process_disappeared(&error) => continue,
-            Err(error) => return Err(format!("Could not inspect game process {pid}: {error}")),
+        let Some(environ) = read_linux_process_bytes(pid, &process.join("environ"), 1024 * 1024)?
+        else {
+            continue;
         };
         if has_steam_app_id(&environ, app_id) {
-            let command = match fs::read(process.join("cmdline")) {
-                Ok(command) => command,
-                Err(error) if process_disappeared(&error) => continue,
-                Err(error) => return Err(format!("Could not inspect game process {pid}: {error}")),
+            let Some(command) = read_linux_process_bytes(pid, &process.join("cmdline"), u64::MAX)?
+            else {
+                continue;
             };
             if !is_proton_wrapper(comm.trim().as_bytes(), &command) {
                 pids.push(pid);
@@ -148,7 +138,6 @@ fn linux_runner_matching_pids(
     launcher_pid: Option<u32>,
 ) -> Result<Vec<u32>, String> {
     use std::fs;
-    use std::io::Read;
 
     let executable_name = executable_path
         .file_name()
@@ -178,23 +167,16 @@ fn linux_runner_matching_pids(
         if is_wine_launcher(&comm) {
             continue;
         }
-        let mut environ = Vec::new();
-        match fs::File::open(process.join("environ")) {
-            Ok(file) => match file.take(1024 * 1024).read_to_end(&mut environ) {
-                Ok(_) => {}
-                Err(error) if process_disappeared(&error) => continue,
-                Err(error) => return Err(format!("Could not inspect game process {pid}: {error}")),
-            },
-            Err(error) if process_disappeared(&error) => continue,
-            Err(error) => return Err(format!("Could not inspect game process {pid}: {error}")),
+        let Some(environ) = read_linux_process_bytes(pid, &process.join("environ"), 1024 * 1024)?
+        else {
+            continue;
         };
         if !has_launch_token(&environ, token) {
             continue;
         }
-        let command = match fs::read(process.join("cmdline")) {
-            Ok(command) => command,
-            Err(error) if process_disappeared(&error) => continue,
-            Err(error) => return Err(format!("Could not inspect game process {pid}: {error}")),
+        let Some(command) = read_linux_process_bytes(pid, &process.join("cmdline"), u64::MAX)?
+        else {
+            continue;
         };
         if is_proton_wrapper(&comm, &command) {
             continue;
@@ -204,6 +186,19 @@ fn linux_runner_matching_pids(
         }
     }
     Ok(pids)
+}
+
+#[cfg(target_os = "linux")]
+fn read_linux_process_bytes(pid: u32, path: &Path, limit: u64) -> Result<Option<Vec<u8>>, String> {
+    use std::fs;
+    use std::io::Read;
+
+    let mut bytes = Vec::new();
+    match fs::File::open(path).and_then(|file| file.take(limit).read_to_end(&mut bytes)) {
+        Ok(_) => Ok(Some(bytes)),
+        Err(error) if process_disappeared(&error) => Ok(None),
+        Err(error) => Err(format!("Could not inspect game process {pid}: {error}")),
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -518,6 +513,26 @@ mod tests {
             42
         ));
         assert!(!super::has_steam_app_id(b"SteamAppId=420\0", 42));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn process_reader_limits_bytes_and_skips_disappeared_files() {
+        let pid = std::process::id();
+        let command =
+            super::read_linux_process_bytes(pid, std::path::Path::new("/proc/self/cmdline"), 1)
+                .unwrap()
+                .unwrap();
+        assert_eq!(command.len(), 1);
+        assert!(
+            super::read_linux_process_bytes(
+                pid,
+                std::path::Path::new("/proc/self/no-such-file"),
+                1
+            )
+            .unwrap()
+            .is_none()
+        );
     }
 
     #[cfg(target_os = "linux")]

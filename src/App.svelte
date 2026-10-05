@@ -35,17 +35,14 @@
     if (import.meta.env.PROD) void checkForAppUpdate();
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const applyTheme = () => {
+    const updateSystemTheme = () => {
       prefersDark = media.matches;
-      applyAppearance(document.documentElement, theme, appearance, media.matches,
-        $appInfo.data.platform === "linux" && $appInfo.data.desktopEnvironment === "hyprland");
     };
 
-    applyTheme();
-    media.addEventListener("change", applyTheme);
+    media.addEventListener("change", updateSystemTheme);
 
     return () => {
-      media.removeEventListener("change", applyTheme);
+      media.removeEventListener("change", updateSystemTheme);
     };
   });
 

@@ -54,6 +54,14 @@ export function statusTone(status: string): StatusTone {
   return "neutral";
 }
 
+export function progressTone(status: DownloadJob["status"]): "default" | "accent" | "warning" | "danger" | "success" {
+  if (status === "failed") return "danger";
+  if (status === "paused") return "warning";
+  if (status === "installed") return "success";
+  if (PROCESSING.includes(status)) return "accent";
+  return "default";
+}
+
 export function statusBadge(status: string, selected?: Language): string {
   const labels: Record<string, string> = {
     queued: "In coda",

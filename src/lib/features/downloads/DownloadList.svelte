@@ -15,7 +15,7 @@
   import ProgressBar from "../../components/ui/ProgressBar.svelte";
   import { formatBytes } from "../../utils/format";
   import DownloadCover from "./DownloadCover.svelte";
-  import { isReorderable, phaseLabel, progressOf, statusBadge, statusTone } from "./downloads-model";
+  import { isReorderable, phaseLabel, progressOf, progressTone, statusBadge, statusTone } from "./downloads-model";
 
   let {
     jobs,
@@ -87,14 +87,6 @@
     drop(jobs.length, event);
   }
 
-  function barTone(job: DownloadJob): "default" | "accent" | "warning" | "danger" | "success" {
-    if (job.status === "failed") return "danger";
-    if (job.status === "paused") return "warning";
-    if (job.status === "installed") return "success";
-    if (job.status === "downloading") return "accent";
-    if (["downloaded", "staging", "staged", "finalizing"].includes(job.status)) return "accent";
-    return "default";
-  }
 </script>
 
 <ul
@@ -139,7 +131,7 @@
         {#if job.downloadedBytes > 0}
           <ProgressBar
             value={progressOf(job)}
-            tone={barTone(job)}
+            tone={progressTone(job.status)}
             label="{t("Avanzamento di ", $language)}{job.name}"
             class="mt-2 h-1.5"
           />

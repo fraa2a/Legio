@@ -84,23 +84,41 @@ impl GameArtworkStore {
         self.store(game_id, ArtworkKind::Icon, bytes)
     }
 
-    pub(crate) fn shortcut_icon_path(&self, game: &Game) -> Result<Option<PathBuf>, String> {
-        if let Some(executable) = shortcut_executable(game) {
+    pub(crate) fn shortcut_icon_path(
+        &self,
+        game: &Game,
+    ) -> Result<(Option<PathBuf>, Option<String>), String> {
+        let executable = match shortcut_executable(game) {
+            Ok(executable) => executable,
+            Err(error) => {
+                return Ok((
+                    self.path(&game.id, ArtworkKind::Icon)?,
+                    Some(format!("Could not find a shortcut executable: {error}")),
+                ));
+            }
+        };
+        if let Some(executable) = executable {
             #[cfg(windows)]
-            return Ok(Some(executable));
+            return Ok((Some(executable), None));
             #[cfg(target_os = "linux")]
-            match pe_icons::extract_png(&executable).and_then(|bytes| {
-                self.store(
-                    canonical_game_id(&game.id)?,
-                    ArtworkKind::ShortcutIcon,
-                    bytes,
-                )
-            }) {
-                Ok(_) => return self.path(&game.id, ArtworkKind::ShortcutIcon),
-                Err(error) => eprintln!("Could not extract shortcut icon for {}: {error}", game.id),
+            match pe_icons::extract_png(&executable) {
+                Ok(bytes) => {
+                    self.store(
+                        canonical_game_id(&game.id)?,
+                        ArtworkKind::ShortcutIcon,
+                        bytes,
+                    )?;
+                    return Ok((self.path(&game.id, ArtworkKind::ShortcutIcon)?, None));
+                }
+                Err(error) => {
+                    return Ok((
+                        self.path(&game.id, ArtworkKind::Icon)?,
+                        Some(format!("Could not extract shortcut icon: {error}")),
+                    ));
+                }
             }
         }
-        self.path(&game.id, ArtworkKind::Icon)
+        Ok((self.path(&game.id, ArtworkKind::Icon)?, None))
     }
 
     fn store(
@@ -233,30 +251,26 @@ impl GameArtworkStore {
     }
 }
 
-fn shortcut_executable(game: &Game) -> Option<PathBuf> {
+fn shortcut_executable(game: &Game) -> Result<Option<PathBuf>, String> {
     if let Some(path) = game.executable_path.as_deref().map(PathBuf::from)
         && path.is_file()
     {
-        return Some(path);
+        return Ok(Some(path));
     }
-    let root = game.steam_install_path.as_deref()?;
-    match manual_import::scan_directory(root, game.automatic_name.as_deref().or(Some(&game.name))) {
-        Ok(scan) => scan
-            .candidates
-            .into_iter()
-            .map(|candidate| PathBuf::from(candidate.path))
-            .find(|path| {
-                path.extension()
-                    .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
-            }),
-        Err(error) => {
-            eprintln!(
-                "Could not find a shortcut executable for {}: {error}",
-                game.id
-            );
-            None
-        }
-    }
+    let Some(root) = game.steam_install_path.as_deref() else {
+        return Ok(None);
+    };
+    manual_import::scan_directory(root, game.automatic_name.as_deref().or(Some(&game.name))).map(
+        |scan| {
+            scan.candidates
+                .into_iter()
+                .map(|candidate| PathBuf::from(candidate.path))
+                .find(|path| {
+                    path.extension()
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+                })
+        },
+    )
 }
 
 pub(crate) fn extract_for_game(
@@ -477,7 +491,7 @@ mod tests {
         let mut game = manual_game();
         game.automatic_name = Some("Portal".to_owned());
         game.steam_install_path = Some(root.to_string_lossy().into_owned());
-        assert_eq!(shortcut_executable(&game), Some(executable));
+        assert_eq!(shortcut_executable(&game).unwrap(), Some(executable));
         fs::remove_dir_all(root).unwrap();
     }
 

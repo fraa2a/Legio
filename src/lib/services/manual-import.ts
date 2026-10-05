@@ -17,6 +17,11 @@ export interface ManualImportInput {
   name: string | null;
 }
 
+export interface GameActionResult {
+  game: Game;
+  shortcutWarning: string | null;
+}
+
 export interface SteamIdentityCandidate {
   steamAppId: number;
   name: string;
@@ -42,8 +47,8 @@ export function scanGameExecutables(
   return invoke<ExecutableScan>("scan_game_executables", { directory, gameName });
 }
 
-export function importManualGame(input: ManualImportInput): Promise<Game> {
-  return invoke<Game>("import_manual_game", { input });
+export function importManualGame(input: ManualImportInput): Promise<GameActionResult> {
+  return invoke<GameActionResult>("import_manual_game", { input });
 }
 
 export function identifyManualGameSteamAppId(gameId: string): Promise<SteamIdentificationResult> {
@@ -54,6 +59,6 @@ export function previewManualGameSteamAppId(executablePath: string): Promise<Ste
   return invoke<SteamIdentificationPreview>("preview_manual_game_steam_app_id", { executablePath });
 }
 
-export function setGameExecutable(gameId: string, executablePath: string): Promise<Game> {
-  return invoke<Game>("set_game_executable", { gameId, executablePath });
+export function setGameExecutable(gameId: string, executablePath: string): Promise<GameActionResult> {
+  return invoke<GameActionResult>("set_game_executable", { gameId, executablePath });
 }
