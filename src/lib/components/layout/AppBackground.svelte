@@ -66,7 +66,7 @@
 <div class="legio-backdrop" aria-hidden="true">
   {#if url}<img src={url} alt="" class="legio-wallpaper" onerror={imageFailed} />{/if}
   {#if animation !== "none"}
-    {#key animation}<AnimatedBackground kind={animation} opacity={animationOpacity} color={accent} />{/key}
+    {#key animation + accent}<AnimatedBackground kind={animation} opacity={animationOpacity} color={accent} />{/key}
   {/if}
 </div>
 {#if error}
