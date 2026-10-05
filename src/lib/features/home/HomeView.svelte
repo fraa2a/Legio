@@ -90,10 +90,12 @@
 {/if}
 {#if $accountSwitchGame !== null}
   <Dialog open title={t("Cambio account Steam", $language)} onClose={dismissAccountSwitch}>
+  {#snippet children(dismiss)}
     <p class="text-sm text-zinc-300 light:text-zinc-700">{t("Steam deve essere chiuso e riavviato per usare l'account salvato di ", $language)}{$accountSwitchGame.name}{t(". Procedere?", $language)}</p>
     <div class="flex justify-end gap-2">
-      <Button label={t("Annulla", $language)} variant="secondary" onClick={dismissAccountSwitch} />
+      <Button label={t("Annulla", $language)} variant="secondary" onClick={dismiss} />
       <Button label={t("Riavvia e avvia", $language)} onClick={() => void confirmAccountSwitch()} />
     </div>
-  </Dialog>
+    {/snippet}
+</Dialog>
 {/if}

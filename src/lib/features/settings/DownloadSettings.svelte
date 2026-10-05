@@ -39,12 +39,6 @@
       draftBytes !== $bandwidthLimit.data,
   );
 
-  const limitDescription = $derived(
-    $bandwidthLimit.data === 0
-      ? t("Nessun limite di banda: i download usano tutta la connessione disponibile.", $language)
-      : t("Limite attuale: {0} MB/s", $language, [savedMegabytes]),
-  );
-
   $effect(() => {
     if (!draftChanged || savingLimit || draftMegabytes === failedLimit) return;
     const timer = setTimeout(() => void applyLimit(), 500);
@@ -113,14 +107,14 @@
     </SettingsRow>
   </SettingsGroup>
 
-  <SettingsGroup icon="download" title={t("Velocità di download", $language)} description={limitDescription}>
+  <SettingsGroup icon="download" title={t("Velocità di download", $language)}>
     <div class="flex flex-wrap items-end gap-3">
       <div class="w-56"><TextField id="download-bandwidth-limit" label={t("Limite di banda (MB/s)", $language)} type="number" inputmode="numeric" value={draftMegabytes} placeholder="0" hint={t("0 significa senza limite. Il limite viene applicato subito e riportato al prossimo avvio.", $language)} disabled={savingLimit || $bandwidthLimit.status === "error"} oninput={(value) => (limitDraft = value)} /></div>
       <ResetSetting label={t("Ripristina limite di banda", $language)} disabled={savingLimit || ($bandwidthLimit.data === 0 && limitDraft === null)} onClick={() => { limitDraft = "0"; }} />
     </div>
   </SettingsGroup>
 
-  <SettingsGroup icon="check" title={t("Integrità dei download", $language)} description={t("Senza verifica SHA-256, Legio non può rilevare archivi corrotti o alterati. La modifica si applica ai prossimi download.", $language)}>
+  <SettingsGroup icon="check" title={t("Integrità dei download", $language)}>
     <div class="flex items-center gap-2"><div class="min-w-0 flex-1"><Toggle label={t("Verifica SHA-256 dei giochi verified (consigliato)", $language)} checked={$settings.data.verifyVerifiedDownloads} disabled={savingSettings || $settings.status !== "ready"} onChange={(checked) => void updateSettings({ verifyVerifiedDownloads: checked })} /></div><ResetSetting label={t("Ripristina verifica dei download", $language)} disabled={savingSettings || $settings.data.verifyVerifiedDownloads === defaultSettings.verifyVerifiedDownloads} onClick={() => void updateSettings({ verifyVerifiedDownloads: defaultSettings.verifyVerifiedDownloads })} /></div>
   </SettingsGroup>
 

@@ -36,12 +36,14 @@
 </script>
 
 <Dialog {open} title={t("Annulla download", $language)} {onClose}>
+  {#snippet children(dismiss)}
   <p class="text-sm text-zinc-300 light:text-zinc-700">{t("Annullare il download di ", $language)}{gameName}?</p>
   {#if actionError}
     <p class="mt-3 text-sm text-red-300 light:text-red-700" role="alert">{actionError}</p>
   {/if}
   <div class="mt-5 flex justify-end gap-2">
-    <Button label={t("Indietro", $language)} variant="secondary" onClick={onClose} />
+    <Button label={t("Indietro", $language)} variant="secondary" onClick={dismiss} />
     <Button label={t("Annulla", $language)} variant="danger" disabled={pending} onClick={() => void confirm()} />
   </div>
+  {/snippet}
 </Dialog>

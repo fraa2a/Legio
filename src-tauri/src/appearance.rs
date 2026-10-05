@@ -67,6 +67,9 @@ pub struct Appearance {
     pub animated_background: AnimatedBackground,
     pub animated_opacity: u8,
     pub surface_opacity: u8,
+    pub surface_blur: u8,
+    pub dialog_opacity: u8,
+    pub dialog_blur: u8,
     pub transparent: bool,
 }
 
@@ -81,6 +84,9 @@ impl Default for Appearance {
             animated_background: AnimatedBackground::None,
             animated_opacity: default_animated_opacity(),
             surface_opacity: 90,
+            surface_blur: 0,
+            dialog_opacity: default_dialog_opacity(),
+            dialog_blur: 0,
             transparent: false,
         }
     }
@@ -101,7 +107,17 @@ struct ThemeFile {
     #[serde(default = "default_animated_opacity")]
     animated_opacity: u8,
     surface_opacity: u8,
+    #[serde(default)]
+    surface_blur: u8,
+    #[serde(default = "default_dialog_opacity")]
+    dialog_opacity: u8,
+    #[serde(default)]
+    dialog_blur: u8,
     transparent: bool,
+}
+
+fn default_dialog_opacity() -> u8 {
+    90
 }
 
 pub(crate) fn validate(appearance: &Appearance, theme: &Theme) -> Result<(), String> {
@@ -133,8 +149,11 @@ pub(crate) fn validate(appearance: &Appearance, theme: &Theme) -> Result<(), Str
         || appearance.background_opacity > 100
         || appearance.animated_opacity > 100
         || appearance.surface_opacity > 100
+        || appearance.dialog_opacity > 100
+        || appearance.surface_blur > 40
+        || appearance.dialog_blur > 40
     {
-        return Err("Blur must be 0-40 and opacity values must be 0-100".to_owned());
+        return Err("Blur values must be 0-40 and opacity values must be 0-100".to_owned());
     }
     Ok(())
 }
@@ -389,6 +408,9 @@ pub async fn import_theme_file(app: AppHandle, source: String) -> Result<Setting
         settings.appearance.animated_background = document.animated_background;
         settings.appearance.animated_opacity = document.animated_opacity;
         settings.appearance.surface_opacity = document.surface_opacity;
+        settings.appearance.surface_blur = document.surface_blur;
+        settings.appearance.dialog_opacity = document.dialog_opacity;
+        settings.appearance.dialog_blur = document.dialog_blur;
         settings.appearance.transparent = document.transparent;
         validate(&settings.appearance, &settings.theme)?;
         if let Some(encoded) = document.background_image {
@@ -431,6 +453,9 @@ pub async fn export_theme_file(
             animated_background: settings.appearance.animated_background,
             animated_opacity: settings.appearance.animated_opacity,
             surface_opacity: settings.appearance.surface_opacity,
+            surface_blur: settings.appearance.surface_blur,
+            dialog_opacity: settings.appearance.dialog_opacity,
+            dialog_blur: settings.appearance.dialog_blur,
             transparent: settings.appearance.transparent,
         };
         let bytes = serde_json::to_vec_pretty(&document).map_err(|error| error.to_string())?;
@@ -560,6 +585,15 @@ mod tests {
         appearance.background = None;
         appearance.background_blur = 41;
         assert!(validate(&appearance, &Theme::Dark).is_err());
+        appearance.background_blur = 0;
+        appearance.surface_blur = 41;
+        assert!(validate(&appearance, &Theme::Dark).is_err());
+        appearance.surface_blur = 0;
+        appearance.dialog_opacity = 101;
+        assert!(validate(&appearance, &Theme::Dark).is_err());
+        appearance.dialog_opacity = 90;
+        appearance.dialog_blur = 41;
+        assert!(validate(&appearance, &Theme::Dark).is_err());
     }
 
     #[test]
@@ -589,6 +623,9 @@ mod tests {
             animated_background: AnimatedBackground::Particles,
             animated_opacity: 70,
             surface_opacity: 80,
+            surface_blur: 12,
+            dialog_opacity: 75,
+            dialog_blur: 8,
             transparent: true,
         };
         let decoded: ThemeFile =
@@ -599,6 +636,20 @@ mod tests {
             normalized
         );
         assert_eq!(decoded.background_blur, 12);
+        assert_eq!(decoded.surface_blur, 12);
+        assert_eq!(decoded.dialog_opacity, 75);
+        assert_eq!(decoded.dialog_blur, 8);
+        let mut old_document = serde_json::to_value(&document).unwrap();
+        old_document.as_object_mut().unwrap().remove("surfaceBlur");
+        old_document
+            .as_object_mut()
+            .unwrap()
+            .remove("dialogOpacity");
+        old_document.as_object_mut().unwrap().remove("dialogBlur");
+        let old_document: ThemeFile = serde_json::from_value(old_document).unwrap();
+        assert_eq!(old_document.surface_blur, 0);
+        assert_eq!(old_document.dialog_opacity, 90);
+        assert_eq!(old_document.dialog_blur, 0);
         assert!(normalize_background(b"<svg onload='alert(1)'/>").is_err());
     }
 }
