@@ -18,7 +18,7 @@
 </script>
 
 <main class="legio-content min-h-0 flex-1 overflow-auto rounded-xl bg-black p-6 light:bg-zinc-50" aria-labelledby="onboarding-title">
-  <section class="mx-auto flex max-w-2xl flex-col gap-6 rounded-2xl bg-zinc-900 p-6 light:bg-zinc-100">
+  <section class="mx-auto flex max-w-2xl flex-col gap-6 rounded-2xl legio-glass p-6">
     <header>
       <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Configurazione iniziale", $language)} · {step + 1} / {steps.length}</p>
       <h1 tabindex="-1" id="onboarding-title" class="mt-2 text-3xl font-semibold text-zinc-50 light:text-zinc-900">{t(steps[step], $language)}</h1>

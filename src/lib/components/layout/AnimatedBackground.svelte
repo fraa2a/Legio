@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { drawDither } from "./dither";
 
   let { kind, opacity, color }: {
-    kind: "particles" | "aurora";
+    kind: "particles" | "dither";
     opacity: number;
     color: string;
   } = $props();
@@ -11,7 +12,7 @@
   let canvas = $state<HTMLCanvasElement>();
 
   onMount(() => {
-    if (kind !== "particles" || !canvas) return;
+    if (!canvas) return;
     const surface = canvas;
     const maybeContext = surface.getContext("2d");
     if (!maybeContext) return;
@@ -23,6 +24,7 @@
     let width = 0;
     let height = 0;
     let frame = 0;
+    let lastDraw = 0;
 
     function resize(): void {
       const bounds = container.getBoundingClientRect();
@@ -44,7 +46,18 @@
     }
 
     function draw(): void {
+      const now = performance.now();
+      if (kind === "dither" && !motion.matches && now - lastDraw < 50) {
+        frame = requestAnimationFrame(draw);
+        return;
+      }
+      lastDraw = now;
       context.clearRect(0, 0, width, height);
+      if (kind === "dither") {
+        drawDither(context, width, height, color, motion.matches ? 0 : now / 8000);
+        if (!motion.matches) frame = requestAnimationFrame(draw);
+        return;
+      }
       const rgb = color.match(/[\da-f]{2}/gi)?.slice(0, 3).map((part) => Number.parseInt(part, 16)) ?? [130, 200, 220];
       const ink = `${rgb[0]}, ${rgb[1]}, ${rgb[2]}`;
       for (let index = 0; index < particles.length; index += 1) {
@@ -108,22 +121,10 @@
 </script>
 
 <div bind:this={container} class="animated-background" style:opacity={opacity / 100} aria-hidden="true">
-  {#if kind === "particles"}
-    <canvas bind:this={canvas}></canvas>
-  {:else}
-    <div class="aurora aurora-one"></div>
-    <div class="aurora aurora-two"></div>
-    <div class="aurora aurora-three"></div>
-  {/if}
+  <canvas bind:this={canvas}></canvas>
 </div>
 
 <style>
   .animated-background { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
   canvas { width: 100%; height: 100%; }
-  .aurora { position: absolute; width: 80%; height: 100%; border-radius: 50%; filter: blur(60px); mix-blend-mode: screen; animation: drift 18s ease-in-out infinite alternate; }
-  .aurora-one { top: -45%; left: -20%; background: color-mix(in srgb, var(--legio-accent) 70%, transparent); }
-  .aurora-two { right: -25%; bottom: -55%; background: color-mix(in srgb, var(--legio-accent) 45%, #004f86); animation-delay: -8s; }
-  .aurora-three { top: 25%; left: 35%; width: 45%; height: 70%; background: color-mix(in srgb, var(--legio-accent) 35%, #761e80); animation-delay: -13s; }
-  @keyframes drift { from { transform: translate(-8%, -4%) rotate(-12deg); } to { transform: translate(12%, 10%) rotate(18deg); } }
-  @media (prefers-reduced-motion: reduce) { .aurora { animation: none; } }
 </style>

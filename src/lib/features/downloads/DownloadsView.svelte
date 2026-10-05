@@ -148,7 +148,7 @@
   />
 
   {#if $downloads.status === "empty"}
-    <section class="flex flex-col items-start justify-center gap-4 rounded-2xl bg-white/5 p-8 light:bg-zinc-100">
+    <section class="flex flex-col items-start justify-center gap-4 rounded-2xl legio-glass p-8">
       <h2 class="text-lg font-medium text-zinc-50 light:text-zinc-900">{t("Nessun download", $language)}</h2>
       <Button label={t("Sfoglia lo store", $language)} variant="primary" onClick={() => selectSection("store")} />
     </section>

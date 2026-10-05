@@ -46,7 +46,7 @@
 </script>
 
 <section
-  class="rounded-2xl bg-white/5 p-5 light:bg-zinc-100"
+  class="rounded-2xl legio-glass p-5"
   aria-label="{t("Download attivo di ", $language)}{job.name}"
 >
   <div class="flex flex-col gap-5 sm:flex-row sm:items-start">

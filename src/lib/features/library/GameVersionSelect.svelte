@@ -75,7 +75,7 @@
     {#if hasChoices}<span class="transition-transform duration-150 {open ? 'rotate-180' : ''}"><Icon name="chevron-down" size="h-4 w-4 shrink-0 text-zinc-400 light:text-zinc-600" /></span>{/if}
   </button>
   {#if open}
-    <div class="absolute bottom-full left-0 z-50 max-h-48 w-full overflow-y-auto rounded-t-xl border border-b-0 border-white/10 bg-zinc-950/95 p-1 shadow-xl backdrop-blur-xl light:border-zinc-900/10 light:bg-zinc-100/95">
+    <div class="absolute bottom-full left-0 z-50 max-h-48 w-full overflow-y-auto rounded-t-xl border border-b-0 border-white/10 legio-glass p-1 shadow-xl light:border-zinc-900/10">
       {#each alternatives as option (option.id)}
         <button
           type="button"
