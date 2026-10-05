@@ -80,7 +80,7 @@
       {/each}
     </ul>
   {:else if $games.data.length > 0}
-    <div class="rounded-xl border border-white/10 bg-white/[0.03] p-6 text-zinc-400 light:border-zinc-900/10 light:bg-zinc-100 light:text-zinc-600">
+    <div class="rounded-xl border border-white/10 legio-glass p-6 text-zinc-400 light:border-zinc-900/10 light:text-zinc-600">
       <p>{t("Nessun gioco corrisponde alla ricerca.", $language)}</p>
     </div>
   {/if}

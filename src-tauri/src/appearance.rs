@@ -49,7 +49,8 @@ pub enum AnimatedBackground {
     #[default]
     None,
     Particles,
-    Aurora,
+    #[serde(alias = "aurora")]
+    Dither,
 }
 
 fn default_animated_opacity() -> u8 {
@@ -538,6 +539,13 @@ pub async fn cleanup_theme_backgrounds(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_aurora_background_deserializes_as_dither() {
+        let background: AnimatedBackground = serde_json::from_str("\"aurora\"").unwrap();
+        assert_eq!(background, AnimatedBackground::Dither);
+        assert_eq!(serde_json::to_string(&background).unwrap(), "\"dither\"");
+    }
 
     #[test]
     fn bounds_image_dimensions_and_file_reads() {

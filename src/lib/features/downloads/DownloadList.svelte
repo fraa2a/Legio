@@ -100,7 +100,7 @@
   {#each jobs as job, index (job.id)}
     {@const phase = phaseLabel(job, $language)}
     <li
-      class="group flex flex-wrap items-center gap-3 rounded-xl bg-white/5 p-3 transition-colors duration-200 light:bg-zinc-100
+      class="group flex flex-wrap items-center gap-3 rounded-xl legio-glass p-3 transition-colors duration-200
         {fromIndex === index ? 'opacity-40' : ''}
         {overIndex === index && fromIndex !== index ? 'ring-2 ring-legio-download' : ''}
         {reorder && isReorderable(job) ? 'cursor-grab active:cursor-grabbing' : ''}"

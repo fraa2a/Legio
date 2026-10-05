@@ -226,31 +226,31 @@
     <div class="flex justify-end">
       <button type="button" class="flex h-9 items-center gap-2 rounded-lg border border-legio-accent/50 bg-legio-accent/10 px-3 text-sm text-legio-accent transition-colors hover:border-legio-accent hover:bg-legio-accent/20 disabled:opacity-40" aria-label={t("Crea tema dalla palette attuale", $language)} title={t("Crea tema dalla palette attuale", $language)} disabled={busy || draft.customThemes.length >= 20} onclick={createCustom}><Icon name="plus" size="size-4" />{t("Crea tema", $language)}</button>
     </div>
-    <fieldset disabled={busy} class="grid grid-cols-2 gap-2 lg:grid-cols-3">
+    <fieldset disabled={busy} class="grid grid-cols-2 gap-2">
       <legend class="sr-only">{t("Palette predefinite", $language)}</legend>
-      <label class="flex min-h-16 cursor-pointer items-center gap-2 rounded-lg px-3 py-2 transition-colors focus-within:outline-2 focus-within:outline-legio-accent {theme === 'system' ? 'bg-legio-accent/10' : 'hover:bg-white/5 light:hover:bg-zinc-900/5'}">
-        <input class="sr-only" type="radio" name="theme" checked={theme === "system"} onchange={() => selectTheme("system")} />
-        <span class="size-3 shrink-0 rounded-full border border-zinc-400 bg-gradient-to-br from-zinc-800 to-zinc-100" aria-hidden="true"></span>
-        <span class="truncate text-sm text-zinc-100 light:text-zinc-900">{t("Sistema", $language)}</span>
-      </label>
-      {#each themePresets as preset (preset.id)}
+      {#each themePresets.filter((preset) => preset.id === "dark" || preset.id === "light") as preset (preset.id)}
         <label class="flex min-h-16 cursor-pointer items-center gap-2 rounded-lg px-3 py-2 transition-colors focus-within:outline-2 focus-within:outline-legio-accent {theme === preset.id ? 'bg-legio-accent/10' : 'hover:bg-white/5 light:hover:bg-zinc-900/5'}">
           <input class="sr-only" type="radio" name="theme" checked={theme === preset.id} onchange={() => selectTheme(preset.id as Theme)} />
           <span class="flex shrink-0 -space-x-1" aria-hidden="true"><span class="size-4 rounded-full border border-white/20" style:background-color={preset.palette.background}></span><span class="size-4 rounded-full border border-white/20" style:background-color={preset.palette.accent}></span></span>
-          <span class="truncate text-sm text-zinc-100 light:text-zinc-900">{preset.id === "eggplant" ? preset.name : t(preset.name, $language)}</span>
+          <span class="truncate text-sm text-zinc-100 light:text-zinc-900">{t(preset.name, $language)}</span>
         </label>
       {/each}
-      {#each draft.customThemes as custom (custom.id)}
-        <div class="flex min-h-16 items-center gap-1 rounded-lg px-2 transition-colors {theme === 'custom' && draft.customThemeId === custom.id ? 'bg-legio-accent/10' : ''}">
-          <label class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-2 focus-within:outline-2 focus-within:outline-legio-accent">
-            <input class="sr-only" type="radio" name="theme" checked={theme === "custom" && draft.customThemeId === custom.id} disabled={busy} onchange={() => selectTheme("custom", custom.id)} />
-            <span class="size-4 shrink-0 rounded-full border border-white/20" style:background-color={custom.palette.accent} aria-hidden="true"></span>
-            <span class="truncate text-sm text-zinc-100 light:text-zinc-900">{custom.name}</span>
-          </label>
-          <button type="button" class="grid size-8 shrink-0 place-items-center rounded-md text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100 light:hover:bg-zinc-900/10 light:hover:text-zinc-900" aria-label={t("Modifica la palette {0}", $language, [custom.name])} aria-expanded={expandedCustomId === custom.id} disabled={busy} onclick={() => expandCustom(custom.id)}><span class="transition-transform {expandedCustomId === custom.id ? 'rotate-180' : ''}"><Icon name="chevron-down" size="size-4" /></span></button>
-        </div>
-      {/each}
     </fieldset>
+    <SelectField id="theme-additional" label={t("Altri temi", $language)}
+      value={theme === "custom" ? "custom:" + draft.customThemeId : theme === "dark" || theme === "light" ? "" : theme}
+      options={[
+        { value: "", label: t("Scegli un tema", $language) },
+        { value: "system", label: t("Sistema", $language) },
+        ...themePresets.filter((preset) => preset.id !== "dark" && preset.id !== "light").map((preset) => ({ value: preset.id, label: preset.id === "eggplant" ? preset.name : t(preset.name, $language) })),
+        ...draft.customThemes.map((custom) => ({ value: "custom:" + custom.id, label: custom.name })),
+      ]}
+      disabled={busy} onChange={(value) => {
+        if (value.startsWith("custom:")) selectTheme("custom", value.slice(7));
+        else if (value !== "") selectTheme(value as Theme);
+      }} />
+    {#if editable}
+      <Button variant="secondary" label={t("Modifica la palette {0}", $language, [palette.name])} disabled={busy} onClick={() => expandCustom(palette.id)} />
+    {/if}
     {#if editable && expandedCustomId === draft.customThemeId}
       <div class="mt-2 flex flex-col gap-4 pt-4">
         <div class="grid gap-3 sm:grid-cols-2">
@@ -288,7 +288,7 @@
     {/if}
     <fieldset disabled={busy} class="grid gap-2 sm:grid-cols-3">
       <legend class="mb-2 text-sm font-medium text-zinc-100 light:text-zinc-900">{t("Effetto di sfondo animato", $language)}</legend>
-      {#each [{ id: "none", label: t("Nessuno", $language) }, { id: "particles", label: t("Punti connessi", $language) }, { id: "aurora", label: t("Aurora", $language) }] as option (option.id)}
+      {#each [{ id: "none", label: t("Nessuno", $language) }, { id: "particles", label: t("Punti connessi", $language) }, { id: "dither", label: "Dither" }] as option (option.id)}
         <label class="flex cursor-pointer items-center gap-2 rounded-xl p-3 text-sm transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-legio-accent {draft.animatedBackground === option.id ? 'bg-legio-accent/10 text-zinc-100 light:text-zinc-900' : 'text-zinc-400 hover:bg-white/5 light:text-zinc-600'}">
           <input class="sr-only" type="radio" name="animated-background" checked={draft.animatedBackground === option.id} onchange={() => { draft.animatedBackground = option.id as Appearance["animatedBackground"]; }} />
           <span class="grid size-4 shrink-0 place-items-center rounded-full border-2 {draft.animatedBackground === option.id ? 'border-legio-accent' : 'border-zinc-500'}" aria-hidden="true">{#if draft.animatedBackground === option.id}<span class="size-2 rounded-full bg-legio-accent"></span>{/if}</span>

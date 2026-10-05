@@ -7,7 +7,7 @@
 
   let { id, animation, animationOpacity, accent }: {
     id: string | null;
-    animation: "none" | "particles" | "aurora";
+    animation: "none" | "particles" | "dither";
     animationOpacity: number;
     accent: string;
   } = $props();
