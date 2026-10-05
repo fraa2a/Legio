@@ -1,38 +1,33 @@
 <div align="center">
   <img src="src-tauri/icons/icon.png" alt="Legio" width="96" />
   <h1>Legio</h1>
-  <p>La tua libreria di giochi, con avvii e impostazioni pronti per ogni titolo.</p>
-  <p><a href="https://github.com/fraa2a/Legio/releases">Scarica Legio</a></p>
+  <p>Your game library, with launch settings tailored to each title.</p>
+  <p><a href="https://github.com/fraa2a/Legio/releases">Download Legio</a></p>
 </div>
 
-<p align="center">
-  <img src="docs/frontend/screenshots/home-dark.png" alt="Schermata Home di Legio in modalità scura" width="900" />
-</p>
+Legio is a desktop game launcher for Windows and Linux. Import games from Steam or add them manually, configure how each game launches, and keep your library and playtime in one place.
 
-Legio è un launcher desktop per Windows e Linux. Importa i giochi da Steam o aggiungili manualmente, configura come avviarli e tieni sotto controllo download e tempo di gioco.
+## Features
 
-## Funzionalità
-
-- **Un account Steam per ogni gioco.** Se usi più account, assegna quello giusto a ciascun titolo. Quando serve cambiare account, Legio ti chiede conferma prima di riavviare Steam.
-- **Impostazioni di avvio per gioco.** Su Linux avvia giochi nativi o giochi Windows con Proton, GE-Proton o Wine e configura prefix, argomenti, variabili d'ambiente e override DLL. Su Windows imposta argomenti, cartella di lavoro e variabili d'ambiente.
-- **Importazione flessibile.** Rileva la libreria Steam oppure aggiungi giochi e relativi eseguibili manualmente.
-- **Download sotto controllo.** Metti in pausa e riprendi i download, riordina la coda, riprova quelli non riusciti e imposta un limite di banda. I download verificati possono essere controllati con SHA-256.
-- **Attività di gioco a colpo d'occhio.** Consulta gli ultimi giochi avviati, il tempo di gioco e il calendario delle tue sessioni.
-- **Una Home più personale.** Scegli un tema, modifica colori e sfondo e trova copertine e dettagli dei giochi nella libreria.
-- **Collegamenti sul desktop.** Avvia i tuoi giochi anche dal desktop del sistema.
+- **A Steam account for each game.** If you use multiple accounts, assign the right one to each title. Legio asks before restarting Steam to switch accounts when needed.
+- **Per-game launch settings.** Run native Linux games or Windows games through Proton, GE-Proton, or Wine. Configure prefixes, launch arguments, environment variables, and DLL overrides on Linux, or native launch options on Windows.
+- **Flexible game import.** Detect your Steam library or add games and executables manually.
+- **Themes you can make your own.** Choose from built-in palettes, edit colors, set image or animated backgrounds, and save your own themes. Import and export themes as JSON.
+- **Hyprland transparency.** Enable a transparent Legio window on Hyprland and adjust the surface opacity. Background blur is controlled by your Hyprland rules.
+- **Playtime at a glance.** See recently played games, tracked playtime, and a calendar of your activity.
 
 ## Online Fix
 
-Legio include un'opzione Online Fix per i giochi compatibili. È uno strumento di configurazione dell'avvio: Legio non fornisce né distribuisce file di gioco o file Online Fix.
+Legio includes an Online Fix launch option for compatible games. It is a launch configuration feature: Legio does not provide or distribute game files or Online Fix files.
 
-Legio non supporta né promuove la pirateria. Usa questa opzione solo con una copia del gioco regolarmente acquistata e per giocare offline, nel rispetto della licenza del gioco e delle leggi applicabili. L'utente è responsabile del proprio utilizzo; Legio non si assume responsabilità per usi impropri.
+Legio does not support or promote piracy. Use this option only with a legitimately purchased copy of the game and for offline play, in accordance with the game's license and applicable laws. Users are responsible for their use of this feature; Legio accepts no responsibility for misuse.
 
 ## Download
 
-Scarica l'ultima versione dalla pagina [Releases](https://github.com/fraa2a/Legio/releases). Sono disponibili pacchetti per Windows e Linux. Per avviare giochi Windows su Linux, installa prima un runner compatibile come Proton o Wine.
+Get the latest version from [Releases](https://github.com/fraa2a/Legio/releases). Packages are available for Windows and Linux. To run Windows games on Linux, install a compatible runner such as Proton or Wine first.
 
-Per Steam e i giochi che lo richiedono è necessario avere Steam installato sul dispositivo.
+Steam must be installed for Steam integration and for games that require it.
 
-## Licenza
+## License
 
-Consulta [LICENSE](LICENSE) per i termini di utilizzo e distribuzione.
+See [LICENSE](LICENSE) for the terms of use and distribution.
