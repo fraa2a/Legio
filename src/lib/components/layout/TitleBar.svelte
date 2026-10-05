@@ -135,9 +135,7 @@
           class="flex h-9 items-center gap-1.5 rounded-xl px-3 text-sm text-zinc-400 transition-colors duration-200 hover:bg-white/10 hover:text-zinc-100 light:hover:bg-zinc-900/10 light:hover:text-zinc-900"
           onclick={navigateBack}
         >
-          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2Z" />
-          </svg>
+          <Icon name="back" />
           {backLabel}
         </button>
       </div>
@@ -182,27 +180,19 @@
   <div class="col-start-3 flex items-center justify-end">
     <div class="legio-glass flex h-11 items-center gap-1 rounded-xl bg-zinc-900 p-1 light:bg-zinc-50">
       <WindowControlButton label={t("Riduci a icona", $language)} onClick={handleMinimize}>
-        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M19,13H5V11H19V13Z" />
-        </svg>
+        <Icon name="minimize" />
       </WindowControlButton>
       {#if showMaximize}
         <WindowControlButton label={maximized ? t("Ripristina finestra", $language) : t("Massimizza", $language)} onClick={handleToggleMaximize}>
           {#if maximized}
-            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M4,8H8V4H20V16H16V20H4V8M16,8V14H18V6H10V8H16M6,12V18H14V12H6Z" />
-            </svg>
+            <Icon name="restore" />
           {:else}
-            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M4,4H20V20H4V4M6,8V18H18V8H6Z" />
-            </svg>
+            <Icon name="maximize" />
           {/if}
         </WindowControlButton>
       {/if}
       <WindowControlButton label={t("Chiudi", $language)} variant="danger" onClick={handleClose}>
-        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M13.46,12L19,17.54V19H17.54L12,13.46L6.46,19H5V17.54L10.54,12L5,6.46V5H6.46L12,10.54L17.54,5H19V6.46L13.46,12Z" />
-        </svg>
+        <Icon name="close" />
       </WindowControlButton>
     </div>
   </div>

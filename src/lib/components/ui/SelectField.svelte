@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import Icon from "./Icon.svelte";
 
   let {
     id,
@@ -7,6 +8,7 @@
     value = $bindable(),
     options,
     disabled = false,
+    borderless = false,
     onChange,
     class: className = "",
   }: {
@@ -15,6 +17,7 @@
     value: string;
     options: { value: string; label: string }[];
     disabled?: boolean;
+    borderless?: boolean;
     onChange?: (value: string) => void;
     class?: string;
   } = $props();
@@ -117,15 +120,13 @@
     aria-controls={`${id}-options`}
     onkeydown={handleKeydown}
     onclick={() => open ? (open = false) : void showOptions()}
-    class="flex h-10 w-full items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 text-left text-sm text-zinc-100 outline-none transition-colors hover:border-white/25 hover:bg-white/10 focus-visible:border-white/50 disabled:cursor-not-allowed disabled:opacity-50 light:border-zinc-900/10 light:bg-white light:text-zinc-900 light:hover:border-zinc-900/25"
+    class="flex h-10 w-full items-center justify-between gap-3 rounded-lg {borderless ? '' : 'border border-white/10 hover:border-white/25 focus-visible:border-white/50 light:border-zinc-900/10 light:hover:border-zinc-900/25'} bg-white/5 px-3 text-left text-sm text-zinc-100 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-legio-accent disabled:cursor-not-allowed disabled:opacity-50 light:bg-white light:text-zinc-900"
   >
     <span class="truncate">{selectedLabel}</span>
-    <svg class="size-4 shrink-0 text-zinc-400 transition-transform {open ? 'rotate-180' : ''}" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <path d="m5 7.5 5 5 5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-    </svg>
+    <span class="shrink-0 text-zinc-400 transition-transform {open ? 'rotate-180' : ''}"><Icon name="chevron-down" size="size-4" /></span>
   </button>
   {#if open}
-    <div id={`${id}-options`} role="listbox" tabindex="-1" aria-labelledby={`${id}-label`} onkeydown={handleKeydown} style:top="{optionsTop}px" style:left="{optionsLeft}px" style:width="{optionsWidth}px" style:max-height="{optionsMaxHeight}px" class="fixed z-50 overflow-auto rounded-xl border border-white/10 bg-zinc-900 p-1 shadow-xl shadow-black/30 light:border-zinc-900/10 light:bg-white light:shadow-zinc-900/15">
+    <div id={`${id}-options`} role="listbox" tabindex="-1" aria-labelledby={`${id}-label`} onkeydown={handleKeydown} style:top="{optionsTop}px" style:left="{optionsLeft}px" style:width="{optionsWidth}px" style:max-height="{optionsMaxHeight}px" class="fixed z-50 overflow-auto rounded-xl {borderless ? '' : 'border border-white/10 light:border-zinc-900/10'} bg-zinc-900 p-1 shadow-xl shadow-black/30 light:bg-white light:shadow-zinc-900/15">
       {#each options as option (option.value)}
         <button
           type="button"
@@ -136,7 +137,7 @@
           class="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm text-zinc-200 outline-none hover:bg-white/10 focus-visible:bg-white/10 aria-selected:bg-white/10 aria-selected:text-white light:text-zinc-800 light:hover:bg-zinc-100 light:focus-visible:bg-zinc-100 light:aria-selected:bg-zinc-100 light:aria-selected:text-zinc-950"
         >
           <span class="min-w-0 break-words">{option.label}</span>
-          {#if option.value === value}<span class="text-emerald-400 light:text-emerald-700" aria-hidden="true">✓</span>{/if}
+          {#if option.value === value}<Icon name="check" size="size-4 shrink-0 text-emerald-400 light:text-emerald-700" />{/if}
         </button>
       {/each}
     </div>

@@ -73,10 +73,10 @@
     <ErrorBanner message={$settingsError} />
   {/if}
 
-  <SettingsGroup icon="translate" title={t("Lingua", $language)} description={t("I formati di data e numero seguono le impostazioni regionali del sistema.", $language)}>
+  <SettingsGroup icon="translate" title={t("Lingua", $language)}>
     <div class="flex items-end gap-2"><div class="min-w-0 flex-1"><SelectField id="ui-language" label={t("Lingua dell'interfaccia", $language)} value={$settings.data.language}
       options={[{ value: "system", label: t("Sistema", $language) }, { value: "it", label: "Italiano" }, { value: "en", label: "English" }]}
-      disabled={saving} onChange={(value) => void selectLanguage(value)} /></div>
+      borderless disabled={saving} onChange={(value) => void selectLanguage(value)} /></div>
       <ResetSetting label={t("Ripristina lingua", $language)} disabled={saving || $settings.data.language === defaultSettings.language} onClick={() => void update({ language: defaultSettings.language })} />
     </div>
   </SettingsGroup>
@@ -97,7 +97,6 @@
   <SettingsGroup
     icon="store"
     title={t("Controllo Steam", $language)}
-    description={t("Legio controlla Steam all'avvio e ripete il controllo all'intervallo scelto.", $language)}
   >
     <div class="flex max-w-64 items-end gap-2"><div class="min-w-0 flex-1">
       <SelectField
@@ -105,6 +104,7 @@
         label={t("Intervallo di controllo", $language)}
         value={String($settings.data.steamLibraryPollMinutes)}
         {options}
+        borderless
         disabled={saving || $settings.status === "loading" || $settings.status === "idle"}
         onChange={(value) => void selectInterval(value)}
       />
@@ -115,7 +115,7 @@
     <Button label={t("Ripeti configurazione iniziale", $language)} variant="secondary" disabled={saving} onClick={() => void update({ onboardingCompleted: false })} />
   </SettingsGroup>
 
-  <SettingsGroup icon="reload" title={t("Aggiornamenti", $language)} description={t("Controlla automaticamente all'avvio se è disponibile una nuova versione di Legio.", $language)}>
+  <SettingsGroup icon="reload" title={t("Aggiornamenti", $language)}>
     <div class="flex flex-wrap items-center gap-3">
       <Button label={$updateState.checking ? t("Controllo...", $language) : t("Controlla aggiornamenti", $language)} variant="secondary" disabled={$updateState.checking || $updateState.installing} onClick={() => void checkForAppUpdate()} />
       {#if $updateState.version}

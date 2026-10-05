@@ -43,6 +43,7 @@
   size="wide"
   onClose={resetStagedInstall}
 >
+  {#snippet children(dismiss)}
   {#if $stagedInstall.status === "loading" || $stagedInstall.finalizing}
     <p role="status">
       <span
@@ -102,7 +103,7 @@
       label={t("Annulla", $language)}
       variant="secondary"
       disabled={$stagedInstall.finalizing}
-      onClick={resetStagedInstall}
+      onClick={dismiss}
     />
     <Button
       label={t("Installa", $language)}
@@ -110,4 +111,5 @@
       onClick={() => void confirm()}
     />
   </div>
+  {/snippet}
 </Dialog>

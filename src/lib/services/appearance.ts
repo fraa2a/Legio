@@ -29,6 +29,9 @@ export interface Appearance {
   animatedBackground: "none" | "particles" | "aurora";
   animatedOpacity: number;
   surfaceOpacity: number;
+  surfaceBlur: number;
+  dialogOpacity: number;
+  dialogBlur: number;
   transparent: boolean;
 }
 
@@ -37,7 +40,8 @@ export const themePresets = presets as CustomTheme[];
 export function defaultAppearance(): Appearance {
   return {
     customThemes: [], customThemeId: null, background: null,
-    backgroundBlur: 0, backgroundOpacity: 60, surfaceOpacity: 90, transparent: false,
+    backgroundBlur: 0, backgroundOpacity: 60, surfaceOpacity: 90, surfaceBlur: 0,
+    dialogOpacity: 90, dialogBlur: 0, transparent: false,
     animatedBackground: "none", animatedOpacity: 65,
   };
 }
@@ -122,6 +126,9 @@ export function applyAppearance(
   root.style.setProperty("--legio-image-blur", appearance.backgroundBlur + "px");
   root.style.setProperty("--legio-image-opacity", String(appearance.backgroundOpacity / 100));
   root.style.setProperty("--legio-surface-opacity", String(appearance.surfaceOpacity / 100));
+  root.style.setProperty("--legio-surface-blur", (appearance.surfaceOpacity < 100 ? appearance.surfaceBlur : 0) + "px");
+  root.style.setProperty("--legio-dialog-opacity", String(appearance.dialogOpacity / 100));
+  root.style.setProperty("--legio-dialog-blur", (appearance.dialogOpacity < 100 ? appearance.dialogBlur : 0) + "px");
 }
 
 export async function chooseBackground(): Promise<string | null> {
