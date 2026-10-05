@@ -54,11 +54,10 @@ pub fn get_installed_folder_info(app: AppHandle) -> Result<InstalledFolderInfo, 
         .path()
         .app_data_dir()
         .map_err(|error| format!("Could not locate app data: {error}"))?;
-    let root = app
-        .state::<crate::database::DatabaseState>()
-        .database()?
-        .storage_root(&data_dir)?;
-    let directory = finalize_install::install_root(&root)?;
+    let state = app.state::<crate::database::DatabaseState>();
+    let database = state.database()?;
+    let root = database.storage_root(&data_dir)?;
+    let directory = finalize_install::install_root(database, &root)?;
     let (free_bytes, total_bytes) = disk_space(&directory)?;
     Ok(InstalledFolderInfo {
         directory: directory.to_string_lossy().into_owned(),
@@ -132,11 +131,10 @@ pub fn open_installed_folder(app: AppHandle) -> Result<(), String> {
         .path()
         .app_data_dir()
         .map_err(|error| format!("Could not locate app data: {error}"))?;
-    let root = app
-        .state::<crate::database::DatabaseState>()
-        .database()?
-        .storage_root(&data_dir)?;
-    open_directory(&finalize_install::install_root(&root)?)
+    let state = app.state::<crate::database::DatabaseState>();
+    let database = state.database()?;
+    let root = database.storage_root(&data_dir)?;
+    open_directory(&finalize_install::install_root(database, &root)?)
 }
 
 #[cfg(target_os = "linux")]
