@@ -14,7 +14,7 @@
 </script>
 
 <section
-  class="flex flex-col gap-4 rounded-2xl bg-white/5 p-5 shadow-sm shadow-black/20 light:bg-zinc-100 light:shadow-zinc-900/5"
+  class="legio-glass flex flex-col gap-4 rounded-2xl bg-zinc-900 p-5 shadow-sm shadow-black/20 light:bg-zinc-100 light:shadow-zinc-900/5"
 >
   <div class="flex items-center gap-3">
     {#if icon}

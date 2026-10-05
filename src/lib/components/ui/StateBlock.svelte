@@ -22,7 +22,7 @@
 
 {#if status === "loading" && !hasData}
   <div
-    class="flex items-center gap-3 rounded-xl bg-white/5 p-6 text-zinc-300 light:bg-zinc-100"
+    class="legio-glass flex items-center gap-3 rounded-xl bg-zinc-900 p-6 text-zinc-300 light:bg-zinc-100"
     role="status"
   >
     <span
@@ -32,7 +32,7 @@
     {loadingMessage}
   </div>
 {:else if status === "empty" && emptyMessage}
-  <p class="rounded-xl bg-white/5 p-6 text-zinc-400 light:bg-zinc-100 light:text-zinc-600">
+  <p class="legio-glass rounded-xl bg-zinc-900 p-6 text-zinc-400 light:bg-zinc-100 light:text-zinc-600">
     {emptyMessage}
   </p>
 {:else if status === "error" && error !== null}

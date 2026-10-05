@@ -98,7 +98,7 @@ html, body, #app { min-height: 100%; }
 :root { --legio-background: #000000; --legio-surface: #18181b; --legio-text: #fafafa; }
 .legio-backdrop {
   position: fixed; inset: 0; overflow: hidden; pointer-events: none;
-  background: transparent; z-index: 0;
+  background-color: var(--legio-background); z-index: 0;
 }
 .legio-wallpaper {
   width: 100%; height: 100%; object-fit: cover;
@@ -106,7 +106,6 @@ html, body, #app { min-height: 100%; }
   transform: scale(1.1);
 }
 .legio-shell { isolation: isolate; }
-.legio-panel { background-color: var(--legio-surface); }
 .legio-content { background-color: transparent; }
 dialog.legio-dialog {
   opacity: 0;
@@ -116,10 +115,8 @@ dialog.legio-dialog[data-visible="true"] {
   opacity: 1;
 }
 dialog.legio-dialog::backdrop {
-  opacity: 0;
-  transition: opacity 180ms ease;
+  background-color: transparent;
 }
-dialog.legio-dialog[data-visible="true"]::backdrop { opacity: 1; }
 .legio-toast {
   position: fixed;
   inset: auto 1.25rem 1.25rem auto;
@@ -135,8 +132,8 @@ dialog.legio-dialog[data-visible="true"]::backdrop { opacity: 1; }
   opacity: 1;
   transform: translateY(0);
 }
-:root:is([data-wallpaper="true"], [data-transparent="true"]) .legio-panel {
-  background-color: color-mix(in srgb, var(--legio-surface) calc(var(--legio-surface-opacity) * 100%), transparent);
+:root[data-transparent="true"] .legio-backdrop {
+  background-color: transparent;
 }
 :root:is([data-wallpaper="true"], [data-transparent="true"]) .legio-glass {
   background-color: color-mix(in srgb, var(--legio-surface) calc(var(--legio-surface-opacity) * 100%), transparent);
