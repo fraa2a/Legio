@@ -9,7 +9,10 @@ use reqwest::{
     Response, StatusCode,
     header::{CONTENT_RANGE, ETAG, HeaderMap, IF_RANGE, RANGE},
 };
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{
+    OptionalExtension, params,
+    types::{FromSql, FromSqlError, ValueRef},
+};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_notification::NotificationExt;
@@ -34,9 +37,65 @@ pub struct DownloadJob {
     downloaded_bytes: u64,
     speed_bps: u64,
     eta_seconds: Option<u64>,
-    status: String,
+    status: DownloadStatus,
     error: Option<String>,
     updated_at: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum DownloadStatus {
+    Queued,
+    Downloading,
+    Waiting,
+    Paused,
+    Failed,
+    Downloaded,
+    Staging,
+    Staged,
+    Finalizing,
+    Installed,
+    Cancelled,
+}
+
+impl DownloadStatus {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Downloading => "downloading",
+            Self::Waiting => "waiting",
+            Self::Paused => "paused",
+            Self::Failed => "failed",
+            Self::Downloaded => "downloaded",
+            Self::Staging => "staging",
+            Self::Staged => "staged",
+            Self::Finalizing => "finalizing",
+            Self::Installed => "installed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+impl FromSql for DownloadStatus {
+    fn column_result(value: ValueRef<'_>) -> Result<Self, FromSqlError> {
+        match value.as_str()? {
+            "queued" => Ok(Self::Queued),
+            "downloading" => Ok(Self::Downloading),
+            "waiting" => Ok(Self::Waiting),
+            "paused" => Ok(Self::Paused),
+            "failed" => Ok(Self::Failed),
+            "downloaded" => Ok(Self::Downloaded),
+            "staging" => Ok(Self::Staging),
+            "staged" => Ok(Self::Staged),
+            "finalizing" => Ok(Self::Finalizing),
+            "installed" => Ok(Self::Installed),
+            "cancelled" => Ok(Self::Cancelled),
+            value => Err(FromSqlError::Other(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Unknown download status: {value}"),
+            )))),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -195,7 +254,12 @@ fn list(database: &Database) -> Result<Vec<DownloadJob>, String> {
     })
 }
 
-fn change_status(database: &Database, id: &str, from: &[&str], to: &str) -> Result<(), String> {
+fn change_status(
+    database: &Database,
+    id: &str,
+    from: &[DownloadStatus],
+    to: DownloadStatus,
+) -> Result<(), String> {
     let id = Uuid::parse_str(id)
         .map_err(|_| "Download ID is invalid".to_owned())?
         .to_string();
@@ -205,12 +269,12 @@ fn change_status(database: &Database, id: &str, from: &[&str], to: &str) -> Resu
             "SELECT status FROM downloads WHERE id = ?1", [&id], |row| row.get(0),
         ).optional().map_err(db_error)?;
         let Some(status) = status else { return Err("Download was not found".to_owned()); };
-        if !from.contains(&status.as_str()) {
-            return Err(format!("Cannot {to} a {status} download"));
+        if !from.iter().any(|candidate| candidate.as_str() == status) {
+            return Err(format!("Cannot {} a {status} download", to.as_str()));
         }
         connection.execute(
             "UPDATE downloads SET status = ?2, error = NULL, speed_bps = 0, eta_seconds = NULL, updated_at = ?3 WHERE id = ?1",
-            params![id, to, updated],
+            params![id, to.as_str(), updated],
         ).map_err(db_error)?;
         Ok(())
     })
@@ -278,7 +342,7 @@ pub fn enqueue(
         downloaded_bytes: 0,
         speed_bps: 0,
         eta_seconds: None,
-        status: "queued".to_owned(),
+        status: DownloadStatus::Queued,
         error: None,
         updated_at: created,
     })
@@ -333,13 +397,18 @@ fn update_progress(
     })
 }
 
-fn finish(database: &Database, id: &str, to: &str, error: Option<String>) -> Result<(), String> {
+fn finish(
+    database: &Database,
+    id: &str,
+    to: DownloadStatus,
+    error: Option<String>,
+) -> Result<(), String> {
     database.with_connection(|connection| {
         connection
             .execute(
                 "UPDATE downloads SET status = ?2, error = ?3, speed_bps = 0, eta_seconds = NULL,
              updated_at = ?4 WHERE id = ?1 AND status = 'downloading'",
-                params![id, to, error, now()?],
+                params![id, to.as_str(), error, now()?],
             )
             .map_err(db_error)?;
         Ok(())
@@ -647,7 +716,7 @@ async fn run_queue<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         .await;
         match outcome {
             Ok(()) => {
-                finish(database, &job.id, "downloaded", None)?;
+                finish(database, &job.id, DownloadStatus::Downloaded, None)?;
                 spawn_staging(app, &job.id);
                 match database.settings() {
                     Ok(settings) if settings.download_notifications => {
@@ -677,7 +746,11 @@ async fn run_queue<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
                     finish(
                         database,
                         &job.id,
-                        if waiting { "waiting" } else { "failed" },
+                        if waiting {
+                            DownloadStatus::Waiting
+                        } else {
+                            DownloadStatus::Failed
+                        },
                         Some(error),
                     )?;
                 }
@@ -976,8 +1049,12 @@ pub async fn pause_download(app: AppHandle, id: String) -> Result<(), String> {
         change_status(
             app.state::<DatabaseState>().database()?,
             &id,
-            &["queued", "downloading", "waiting"],
-            "paused",
+            &[
+                DownloadStatus::Queued,
+                DownloadStatus::Downloading,
+                DownloadStatus::Waiting,
+            ],
+            DownloadStatus::Paused,
         )?;
         app.state::<DownloadQueueState>().interrupt(&id)
     })
@@ -992,8 +1069,8 @@ pub async fn resume_download(app: AppHandle, id: String) -> Result<(), String> {
         change_status(
             app.state::<DatabaseState>().database()?,
             &id,
-            &["paused", "waiting"],
-            "queued",
+            &[DownloadStatus::Paused, DownloadStatus::Waiting],
+            DownloadStatus::Queued,
         )
     })
     .await
@@ -1009,8 +1086,8 @@ pub async fn retry_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result
         change_status(
             app.state::<DatabaseState>().database()?,
             &id,
-            &["failed"],
-            "queued",
+            &[DownloadStatus::Failed],
+            DownloadStatus::Queued,
         )
     })
     .await
@@ -1028,8 +1105,14 @@ pub async fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
         change_status(
             database.database()?,
             &id,
-            &["queued", "downloading", "paused", "waiting", "failed"],
-            "cancelled",
+            &[
+                DownloadStatus::Queued,
+                DownloadStatus::Downloading,
+                DownloadStatus::Paused,
+                DownloadStatus::Waiting,
+                DownloadStatus::Failed,
+            ],
+            DownloadStatus::Cancelled,
         )?;
         queue.interrupt(&id)?;
         if let Err(error) = remove_partial(&queue.path(&id, "part")?)
@@ -1055,18 +1138,25 @@ pub fn get_download_bandwidth_limit(app: AppHandle) -> Result<u64, String> {
 /// Statuses whose entry can be dropped once nothing further can happen to it.
 /// A retryable failure is included so a job the user does not want to retry
 /// does not stay in the list forever.
-const REMOVABLE: [&str; 3] = ["cancelled", "failed", "installed"];
+const REMOVABLE: [DownloadStatus; 3] = [
+    DownloadStatus::Cancelled,
+    DownloadStatus::Failed,
+    DownloadStatus::Installed,
+];
 
 /// Statuses that carry no pending work and no error worth reading, so bulk
 /// cleanup may drop them without a confirmation.
-const FINISHED: [&str; 2] = ["cancelled", "installed"];
+const FINISHED: [DownloadStatus; 2] = [DownloadStatus::Cancelled, DownloadStatus::Installed];
 
 fn remove_entry(queue: &DownloadQueueState, database: &Database, id: &str) -> Result<(), String> {
     let id = Uuid::parse_str(id)
         .map_err(|_| "Download ID is invalid".to_owned())?
         .to_string();
     let status = status(database, &id)?;
-    if !REMOVABLE.contains(&status.as_str()) {
+    if !REMOVABLE
+        .iter()
+        .any(|candidate| candidate.as_str() == status)
+    {
         return Err(format!("Cannot remove a {status} download"));
     }
     // Files are removed before the row so a cleanup failure keeps the entry and
@@ -1126,14 +1216,22 @@ fn finished_ids(database: &Database) -> Result<Vec<String>, String> {
     database.with_connection(|connection| {
         let mut statement = connection.prepare(&query).map_err(db_error)?;
         statement
-            .query_map(rusqlite::params_from_iter(FINISHED), |row| row.get(0))
+            .query_map(
+                rusqlite::params_from_iter(FINISHED.map(DownloadStatus::as_str)),
+                |row| row.get(0),
+            )
             .map_err(db_error)?
             .collect::<Result<_, _>>()
             .map_err(db_error)
     })
 }
 
-const REORDERABLE: [&str; 4] = ["queued", "paused", "waiting", "failed"];
+const REORDERABLE: [DownloadStatus; 4] = [
+    DownloadStatus::Queued,
+    DownloadStatus::Paused,
+    DownloadStatus::Waiting,
+    DownloadStatus::Failed,
+];
 
 #[tauri::command]
 pub async fn reorder_downloads(app: AppHandle, ids: Vec<String>) -> Result<(), String> {
@@ -1170,7 +1268,10 @@ fn reorder(database: &Database, ids: &[String]) -> Result<(), String> {
             let Some(status) = status else {
                 return Err("Download was not found".to_owned());
             };
-            if !REORDERABLE.contains(&status.as_str()) {
+            if !REORDERABLE
+                .iter()
+                .any(|candidate| candidate.as_str() == status)
+            {
                 return Err(format!("Cannot reorder a {status} download"));
             }
         }
@@ -1502,7 +1603,7 @@ mod tests {
         let (database, queue, job, directory) = downloaded_fixture();
         let stage = stage_one(&queue, &database, &job.id).unwrap();
         assert_eq!(fs::read(stage.join("Game/data.bin")).unwrap(), b"hello");
-        assert_eq!(list(&database).unwrap()[0].status, "staged");
+        assert_eq!(list(&database).unwrap()[0].status, DownloadStatus::Staged);
         let stored: String = database
             .with_connection(|connection| {
                 connection
@@ -1517,7 +1618,7 @@ mod tests {
         assert_eq!(stored, stage.to_string_lossy());
         drop(database);
         let reopened = Database::open(&directory).unwrap();
-        assert_eq!(list(&reopened).unwrap()[0].status, "staged");
+        assert_eq!(list(&reopened).unwrap()[0].status, DownloadStatus::Staged);
         drop(reopened);
         fs::remove_dir_all(directory).unwrap();
     }
@@ -1543,7 +1644,7 @@ mod tests {
         );
         assert!(!queue.path(&job.id, "archive").unwrap().exists());
         assert!(!queue.path(&job.id, "stage").unwrap().exists());
-        assert_eq!(list(&database).unwrap()[0].status, "failed");
+        assert_eq!(list(&database).unwrap()[0].status, DownloadStatus::Failed);
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
@@ -1560,9 +1661,12 @@ mod tests {
                 .contains("Could not save staged download")
         );
         assert!(!queue.path(&job.id, "stage").unwrap().exists());
-        assert_eq!(list(&database).unwrap()[0].status, "staging");
+        assert_eq!(list(&database).unwrap()[0].status, DownloadStatus::Staging);
         recover_staging(&queue, &database).unwrap();
-        assert_eq!(list(&database).unwrap()[0].status, "downloaded");
+        assert_eq!(
+            list(&database).unwrap()[0].status,
+            DownloadStatus::Downloaded
+        );
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
@@ -1712,7 +1816,7 @@ mod tests {
 
         let error = stage_one(&queue, &database, &job.id).unwrap_err();
         let jobs = list(&database).unwrap();
-        assert_eq!(jobs[0].status, "failed");
+        assert_eq!(jobs[0].status, DownloadStatus::Failed);
         assert_eq!(jobs[0].error.as_deref(), Some(error.as_str()));
         drop(database);
         fs::remove_dir_all(directory).unwrap();
@@ -1793,7 +1897,10 @@ mod tests {
         drop(database);
         let reopened = Database::open(&directory).unwrap();
         assert_eq!(list(&reopened).unwrap()[0].id, job.id);
-        assert_eq!(list(&reopened).unwrap()[0].status, "downloaded");
+        assert_eq!(
+            list(&reopened).unwrap()[0].status,
+            DownloadStatus::Downloaded
+        );
         let staged_path: Option<String> = reopened
             .with_connection(|connection| {
                 connection
@@ -1825,9 +1932,15 @@ mod tests {
         drop(database);
         let reopened = Database::open(&directory).unwrap();
         recover(&reopened).unwrap();
-        assert_eq!(list(&reopened).unwrap()[0].status, "queued");
-        change_status(&reopened, &job.id, &["queued"], "paused").unwrap();
-        assert_eq!(list(&reopened).unwrap()[0].status, "paused");
+        assert_eq!(list(&reopened).unwrap()[0].status, DownloadStatus::Queued);
+        change_status(
+            &reopened,
+            &job.id,
+            &[DownloadStatus::Queued],
+            DownloadStatus::Paused,
+        )
+        .unwrap();
+        assert_eq!(list(&reopened).unwrap()[0].status, DownloadStatus::Paused);
         drop(reopened);
         fs::remove_dir_all(directory).unwrap();
     }
@@ -2393,7 +2506,7 @@ mod tests {
         let (database, queue, job, directory) = downloaded_fixture();
         set_status(&database, &job.id, "failed");
 
-        assert!(REMOVABLE.contains(&"failed"));
+        assert!(REMOVABLE.contains(&DownloadStatus::Failed));
         remove_entry(&queue, &database, &job.id).unwrap();
 
         assert_eq!(status_of(&database, &job.id), None);

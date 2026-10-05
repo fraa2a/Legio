@@ -74,7 +74,11 @@
   async function addDesktopShortcut(): Promise<void> {
     shortcutPending = true;
     shortcutError = null;
-    try { shortcutPath = await createDesktopShortcut(game.id); }
+    try {
+      const result = await createDesktopShortcut(game.id);
+      shortcutPath = result.path;
+      shortcutError = result.warning;
+    }
     catch (error) { shortcutError = toMessage(error); }
     finally { shortcutPending = false; }
   }

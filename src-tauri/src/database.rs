@@ -457,7 +457,7 @@ impl Database {
         let database = Self {
             connection: Mutex::new(connection),
         };
-        database.recover_open_game_sessions(now_milliseconds())?;
+        database.recover_open_game_sessions(now_milliseconds()?)?;
         Ok(database)
     }
 
@@ -1471,12 +1471,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
     transaction.commit().map_err(database_error)
 }
 
-pub(crate) fn now_milliseconds() -> i64 {
-    std::time::SystemTime::now()
+pub(crate) fn now_milliseconds() -> Result<i64, String> {
+    let elapsed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .min(i64::MAX as u128) as i64
+        .map_err(|error| format!("System clock is before the Unix epoch: {error}"))?;
+    Ok(elapsed.as_millis().min(i64::MAX as u128) as i64)
 }
 
 fn load_compatibility_defaults(connection: &Connection) -> Result<CompatibilityDefaults, String> {
@@ -1822,38 +1821,6 @@ pub(crate) fn account_preflight(
 
 pub(crate) fn database_error(error: rusqlite::Error) -> String {
     format!("local database error: {error}")
-}
-
-pub fn get_settings(state: &DatabaseState) -> Result<Settings, String> {
-    state.database()?.settings()
-}
-pub fn save_settings(state: &DatabaseState, settings: Settings) -> Result<Settings, String> {
-    state.database()?.save_settings(settings)
-}
-pub fn list_games(state: &DatabaseState) -> Result<Vec<Game>, String> {
-    state.database()?.games()
-}
-pub fn create_game(state: &DatabaseState, input: CreateGameInput) -> Result<Game, String> {
-    state.database()?.create_game(input)
-}
-pub fn update_game(state: &DatabaseState, input: UpdateGameInput) -> Result<Game, String> {
-    state.database()?.update_game(input)
-}
-pub fn remove_game(state: &DatabaseState, id: &str) -> Result<(), String> {
-    state.database()?.remove_game(id)
-}
-pub fn set_game_steam_account(
-    state: &DatabaseState,
-    game_id: &str,
-    steam_id: Option<&str>,
-) -> Result<Game, String> {
-    state.database()?.set_game_steam_account(game_id, steam_id)
-}
-pub fn check_game_steam_account(
-    state: &DatabaseState,
-    game_id: &str,
-) -> Result<AccountCheck, String> {
-    state.database()?.check_game_steam_account(game_id)
 }
 
 #[cfg(test)]

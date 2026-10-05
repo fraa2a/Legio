@@ -6,6 +6,8 @@ use std::{env, fmt, fs, io};
 
 use serde::Serialize;
 
+use crate::database::{AccountCheck, AccountCheckStatus};
+
 pub const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 const MAX_OBJECT_DEPTH: usize = 32;
 const MAX_APPINFO_BYTES: usize = 256 * 1024 * 1024;
@@ -274,6 +276,22 @@ pub struct SavedSteamAccount {
 pub struct SavedSteamAccounts {
     pub accounts: Vec<SavedSteamAccount>,
     pub diagnostics: Vec<String>,
+}
+
+pub(crate) fn check_saved_account_presence(
+    mut check: AccountCheck,
+    saved: &SavedSteamAccounts,
+) -> AccountCheck {
+    if let Some(ref id) = check.selected_steam_id
+        && !saved.accounts.iter().any(|account| account.steam_id == *id)
+        && saved.diagnostics.is_empty()
+    {
+        check.status = AccountCheckStatus::MissingSavedAccount;
+        check.message = Some(
+            "Selected Steam account is no longer saved. Choose another saved account or clear the preference.",
+        );
+    }
+    check
 }
 
 const MAX_SAVED_ACCOUNTS: usize = 128;
@@ -1512,6 +1530,48 @@ mod tests {
         assert_eq!(
             parse_app_manifest(manifest.as_bytes()),
             Err(ManifestDiagnostic::NestingTooDeep)
+        );
+    }
+}
+
+#[cfg(test)]
+mod account_tests {
+    use super::*;
+    #[test]
+    fn missing_saved_account_is_distinct_from_uncertain_metadata() {
+        let check = AccountCheck {
+            status: AccountCheckStatus::Unknown,
+            account_requirement_met: false,
+            selected_steam_id: Some("76561198000000001".to_owned()),
+            message: None,
+        };
+        let empty = SavedSteamAccounts {
+            accounts: vec![],
+            diagnostics: vec![],
+        };
+        let missing = check_saved_account_presence(check.clone(), &empty);
+        assert_eq!(missing.status, AccountCheckStatus::MissingSavedAccount);
+        assert!(!missing.account_requirement_met);
+        assert!(missing.message.unwrap().contains("Choose another"));
+        let uncertain = SavedSteamAccounts {
+            accounts: vec![],
+            diagnostics: vec!["unreadable metadata".to_owned()],
+        };
+        assert_eq!(
+            check_saved_account_presence(check.clone(), &uncertain).status,
+            AccountCheckStatus::Unknown
+        );
+        let saved = SavedSteamAccounts {
+            accounts: vec![SavedSteamAccount {
+                steam_id: "76561198000000001".to_owned(),
+                display_name: "Display".to_owned(),
+                account_name: None,
+            }],
+            diagnostics: vec![],
+        };
+        assert_eq!(
+            check_saved_account_presence(check, &saved).status,
+            AccountCheckStatus::Unknown
         );
     }
 }

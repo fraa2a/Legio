@@ -7,6 +7,7 @@ import {
   scanGameExecutables,
   setGameExecutable,
   type ExecutableCandidate,
+  type GameActionResult,
   type SteamIdentificationResult,
 } from "../services/manual-import";
 import type { Game } from "../services/local-state";
@@ -118,18 +119,19 @@ function selectedExecutable(): string {
 export interface ManualImportOutcome {
   game: Game;
   linkingError: string | null;
+  shortcutWarning: string | null;
 }
 
 export async function importScannedGame(
   name: string | null,
   identity: { steamAppId: number; name: string } | null,
 ): Promise<ManualImportOutcome> {
-  const game = await importManualGame({
+  const { game, shortcutWarning } = await importManualGame({
     executablePath: selectedExecutable(),
     name: name !== null && name.trim().length > 0 ? name.trim() : null,
   });
   reconcileGame(game);
-  if (identity === null) return { game, linkingError: null };
+  if (identity === null) return { game, linkingError: null, shortcutWarning };
   try {
     const linked = await saveGame({
       id: game.id,
@@ -137,9 +139,9 @@ export async function importScannedGame(
       automaticName: identity.name,
       nameOverride: game.nameOverride,
     });
-    return { game: linked, linkingError: null };
+    return { game: linked, linkingError: null, shortcutWarning };
   } catch (error) {
-    return { game, linkingError: toMessage(error) };
+    return { game, linkingError: toMessage(error), shortcutWarning };
   }
 }
 
@@ -149,8 +151,8 @@ export async function detectManualGameSteamAppId(gameId: string): Promise<SteamI
   return result;
 }
 
-export async function saveExecutableForGame(gameId: string, executablePath: string): Promise<Game> {
-  const game = await setGameExecutable(gameId, executablePath);
-  reconcileGame(game);
-  return game;
+export async function saveExecutableForGame(gameId: string, executablePath: string): Promise<GameActionResult> {
+  const result = await setGameExecutable(gameId, executablePath);
+  reconcileGame(result.game);
+  return result;
 }

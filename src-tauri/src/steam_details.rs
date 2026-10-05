@@ -521,23 +521,6 @@ pub async fn get_details_localized<R: Runtime>(
 }
 
 #[cfg(test)]
-pub async fn get_details<R: Runtime>(
-    app: tauri::AppHandle<R>,
-    network: &NetworkState,
-    app_id: u32,
-    refresh: bool,
-) -> Result<DetailsResult, DetailsError> {
-    get_details_localized(
-        app,
-        network,
-        app_id,
-        refresh,
-        crate::locale::LanguagePreference::English,
-    )
-    .await
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -779,9 +762,15 @@ mod tests {
         )
         .unwrap();
 
-        let result = get_details(app.handle().clone(), &network, 400, false)
-            .await
-            .unwrap();
+        let result = get_details_localized(
+            app.handle().clone(),
+            &network,
+            400,
+            false,
+            crate::locale::LanguagePreference::English,
+        )
+        .await
+        .unwrap();
         assert_eq!(result.details, Some(details));
         assert_eq!(result.cached_at, Some(fetched_at));
         assert!(!result.stale);
