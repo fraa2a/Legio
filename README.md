@@ -1,74 +1,33 @@
-# Legio
+<div align="center">
+  <img src="src-tauri/icons/icon.png" alt="Legio" width="96" />
+  <h1>Legio</h1>
+  <p>Your game library, with launch settings tailored to each title.</p>
+  <p><a href="https://github.com/fraa2a/Legio/releases">Download Legio</a></p>
+</div>
 
-Legio is a desktop game launcher and downloader for Windows and Linux. Rust owns application logic and system integration. Svelte owns presentation and interaction inside a Tauri 2 desktop shell.
+Legio is a desktop game launcher for Windows and Linux. Import games from Steam or add them manually, configure how each game launches, and keep your library and playtime in one place.
 
-The canonical product requirements are in [`PLAN.md`](PLAN.md). The maintained implementation roadmap is in [`docs/plans/README.md`](docs/plans/README.md).
+## Features
 
-## Current scope
+- **A Steam account for each game.** If you use multiple accounts, assign the right one to each title. Legio asks before restarting Steam to switch accounts when needed.
+- **Per-game launch settings.** Run native Linux games or Windows games through Proton, GE-Proton, or Wine. Configure prefixes, launch arguments, environment variables, and DLL overrides on Linux, or native launch options on Windows.
+- **Flexible game import.** Detect your Steam library or add games and executables manually.
+- **Themes you can make your own.** Choose from built-in palettes, edit colors, set image or animated backgrounds, and save your own themes. Import and export themes as JSON.
+- **Hyprland transparency.** Enable a transparent Legio window on Hyprland and adjust the surface opacity. Background blur is controlled by your Hyprland rules.
+- **Playtime at a glance.** See recently played games, tracked playtime, and a calendar of your activity.
 
-Phase 01 establishes the repository toolchains and a minimal application shell. The current desktop screen performs one real Tauri IPC call and displays the application name, Cargo version, and platform supplied by Rust. Database, settings, game-library, Steam, download, installation, and launch behavior begin in later roadmap phases.
+## Online Fix
 
-## Required toolchains
+Legio includes an Online Fix launch option for compatible games. It is a launch configuration feature: Legio does not provide or distribute game files or Online Fix files.
 
-- Node.js 22.x
-- Corepack with pnpm 12.5.1, as pinned by `package.json`
-- Rust 1.98.1 with rustfmt and Clippy, as pinned by `rust-toolchain.toml`
+Legio does not support or promote piracy. Use this option only with a legitimately purchased copy of the game and for offline play, in accordance with the game's license and applicable laws. Users are responsible for their use of this feature; Legio accepts no responsibility for misuse.
 
-Enable Corepack once if it is not already enabled:
+## Download
 
-```sh
-corepack enable
-```
+Get the latest version from [Releases](https://github.com/fraa2a/Legio/releases). Packages are available for Windows and Linux. To run Windows games on Linux, install a compatible runner such as Proton or Wine first.
 
-## Native prerequisites
+Steam must be installed for Steam integration and for games that require it.
 
-Tauri requires platform development tools in addition to the pinned language toolchains.
+## License
 
-### Linux
-
-Install a C compiler and linker, WebKitGTK 4.1 development headers, GTK-related development libraries, OpenSSL development headers, and the platform packages required by Tauri 2. On Debian or Ubuntu, the CI workflow in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) is the maintained package reference.
-
-### Windows
-
-Install Microsoft C++ Build Tools with the Desktop development with C++ workload and the Microsoft Edge WebView2 runtime. Use a supported Windows SDK.
-
-## Install dependencies
-
-```sh
-corepack pnpm install --frozen-lockfile
-cargo fetch --manifest-path src-tauri/Cargo.toml --locked
-```
-
-## Development
-
-Start the native application:
-
-```sh
-corepack pnpm tauri dev
-```
-
-Run the browser-only frontend when testing the explicit backend-unavailable state:
-
-```sh
-corepack pnpm dev
-```
-
-## Checks
-
-```sh
-corepack pnpm check
-corepack pnpm lint
-corepack pnpm build
-cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --locked -- -D warnings
-cargo test --manifest-path src-tauri/Cargo.toml --all-features --locked
-corepack pnpm tauri build --debug --no-bundle
-```
-
-## Production build
-
-```sh
-corepack pnpm tauri build
-```
-
-The application version is owned only by `src-tauri/Cargo.toml`. Normal development must not change it.
+See [LICENSE](LICENSE) for the terms of use and distribution.
