@@ -31,4 +31,4 @@ Pull requests are expected to pass the `frontend`, `rust`, and `tauri-smoke` CI 
 
 ## Engineering expectations
 
-Follow `AGENTS.md` and the canonical `PLAN.md`. Keep Tauri commands thin, put application logic in focused Rust modules when real behavior requires them, and keep business logic out of Svelte components. Make the smallest coherent change, reuse existing conventions, and do not leave dead code or ignored failures.
+Follow `AGENTS.md` and the documentation in `_meta/docs`. Keep Tauri commands thin, put application logic in focused Rust modules when real behavior requires them, and keep business logic out of Svelte components. Make the smallest coherent change, reuse existing conventions, and do not leave dead code or ignored failures.
