@@ -45,7 +45,7 @@
       {:else if loading}
         <StateBlock status="loading" error={null} loadingMessage={t("Caricamento dell'ultima partita...", $language)} />
       {:else}
-        <section class="flex min-h-0 flex-1 flex-col items-start justify-center gap-4 overflow-hidden rounded-2xl bg-zinc-900 p-8 light:bg-zinc-100">
+        <section class="legio-glass flex min-h-0 flex-1 flex-col items-start justify-center gap-4 overflow-hidden rounded-2xl bg-zinc-900 p-8 light:bg-zinc-100">
           <Icon name="play" size="size-10 text-legio-activity" />
           <h1 class="text-3xl font-semibold text-zinc-50 light:text-zinc-900">{t("La tua prossima partita ti aspetta", $language)}</h1>
           <p class="max-w-xl text-sm text-zinc-400 light:text-zinc-600">{t("Avvia un gioco dalla libreria. Qui troverai l'ultima partita e la tua attività di gioco.", $language)}</p>
@@ -60,7 +60,7 @@
     </div>
   </div>
 
-  <section class="rounded-2xl bg-zinc-900 p-4 light:bg-zinc-100" aria-labelledby="recent-title">
+  <section class="legio-glass rounded-2xl bg-zinc-900 p-4 light:bg-zinc-100" aria-labelledby="recent-title">
     <div class="mb-2.5 flex flex-wrap items-center justify-between gap-2.5">
       <h2 id="recent-title" class="text-lg font-medium text-zinc-50 light:text-zinc-900">{t("Giocati di recente", $language)}</h2>
       <Button label={t("Libreria", $language)} variant="secondary" onClick={() => selectSection('library')} />

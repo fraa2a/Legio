@@ -69,6 +69,9 @@ html, body, #app { min-height: 100%; }
 :root:is([data-wallpaper="true"], [data-transparent="true"]) .legio-content {
   background-color: color-mix(in srgb, var(--legio-surface) calc(var(--legio-surface-opacity) * 100%), transparent);
 }
+:root:is([data-wallpaper="true"], [data-transparent="true"]):not([data-theme="light"]) .legio-glass {
+  background-color: color-mix(in srgb, var(--color-white) 5%, transparent);
+}
 input[type="radio"], input[type="checkbox"], input[type="range"] { accent-color: var(--legio-accent); }
 
 @layer base {

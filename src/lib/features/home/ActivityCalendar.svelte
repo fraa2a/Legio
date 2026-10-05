@@ -31,7 +31,7 @@
   });
 </script>
 
-<section class="flex min-h-0 flex-col rounded-2xl bg-zinc-900 p-4 light:bg-zinc-100" aria-labelledby="activity-title">
+<section class="legio-glass flex min-h-0 flex-col rounded-2xl bg-zinc-900 p-4 light:bg-zinc-100" aria-labelledby="activity-title">
   <div class="mb-3 flex shrink-0 items-center justify-between gap-3">
     <div>
       <h2 id="activity-title" class="text-lg font-medium text-zinc-50 light:text-zinc-900">{t("Attività di gioco", $language)}</h2>
