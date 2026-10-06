@@ -18,6 +18,7 @@ mod compatibility_options;
 mod database;
 mod desktop_shortcuts;
 mod diagnostics;
+mod discord_presence;
 mod download_queue;
 mod finalize_install;
 mod game_artwork;
@@ -154,6 +155,7 @@ pub fn run() -> tauri::Result<()> {
                 .map_err(std::io::Error::other)?,
             );
             app.manage(diagnostics);
+            app.manage(discord_presence::PresenceService::start(app.handle())?);
             let language = app
                 .state::<database::DatabaseState>()
                 .database()?
@@ -334,7 +336,13 @@ pub fn run() -> tauri::Result<()> {
             commands::get_steam_asset,
             runner_discovery::list_compatibility_runners,
         ])
-        .run(context)
+        .build(context)?
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<discord_presence::PresenceService>().shutdown();
+            }
+        });
+    Ok(())
 }
 
 fn show_main_window(app: &tauri::AppHandle) {

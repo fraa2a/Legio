@@ -5,6 +5,7 @@ import type { Appearance } from "./appearance";
 export type Theme = "system" | "dark" | "light";
 
 export interface Settings {
+  discordPresence: { enabled: boolean; applicationId: string };
   onboardingCompleted: boolean;
   theme: Theme;
   appearance: Appearance;
