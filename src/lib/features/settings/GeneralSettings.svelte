@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DiscordPresenceSettings from "./DiscordPresenceSettings.svelte";
   import { t, language } from "../../i18n";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
@@ -93,6 +94,8 @@
       </div><ResetSetting label={t("Ripristina {0}", $language, [option.label])} disabled={saving || $settings.data[option.key] === defaultSettings[option.key]} onClick={() => void update({ [option.key]: defaultSettings[option.key], ...(option.key === "launchOnSystemStart" && !defaultSettings.launchOnSystemStart ? { launchMinimized: false } : {}) })} /></div>
     {/each}
   </SettingsGroup>
+
+  <DiscordPresenceSettings />
 
   <SettingsGroup
     icon="store"
