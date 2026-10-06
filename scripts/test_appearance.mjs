@@ -40,35 +40,24 @@ const settle = async () => {
 };
 
 test("system palette follows the OS and Hyprland alone can enable window transparency", () => {
+  const dark = presetData.find((preset) => preset.id === "dark");
   const options = { ...appearance.defaultAppearance(), transparent: true, background: "image", backgroundBlur: 12, surfaceBlur: 8, dialogBlur: 16 };
   appearance.applyAppearance(document.documentElement, "system", options, false, false);
   assert.equal(document.documentElement.dataset.theme, "light");
   assert.equal(document.documentElement.dataset.transparent, "false");
-  appearance.applyAppearance(document.documentElement, "eggplant", options, true, true);
+  appearance.applyAppearance(document.documentElement, "dark", options, true, true);
   assert.equal(document.documentElement.dataset.theme, "dark");
   assert.equal(document.documentElement.dataset.transparent, "true");
-  assert.equal(document.documentElement.style.getPropertyValue("--legio-background"), "#170d20");
+  assert.equal(document.documentElement.style.getPropertyValue("--legio-background"), dark.palette.background);
   assert.equal(document.documentElement.style.getPropertyValue("--legio-image-blur"), "12px");
-  assert.equal(document.documentElement.style.getPropertyValue("--legio-surface-blur"), "8px");
-  assert.equal(document.documentElement.style.getPropertyValue("--legio-dialog-blur"), "16px");
-  options.surfaceOpacity = 100;
-  options.dialogOpacity = 100;
-  appearance.applyAppearance(document.documentElement, "eggplant", options, true, true);
-  assert.equal(document.documentElement.style.getPropertyValue("--legio-surface-blur"), "0px");
-  assert.equal(document.documentElement.style.getPropertyValue("--legio-dialog-blur"), "0px");
-  assert.equal(appearance.activePalette("system", options, false).id, "light");
-});
-
-test("unreadable editor drafts leave application controls usable", () => {
-  const custom = structuredClone(presetData[2]);
-  custom.id = "custom";
-  custom.palette.text = custom.palette.surface;
-  const options = { ...appearance.defaultAppearance(), customThemes: [custom], customThemeId: custom.id };
-  assert.equal(appearance.readablePalette(custom), false);
-  appearance.applyAppearance(document.documentElement, "custom", options, true, false);
-  assert.equal(document.documentElement.style.getPropertyValue("--legio-text"), presetData[0].palette.text);
-  assert.equal(appearance.accentText("#ffffff"), "#000000");
-  assert.equal(appearance.accentText("#000000"), "#ffffff");
+  assert.equal(document.documentElement.style.getPropertyValue("--legio-surface-blur"), "none");
+  assert.equal(document.documentElement.style.getPropertyValue("--legio-dialog-blur"), "none");
+  appearance.applyAppearance(document.documentElement, "dark", options, true, false);
+  assert.equal(document.documentElement.dataset.transparent, "false");
+  assert.equal(document.documentElement.style.getPropertyValue("--legio-surface-blur"), "blur(8px)");
+  assert.equal(document.documentElement.style.getPropertyValue("--legio-dialog-blur"), "blur(16px)");
+  assert.equal(appearance.activePalette("system", false).id, "light");
+  assert.equal(appearance.activePalette("system", true).id, "dark");
 });
 
 test("the theme editor previews before auto save and preserves unrelated settings", async () => {
@@ -86,16 +75,25 @@ test("the theme editor previews before auto save and preserves unrelated setting
   document.body.append(target);
   const instance = mount(component, { target });
   await settle();
-  assert.equal(target.querySelectorAll('input[name="theme"]').length, 2);
-  assert.equal(target.querySelector('[role="listbox"]'), null);
-  target.querySelector("#theme-additional").click();
+  const openGroup = async (title) => {
+    const toggle = [...target.querySelectorAll("button[aria-expanded]")].find((button) => button.textContent.includes(title));
+    assert.ok(toggle, title + " group toggle");
+    toggle.click();
+    await settle();
+  };
+
+  assert.equal(target.querySelectorAll('input[name="theme"]').length, 0);
+  await openGroup("Tema");
+  assert.equal(target.querySelectorAll('input[name="theme"]').length, 3);
+  const dark = [...target.querySelectorAll('input[name="theme"]')].find((input) => input.value === "dark");
+  dark.checked = true;
+  dark.dispatchEvent(new Event("change", { bubbles: true }));
   await settle();
-  const eggplant = [...target.querySelectorAll('[role="option"]')].find((option) => option.textContent.includes("Palette Viola Melanzana"));
-  eggplant.click();
-  await settle();
-  assert.equal(get(previewStore).theme, "eggplant");
+  assert.equal(get(previewStore).theme, "dark");
   assert.equal(saved.length, 0);
   assert.equal(get(settingsStore).data.theme, "system");
+
+  await openGroup("Pannelli e dialoghi");
   const opacity = target.querySelector("#theme-surfaceOpacity");
   assert.match(target.querySelector(`label[for="${opacity.id}"]`)?.textContent ?? "", /Opacità/);
   opacity.value = "35";
@@ -118,15 +116,24 @@ test("the theme editor previews before auto save and preserves unrelated setting
   await settle();
   assert.equal(get(previewStore).appearance.dialogOpacity, 70);
   assert.equal(get(previewStore).appearance.dialogBlur, 10);
-  dialogOpacity.value = "100";
-  dialogOpacity.dispatchEvent(new Event("input", { bubbles: true }));
-  await settle();
-  assert.equal(dialogBlur.disabled, true);
-  opacity.value = "100";
-  opacity.dispatchEvent(new Event("input", { bubbles: true }));
+
+  await openGroup("Trasparenza della finestra");
+  const windowToggle = [...target.querySelectorAll("label")].find((label) => label.textContent.includes("su Hyprland"))?.querySelector("input");
+  assert.ok(windowToggle, "window transparency toggle");
+  windowToggle.checked = true;
+  windowToggle.dispatchEvent(new Event("change", { bubbles: true }));
   await settle();
   assert.equal(blur.disabled, true);
-  // Another global setting can change while the appearance editor is open.
+  assert.equal(dialogBlur.disabled, true);
+  assert.equal(opacity.disabled, false);
+  assert.ok(target.textContent.includes("Il blur è disponibile solo con la trasparenza della finestra disattivata."));
+  windowToggle.checked = false;
+  windowToggle.dispatchEvent(new Event("change", { bubbles: true }));
+  await settle();
+  assert.equal(blur.disabled, false);
+  assert.equal(blur.value, "14");
+  assert.equal(dialogBlur.value, "10");
+
   opacity.dispatchEvent(new Event("pointerdown", { bubbles: true }));
   settingsStore.set({ data: { ...initial, language: "it" } });
   await new Promise((resolve) => setTimeout(resolve, 600));
@@ -136,7 +143,7 @@ test("the theme editor previews before auto save and preserves unrelated setting
   await new Promise((resolve) => setTimeout(resolve, 600));
   await settle();
   assert.equal(saved.length, 1);
-  assert.equal(saved[0].theme, "eggplant");
+  assert.equal(saved[0].theme, "dark");
   assert.equal(saved[0].language, "it");
   assert.equal(opacity.disabled, false);
   opacity.value = "42";
@@ -197,44 +204,4 @@ test("background URL is retained for the same image and revoked when replaced", 
   await unmount(instance);
   assert.deepEqual(revoked, ["blob:theme-1", "blob:theme-2"]);
   target.remove();
-});
-
-
-test("Dither renders the accent pattern without animation under reduced motion", async () => {
-  const calls = [];
-  const context = {
-    fillStyle: "", setTransform() {}, clearRect() {},
-    fillRect(...bounds) { calls.push({ color: this.fillStyle, bounds }); },
-  };
-  const originalContext = window.HTMLCanvasElement.prototype.getContext;
-  const originalBounds = window.HTMLElement.prototype.getBoundingClientRect;
-  window.HTMLCanvasElement.prototype.getContext = () => context;
-  window.HTMLElement.prototype.getBoundingClientRect = () => ({ width: 240, height: 120 });
-  let disconnected = false;
-  globalThis.ResizeObserver = class {
-    observe() {}
-    disconnect() { disconnected = true; }
-  };
-  globalThis.cancelAnimationFrame = () => {};
-  globalThis.requestAnimationFrame = () => { throw new Error("Reduced motion must not schedule animation"); };
-  const target = document.createElement("div");
-  document.body.append(target);
-  try {
-    const component = (await import(await load("src/lib/components/layout/AnimatedBackground.svelte"))).default;
-    const instance = mount(component, { target, props: { kind: "dither", opacity: 50, color: "#aa66cc" } });
-    await settle();
-    assert.ok(target.querySelector("canvas"));
-    assert.ok(calls.length > 0 && calls.length < 800);
-    assert.ok(calls.every((call) => call.color === "#aa66cc"));
-    assert.equal(target.firstElementChild.style.opacity, "0.5");
-    await unmount(instance);
-    assert.equal(disconnected, true);
-  } finally {
-    window.HTMLCanvasElement.prototype.getContext = originalContext;
-    window.HTMLElement.prototype.getBoundingClientRect = originalBounds;
-    delete globalThis.ResizeObserver;
-    delete globalThis.cancelAnimationFrame;
-    delete globalThis.requestAnimationFrame;
-    target.remove();
-  }
 });

@@ -33,9 +33,9 @@
           onChange={(value) => { if (value === "system" || value === "it" || value === "en") changeOnboarding({ language: value }); }} />
       {:else if step === 1}
         <SelectField id="onboarding-theme" label={t("Tema", $language)} value={$onboarding.draft.theme} disabled={$onboarding.saving}
-          options={[{ value: "system", label: t("Sistema", $language) }, ...themePresets.map((preset) => ({ value: preset.id, label: t(preset.name, $language) })), ...($onboarding.draft.theme === "custom" ? [{ value: "custom", label: t("Personalizzato", $language) }] : [])]}
-          onChange={(value) => { if (value === "system" || value === "dark" || value === "light" || value === "eggplant" || value === "ocean" || value === "forest" || value === "amber") changeOnboarding({ theme: value }); }} />
-        <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Sfondi, palette custom e trasparenza sono disponibili nelle impostazioni Aspetto.", $language)}</p>
+          options={[{ value: "system", label: t("Sistema", $language) }, ...themePresets.map((preset) => ({ value: preset.id, label: t(preset.name, $language) }))]}
+          onChange={(value) => { if (value === "system" || value === "dark" || value === "light") changeOnboarding({ theme: value }); }} />
+        <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Sfondi, animazioni e trasparenza sono disponibili nelle impostazioni Aspetto.", $language)}</p>
       {:else if step === 2}
         <p class="text-sm text-zinc-300 light:text-zinc-700">{t("Scegli dove salvare download e installazioni. Steam verrà rilevato automaticamente.", $language)}</p>
         <p class="break-all text-sm text-zinc-400 light:text-zinc-600">{$onboarding.draft.downloadPath ?? t("Cartella predefinita di Legio", $language)}</p>

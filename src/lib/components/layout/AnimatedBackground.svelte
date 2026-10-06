@@ -1,9 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { drawDither } from "./dither";
 
-  let { kind, opacity, color }: {
-    kind: "particles" | "dither";
+  let { opacity, color }: {
     opacity: number;
     color: string;
   } = $props();
@@ -24,7 +22,6 @@
     let width = 0;
     let height = 0;
     let frame = 0;
-    let lastDraw = 0;
 
     function resize(): void {
       const bounds = container.getBoundingClientRect();
@@ -46,18 +43,7 @@
     }
 
     function draw(): void {
-      const now = performance.now();
-      if (kind === "dither" && !motion.matches && now - lastDraw < 50) {
-        frame = requestAnimationFrame(draw);
-        return;
-      }
-      lastDraw = now;
       context.clearRect(0, 0, width, height);
-      if (kind === "dither") {
-        drawDither(context, width, height, color, motion.matches ? 0 : now / 8000);
-        if (!motion.matches) frame = requestAnimationFrame(draw);
-        return;
-      }
       const rgb = color.match(/[\da-f]{2}/gi)?.slice(0, 3).map((part) => Number.parseInt(part, 16)) ?? [130, 200, 220];
       const ink = `${rgb[0]}, ${rgb[1]}, ${rgb[2]}`;
       for (let index = 0; index < particles.length; index += 1) {
@@ -123,8 +109,3 @@
 <div bind:this={container} class="animated-background" style:opacity={opacity / 100} aria-hidden="true">
   <canvas bind:this={canvas}></canvas>
 </div>
-
-<style>
-  .animated-background { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
-  canvas { width: 100%; height: 100%; }
-</style>

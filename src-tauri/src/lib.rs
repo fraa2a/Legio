@@ -264,8 +264,6 @@ pub fn run() -> tauri::Result<()> {
             commands::save_settings,
             appearance::import_theme_background,
             appearance::get_theme_background,
-            appearance::import_theme_file,
-            appearance::export_theme_file,
             appearance::cleanup_theme_backgrounds,
             commands::get_compatibility_defaults,
             commands::save_compatibility_defaults,

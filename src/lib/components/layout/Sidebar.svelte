@@ -1,8 +1,12 @@
 <script lang="ts">
+  import { get } from "svelte/store";
   import { t, language } from "../../i18n";
+  import { saveSettings } from "../../services/local-state";
   import { activeDownloadCount } from "../../stores/downloads";
   import { games } from "../../stores/games";
   import { playtime } from "../../stores/playtime";
+  import { settings } from "../../stores/settings";
+  import { showToast } from "../../stores/toast";
   import {
     activeSection,
     openSettings,
@@ -20,6 +24,7 @@
   import SidebarDownloadStatus from "./SidebarDownloadStatus.svelte";
   import SidebarGameItem from "./SidebarGameItem.svelte";
   import { fadeDuration } from "../../utils/motion";
+  import { toMessage } from "../../utils/errors";
   import { recentGames } from "../../features/home/home-model";
 
   const fadeMs = fadeDuration > 0 ? 100 : 0;
@@ -31,7 +36,20 @@
     downloads: "downloads",
   };
 
-  let expanded = $state(true);
+  let expanded = $state(!get(settings).data.sidebarCollapsed);
+  let saveQueue: Promise<void> = Promise.resolve();
+
+  function toggleSidebar(): void {
+    expanded = !expanded;
+    const sidebarCollapsed = !expanded;
+    saveQueue = saveQueue.then(async () => {
+      try {
+        settings.set(await saveSettings({ ...get(settings).data, sidebarCollapsed }));
+      } catch (reason) {
+        showToast(toMessage(reason));
+      }
+    });
+  }
 
   const gamesList = $derived(recentGames($games.data, $playtime.data).slice(0, 5).map(({ game }) => game));
 </script>
@@ -93,7 +111,7 @@
         expanded={expanded}
         togglesSidebar
         ariaLabel={expanded ? undefined : t("Espandi sidebar", $language)}
-        onClick={() => (expanded = !expanded)}
+        onClick={toggleSidebar}
       >
         {#if expanded}
           <Icon name="previous" />

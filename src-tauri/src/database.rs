@@ -117,27 +117,24 @@ pub struct AppliedCompatibilityOptions {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Theme {
+    #[serde(
+        alias = "eggplant",
+        alias = "ocean",
+        alias = "forest",
+        alias = "amber",
+        alias = "custom"
+    )]
     System,
     Dark,
     Light,
-    Eggplant,
-    Ocean,
-    Forest,
-    Amber,
-    Custom,
 }
 
 impl Theme {
     fn parse(value: &str) -> Result<Self, String> {
         match value {
-            "system" => Ok(Self::System),
+            "system" | "eggplant" | "ocean" | "forest" | "amber" | "custom" => Ok(Self::System),
             "dark" => Ok(Self::Dark),
             "light" => Ok(Self::Light),
-            "eggplant" => Ok(Self::Eggplant),
-            "ocean" => Ok(Self::Ocean),
-            "forest" => Ok(Self::Forest),
-            "amber" => Ok(Self::Amber),
-            "custom" => Ok(Self::Custom),
             _ => Err(format!("stored theme is invalid: {value}")),
         }
     }
@@ -147,16 +144,11 @@ impl Theme {
             Self::System => "system",
             Self::Dark => "dark",
             Self::Light => "light",
-            Self::Eggplant => "eggplant",
-            Self::Ocean => "ocean",
-            Self::Forest => "forest",
-            Self::Amber => "amber",
-            Self::Custom => "custom",
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     #[serde(default = "default_true")]
@@ -180,6 +172,8 @@ pub struct Settings {
     pub launch_minimized: bool,
     #[serde(default)]
     pub launch_in_library: bool,
+    #[serde(default = "default_true")]
+    pub sidebar_collapsed: bool,
     #[serde(default = "default_true")]
     pub download_notifications: bool,
     #[serde(default = "default_true")]
@@ -220,6 +214,7 @@ impl Default for Settings {
             launch_on_system_start: false,
             launch_minimized: false,
             launch_in_library: false,
+            sidebar_collapsed: true,
             download_notifications: true,
             verify_verified_downloads: true,
             diagnostics_enabled: true,
@@ -518,7 +513,7 @@ impl Database {
             )?;
             settings.theme = theme;
             settings.steam_library_poll_minutes = steam_library_poll_minutes;
-            crate::appearance::validate(&settings.appearance, &settings.theme)?;
+            crate::appearance::validate(&settings.appearance)?;
             // Persist first-run detection before background Steam import can add games.
             if initialize_preferences {
                 let preferences =
@@ -535,7 +530,7 @@ impl Database {
     }
 
     pub fn save_settings(&self, settings: Settings) -> Result<Settings, String> {
-        crate::appearance::validate(&settings.appearance, &settings.theme)?;
+        crate::appearance::validate(&settings.appearance)?;
         validate_steam_library_poll_minutes(settings.steam_library_poll_minutes)?;
         if settings.launch_minimized && !settings.launch_on_system_start {
             return Err("Launch minimized requires launch on system startup".to_owned());
@@ -1867,26 +1862,44 @@ mod tests {
     }
 
     #[test]
-    fn appearance_defaults_and_custom_palettes_survive_reopen() {
+    fn appearance_defaults_and_background_effects_survive_reopen() {
         let old: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
         assert_eq!(old.appearance, crate::appearance::Appearance::default());
         let directory = temporary_directory();
         let database = Database::open(&directory).unwrap();
-        let mut settings = Settings::default();
-        let mut presets: Vec<crate::appearance::CustomTheme> =
-            serde_json::from_str(include_str!("../../src/lib/services/theme-presets.json"))
-                .unwrap();
-        let mut custom = presets.remove(2);
-        custom.id = Uuid::new_v4().to_string();
-        settings.theme = Theme::Custom;
-        settings.appearance.custom_theme_id = Some(custom.id.clone());
-        settings.appearance.custom_themes.push(custom);
-        settings.appearance.background_blur = 16;
-        settings.appearance.transparent = true;
+        let settings = Settings {
+            theme: Theme::Dark,
+            appearance: crate::appearance::Appearance {
+                background_blur: 16,
+                background_opacity: 40,
+                transparent: true,
+                ..crate::appearance::Appearance::default()
+            },
+            ..Settings::default()
+        };
         database.save_settings(settings.clone()).unwrap();
         drop(database);
         let reopened = Database::open(&directory).unwrap();
         assert_eq!(reopened.settings().unwrap(), settings);
+        drop(reopened);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn sidebar_collapsed_defaults_to_true_and_survives_reopen() {
+        let defaults: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(defaults.sidebar_collapsed);
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        database
+            .save_settings(Settings {
+                sidebar_collapsed: false,
+                ..Settings::default()
+            })
+            .unwrap();
+        drop(database);
+        let reopened = Database::open(&directory).unwrap();
+        assert!(!reopened.settings().unwrap().sidebar_collapsed);
         drop(reopened);
         fs::remove_dir_all(directory).unwrap();
     }
