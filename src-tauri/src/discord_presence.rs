@@ -13,20 +13,31 @@ use crate::{
     game_lifecycle::{GameLaunchManager, GameLaunchState, GameStatus},
 };
 
+const APPLICATION_ID: &str = "1557120430475575366";
+
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
 const RETRY_INTERVAL: Duration = Duration::from_secs(15);
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct PresenceSettings {
     pub enabled: bool,
     pub application_id: String,
 }
 
+impl Default for PresenceSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            application_id: APPLICATION_ID.to_owned(),
+        }
+    }
+}
+
 impl PresenceSettings {
     pub(crate) fn validate(&self) -> Result<(), String> {
-        if self.application_id.is_empty() && !self.enabled {
+        if self.application_id.is_empty() {
             return Ok(());
         }
         if !(17..=20).contains(&self.application_id.len())
@@ -97,7 +108,10 @@ fn snapshot(
     database: &Database,
     manager: &GameLaunchManager,
 ) -> Result<(PresenceSettings, Activity), String> {
-    let settings = database.settings()?.discord_presence;
+    let mut settings = database.settings()?.discord_presence;
+    if settings.application_id.is_empty() {
+        settings.application_id = APPLICATION_ID.to_owned();
+    }
     settings.validate()?;
     let mut activity = Activity {
         name: None,
@@ -258,14 +272,17 @@ mod tests {
     fn validates_ids_and_defaults_old_settings_to_disabled() {
         let defaults: PresenceSettings = serde_json::from_str("{}").unwrap();
         assert!(!defaults.enabled);
+        assert_eq!(defaults.application_id, APPLICATION_ID);
+        assert!(
+            PresenceSettings {
+                enabled: true,
+                application_id: String::new()
+            }
+            .validate()
+            .is_ok()
+        );
         assert!(defaults.validate().is_ok());
-        for id in [
-            "",
-            "abc",
-            "123",
-            "18446744073709551616",
-            " 123456789012345678",
-        ] {
+        for id in ["abc", "123", "18446744073709551616", " 123456789012345678"] {
             assert!(
                 PresenceSettings {
                     enabled: true,

@@ -47,13 +47,12 @@ activity. If multiple games are running, the most recently started game is shown
 The feature is disabled by default and works through local Discord desktop IPC
 on Linux and Windows; it does not require a bot token or a Discord login in Legio.
 
-Create an application named **Legio** in the
-[Discord Developer Portal](https://discord.com/developers/applications), copy its
-**Application ID**, and save that ID in Legio before enabling the toggle. The
-application's name determines the name displayed by Discord. Keep Discord desktop
-running and enable activity sharing in Discord's privacy/activity settings.
-No client secret or bot token is needed. A shared official Application ID can
-replace this per-install setup once a Legio Discord application is available.
+Legio's Discord Application ID (`1557120430475575366`) is configured by default.
+Enable the toggle, keep Discord desktop running, and enable activity sharing in
+Discord's privacy/activity settings. No setup in the Developer Portal, client
+secret or bot token is needed. The Application ID field is an optional override
+for users who want to use their own Discord application. Empty IDs saved by earlier
+builds fall back to Legio's official application.
 
 Legio retries if Discord starts later or restarts. Disabling the toggle clears
 Legio's activity and disconnects; exiting Legio closes its IPC connection. Closing

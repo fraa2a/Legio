@@ -1,7 +1,7 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
   import { saveSettings } from "../../services/local-state";
-  import { settings } from "../../stores/settings";
+  import { defaultSettings, settings } from "../../stores/settings";
   import { toMessage } from "../../utils/errors";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
@@ -9,7 +9,7 @@
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
 
-  let applicationId = $derived($settings.data.discordPresence.applicationId);
+  let applicationId = $derived($settings.data.discordPresence.applicationId || defaultSettings.discordPresence.applicationId);
   let saving = $state(false);
   let error = $state<string | null>(null);
 
@@ -36,7 +36,7 @@
   <p class="text-xs text-zinc-500">{t("Condivide il nome del gioco e il tempo della sessione. Richiede Discord desktop aperto e la condivisione dell'attività abilitata su Discord.", $language)}</p>
   <TextField id="discord-application-id" label="Discord Application ID"
     bind:value={applicationId} inputmode="numeric" disabled={saving}
-    hint={t("Crea un'applicazione chiamata Legio nel Discord Developer Portal e copia il suo Application ID. Non inserire token o segreti.", $language)} />
+    hint={t("L'ID di Legio è già configurato. Modificalo solo per usare una tua applicazione Discord. Non inserire token o segreti.", $language)} />
   <Button label={t("Salva Application ID", $language)} variant="secondary"
     disabled={saving || applicationId.trim() === $settings.data.discordPresence.applicationId}
     onClick={() => void save($settings.data.discordPresence.enabled)} />
