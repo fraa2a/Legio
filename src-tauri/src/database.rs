@@ -151,6 +151,8 @@ impl Theme {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
+    #[serde(default)]
+    pub discord_presence: crate::discord_presence::PresenceSettings,
     #[serde(default = "default_true")]
     pub onboarding_completed: bool,
     pub theme: Theme,
@@ -203,6 +205,7 @@ fn validate_steam_library_poll_minutes(minutes: u32) -> Result<(), String> {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            discord_presence: crate::discord_presence::PresenceSettings::default(),
             onboarding_completed: false,
             theme: Theme::System,
             appearance: crate::appearance::Appearance::default(),
@@ -531,6 +534,7 @@ impl Database {
 
     pub fn save_settings(&self, settings: Settings) -> Result<Settings, String> {
         crate::appearance::validate(&settings.appearance)?;
+        settings.discord_presence.validate()?;
         validate_steam_library_poll_minutes(settings.steam_library_poll_minutes)?;
         if settings.launch_minimized && !settings.launch_on_system_start {
             return Err("Launch minimized requires launch on system startup".to_owned());
@@ -1878,6 +1882,33 @@ mod tests {
             ..Settings::default()
         };
         database.save_settings(settings.clone()).unwrap();
+        drop(database);
+        let reopened = Database::open(&directory).unwrap();
+        assert_eq!(reopened.settings().unwrap(), settings);
+        drop(reopened);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn discord_presence_defaults_persist_and_invalid_ids_do_not_overwrite_settings() {
+        let old: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(
+            old.discord_presence,
+            crate::discord_presence::PresenceSettings::default()
+        );
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let settings = Settings {
+            discord_presence: crate::discord_presence::PresenceSettings {
+                enabled: true,
+                application_id: "123456789012345678".to_owned(),
+            },
+            ..Settings::default()
+        };
+        database.save_settings(settings.clone()).unwrap();
+        let mut invalid = settings.clone();
+        invalid.discord_presence.application_id = "invalid".to_owned();
+        assert!(database.save_settings(invalid).is_err());
         drop(database);
         let reopened = Database::open(&directory).unwrap();
         assert_eq!(reopened.settings().unwrap(), settings);

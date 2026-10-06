@@ -45,5 +45,9 @@ pub(crate) fn save(app: &AppHandle, settings: Settings) -> Result<Settings, Stri
         tray.set_menu(Some(menu))
             .map_err(|error| error.to_string())?;
     }
+    if saved.discord_presence != previous.discord_presence {
+        app.state::<crate::discord_presence::PresenceService>()
+            .refresh();
+    }
     Ok(saved)
 }

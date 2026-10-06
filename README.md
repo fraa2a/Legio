@@ -38,3 +38,24 @@ Steam must be installed for Steam integration and for games that require it.
 ## License
 
 See [LICENSE](LICENSE) for the terms of use and distribution.
+
+## Discord Rich Presence
+
+Enable Discord Rich Presence in **Settings > General** to share the running game's
+name and session timer. When no game is running, Discord shows Legio's library
+activity. If multiple games are running, the most recently started game is shown.
+The feature is disabled by default and works through local Discord desktop IPC
+on Linux and Windows; it does not require a bot token or a Discord login in Legio.
+
+Create an application named **Legio** in the
+[Discord Developer Portal](https://discord.com/developers/applications), copy its
+**Application ID**, and save that ID in Legio before enabling the toggle. The
+application's name determines the name displayed by Discord. Keep Discord desktop
+running and enable activity sharing in Discord's privacy/activity settings.
+No client secret or bot token is needed. A shared official Application ID can
+replace this per-install setup once a Legio Discord application is available.
+
+Legio retries if Discord starts later or restarts. Disabling the toggle clears
+Legio's activity and disconnects; exiting Legio closes its IPC connection. Closing
+the window to the tray keeps Rich Presence active. Only the game name and session
+start time are published, never executable paths, Steam accounts or launch options.
