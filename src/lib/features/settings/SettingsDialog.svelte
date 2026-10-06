@@ -9,7 +9,7 @@
   import GeneralSettings from "./GeneralSettings.svelte";
   import { appInfo } from "../../stores/app-info";
 
-  let { onClose }: { onClose: () => void } = $props();
+  let { onClose, accent }: { onClose: () => void; accent: string } = $props();
 
   const categories: { id: string; label: string; icon: IconName }[] = $derived([
     { id: "general", label: t("Generali", $language), icon: "settings" },
@@ -66,7 +66,7 @@
       {#if active === "general"}
         <GeneralSettings />
       {:else if active === "appearance"}
-        <ThemeSettings />
+        <ThemeSettings {accent} />
       {:else if active === "downloads"}
         <DownloadSettings />
       {:else if active === "compatibility" && $appInfo.data.platform === "linux"}

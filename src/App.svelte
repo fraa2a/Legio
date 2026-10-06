@@ -20,7 +20,7 @@
   const appearance = $derived($appearancePreview?.appearance ?? $settings.data.appearance);
   const theme = $derived($appearancePreview?.theme ?? $settings.data.theme);
   let prefersDark = $state(window.matchMedia("(prefers-color-scheme: dark)").matches);
-  const accent = $derived(activePalette(theme, appearance, prefersDark).palette.accent);
+  const accent = $derived(activePalette(theme, prefersDark).palette.accent);
 
   let updateDismissed = $state(false);
 
@@ -63,7 +63,7 @@
 
 <svelte:window oncontextmenu={blockContextMenu} />
 
-<AppBackground id={appearance.background} animation={appearance.animatedBackground} animationOpacity={appearance.animatedOpacity} {accent} />
+<AppBackground id={appearance.background} animation={appearance.animatedBackground} animationOpacity={appearance.animatedOpacity} {accent} dither={appearance.dither} />
 <div class="legio-shell relative flex h-dvh select-none">
   {#if $settings.status === "ready" && $settings.data.onboardingCompleted}<Sidebar />{/if}
   <div class="flex min-w-0 flex-1 flex-col pl-2.5 pr-2.5 pb-1.5">
@@ -81,7 +81,7 @@
 </div>
 
 {#if $settingsOpen}
-  <SettingsDialog onClose={closeSettings} />
+  <SettingsDialog onClose={closeSettings} {accent} />
 {/if}
 
 <ToastNotice />

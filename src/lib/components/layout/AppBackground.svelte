@@ -1,15 +1,17 @@
 <script lang="ts">
   import { t } from "../../i18n";
   import { onDestroy } from "svelte";
-  import { loadBackground } from "../../services/appearance";
+  import { loadBackground, type DitherSettings } from "../../services/appearance";
   import AnimatedBackground from "./AnimatedBackground.svelte";
+  import DitherBackground from "./DitherBackground.svelte";
   import { toMessage } from "../../utils/errors";
 
-  let { id, animation, animationOpacity, accent }: {
+  let { id, animation, animationOpacity, accent, dither }: {
     id: string | null;
     animation: "none" | "particles" | "dither";
     animationOpacity: number;
     accent: string;
+    dither: DitherSettings;
   } = $props();
   const selectedId = $derived(id);
   let url = $state<string | null>(null);
@@ -65,8 +67,10 @@
 
 <div class="legio-backdrop" aria-hidden="true">
   {#if url}<img src={url} alt="" class="legio-wallpaper" onerror={imageFailed} />{/if}
-  {#if animation !== "none"}
-    {#key animation + accent}<AnimatedBackground kind={animation} opacity={animationOpacity} color={accent} />{/key}
+  {#if animation === "dither"}
+    <DitherBackground opacity={animationOpacity} settings={dither} {accent} />
+  {:else if animation !== "none"}
+    {#key animation + accent}<AnimatedBackground opacity={animationOpacity} color={accent} />{/key}
   {/if}
 </div>
 {#if error}

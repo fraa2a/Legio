@@ -1,72 +1,85 @@
 use std::{
-    collections::HashSet,
     fs::{self, File, OpenOptions},
     io::{Cursor, Read, Write},
     path::{Path, PathBuf},
 };
 
-use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
-use crate::database::{DatabaseState, Settings, Theme};
+use crate::database::DatabaseState;
 
 const MAX_IMAGE_BYTES: u64 = 16 * 1024 * 1024;
-const MAX_THEME_BYTES: u64 = 24 * 1024 * 1024;
-const MAX_CUSTOM_THEMES: usize = 20;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Palette {
-    pub background: String,
-    pub surface: String,
-    pub raised: String,
-    pub text: String,
-    pub muted: String,
-    pub accent: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ColorScheme {
-    Dark,
-    Light,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct CustomTheme {
-    pub id: String,
-    pub name: String,
-    pub scheme: ColorScheme,
-    pub palette: Palette,
-}
-
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AnimatedBackground {
     #[default]
     None,
     Particles,
-    #[serde(alias = "aurora")]
     Dither,
+}
+
+impl<'de> Deserialize<'de> for AnimatedBackground {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Ok(match value.as_str() {
+            "particles" => Self::Particles,
+            "dither" => Self::Dither,
+            _ => Self::None,
+        })
+    }
 }
 
 fn default_animated_opacity() -> u8 {
     65
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DitherSettings {
+    pub wave_speed: f32,
+    pub wave_frequency: f32,
+    pub wave_amplitude: f32,
+    pub wave_color: Option<String>,
+    pub background_color: String,
+    pub color_num: u8,
+    pub pixel_size: u8,
+    pub disable_animation: bool,
+    pub enable_mouse_interaction: bool,
+    pub mouse_radius: f32,
+}
+
+impl Default for DitherSettings {
+    fn default() -> Self {
+        Self {
+            wave_speed: 0.05,
+            wave_frequency: 3.0,
+            wave_amplitude: 0.3,
+            wave_color: None,
+            background_color: "#000000".to_owned(),
+            color_num: 4,
+            pixel_size: 2,
+            disable_animation: false,
+            enable_mouse_interaction: true,
+            mouse_radius: 1.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Appearance {
-    pub custom_themes: Vec<CustomTheme>,
-    pub custom_theme_id: Option<String>,
     pub background: Option<String>,
     pub background_blur: u8,
     pub background_opacity: u8,
     pub animated_background: AnimatedBackground,
     pub animated_opacity: u8,
+    pub dither: DitherSettings,
     pub surface_opacity: u8,
     pub surface_blur: u8,
     pub dialog_opacity: u8,
@@ -77,86 +90,74 @@ pub struct Appearance {
 impl Default for Appearance {
     fn default() -> Self {
         Self {
-            custom_themes: Vec::new(),
-            custom_theme_id: None,
             background: None,
             background_blur: 0,
             background_opacity: 60,
             animated_background: AnimatedBackground::None,
             animated_opacity: default_animated_opacity(),
+            dither: DitherSettings::default(),
             surface_opacity: 90,
             surface_blur: 0,
-            dialog_opacity: default_dialog_opacity(),
+            dialog_opacity: 90,
             dialog_blur: 0,
             transparent: false,
         }
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ThemeFile {
-    schema_version: u8,
-    name: String,
-    scheme: ColorScheme,
-    palette: Palette,
-    background_image: Option<String>,
-    background_blur: u8,
-    background_opacity: u8,
-    #[serde(default)]
-    animated_background: AnimatedBackground,
-    #[serde(default = "default_animated_opacity")]
-    animated_opacity: u8,
-    surface_opacity: u8,
-    #[serde(default)]
-    surface_blur: u8,
-    #[serde(default = "default_dialog_opacity")]
-    dialog_opacity: u8,
-    #[serde(default)]
-    dialog_blur: u8,
-    transparent: bool,
-}
-
-fn default_dialog_opacity() -> u8 {
-    90
-}
-
-pub(crate) fn validate(appearance: &Appearance, theme: &Theme) -> Result<(), String> {
-    if appearance.custom_themes.len() > MAX_CUSTOM_THEMES {
-        return Err("At most 20 custom themes can be saved".to_owned());
-    }
-    let mut ids = HashSet::new();
-    for custom in &appearance.custom_themes {
-        validate_id(&custom.id)?;
-        if !ids.insert(&custom.id) {
-            return Err("Custom theme IDs must be unique".to_owned());
-        }
-        validate_name(&custom.name)?;
-        validate_palette(&custom.palette)?;
-        validate_scheme(&custom.palette, &custom.scheme)?;
-    }
-    if let Some(id) = &appearance.custom_theme_id {
-        validate_id(id)?;
-        if !ids.contains(id) {
-            return Err("The selected custom theme does not exist".to_owned());
-        }
-    } else if *theme == Theme::Custom {
-        return Err("Select a custom palette before enabling a custom theme".to_owned());
-    }
-    if let Some(id) = &appearance.background {
-        validate_id(id)?;
-    }
+pub(crate) fn validate(appearance: &Appearance) -> Result<(), String> {
     if appearance.background_blur > 40
+        || appearance.surface_blur > 40
+        || appearance.dialog_blur > 40
         || appearance.background_opacity > 100
         || appearance.animated_opacity > 100
         || appearance.surface_opacity > 100
         || appearance.dialog_opacity > 100
-        || appearance.surface_blur > 40
-        || appearance.dialog_blur > 40
     {
         return Err("Blur values must be 0-40 and opacity values must be 0-100".to_owned());
     }
-    Ok(())
+    if let Some(id) = &appearance.background {
+        validate_id(id)?;
+    }
+    validate_dither(&appearance.dither)
+}
+
+fn validate_dither(dither: &DitherSettings) -> Result<(), String> {
+    let range = |value: f32, min: f32, max: f32| value.is_finite() && (min..=max).contains(&value);
+    if !range(dither.wave_speed, 0.0, 1.0) {
+        return Err("Dither wave speed must be between 0 and 1".to_owned());
+    }
+    if !range(dither.wave_frequency, 0.0, 10.0) {
+        return Err("Dither wave frequency must be between 0 and 10".to_owned());
+    }
+    if !range(dither.wave_amplitude, 0.0, 1.0) {
+        return Err("Dither wave amplitude must be between 0 and 1".to_owned());
+    }
+    if !range(dither.mouse_radius, 0.0, 2.0) {
+        return Err("Dither mouse radius must be between 0 and 2".to_owned());
+    }
+    if !(2..=64).contains(&dither.color_num) {
+        return Err("Dither color count must be between 2 and 64".to_owned());
+    }
+    if !(1..=16).contains(&dither.pixel_size) {
+        return Err("Dither pixel size must be between 1 and 16".to_owned());
+    }
+    if let Some(color) = &dither.wave_color {
+        validate_color(color)?;
+    }
+    validate_color(&dither.background_color)
+}
+
+fn validate_color(color: &str) -> Result<(), String> {
+    let hex = color.len() == 7
+        && color.starts_with('#')
+        && color.is_ascii()
+        && color[1..].chars().all(|digit| digit.is_ascii_hexdigit());
+    if hex {
+        Ok(())
+    } else {
+        Err("Dither colors must be hex values such as #ff8800".to_owned())
+    }
 }
 
 fn validate_id(id: &str) -> Result<(), String> {
@@ -165,75 +166,6 @@ fn validate_id(id: &str) -> Result<(), String> {
     } else {
         Err("Appearance asset IDs must be canonical UUIDs".to_owned())
     }
-}
-
-fn validate_name(name: &str) -> Result<(), String> {
-    if name.trim().is_empty() || name.chars().count() > 64 || name.chars().any(char::is_control) {
-        return Err(
-            "Theme names must contain 1-64 characters without control characters".to_owned(),
-        );
-    }
-    Ok(())
-}
-
-fn rgb(color: &str) -> Result<[u8; 3], String> {
-    let bytes = color.as_bytes();
-    if bytes.len() != 7 || bytes[0] != b'#' || !bytes[1..].iter().all(u8::is_ascii_hexdigit) {
-        return Err("Palette colors must use #RRGGBB notation".to_owned());
-    }
-    let channel = |offset| {
-        u8::from_str_radix(&color[offset..offset + 2], 16)
-            .map_err(|_| "Invalid palette color".to_owned())
-    };
-    Ok([channel(1)?, channel(3)?, channel(5)?])
-}
-
-fn luminance(color: [u8; 3]) -> f64 {
-    let linear = color.map(|value| {
-        let value = f64::from(value) / 255.0;
-        if value <= 0.04045 {
-            value / 12.92
-        } else {
-            ((value + 0.055) / 1.055).powf(2.4)
-        }
-    });
-    linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722
-}
-
-fn validate_palette(palette: &Palette) -> Result<(), String> {
-    for color in [
-        &palette.background,
-        &palette.surface,
-        &palette.raised,
-        &palette.text,
-        &palette.muted,
-        &palette.accent,
-    ] {
-        rgb(color)?;
-    }
-    let text = luminance(rgb(&palette.text)?);
-    for background in [&palette.background, &palette.surface, &palette.raised] {
-        let background = luminance(rgb(background)?);
-        if (text.max(background) + 0.05) / (text.min(background) + 0.05) < 4.5 {
-            return Err(
-                "Theme text needs a contrast ratio of at least 4.5 against every panel".to_owned(),
-            );
-        }
-    }
-    Ok(())
-}
-
-fn validate_scheme(palette: &Palette, scheme: &ColorScheme) -> Result<(), String> {
-    let text = luminance(rgb(&palette.text)?);
-    for background in [&palette.background, &palette.surface, &palette.raised] {
-        let background = luminance(rgb(background)?);
-        if matches!(scheme, ColorScheme::Dark) != (text > background) {
-            return Err(
-                "The text and panel colors must match the selected light or dark scheme".to_owned(),
-            );
-        }
-    }
-    Ok(())
 }
 
 pub(crate) fn supports_transparency() -> bool {
@@ -384,134 +316,6 @@ pub async fn get_theme_background(
 }
 
 #[tauri::command]
-pub async fn import_theme_file(app: AppHandle, source: String) -> Result<Settings, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let bytes = read_bounded(Path::new(&source), MAX_THEME_BYTES)?;
-        let document: ThemeFile = serde_json::from_slice(&bytes)
-            .map_err(|error| format!("Invalid theme JSON: {error}"))?;
-        if document.schema_version != 1 {
-            return Err("Unsupported theme schema version".to_owned());
-        }
-        let state = app.state::<DatabaseState>();
-        let mut settings = state.database()?.settings()?;
-        let id = Uuid::new_v4().to_string();
-        settings.theme = Theme::Custom;
-        settings.appearance.custom_theme_id = Some(id.clone());
-        settings.appearance.custom_themes.push(CustomTheme {
-            id,
-            name: document.name,
-            scheme: document.scheme,
-            palette: document.palette,
-        });
-        settings.appearance.background = None;
-        settings.appearance.background_blur = document.background_blur;
-        settings.appearance.background_opacity = document.background_opacity;
-        settings.appearance.animated_background = document.animated_background;
-        settings.appearance.animated_opacity = document.animated_opacity;
-        settings.appearance.surface_opacity = document.surface_opacity;
-        settings.appearance.surface_blur = document.surface_blur;
-        settings.appearance.dialog_opacity = document.dialog_opacity;
-        settings.appearance.dialog_blur = document.dialog_blur;
-        settings.appearance.transparent = document.transparent;
-        validate(&settings.appearance, &settings.theme)?;
-        if let Some(encoded) = document.background_image {
-            let bytes = STANDARD
-                .decode(encoded)
-                .map_err(|_| "Invalid background encoding".to_owned())?;
-            let normalized = normalize_background(&bytes)?;
-            settings.appearance.background = Some(store_background(&app, &normalized)?);
-        }
-        state.database()?.save_settings(settings)
-    })
-    .await
-    .map_err(|error| error.to_string())?
-}
-
-#[tauri::command]
-pub async fn export_theme_file(
-    app: AppHandle,
-    destination: String,
-    prefers_dark: bool,
-) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<DatabaseState>();
-        let settings = state.database()?.settings()?;
-        let palette = active_palette(&settings, prefers_dark)?;
-        let background_image = settings
-            .appearance
-            .background
-            .as_deref()
-            .map(|id| load_background(&app, id).map(|bytes| STANDARD.encode(bytes)))
-            .transpose()?;
-        let document = ThemeFile {
-            schema_version: 1,
-            name: palette.name,
-            scheme: palette.scheme,
-            palette: palette.palette,
-            background_image,
-            background_blur: settings.appearance.background_blur,
-            background_opacity: settings.appearance.background_opacity,
-            animated_background: settings.appearance.animated_background,
-            animated_opacity: settings.appearance.animated_opacity,
-            surface_opacity: settings.appearance.surface_opacity,
-            surface_blur: settings.appearance.surface_blur,
-            dialog_opacity: settings.appearance.dialog_opacity,
-            dialog_blur: settings.appearance.dialog_blur,
-            transparent: settings.appearance.transparent,
-        };
-        let bytes = serde_json::to_vec_pretty(&document).map_err(|error| error.to_string())?;
-        let path = Path::new(&destination);
-        if !path.is_absolute()
-            || path
-                .extension()
-                .is_none_or(|extension| !extension.eq_ignore_ascii_case("json"))
-        {
-            return Err("Choose an absolute .json export path".to_owned());
-        }
-        // Existing files are preserved; choose a new filename to export again.
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)
-            .map_err(|error| format!("Could not create theme export: {error}"))?;
-        file.write_all(&bytes)
-            .and_then(|()| file.sync_all())
-            .map_err(|error| error.to_string())
-    })
-    .await
-    .map_err(|error| error.to_string())?
-}
-
-fn active_palette(settings: &Settings, prefers_dark: bool) -> Result<CustomTheme, String> {
-    if settings.theme == Theme::Custom {
-        return settings
-            .appearance
-            .custom_themes
-            .iter()
-            .find(|theme| Some(&theme.id) == settings.appearance.custom_theme_id.as_ref())
-            .cloned()
-            .ok_or_else(|| "The selected custom theme does not exist".to_owned());
-    }
-    let presets: Vec<CustomTheme> =
-        serde_json::from_str(include_str!("../../src/lib/services/theme-presets.json"))
-            .map_err(|error| format!("Could not load built-in themes: {error}"))?;
-    let id = match settings.theme {
-        Theme::System if prefers_dark => "dark",
-        Theme::System | Theme::Light => "light",
-        Theme::Dark => "dark",
-        Theme::Eggplant => "eggplant",
-        Theme::Ocean => "ocean",
-        Theme::Forest => "forest",
-        Theme::Amber => "amber",
-        Theme::Custom => return Err("Select a custom theme".to_owned()),
-    };
-    presets
-        .into_iter()
-        .find(|preset| preset.id == id)
-        .ok_or_else(|| "Built-in palette is missing".to_owned())
-}
-
-#[tauri::command]
 pub async fn cleanup_theme_backgrounds(app: AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatabaseState>();
@@ -541,10 +345,51 @@ mod tests {
     use super::*;
 
     #[test]
-    fn legacy_aurora_background_deserializes_as_dither() {
-        let background: AnimatedBackground = serde_json::from_str("\"aurora\"").unwrap();
-        assert_eq!(background, AnimatedBackground::Dither);
-        assert_eq!(serde_json::to_string(&background).unwrap(), "\"dither\"");
+    fn legacy_appearance_fields_are_tolerated() {
+        let appearance: Appearance = serde_json::from_str(
+            r#"{
+                "customThemes": [],
+                "customThemeId": null,
+                "background": null,
+                "backgroundBlur": 12,
+                "backgroundOpacity": 60,
+                "animatedBackground": "dither",
+                "animatedOpacity": 65,
+                "surfaceOpacity": 90,
+                "surfaceBlur": 8,
+                "dialogOpacity": 90,
+                "dialogBlur": 8,
+                "transparent": false
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(appearance.animated_background, AnimatedBackground::Dither);
+        assert_eq!(appearance.background_blur, 12);
+        assert_eq!(appearance.surface_opacity, 90);
+        assert_eq!(appearance.surface_blur, 8);
+        assert_eq!(appearance.dialog_opacity, 90);
+        assert_eq!(appearance.dialog_blur, 8);
+        assert_eq!(appearance.dither, DitherSettings::default());
+        let missing: Appearance = serde_json::from_str("{}").unwrap();
+        assert_eq!(missing, Appearance::default());
+    }
+
+    #[test]
+    fn unknown_animated_background_falls_back_to_none() {
+        let unknown: Appearance =
+            serde_json::from_str(r#"{"animatedBackground": "retro-glow"}"#).unwrap();
+        assert_eq!(unknown.animated_background, AnimatedBackground::None);
+        for background in [
+            AnimatedBackground::None,
+            AnimatedBackground::Particles,
+            AnimatedBackground::Dither,
+        ] {
+            let encoded = serde_json::to_string(&background).unwrap();
+            assert_eq!(
+                serde_json::from_str::<AnimatedBackground>(&encoded).unwrap(),
+                background
+            );
+        }
     }
 
     #[test]
@@ -562,102 +407,94 @@ mod tests {
     }
 
     #[test]
-    fn presets_have_readable_palettes() {
-        let presets: Vec<CustomTheme> =
-            serde_json::from_str(include_str!("../../src/lib/services/theme-presets.json"))
-                .unwrap();
-        for preset in presets {
-            validate_palette(&preset.palette).unwrap();
-            validate_scheme(&preset.palette, &preset.scheme).unwrap();
-        }
-    }
-
-    #[test]
-    fn imported_palettes_cannot_inject_css_or_hide_text() {
-        let mut palette = active_palette(&Settings::default(), true).unwrap().palette;
-        palette.accent = "url(https://example.com)".to_owned();
-        assert!(validate_palette(&palette).is_err());
-        palette.accent = "#ffffff".to_owned();
-        palette.text = palette.surface.clone();
-        assert!(validate_palette(&palette).is_err());
-        palette.text = "#é0000".to_owned();
-        assert!(validate_palette(&palette).is_err());
-    }
-
-    #[test]
-    fn rejects_missing_custom_palettes_and_out_of_bounds_effects() {
-        let mut appearance = Appearance::default();
-        assert!(validate(&appearance, &Theme::Custom).is_err());
-        appearance.background = Some("../outside".to_owned());
-        assert!(validate(&appearance, &Theme::Dark).is_err());
-        appearance.background = None;
-        appearance.background_blur = 41;
-        assert!(validate(&appearance, &Theme::Dark).is_err());
-        appearance.background_blur = 0;
-        appearance.surface_blur = 41;
-        assert!(validate(&appearance, &Theme::Dark).is_err());
-        appearance.surface_blur = 0;
-        appearance.dialog_opacity = 101;
-        assert!(validate(&appearance, &Theme::Dark).is_err());
-        appearance.dialog_opacity = 90;
-        appearance.dialog_blur = 41;
-        assert!(validate(&appearance, &Theme::Dark).is_err());
-    }
-
-    #[test]
-    fn portable_theme_round_trip_preserves_palette_and_background() {
-        let preset = active_palette(
-            &Settings {
-                theme: Theme::Eggplant,
-                ..Settings::default()
-            },
-            false,
-        )
-        .unwrap();
-        let mut png = Cursor::new(Vec::new());
-        image::DynamicImage::new_rgb8(4, 4)
-            .write_to(&mut png, image::ImageFormat::Png)
-            .unwrap();
-        let normalized = normalize_background(png.get_ref()).unwrap();
-        assert_eq!(image::load_from_memory(&normalized).unwrap().width(), 4);
-        let document = ThemeFile {
-            schema_version: 1,
-            name: preset.name,
-            scheme: preset.scheme,
-            palette: preset.palette,
-            background_image: Some(STANDARD.encode(&normalized)),
-            background_blur: 12,
-            background_opacity: 50,
-            animated_background: AnimatedBackground::Particles,
-            animated_opacity: 70,
-            surface_opacity: 80,
-            surface_blur: 12,
-            dialog_opacity: 75,
-            dialog_blur: 8,
-            transparent: true,
+    fn rejects_out_of_bounds_background_effects() {
+        let unsafe_id = Appearance {
+            background: Some("../outside".to_owned()),
+            ..Appearance::default()
         };
-        let decoded: ThemeFile =
-            serde_json::from_slice(&serde_json::to_vec(&document).unwrap()).unwrap();
-        assert_eq!(decoded.name, "Palette Viola Melanzana");
-        assert_eq!(
-            STANDARD.decode(decoded.background_image.unwrap()).unwrap(),
-            normalized
-        );
-        assert_eq!(decoded.background_blur, 12);
-        assert_eq!(decoded.surface_blur, 12);
-        assert_eq!(decoded.dialog_opacity, 75);
-        assert_eq!(decoded.dialog_blur, 8);
-        let mut old_document = serde_json::to_value(&document).unwrap();
-        old_document.as_object_mut().unwrap().remove("surfaceBlur");
-        old_document
-            .as_object_mut()
-            .unwrap()
-            .remove("dialogOpacity");
-        old_document.as_object_mut().unwrap().remove("dialogBlur");
-        let old_document: ThemeFile = serde_json::from_value(old_document).unwrap();
-        assert_eq!(old_document.surface_blur, 0);
-        assert_eq!(old_document.dialog_opacity, 90);
-        assert_eq!(old_document.dialog_blur, 0);
-        assert!(normalize_background(b"<svg onload='alert(1)'/>").is_err());
+        assert!(validate(&unsafe_id).is_err());
+        let blur = Appearance {
+            background_blur: 41,
+            ..Appearance::default()
+        };
+        assert!(validate(&blur).is_err());
+        let opacity = Appearance {
+            background_opacity: 101,
+            ..Appearance::default()
+        };
+        assert!(validate(&opacity).is_err());
+        let animated = Appearance {
+            animated_opacity: 101,
+            ..Appearance::default()
+        };
+        assert!(validate(&animated).is_err());
+        let surfaces = Appearance {
+            surface_opacity: 101,
+            ..Appearance::default()
+        };
+        assert!(validate(&surfaces).is_err());
+        let dialogs = Appearance {
+            dialog_opacity: 101,
+            ..Appearance::default()
+        };
+        assert!(validate(&dialogs).is_err());
+        let surface_blur = Appearance {
+            surface_blur: 41,
+            ..Appearance::default()
+        };
+        assert!(validate(&surface_blur).is_err());
+        let dialog_blur = Appearance {
+            dialog_blur: 41,
+            ..Appearance::default()
+        };
+        assert!(validate(&dialog_blur).is_err());
+        let wave_speed = Appearance {
+            dither: DitherSettings {
+                wave_speed: 1.5,
+                ..DitherSettings::default()
+            },
+            ..Appearance::default()
+        };
+        assert!(validate(&wave_speed).is_err());
+        let color_num = Appearance {
+            dither: DitherSettings {
+                color_num: 1,
+                ..DitherSettings::default()
+            },
+            ..Appearance::default()
+        };
+        assert!(validate(&color_num).is_err());
+        let pixel_size = Appearance {
+            dither: DitherSettings {
+                pixel_size: 0,
+                ..DitherSettings::default()
+            },
+            ..Appearance::default()
+        };
+        assert!(validate(&pixel_size).is_err());
+        let wave_color = Appearance {
+            dither: DitherSettings {
+                wave_color: Some("red".to_owned()),
+                ..DitherSettings::default()
+            },
+            ..Appearance::default()
+        };
+        assert!(validate(&wave_color).is_err());
+        let background_color = Appearance {
+            dither: DitherSettings {
+                background_color: "#ff88".to_owned(),
+                ..DitherSettings::default()
+            },
+            ..Appearance::default()
+        };
+        assert!(validate(&background_color).is_err());
+        let wave_color = Appearance {
+            dither: DitherSettings {
+                wave_color: Some("#ff8800".to_owned()),
+                ..DitherSettings::default()
+            },
+            ..Appearance::default()
+        };
+        assert!(validate(&wave_color).is_ok());
     }
 }
