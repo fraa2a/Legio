@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type { Appearance } from "./appearance";
 
-export type Theme = "system" | "dark" | "light" | "eggplant" | "ocean" | "forest" | "amber" | "custom";
+export type Theme = "system" | "dark" | "light";
 
 export interface Settings {
   onboardingCompleted: boolean;
@@ -16,6 +16,7 @@ export interface Settings {
   launchOnSystemStart: boolean;
   launchMinimized: boolean;
   launchInLibrary: boolean;
+  sidebarCollapsed: boolean;
   downloadNotifications: boolean;
   verifyVerifiedDownloads: boolean;
   diagnosticsEnabled: boolean;

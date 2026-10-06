@@ -1,12 +1,12 @@
 <script lang="ts">
   import { get } from "svelte/store";
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy } from "svelte";
   import { t, language } from "../../i18n";
   import type { Theme } from "../../services/local-state";
   import { saveSettings } from "../../services/local-state";
   import {
-    activePalette, chooseBackground, cleanupBackgrounds, defaultAppearance, exportTheme, importTheme,
-    readablePalette, themePresets, type Appearance, type Palette,
+    chooseBackground, cleanupBackgrounds, defaultAppearance, defaultDither, themePresets,
+    type Appearance,
   } from "../../services/appearance";
   import { appearancePreview } from "../../stores/appearance";
   import { appInfo } from "../../stores/app-info";
@@ -14,17 +14,19 @@
   import { toMessage } from "../../utils/errors";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
-  import SelectField from "../../components/ui/SelectField.svelte";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
-  import TextField from "../../components/ui/TextField.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
-  import Icon from "../../components/ui/Icon.svelte";
   import AppearanceSlider from "./AppearanceSlider.svelte";
   import { showToast } from "../../stores/toast";
 
+  let { accent }: { accent: string } = $props();
+
   type SliderKey = "backgroundBlur" | "backgroundOpacity" | "animatedOpacity" | "surfaceOpacity" | "surfaceBlur" | "dialogOpacity" | "dialogBlur";
-  type SliderConfig = { key: SliderKey; label: string; min: number; max: number; unit: string };
+  type SliderConfig = { key: SliderKey; label: string; min: number; max: number; unit: string; windowLocked?: boolean };
+  type DitherSliderKey = "waveSpeed" | "waveFrequency" | "waveAmplitude" | "colorNum" | "pixelSize" | "mouseRadius";
+  type DitherSliderConfig = { key: DitherSliderKey; label: string; min: number; max: number; step: number; decimals: number };
+  type DitherToggleKey = "disableAnimation" | "enableMouseInteraction";
 
   const initial = get(settings).data;
   let theme: Theme = $state(initial.theme);
@@ -37,33 +39,41 @@
   let busy = $state(false);
   let error = $state<string | null>(null);
   let disposed = false;
-  let prefersDark = $state(window.matchMedia("(prefers-color-scheme: dark)").matches);
-  let expandedCustomId = $state<string | null>(null);
 
   const serialized = $derived(JSON.stringify({ theme, appearance: draft }));
   const dirty = $derived(serialized !== baseline);
   const hyprland = $derived($appInfo.data.platform === "linux" && $appInfo.data.desktopEnvironment === "hyprland");
-  const palette = $derived(activePalette(theme, draft, prefersDark));
-  const editable = $derived(theme === "custom" && draft.customThemeId !== null);
-  const colorFields: { key: keyof Palette; label: string }[] = $derived([
-    { key: "background", label: t("Sfondo", $language) },
-    { key: "surface", label: t("Pannelli", $language) },
-    { key: "raised", label: t("Superfici in rilievo", $language) },
-    { key: "text", label: t("Testo", $language) },
-    { key: "muted", label: t("Testo secondario", $language) },
-    { key: "accent", label: t("Accento", $language) },
+  const windowTransparent = $derived(hyprland && draft.transparent);
+  const themeOptions: { id: Theme; label: string; preset: (typeof themePresets)[number] | null }[] = $derived([
+    { id: "system", label: t("Sistema", $language), preset: null },
+    ...themePresets.map((preset) => ({ id: preset.id as Theme, label: t(preset.name, $language), preset })),
   ]);
   const backgroundEffects: SliderConfig[] = $derived([
     { key: "backgroundBlur", label: t("Blur dello sfondo", $language), min: 0, max: 40, unit: "px" },
     { key: "backgroundOpacity", label: t("Opacità dell'immagine", $language), min: 0, max: 100, unit: "%" },
   ]);
-  const panelEffects: SliderConfig[] = $derived([
-    { key: "surfaceOpacity", label: t("Opacità", $language), min: 0, max: 100, unit: "%" },
-    { key: "surfaceBlur", label: t("Blur", $language), min: 0, max: 40, unit: "px" },
+  const surfaceEffects: SliderConfig[] = $derived([
+    { key: "surfaceOpacity", label: t("Opacità dei pannelli", $language), min: 0, max: 100, unit: "%" },
+    { key: "surfaceBlur", label: t("Blur dei pannelli", $language), min: 0, max: 40, unit: "px", windowLocked: true },
+    { key: "dialogOpacity", label: t("Opacità dei dialoghi", $language), min: 0, max: 100, unit: "%" },
+    { key: "dialogBlur", label: t("Blur dei dialoghi", $language), min: 0, max: 40, unit: "px", windowLocked: true },
   ]);
-  const dialogEffects: SliderConfig[] = $derived([
-    { key: "dialogOpacity", label: t("Opacità", $language), min: 0, max: 100, unit: "%" },
-    { key: "dialogBlur", label: t("Blur", $language), min: 0, max: 40, unit: "px" },
+  const animatedOptions: { id: Appearance["animatedBackground"]; label: string }[] = $derived([
+    { id: "none", label: t("Nessuno", $language) },
+    { id: "particles", label: t("Punti connessi", $language) },
+    { id: "dither", label: "Dither" },
+  ]);
+  const ditherEffects: DitherSliderConfig[] = $derived([
+    { key: "waveSpeed", label: t("Velocità dell'onda", $language), min: 0, max: 1, step: 0.01, decimals: 2 },
+    { key: "waveFrequency", label: t("Frequenza dell'onda", $language), min: 0, max: 10, step: 0.1, decimals: 1 },
+    { key: "waveAmplitude", label: t("Ampiezza dell'onda", $language), min: 0, max: 1, step: 0.01, decimals: 2 },
+    { key: "colorNum", label: t("Numero di colori", $language), min: 2, max: 64, step: 1, decimals: 0 },
+    { key: "pixelSize", label: t("Dimensione dei pixel", $language), min: 1, max: 16, step: 1, decimals: 0 },
+    { key: "mouseRadius", label: t("Raggio del mouse", $language), min: 0, max: 2, step: 0.05, decimals: 2 },
+  ]);
+  const ditherToggles: { key: DitherToggleKey; label: string }[] = $derived([
+    { key: "disableAnimation", label: t("Disattiva animazione", $language) },
+    { key: "enableMouseInteraction", label: t("Interazione con il mouse", $language) },
   ]);
 
   $effect(() => {
@@ -76,13 +86,6 @@
     return () => clearTimeout(timer);
   });
 
-  onMount(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const changed = () => { prefersDark = media.matches; };
-    media.addEventListener("change", changed);
-    return () => media.removeEventListener("change", changed);
-  });
-
   onDestroy(() => {
     disposed = true;
     appearancePreview.set(null);
@@ -92,43 +95,6 @@
       await cleanupBackgrounds();
     })().catch((reason) => console.error("Could not finish saving appearance", reason));
   });
-
-  function selectTheme(value: Theme, id: string | null = null): void {
-    if (value !== "custom" || (id !== null && id !== expandedCustomId)) expandedCustomId = null;
-    theme = value;
-    if (id !== null) draft.customThemeId = id;
-  }
-
-  function createCustom(): void {
-    const id = crypto.randomUUID();
-    draft.customThemes = [...draft.customThemes, {
-      ...structuredClone($state.snapshot(palette)), id, name: t("Il mio tema", $language),
-    }];
-    draft.customThemeId = id;
-    theme = "custom";
-    expandedCustomId = id;
-  }
-
-  function expandCustom(id: string): void {
-    if (expandedCustomId === id) {
-      expandedCustomId = null;
-      return;
-    }
-    selectTheme("custom", id);
-    expandedCustomId = id;
-  }
-
-  function updateCustom(changes: Partial<{ name: string; scheme: "dark" | "light"; palette: Palette }>): void {
-    draft.customThemes = draft.customThemes.map((custom) =>
-      custom.id === draft.customThemeId ? { ...custom, ...changes } : custom);
-  }
-
-  function removeCustom(): void {
-    expandedCustomId = null;
-    draft.customThemes = draft.customThemes.filter((custom) => custom.id !== draft.customThemeId);
-    draft.customThemeId = draft.customThemes[0]?.id ?? null;
-    theme = draft.customThemeId === null ? "dark" : "custom";
-  }
 
   function save(): Promise<void> {
     if (savingTask !== null) return savingTask;
@@ -170,44 +136,17 @@
     }
   }
 
-  async function importFile(): Promise<void> {
-    busy = true;
-    error = null;
-    try {
-      const imported = await importTheme();
-      if (imported !== null) {
-        settings.set(imported);
-        if (!disposed) {
-          theme = imported.theme;
-          draft = structuredClone(imported.appearance);
-          baseline = JSON.stringify({ theme, appearance: imported.appearance });
-          showToast(t("Tema importato e applicato.", get(language)));
-        }
-        await cleanupBackgrounds();
-      }
-    } catch (reason) {
-      error = toMessage(reason);
-    } finally {
-      busy = false;
-    }
+  function isLocked(effect: SliderConfig): boolean {
+    return effect.windowLocked === true && windowTransparent;
   }
 
-  async function exportFile(): Promise<void> {
-    busy = true;
-    error = null;
-    try {
-      if (await exportTheme()) showToast(t("Tema esportato.", get(language)));
-    } catch (reason) {
-      error = toMessage(reason);
-    } finally {
-      busy = false;
-    }
+  function setDitherValue(key: DitherSliderKey, value: number, decimals: number): void {
+    draft.dither[key] = Math.round(value * 10 ** decimals) / 10 ** decimals;
   }
 
   function reset(): void {
     theme = "system";
-    expandedCustomId = null;
-    draft = { ...defaultAppearance(), customThemes: draft.customThemes };
+    draft = defaultAppearance();
   }
 </script>
 
@@ -222,58 +161,24 @@
 <section class="appearance-settings flex flex-col gap-4">
   {#if error}<ErrorBanner message={error} />{/if}
 
-  <SettingsGroup title={t("Tema", $language)} icon="palette">
-    <div class="flex justify-end">
-      <button type="button" class="flex h-9 items-center gap-2 rounded-lg border border-legio-accent/50 bg-legio-accent/10 px-3 text-sm text-legio-accent transition-colors hover:border-legio-accent hover:bg-legio-accent/20 disabled:opacity-40" aria-label={t("Crea tema dalla palette attuale", $language)} title={t("Crea tema dalla palette attuale", $language)} disabled={busy || draft.customThemes.length >= 20} onclick={createCustom}><Icon name="plus" size="size-4" />{t("Crea tema", $language)}</button>
-    </div>
-    <fieldset disabled={busy} class="grid grid-cols-2 gap-2">
+  <SettingsGroup title={t("Tema", $language)} icon="palette" collapsible>
+    <fieldset disabled={busy} class="grid grid-cols-2 gap-2 sm:grid-cols-3">
       <legend class="sr-only">{t("Palette predefinite", $language)}</legend>
-      {#each themePresets.filter((preset) => preset.id === "dark" || preset.id === "light") as preset (preset.id)}
-        <label class="flex min-h-16 cursor-pointer items-center gap-2 rounded-lg px-3 py-2 transition-colors focus-within:outline-2 focus-within:outline-legio-accent {theme === preset.id ? 'bg-legio-accent/10' : 'hover:bg-white/5 light:hover:bg-zinc-900/5'}">
-          <input class="sr-only" type="radio" name="theme" checked={theme === preset.id} onchange={() => selectTheme(preset.id as Theme)} />
-          <span class="flex shrink-0 -space-x-1" aria-hidden="true"><span class="size-4 rounded-full border border-white/20" style:background-color={preset.palette.background}></span><span class="size-4 rounded-full border border-white/20" style:background-color={preset.palette.accent}></span></span>
-          <span class="truncate text-sm text-zinc-100 light:text-zinc-900">{t(preset.name, $language)}</span>
+      {#each themeOptions as option (option.id)}
+        <label class="flex min-h-16 cursor-pointer items-center gap-2 rounded-lg px-3 py-2 transition-colors focus-within:outline-2 focus-within:outline-legio-accent {theme === option.id ? 'bg-legio-accent/10' : 'hover:bg-white/5 light:hover:bg-zinc-900/5'}">
+          <input class="sr-only" type="radio" name="theme" value={option.id} checked={theme === option.id} onchange={() => { theme = option.id; }} />
+          {#if option.preset}
+            <span class="flex shrink-0 -space-x-1" aria-hidden="true"><span class="size-4 rounded-full border border-white/20" style:background-color={option.preset.palette.background}></span><span class="size-4 rounded-full border border-white/20" style:background-color={option.preset.palette.accent}></span></span>
+          {:else}
+            <span class="grid size-4 shrink-0 place-items-center rounded-full border-2 {theme === option.id ? 'border-legio-accent' : 'border-zinc-500'}" aria-hidden="true">{#if theme === option.id}<span class="size-2 rounded-full bg-legio-accent"></span>{/if}</span>
+          {/if}
+          <span class="truncate text-sm text-zinc-100 light:text-zinc-900">{option.label}</span>
         </label>
       {/each}
     </fieldset>
-    <SelectField id="theme-additional" label={t("Altri temi", $language)}
-      value={theme === "custom" ? "custom:" + draft.customThemeId : theme === "dark" || theme === "light" ? "" : theme}
-      options={[
-        { value: "", label: t("Scegli un tema", $language) },
-        { value: "system", label: t("Sistema", $language) },
-        ...themePresets.filter((preset) => preset.id !== "dark" && preset.id !== "light").map((preset) => ({ value: preset.id, label: preset.id === "eggplant" ? preset.name : t(preset.name, $language) })),
-        ...draft.customThemes.map((custom) => ({ value: "custom:" + custom.id, label: custom.name })),
-      ]}
-      disabled={busy} onChange={(value) => {
-        if (value.startsWith("custom:")) selectTheme("custom", value.slice(7));
-        else if (value !== "") selectTheme(value as Theme);
-      }} />
-    {#if editable}
-      <Button variant="secondary" label={t("Modifica la palette {0}", $language, [palette.name])} disabled={busy} onClick={() => expandCustom(palette.id)} />
-    {/if}
-    {#if editable && expandedCustomId === draft.customThemeId}
-      <div class="mt-2 flex flex-col gap-4 pt-4">
-        <div class="grid gap-3 sm:grid-cols-2">
-          <div class="flex items-end gap-2"><div class="min-w-0 flex-1"><TextField id="theme-name" label={t("Nome del tema", $language)} value={palette.name} disabled={busy} oninput={(name) => updateCustom({ name })} /></div><ResetSetting label={t("Ripristina nome del tema", $language)} disabled={busy || palette.name === t("Il mio tema", $language)} onClick={() => updateCustom({ name: t("Il mio tema", $language) })} /></div>
-          <div class="flex items-end gap-2"><div class="min-w-0 flex-1"><SelectField id="theme-scheme" label={t("Schema dei controlli", $language)} value={palette.scheme} options={[{ value: "dark", label: t("Scuro", $language) }, { value: "light", label: t("Chiaro", $language) }]} borderless disabled={busy} onChange={(scheme) => { if (scheme === "dark" || scheme === "light") updateCustom({ scheme }); }} /></div><ResetSetting label={t("Ripristina schema del tema", $language)} disabled={busy || palette.scheme === "dark"} onClick={() => updateCustom({ scheme: "dark" })} /></div>
-        </div>
-        <fieldset disabled={busy} class="grid gap-3 sm:grid-cols-2">
-          <legend class="mb-2 text-xs font-medium text-zinc-400 light:text-zinc-600">{t("Colori della palette", $language)}</legend>
-          {#each colorFields as field (field.key)}
-            <div class="flex items-center gap-1">
-              <label for={"theme-color-" + field.key} class="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-zinc-300 light:text-zinc-700"><span>{field.label}</span><input id={"theme-color-" + field.key} type="color" value={palette.palette[field.key]} class="h-9 w-12 cursor-pointer rounded border border-white/15 bg-transparent light:border-zinc-900/15" oninput={(event) => updateCustom({ palette: { ...palette.palette, [field.key]: event.currentTarget.value } })} /></label>
-              <ResetSetting label={t("Ripristina {0}", $language, [field.label])} disabled={busy} onClick={() => updateCustom({ palette: { ...palette.palette, [field.key]: themePresets.find((preset) => preset.id === palette.scheme)?.palette[field.key] ?? palette.palette[field.key] } })} />
-            </div>
-          {/each}
-        </fieldset>
-        {#if !readablePalette(palette)}<p class="text-sm text-amber-400 light:text-amber-700" role="status">{t("Contrasto insufficiente o schema incoerente: il launcher usa una palette leggibile.", $language)}</p>{/if}
-        <p class="text-xs text-zinc-500">{t("Il testo deve rimanere leggibile su sfondo e pannelli. I temi con contrasto insufficiente non vengono salvati.", $language)}</p>
-        <Button variant="danger" label={t("Elimina questo tema", $language)} disabled={busy} onClick={removeCustom} />
-      </div>
-    {/if}
   </SettingsGroup>
 
-  <SettingsGroup title={t("Sfondo e animazioni", $language)} icon="image">
+  <SettingsGroup title={t("Sfondo e animazioni", $language)} icon="image" collapsible>
     <div class="flex flex-wrap gap-2">
       <Button variant="secondary" label={t("Scegli uno sfondo", $language)} disabled={busy || saving} onClick={() => void selectBackground()} />
       {#if draft.background !== null}<Button variant="secondary" label={t("Rimuovi sfondo", $language)} disabled={busy} onClick={() => { draft.background = null; }} />{/if}
@@ -288,9 +193,9 @@
     {/if}
     <fieldset disabled={busy} class="grid gap-2 sm:grid-cols-3">
       <legend class="mb-2 text-sm font-medium text-zinc-100 light:text-zinc-900">{t("Effetto di sfondo animato", $language)}</legend>
-      {#each [{ id: "none", label: t("Nessuno", $language) }, { id: "particles", label: t("Punti connessi", $language) }, { id: "dither", label: "Dither" }] as option (option.id)}
+      {#each animatedOptions as option (option.id)}
         <label class="flex cursor-pointer items-center gap-2 rounded-xl p-3 text-sm transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-legio-accent {draft.animatedBackground === option.id ? 'bg-legio-accent/10 text-zinc-100 light:text-zinc-900' : 'text-zinc-400 hover:bg-white/5 light:text-zinc-600'}">
-          <input class="sr-only" type="radio" name="animated-background" checked={draft.animatedBackground === option.id} onchange={() => { draft.animatedBackground = option.id as Appearance["animatedBackground"]; }} />
+          <input class="sr-only" type="radio" name="animated-background" value={option.id} checked={draft.animatedBackground === option.id} onchange={() => { draft.animatedBackground = option.id; }} />
           <span class="grid size-4 shrink-0 place-items-center rounded-full border-2 {draft.animatedBackground === option.id ? 'border-legio-accent' : 'border-zinc-500'}" aria-hidden="true">{#if draft.animatedBackground === option.id}<span class="size-2 rounded-full bg-legio-accent"></span>{/if}</span>
           {option.label}
         </label>
@@ -300,38 +205,43 @@
       <ResetSetting label={t("Ripristina sfondo animato", $language)} disabled={busy} onClick={() => { draft.animatedBackground = "none"; }} />
       <AppearanceSlider id="theme-animatedOpacity" label={t("Opacità dello sfondo animato", $language)} value={draft.animatedOpacity} min={0} max={100} unit="%" resetValue={defaultAppearance().animatedOpacity} disabled={busy} onChange={(value) => { draft.animatedOpacity = value; }} />
     {/if}
+    {#if draft.animatedBackground === "dither"}
+      <fieldset disabled={busy} class="grid gap-3 sm:grid-cols-2">
+        <legend class="mb-2 text-sm font-medium text-zinc-100 light:text-zinc-900">{t("Impostazioni dither", $language)}</legend>
+        {#each ditherEffects as effect (effect.key)}
+          <AppearanceSlider id={"theme-dither-" + effect.key} label={effect.label} value={draft.dither[effect.key]} min={effect.min} max={effect.max} step={effect.step} unit="" resetValue={defaultDither()[effect.key]} disabled={busy} onChange={(value) => setDitherValue(effect.key, value, effect.decimals)} />
+        {/each}
+        <div class="flex items-center gap-1">
+          <label for="theme-dither-waveColor" class="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-zinc-300 light:text-zinc-700"><span>{t("Colore dell'onda", $language)}</span><input id="theme-dither-waveColor" type="color" value={draft.dither.waveColor ?? accent} class="h-9 w-12 cursor-pointer rounded border border-white/15 bg-transparent light:border-zinc-900/15" oninput={(event) => { draft.dither.waveColor = event.currentTarget.value; }} /></label>
+          <ResetSetting label={t("Ripristina {0}", $language, [t("Colore dell'onda", $language)])} disabled={busy || draft.dither.waveColor === null} onClick={() => { draft.dither.waveColor = null; }} />
+        </div>
+        <div class="flex items-center gap-1">
+          <label for="theme-dither-backgroundColor" class="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-zinc-300 light:text-zinc-700"><span>{t("Colore di fondo", $language)}</span><input id="theme-dither-backgroundColor" type="color" value={draft.dither.backgroundColor} class="h-9 w-12 cursor-pointer rounded border border-white/15 bg-transparent light:border-zinc-900/15" oninput={(event) => { draft.dither.backgroundColor = event.currentTarget.value; }} /></label>
+          <ResetSetting label={t("Ripristina {0}", $language, [t("Colore di fondo", $language)])} disabled={busy || draft.dither.backgroundColor === defaultDither().backgroundColor} onClick={() => { draft.dither.backgroundColor = defaultDither().backgroundColor; }} />
+        </div>
+        {#each ditherToggles as toggle (toggle.key)}
+          <div class="flex items-center gap-2"><div class="min-w-0 flex-1"><Toggle label={toggle.label} checked={draft.dither[toggle.key]} disabled={busy} onChange={(checked) => { draft.dither[toggle.key] = checked; }} /></div><ResetSetting label={t("Ripristina {0}", $language, [toggle.label])} disabled={busy || draft.dither[toggle.key] === defaultDither()[toggle.key]} onClick={() => { draft.dither[toggle.key] = defaultDither()[toggle.key]; }} /></div>
+        {/each}
+      </fieldset>
+    {/if}
   </SettingsGroup>
 
-  <div class="grid gap-4 xl:grid-cols-2">
-    <SettingsGroup title={t("Pannelli", $language)} icon="landscape">
-      <div class="grid grid-cols-2 gap-2">
-        {#each panelEffects as effect (effect.key)}
-          <AppearanceSlider id={"theme-" + effect.key} label={effect.label} value={draft[effect.key]} min={effect.min} max={effect.max} unit={effect.unit} resetValue={defaultAppearance()[effect.key]} disabled={busy || (effect.key === "surfaceBlur" && draft.surfaceOpacity === 100)} onChange={(value) => { draft[effect.key] = value; }} />
-        {/each}
-      </div>
-    </SettingsGroup>
-
-    <SettingsGroup title={t("Dialoghi", $language)} icon="settings">
-      <div class="grid grid-cols-2 gap-2">
-        {#each dialogEffects as effect (effect.key)}
-          <AppearanceSlider id={"theme-" + effect.key} label={effect.label} value={draft[effect.key]} min={effect.min} max={effect.max} unit={effect.unit} resetValue={defaultAppearance()[effect.key]} disabled={busy || (effect.key === "dialogBlur" && draft.dialogOpacity === 100)} onChange={(value) => { draft[effect.key] = value; }} />
-        {/each}
-      </div>
-    </SettingsGroup>
-  </div>
+  <SettingsGroup title={t("Pannelli e dialoghi", $language)} icon="landscape" collapsible>
+    <div class="grid gap-3 sm:grid-cols-2">
+      {#each surfaceEffects as effect (effect.key)}
+        <AppearanceSlider id={"theme-" + effect.key} label={effect.label} value={isLocked(effect) ? 0 : draft[effect.key]} min={effect.min} max={effect.max} unit={effect.unit} resetValue={defaultAppearance()[effect.key]} disabled={busy || isLocked(effect)} onChange={(value) => { draft[effect.key] = value; }} />
+      {/each}
+    </div>
+    {#if windowTransparent}
+      <p class="text-xs text-zinc-500">{t("Il blur è disponibile solo con la trasparenza della finestra disattivata.", $language)}</p>
+    {/if}
+  </SettingsGroup>
 
   {#if hyprland}
-    <SettingsGroup title={t("Trasparenza della finestra", $language)} icon="image">
+    <SettingsGroup title={t("Trasparenza della finestra", $language)} icon="image" collapsible>
       <div class="flex items-center gap-2"><div class="min-w-0 flex-1"><Toggle label={t("Trasparenza della finestra su Hyprland", $language)} checked={draft.transparent} disabled={busy} onChange={(checked) => { draft.transparent = checked; }} /></div><ResetSetting label={t("Ripristina trasparenza", $language)} disabled={busy || !draft.transparent} onClick={() => { draft.transparent = false; }} /></div>
     </SettingsGroup>
   {/if}
-
-  <SettingsGroup title={t("Importa ed esporta", $language)} icon="folder">
-    <div class="flex flex-wrap gap-2">
-      <Button variant="secondary" label={t("Importa tema JSON", $language)} disabled={busy || saving || dirty || draft.customThemes.length >= 20} onClick={() => void importFile()} />
-      <Button variant="secondary" label={t("Esporta tema JSON", $language)} disabled={busy || saving || dirty} onClick={() => void exportFile()} />
-    </div>
-  </SettingsGroup>
 
   <div class="flex flex-wrap items-center justify-between gap-3 pt-4">
     <Button variant="secondary" label={t("Ripristina aspetto predefinito", $language)} disabled={busy} onClick={reset} />

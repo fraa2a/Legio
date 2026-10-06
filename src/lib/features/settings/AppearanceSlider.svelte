@@ -10,6 +10,7 @@
     max,
     unit,
     resetValue,
+    step = 1,
     disabled = false,
     onChange,
   }: {
@@ -20,6 +21,7 @@
     max: number;
     unit: string;
     resetValue: number;
+    step?: number;
     disabled?: boolean;
     onChange: (value: number) => void;
   } = $props();
@@ -38,7 +40,7 @@
     type="range"
     {min}
     {max}
-    step="1"
+    {step}
     {value}
     {disabled}
     aria-label={label}
