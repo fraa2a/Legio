@@ -8,7 +8,7 @@ import { windowActive } from "./window-activity";
 
 let started = false;
 let active = 0;
-const requested = new Set<number>();
+const requested = new Map<number, number>();
 const candidates = derived([games, playtime], ([$games, $playtime]) =>
   recentGames($games.data, $playtime.data).slice(0, 6).flatMap(({ game }) => game.steamAppId === null ? [] : [game.steamAppId]),
 );
@@ -18,10 +18,13 @@ function prefetch(): void {
   if (!get(enabled)) return;
   for (const appId of get(candidates)) {
     if (active >= 2) break;
-    if (requested.has(appId)) continue;
-    requested.add(appId);
+    if ((requested.get(appId) ?? 0) > Date.now()) continue;
+    requested.delete(appId);
+    requested.set(appId, Infinity);
+    while (requested.size > 64) requested.delete(requested.keys().next().value!);
     active++;
     void prefetchSteamHero(appId).catch((error: unknown) => {
+      requested.set(appId, Date.now() + 30000);
       console.warn(`Could not cache recent hero for Steam App ID ${appId}`, error);
     }).finally(() => { active--; prefetch(); });
   }
