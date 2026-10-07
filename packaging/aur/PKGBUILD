@@ -1,6 +1,7 @@
 pkgname=legio-launcher-bin
 pkgver=0.1.0
 pkgrel=1
+epoch=1
 pkgdesc='Legio desktop game launcher'
 arch=('x86_64')
 url='https://github.com/fraa2a/Legio'
