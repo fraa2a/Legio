@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+html[data-motion-paused="true"] *,
+html[data-motion-paused="true"] *::before,
+html[data-motion-paused="true"] *::after {
+  animation-play-state: paused !important;
+}
+
 @custom-variant light (&:where([data-theme="light"], [data-theme="light"] *));
 
 @theme {
