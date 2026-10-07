@@ -1,9 +1,9 @@
 use std::{
     fs,
-    io::{self, Read},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    time::{Duration, SystemTime},
+    time::{Duration, Instant, SystemTime},
 };
 
 use serde::{Deserialize, Serialize};
@@ -58,11 +58,19 @@ impl AssetKind {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AssetResult {
+    #[serde(skip_serializing)]
     bytes: Vec<u8>,
     content_type: &'static str,
     stale: bool,
     refresh_after: u64,
     cache_warning: Option<String>,
+}
+
+impl AssetResult {
+    pub(crate) fn into_response(self) -> Result<tauri::ipc::Response, String> {
+        let metadata = serde_json::to_vec(&self).map_err(|error| error.to_string())?;
+        crate::image_response::encode(metadata, self.bytes)
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -83,8 +91,14 @@ struct CacheEntry {
 #[derive(Clone)]
 pub struct AssetCacheState {
     directory: Result<PathBuf, String>,
-    lock: Arc<Mutex<()>>,
+    lock: Arc<Mutex<Maintenance>>,
     pics_lock: Arc<tokio::sync::Mutex<()>>,
+}
+
+#[derive(Default)]
+struct Maintenance {
+    entries: Option<usize>,
+    last_prune: Option<Instant>,
 }
 
 impl AssetCacheState {
@@ -95,13 +109,29 @@ impl AssetCacheState {
                 .map_err(|error| {
                     format!("Could not resolve the application cache directory: {error}")
                 }),
-            lock: Arc::new(Mutex::new(())),
+            lock: Arc::new(Mutex::new(Maintenance::default())),
             pics_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
     fn directory(&self) -> Result<&Path, String> {
         self.directory.as_deref().map_err(Clone::clone)
+    }
+
+    pub(crate) fn maintain(&self) -> Result<(), String> {
+        let mut guard = self
+            .lock
+            .lock()
+            .map_err(|_| "Image cache lock was poisoned")?;
+        let directory = self.directory()?;
+        let entries = match prune(directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
+            Err(error) => return Err(format!("Could not prune the image cache: {error}")),
+        };
+        guard.entries = Some(entries);
+        guard.last_prune = Some(Instant::now());
+        Ok(())
     }
 
     fn read(&self, key: &str, url: &str) -> Result<Option<CacheEntry>, String> {
@@ -114,12 +144,6 @@ impl AssetCacheState {
             .lock()
             .map_err(|_| "Image cache lock was poisoned.".to_owned())?;
         let directory = self.directory()?;
-        match fs::metadata(directory) {
-            Ok(_) => prune(directory)
-                .map_err(|error| format!("Could not prune the image cache: {error}"))?,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(format!("Could not inspect the image cache: {error}")),
-        }
         let path = directory.join(format!("{key}.asset"));
         let metadata = match fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
@@ -152,7 +176,8 @@ impl AssetCacheState {
         if url.is_some_and(|url| header.url != url) || !matches!(header.transform_version, 1 | 2) {
             return Ok(None);
         }
-        let bytes = raw[split + 1..].to_vec();
+        raw.drain(..=split);
+        let bytes = raw;
         let format = ImageFormat::from_steam_bytes(&bytes)
             .ok_or_else(|| "A cached image has invalid content.".to_owned())?;
         if format.content_type() != header.content_type {
@@ -187,7 +212,7 @@ impl AssetCacheState {
         bytes: &[u8],
         content_type: &'static str,
     ) -> Result<(), String> {
-        let _guard = self
+        let mut guard = self
             .lock
             .lock()
             .map_err(|_| "Image cache lock was poisoned.".to_owned())?;
@@ -203,25 +228,52 @@ impl AssetCacheState {
         if header.len() > MAX_HEADER_BYTES || bytes.len() > MAX_ASSET_BYTES {
             return Err("Image cache entry exceeds the size limit.".to_owned());
         }
-        let mut data = Vec::with_capacity(header.len() + 1 + bytes.len());
-        data.extend_from_slice(&header);
-        data.push(b'\n');
-        data.extend_from_slice(bytes);
         let temporary = directory.join(format!("{}.tmp", uuid::Uuid::new_v4()));
-        fs::write(&temporary, data)
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
             .map_err(|error| format!("Could not write a cached image: {error}"))?;
+        file.write_all(&header)
+            .and_then(|()| file.write_all(b"\n"))
+            .and_then(|()| file.write_all(bytes))
+            .map_err(|error| format!("Could not write a cached image: {error}"))?;
+        drop(file);
         let destination = directory.join(format!("{key}.asset"));
+        let replacing = match fs::symlink_metadata(&destination) {
+            Ok(_) => true,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+            Err(error) => {
+                return Err(format!(
+                    "Could not inspect the image cache destination: {error}"
+                ));
+            }
+        };
         if let Err(error) = fs::rename(&temporary, destination) {
             if let Err(cleanup) = fs::remove_file(&temporary) {
                 eprintln!("Could not remove a temporary image cache file: {cleanup}");
             }
             return Err(format!("Could not save a cached image: {error}"));
         }
-        prune(directory).map_err(|error| format!("Could not prune the image cache: {error}"))
+        guard.entries = guard
+            .entries
+            .map(|entries| entries + usize::from(!replacing));
+        if guard.entries.is_none_or(|entries| entries > CACHE_FILES)
+            || guard
+                .last_prune
+                .is_none_or(|last| last.elapsed() >= Duration::from_secs(60))
+        {
+            guard.entries = Some(
+                prune(directory)
+                    .map_err(|error| format!("Could not prune the image cache: {error}"))?,
+            );
+            guard.last_prune = Some(Instant::now());
+        }
+        Ok(())
     }
 }
 
-fn prune(directory: &Path) -> io::Result<()> {
+fn prune(directory: &Path) -> io::Result<usize> {
     let mut files = Vec::new();
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
@@ -249,11 +301,12 @@ fn prune(directory: &Path) -> io::Result<()> {
         }
     }
     files.sort_by_key(|(modified, _)| *modified);
+    let retained = files.len().min(CACHE_FILES);
     let remove = files.len().saturating_sub(CACHE_FILES);
     for (_, path) in files.into_iter().take(remove) {
         fs::remove_file(path)?;
     }
-    Ok(())
+    Ok(retained)
 }
 
 fn selected_url(
@@ -348,13 +401,12 @@ async fn load_asset(
             let writer = cache.clone();
             let write_key = key;
             let write_url = url;
-            let write_bytes = bytes.clone();
-            let write_result = tauri::async_runtime::spawn_blocking(move || {
-                writer.write(&write_key, &write_url, &write_bytes, content_type)
+            let (bytes, write_result) = tauri::async_runtime::spawn_blocking(move || {
+                let result = writer.write(&write_key, &write_url, &bytes, content_type);
+                (bytes, result)
             })
             .await
-            .map_err(|error| format!("Image cache write task failed: {error}"))
-            .and_then(|result| result);
+            .map_err(|error| format!("Image cache write task failed: {error}"))?;
             Ok(AssetResult {
                 bytes,
                 content_type,
@@ -521,6 +573,35 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("legio-asset-test-{}", uuid::Uuid::new_v4()));
         AssetCacheState::new(Ok(directory))
+    }
+
+    #[test]
+    fn cache_hits_do_not_run_directory_maintenance() {
+        let cache = cache();
+        cache
+            .write(
+                "400-logo",
+                "https://example.invalid/logo.png",
+                PNG,
+                "image/png",
+            )
+            .unwrap();
+        let orphan = cache.directory().unwrap().join("old.tmp");
+        fs::write(&orphan, b"orphan").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&orphan)
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new()
+                    .set_modified(SystemTime::now() - ORPHAN_AGE - Duration::from_secs(1)),
+            )
+            .unwrap();
+        assert!(cache.read_cached("400-logo", None).unwrap().is_some());
+        assert!(orphan.exists());
+        cache.maintain().unwrap();
+        assert!(!orphan.exists());
+        fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
     }
 
     fn server(response: Vec<u8>) -> (String, thread::JoinHandle<()>) {
@@ -897,7 +978,7 @@ mod tests {
     }
 
     #[test]
-    fn removes_orphan_temporary_files_before_cache_read() {
+    fn maintenance_removes_expired_orphans_without_pruning_cache_hits() {
         let cache = cache();
         cache
             .write(
@@ -927,6 +1008,8 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
+        assert!(orphan.exists());
+        cache.maintain().unwrap();
         assert!(!orphan.exists());
         fs::remove_dir_all(cache.directory().unwrap()).unwrap();
     }

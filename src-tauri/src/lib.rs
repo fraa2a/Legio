@@ -26,6 +26,7 @@ mod game_lifecycle;
 mod game_process;
 mod game_transfer;
 mod image_format;
+mod image_response;
 mod image_trim;
 mod installed_folder;
 pub mod legio_source;
@@ -141,9 +142,14 @@ pub fn run() -> tauri::Result<()> {
                 app.path().app_log_dir().map_err(|error| error.to_string()),
                 diagnostics_enabled,
             );
-            app.manage(steam_assets::AssetCacheState::new(
-                app.path().app_cache_dir(),
-            ));
+            let assets = steam_assets::AssetCacheState::new(app.path().app_cache_dir());
+            let maintenance = assets.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                if let Err(error) = maintenance.maintain() {
+                    eprintln!("Image cache maintenance failed: {error}");
+                }
+            });
+            app.manage(assets);
             app.manage(game_artwork::GameArtworkStore::new(
                 app.path().app_data_dir().map_err(|error| error.to_string()),
             ));
@@ -337,6 +343,7 @@ pub fn run() -> tauri::Result<()> {
             commands::refresh_catalog,
             commands::get_steam_details,
             commands::get_steam_asset,
+            commands::prefetch_steam_hero,
             runner_discovery::list_compatibility_runners,
         ])
         .build(context)?

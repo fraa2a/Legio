@@ -39,8 +39,16 @@ impl ArtworkKind {
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct GameArtworkResult {
+    #[serde(skip_serializing)]
     bytes: Vec<u8>,
     content_type: &'static str,
+}
+
+impl GameArtworkResult {
+    pub(crate) fn into_response(self) -> Result<tauri::ipc::Response, String> {
+        let metadata = serde_json::to_vec(&self).map_err(|error| error.to_string())?;
+        crate::image_response::encode(metadata, self.bytes)
+    }
 }
 
 #[derive(Clone)]
@@ -50,7 +58,6 @@ pub(crate) struct GameArtworkStore {
 }
 
 struct StoredArtwork {
-    path: PathBuf,
     bytes: Vec<u8>,
     format: ImageFormat,
 }
@@ -71,6 +78,9 @@ impl GameArtworkStore {
     ) -> Result<GameArtworkResult, String> {
         let game_id = canonical_game_id(game_id)?;
         let bytes = read_image(source, &format!("selected {}", kind.label()))?;
+        if ImageFormat::from_bytes(&bytes).is_some() {
+            crate::image_trim::validate_image(&bytes)?;
+        }
         self.store(game_id, kind, bytes)
     }
 
@@ -183,7 +193,31 @@ impl GameArtworkStore {
             .lock()
             .map_err(|_| "Game artwork store lock was poisoned".to_owned())?;
         let directory = self.directory(kind)?;
-        Ok(load_artwork(&directory, &game_id, kind)?.map(|artwork| artwork.path))
+        let paths = existing_paths(&directory, &game_id, kind)?;
+        if paths.len() > 1 {
+            return Err(format!(
+                "More than one custom {} is stored for this game",
+                kind.label()
+            ));
+        }
+        let Some(path) = paths.into_iter().next() else {
+            return Ok(None);
+        };
+        let mut header = [0; 12];
+        let file = open_image(&path, &format!("stored {}", kind.label()))?;
+        let count = file
+            .take(header.len() as u64)
+            .read(&mut header)
+            .map_err(|error| error.to_string())?;
+        let format = ImageFormat::from_bytes(&header[..count])
+            .ok_or("Stored artwork has an unsupported image format")?;
+        if artwork_path(&directory, &game_id, format) != path {
+            return Err(format!(
+                "Stored {} format does not match its file name",
+                kind.label()
+            ));
+        }
+        Ok(Some(path))
     }
 
     pub(crate) fn remove(&self, game_id: &str, kind: ArtworkKind) -> Result<(), String> {
@@ -354,11 +388,7 @@ fn load_artwork(
             kind.label()
         ));
     }
-    Ok(Some(StoredArtwork {
-        path,
-        bytes,
-        format,
-    }))
+    Ok(Some(StoredArtwork { bytes, format }))
 }
 
 fn artwork_path(directory: &Path, game_id: &str, format: ImageFormat) -> PathBuf {
@@ -366,6 +396,10 @@ fn artwork_path(directory: &Path, game_id: &str, format: ImageFormat) -> PathBuf
 }
 
 fn read_image(path: &Path, label: &str) -> Result<Vec<u8>, String> {
+    read_bounded(open_image(path, label)?, label)
+}
+
+fn open_image(path: &Path, label: &str) -> Result<File, String> {
     if !path.is_absolute() {
         return Err(format!("The {label} path must be absolute"));
     }
@@ -388,7 +422,15 @@ fn read_image(path: &Path, label: &str) -> Result<Vec<u8>, String> {
     let file = options
         .open(path)
         .map_err(|error| format!("Could not open {label}: {error}"))?;
-    read_bounded(file, label)
+    let opened = file
+        .metadata()
+        .map_err(|error| format!("Could not inspect {label}: {error}"))?;
+    if !opened.is_file() || opened.len() > MAX_ARTWORK_BYTES as u64 {
+        return Err(format!(
+            "The {label} is not a regular image within the size limit"
+        ));
+    }
+    Ok(file)
 }
 
 fn read_bounded(file: File, label: &str) -> Result<Vec<u8>, String> {
@@ -461,12 +503,41 @@ mod tests {
         0, 0, 0, 181, 28, 12, 2, 0, 0, 0, 11, 73, 68, 65, 84, 120, 218, 99, 100, 248, 15, 0, 1, 5,
         1, 1, 39, 24, 227, 102, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
     ];
-    const JPEG: &[u8] = &[0xff, 0xd8, 0xff, 0xd9];
+    fn jpeg_image() -> Vec<u8> {
+        let mut output = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(1, 1, image::Rgb([20, 40, 60])))
+            .write_to(&mut output, image::ImageFormat::Jpeg)
+            .unwrap();
+        output.into_inner()
+    }
 
     fn test_dir() -> PathBuf {
         let path = std::env::temp_dir().join(format!("legio-game-icons-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    #[test]
+    fn custom_artwork_rejects_compressed_images_with_excessive_dimensions() {
+        let root = test_dir();
+        let store = GameArtworkStore::new(Ok(root.clone()));
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image::RgbaImage::new(8193, 1))
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        let source = root.join("oversized.png");
+        fs::write(&source, bytes.into_inner()).unwrap();
+        assert!(
+            store
+                .set(
+                    "00000000-0000-0000-0000-000000000001",
+                    ArtworkKind::Icon,
+                    &source
+                )
+                .unwrap_err()
+                .contains("dimension")
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn manual_game() -> Game {
@@ -604,7 +675,7 @@ mod tests {
         let app_data = root.join("app-data");
         let game_id = "00000000-0000-0000-0000-000000000001";
         fs::write(&png, PNG).unwrap();
-        fs::write(&jpeg, JPEG).unwrap();
+        fs::write(&jpeg, jpeg_image()).unwrap();
         let store = GameArtworkStore::new(Ok(app_data.clone()));
         store.set(game_id, ArtworkKind::Icon, &png).unwrap();
 
@@ -674,7 +745,7 @@ mod tests {
         let app_data = root.join("app-data");
         let game_id = "00000000-0000-0000-0000-000000000001";
         fs::write(&icon_source, PNG).unwrap();
-        fs::write(&banner_source, JPEG).unwrap();
+        fs::write(&banner_source, jpeg_image()).unwrap();
         let store = GameArtworkStore::new(Ok(app_data.clone()));
         store.set(game_id, ArtworkKind::Icon, &icon_source).unwrap();
         let banner = store
@@ -693,7 +764,7 @@ mod tests {
                 .unwrap()
                 .unwrap()
                 .bytes,
-            JPEG
+            jpeg_image()
         );
         assert!(reopened.get(game_id, ArtworkKind::Icon).unwrap().is_some());
         fs::remove_dir_all(root).unwrap();
@@ -743,7 +814,7 @@ mod tests {
         let banner_directory = root.join("app-data/game-banners");
         let game_id = "00000000-0000-0000-0000-000000000001";
         fs::write(&icon_source, PNG).unwrap();
-        fs::write(&target, JPEG).unwrap();
+        fs::write(&target, jpeg_image()).unwrap();
         let store = GameArtworkStore::new(Ok(root.join("app-data")));
         store.set(game_id, ArtworkKind::Icon, &icon_source).unwrap();
         fs::create_dir_all(&banner_directory).unwrap();
@@ -753,7 +824,7 @@ mod tests {
 
         assert!(error.contains("game banner path is not a regular file"));
         assert!(store.get(game_id, ArtworkKind::Icon).unwrap().is_none());
-        assert_eq!(fs::read(target).unwrap(), JPEG);
+        assert_eq!(fs::read(target).unwrap(), jpeg_image());
         fs::remove_dir_all(root).unwrap();
     }
 
