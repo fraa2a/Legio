@@ -20,6 +20,7 @@ mod desktop_shortcuts;
 mod diagnostics;
 mod discord_presence;
 mod download_queue;
+mod filesystem_copy;
 mod finalize_install;
 mod game_artwork;
 mod game_lifecycle;

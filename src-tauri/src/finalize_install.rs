@@ -204,7 +204,7 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<(), String> {
                 .create_new(true)
                 .open(&dst)
                 .map_err(|error| format!("Could not create install file: {error}"))?;
-            io::copy(&mut input, &mut output)
+            crate::filesystem_copy::copy(&mut input, &mut output)
                 .map_err(|error| format!("Could not copy staged file: {error}"))?;
             output
                 .sync_all()
