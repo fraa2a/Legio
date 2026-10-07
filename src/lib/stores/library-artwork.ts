@@ -1,6 +1,6 @@
 import { derived, get } from "svelte/store";
 import { recentGames } from "../features/home/home-model";
-import { getSteamAsset } from "../services/steam-details";
+import { prefetchSteamHero } from "../services/steam-details";
 import { games } from "./games";
 import { playtime } from "./playtime";
 import { hasPendingLaunch } from "./launch";
@@ -21,7 +21,7 @@ function prefetch(): void {
     if (requested.has(appId)) continue;
     requested.add(appId);
     active++;
-    void getSteamAsset(appId, "hero").catch((error: unknown) => {
+    void prefetchSteamHero(appId).catch((error: unknown) => {
       console.warn(`Could not cache recent hero for Steam App ID ${appId}`, error);
     }).finally(() => { active--; prefetch(); });
   }

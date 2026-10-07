@@ -245,24 +245,30 @@ pub async fn create_game_shortcut(
 }
 
 #[tauri::command]
-pub fn set_game_icon(
+pub async fn set_game_icon(
     app: AppHandle,
     game_id: String,
     file_path: String,
-) -> Result<crate::game_artwork::GameArtworkResult, String> {
-    app.state::<DatabaseState>().database()?.game(&game_id)?;
-    app.state::<crate::game_artwork::GameArtworkStore>().set(
-        &game_id,
-        crate::game_artwork::ArtworkKind::Icon,
-        std::path::Path::new(&file_path),
-    )
+) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<DatabaseState>().database()?.game(&game_id)?;
+        app.state::<crate::game_artwork::GameArtworkStore>()
+            .set(
+                &game_id,
+                crate::game_artwork::ArtworkKind::Icon,
+                std::path::Path::new(&file_path),
+            )?
+            .into_response()
+    })
+    .await
+    .map_err(|error| format!("Game artwork task failed: {error}"))?
 }
 
 #[tauri::command]
 pub async fn extract_game_icon(
     app: AppHandle,
     game_id: String,
-) -> Result<crate::game_artwork::GameArtworkResult, String> {
+) -> Result<tauri::ipc::Response, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let game = app.state::<DatabaseState>().database()?.game(&game_id)?;
         crate::game_artwork::extract_for_game(
@@ -272,54 +278,87 @@ pub async fn extract_game_icon(
     })
     .await
     .map_err(|error| format!("Game icon extraction task failed: {error}"))?
+    .and_then(crate::game_artwork::GameArtworkResult::into_response)
 }
 
 #[tauri::command]
-pub fn get_game_icon(
+pub async fn get_game_icon(
     app: AppHandle,
     game_id: String,
-) -> Result<Option<crate::game_artwork::GameArtworkResult>, String> {
-    app.state::<DatabaseState>().database()?.game(&game_id)?;
-    app.state::<crate::game_artwork::GameArtworkStore>()
-        .get(&game_id, crate::game_artwork::ArtworkKind::Icon)
+) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<DatabaseState>().database()?.game(&game_id)?;
+        let artwork = app
+            .state::<crate::game_artwork::GameArtworkStore>()
+            .get(&game_id, crate::game_artwork::ArtworkKind::Icon)?;
+        match artwork {
+            Some(value) => value.into_response(),
+            None => Ok(tauri::ipc::Response::new(Vec::new())),
+        }
+    })
+    .await
+    .map_err(|error| format!("Game artwork task failed: {error}"))?
 }
 
 #[tauri::command]
-pub fn reset_game_icon(app: AppHandle, game_id: String) -> Result<(), String> {
-    app.state::<DatabaseState>().database()?.game(&game_id)?;
-    app.state::<crate::game_artwork::GameArtworkStore>()
-        .remove(&game_id, crate::game_artwork::ArtworkKind::Icon)
+pub async fn reset_game_icon(app: AppHandle, game_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<DatabaseState>().database()?.game(&game_id)?;
+        app.state::<crate::game_artwork::GameArtworkStore>()
+            .remove(&game_id, crate::game_artwork::ArtworkKind::Icon)
+    })
+    .await
+    .map_err(|error| format!("Game artwork task failed: {error}"))?
 }
 
 #[tauri::command]
-pub fn set_game_banner(
+pub async fn set_game_banner(
     app: AppHandle,
     game_id: String,
     file_path: String,
-) -> Result<crate::game_artwork::GameArtworkResult, String> {
-    app.state::<DatabaseState>().database()?.game(&game_id)?;
-    app.state::<crate::game_artwork::GameArtworkStore>().set(
-        &game_id,
-        crate::game_artwork::ArtworkKind::Banner,
-        std::path::Path::new(&file_path),
-    )
+) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<DatabaseState>().database()?.game(&game_id)?;
+        app.state::<crate::game_artwork::GameArtworkStore>()
+            .set(
+                &game_id,
+                crate::game_artwork::ArtworkKind::Banner,
+                std::path::Path::new(&file_path),
+            )?
+            .into_response()
+    })
+    .await
+    .map_err(|error| format!("Game artwork task failed: {error}"))?
 }
 
 #[tauri::command]
-pub fn get_game_banner(
+pub async fn get_game_banner(
     app: AppHandle,
     game_id: String,
-) -> Result<Option<crate::game_artwork::GameArtworkResult>, String> {
-    app.state::<DatabaseState>().database()?.game(&game_id)?;
-    app.state::<crate::game_artwork::GameArtworkStore>()
-        .get(&game_id, crate::game_artwork::ArtworkKind::Banner)
+) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<DatabaseState>().database()?.game(&game_id)?;
+        let artwork = app
+            .state::<crate::game_artwork::GameArtworkStore>()
+            .get(&game_id, crate::game_artwork::ArtworkKind::Banner)?;
+        match artwork {
+            Some(value) => value.into_response(),
+            None => Ok(tauri::ipc::Response::new(Vec::new())),
+        }
+    })
+    .await
+    .map_err(|error| format!("Game artwork task failed: {error}"))?
 }
 
 #[tauri::command]
-pub fn reset_game_banner(app: AppHandle, game_id: String) -> Result<(), String> {
-    app.state::<DatabaseState>().database()?.game(&game_id)?;
-    app.state::<crate::game_artwork::GameArtworkStore>()
-        .remove(&game_id, crate::game_artwork::ArtworkKind::Banner)
+pub async fn reset_game_banner(app: AppHandle, game_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<DatabaseState>().database()?.game(&game_id)?;
+        app.state::<crate::game_artwork::GameArtworkStore>()
+            .remove(&game_id, crate::game_artwork::ArtworkKind::Banner)
+    })
+    .await
+    .map_err(|error| format!("Game artwork task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -719,7 +758,7 @@ pub async fn get_steam_asset(
     index: Option<usize>,
     full: Option<bool>,
     refresh: Option<bool>,
-) -> Result<crate::steam_assets::AssetResult, String> {
+) -> Result<tauri::ipc::Response, String> {
     crate::steam_assets::get_asset(
         app,
         state.inner(),
@@ -729,7 +768,8 @@ pub async fn get_steam_asset(
         full.unwrap_or(false),
         refresh.unwrap_or(false),
     )
-    .await
+    .await?
+    .into_response()
 }
 #[tauri::command]
 pub fn is_aur_package() -> bool {
@@ -747,4 +787,23 @@ pub async fn refresh_news(
     state: State<'_, crate::network::NetworkState>,
 ) -> Result<crate::news::Snapshot, String> {
     crate::news::refresh(app, state.inner()).await
+}
+
+#[tauri::command]
+pub async fn prefetch_steam_hero(
+    app: AppHandle,
+    state: State<'_, NetworkState>,
+    steam_app_id: u32,
+) -> Result<(), String> {
+    crate::steam_assets::get_asset(
+        app,
+        state.inner(),
+        steam_app_id,
+        crate::steam_assets::AssetKind::Hero,
+        None,
+        false,
+        false,
+    )
+    .await
+    .map(|_| ())
 }

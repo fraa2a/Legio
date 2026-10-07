@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { compile } from "svelte/compiler";
 import { JSDOM } from "jsdom";
-import { createModuleLoader, dataModule } from "./test_module_loader.mjs";
+import { artworkPacket, createModuleLoader, dataModule } from "./test_module_loader.mjs";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBeVisual: true });
 for (const key of ["window", "document", "navigator", "Node", "Text", "Comment", "Element", "HTMLElement", "Event", "CustomEvent", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"]) {
@@ -23,7 +23,7 @@ globalThis.artworkInvoke = (command, args) => {
   requests.push([command, args]);
   if (command === "get_steam_details") return new Promise((resolve) => { detailsResolve = resolve; });
   assert.equal(command, "get_steam_asset");
-  return Promise.resolve({ bytes: [1], contentType: "image/png", stale: false, cacheWarning: null });
+  return Promise.resolve(artworkPacket({ bytes: [1], contentType: "image/png", stale: false, cacheWarning: null }));
 };
 const settle = async () => {
   for (let i = 0; i < 8; i++) { await new Promise((resolve) => setImmediate(resolve)); flushSync(); }
@@ -99,7 +99,7 @@ test("stale artwork stays visible during refresh and is replaced when ready", as
   globalThis.artworkInvoke = (command, args) => {
     calls.push(args);
     if (args.refresh) return new Promise(resolve => { completeRefresh = resolve; });
-    return Promise.resolve({ bytes: [1], contentType: "image/webp", stale: true, cacheWarning: null, refreshAfter: 0 });
+    return Promise.resolve(artworkPacket({ bytes: [1], contentType: "image/webp", stale: true, cacheWarning: null, refreshAfter: 0 }));
   };
   const target = document.createElement("div");
   const component = mount(SteamArtwork, { target, props: { steamAppId: 501, asset: "hero" } });
@@ -110,7 +110,7 @@ test("stale artwork stays visible during refresh and is replaced when ready", as
     assert.equal(calls[1].refresh, true);
     await settle();
     assert.equal(target.querySelector("img").src, oldUrl);
-    completeRefresh({ bytes: [2], contentType: "image/webp", stale: false, cacheWarning: null, refreshAfter: Date.now() + 72 * 3600000 });
+    completeRefresh(artworkPacket({ bytes: [2], contentType: "image/webp", stale: false, cacheWarning: null, refreshAfter: Date.now() + 72 * 3600000 }));
     await settle();
     assert.notEqual(target.querySelector("img").src, oldUrl);
     assert.equal(calls.length, 2);
@@ -121,7 +121,7 @@ test("failed background refresh preserves the cached cover", async () => {
   const { default: SteamArtwork } = await import(await moduleUrl("src/lib/features/library/SteamArtwork.svelte"));
   globalThis.artworkInvoke = (command, args) => args.refresh
     ? Promise.reject(new Error("offline"))
-    : Promise.resolve({ bytes: [1], contentType: "image/webp", stale: true, cacheWarning: null });
+    : Promise.resolve(artworkPacket({ bytes: [1], contentType: "image/webp", stale: true, cacheWarning: null }));
   const target = document.createElement("div");
   const component = mount(SteamArtwork, { target, props: { steamAppId: 502, asset: "hero" } });
   try {

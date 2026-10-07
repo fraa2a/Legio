@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { writable } from "svelte/store";
+import { decodeImageResponse } from "./image-response";
 
 export const gameArtworkRevision = writable<Record<string, number>>({});
 
@@ -49,7 +50,7 @@ export function acquireGameArtwork(gameId: string, kind: ArtworkKind): { url: st
     const created: CachedArtwork = { promise: Promise.resolve(null), url: null, users: 0, obsolete: false, settled: false };
     created.promise = (kind === "icon" ? getGameIcon(gameId) : getGameBanner(gameId)).then((artwork) => {
       if (artwork !== null && !(created.obsolete && created.users === 0)) {
-        created.url = URL.createObjectURL(new Blob([Uint8Array.from(artwork.bytes)], { type: artwork.contentType }));
+        created.url = URL.createObjectURL(new Blob([artwork.bytes], { type: artwork.contentType }));
       }
       return created.url;
     }).catch((error: unknown) => {
@@ -79,23 +80,23 @@ export function acquireGameArtwork(gameId: string, kind: ArtworkKind): { url: st
 }
 
 export interface GameArtwork {
-  bytes: number[];
+  bytes: Uint8Array<ArrayBuffer>;
   contentType: string;
 }
 
 export function getGameIcon(gameId: string): Promise<GameArtwork | null> {
-  return invoke<GameArtwork | null>("get_game_icon", { gameId });
+  return invoke<ArrayBuffer>("get_game_icon", { gameId }).then((value) => value.byteLength === 0 ? null : decodeImageResponse<GameArtwork>(value));
 }
 
 export function setGameIcon(gameId: string, filePath: string): Promise<GameArtwork> {
-  return invoke<GameArtwork>("set_game_icon", { gameId, filePath }).then((result) => {
+  return invoke<ArrayBuffer>("set_game_icon", { gameId, filePath }).then(decodeImageResponse<GameArtwork>).then((result) => {
     artworkChanged(gameId, "icon");
     return result;
   });
 }
 
 export function extractGameIcon(gameId: string): Promise<GameArtwork> {
-  return invoke<GameArtwork>("extract_game_icon", { gameId }).then((result) => {
+  return invoke<ArrayBuffer>("extract_game_icon", { gameId }).then(decodeImageResponse<GameArtwork>).then((result) => {
     artworkChanged(gameId, "icon");
     return result;
   });
@@ -106,11 +107,11 @@ export function resetGameIcon(gameId: string): Promise<void> {
 }
 
 export function getGameBanner(gameId: string): Promise<GameArtwork | null> {
-  return invoke<GameArtwork | null>("get_game_banner", { gameId });
+  return invoke<ArrayBuffer>("get_game_banner", { gameId }).then((value) => value.byteLength === 0 ? null : decodeImageResponse<GameArtwork>(value));
 }
 
 export function setGameBanner(gameId: string, filePath: string): Promise<GameArtwork> {
-  return invoke<GameArtwork>("set_game_banner", { gameId, filePath }).then((result) => {
+  return invoke<ArrayBuffer>("set_game_banner", { gameId, filePath }).then(decodeImageResponse<GameArtwork>).then((result) => {
     artworkChanged(gameId, "banner");
     return result;
   });
