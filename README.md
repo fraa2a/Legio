@@ -84,3 +84,5 @@ With gamescope enabled, choose a native or explicit internal resolution and an o
 References: [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher), [vkd3d-proton shader cache](https://github.com/HansKristian-Work/vkd3d-proton), [GameMode](https://github.com/FeralInteractive/gamemode) and [gamescope](https://github.com/ValveSoftware/gamescope).
 
 Transfer recovery runs on a blocking worker during startup. Application hydration and desktop shortcuts wait asynchronously for recovery. Launching, removal, transfers, import, finalization and download mutations cannot race incomplete recovery, and a recovery failure remains visible in the launch error banner. Download recovery retains its existing dedicated worker.
+
+UI refresh timers for playtime, monthly activity and news stop while the window is inactive and refresh on focus restore. Download progress polling and the event-backed launch recovery poll also stop while hidden; downloads and native lifecycle monitoring keep running. The launch polling fallback remains active if native event subscription fails. Steam artwork refresh timers wait until the window is active.

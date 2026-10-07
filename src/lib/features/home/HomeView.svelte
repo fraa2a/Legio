@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
   import { onMount } from "svelte";
+  import { startVisibleRefresh } from "../../stores/visible-refresh";
   import Button from "../../components/ui/Button.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
@@ -23,11 +24,7 @@
   const settingsGame = $derived($games.data.find((game) => game.id === settingsGameId) ?? null);
   const loading = $derived(($games.status === 'idle' || $games.status === 'loading' || $playtime.status === 'idle' || $playtime.status === 'loading') && lastPlayed === null);
 
-  onMount(() => {
-    void playtime.load();
-    const timer = setInterval(() => void playtime.load(), 30000);
-    return () => clearInterval(timer);
-  });
+  onMount(() => startVisibleRefresh(() => void playtime.load(), 30000));
 </script>
 
 <div class="flex h-full min-h-0 flex-col gap-2.5 overflow-hidden">

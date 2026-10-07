@@ -1,3 +1,4 @@
+import { windowActive } from "./window-activity";
 import { t } from "../i18n";
 import { derived, get, writable } from "svelte/store";
 import {
@@ -64,12 +65,16 @@ launchStates.subscribe((state) => {
 
 function configureLaunchPolling(): void {
   if (pollTimer !== null) clearInterval(pollTimer);
-  pollTimer = get(hasPendingLaunch)
+  pollTimer = get(hasPendingLaunch) && (!eventsReady || get(windowActive))
     ? setInterval(() => void launchStates.load(), eventsReady ? 30000 : 2000)
     : null;
 }
 
 hasPendingLaunch.subscribe(configureLaunchPolling);
+windowActive.subscribe((active) => {
+  if (active && eventsReady) void launchStates.load();
+  configureLaunchPolling();
+});
 
 export function startLaunchEvents(): Promise<void> {
   listening ??= (async () => {

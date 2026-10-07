@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
   import { onMount } from "svelte";
+  import { startVisibleRefresh } from "../../stores/visible-refresh";
   import Button from "../../components/ui/Button.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
@@ -22,13 +23,10 @@
   const monthLabel = $derived(calendar.first.toLocaleDateString(undefined, { month: "long", year: "numeric" }));
 
   $effect(() => { void activity.load(); });
-  onMount(() => {
-    const timer = setInterval(() => {
-      now = new Date();
-      if (monthOffset === 0) void activity.load();
-    }, 30000);
-    return () => clearInterval(timer);
-  });
+  onMount(() => startVisibleRefresh(() => {
+    now = new Date();
+    if (monthOffset === 0) void activity.load();
+  }, 30000));
 </script>
 
 <section class="legio-glass flex min-h-0 flex-col rounded-2xl bg-zinc-900 p-4 light:bg-zinc-100" aria-labelledby="activity-title">
