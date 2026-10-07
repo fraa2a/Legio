@@ -539,13 +539,14 @@ impl GameLaunchManager {
             steam_root.as_deref(),
             launch_via_steam,
         )?;
-        let mut command = runner_discovery::launch_command(
+        let command = runner_discovery::launch_command(
             &runner,
             &executable_path,
             &config.arguments_before,
             &config.arguments_after,
             umu.as_deref(),
         )?;
+        let mut command = crate::linux_performance::wrap(command, &config.linux_performance)?;
         command.current_dir(working_directory).stdin(Stdio::null());
         options.apply(&mut command, &config)?;
         if !config.environment.contains_key("WINEDEBUG") && !config.debug_logging {
