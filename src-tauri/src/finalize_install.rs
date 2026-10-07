@@ -565,6 +565,7 @@ pub async fn finalize_download(
     id: String,
     executable_relative: String,
 ) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let data_dir = app
             .path()
@@ -604,6 +605,7 @@ pub async fn scan_staged_executables(
     id: String,
     game_name: Option<String>,
 ) -> Result<manual_import::StagedExecutableScan, String> {
+    crate::startup_recovery::wait(&app).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let data_dir = app
             .path()
