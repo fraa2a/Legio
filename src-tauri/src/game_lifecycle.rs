@@ -789,10 +789,11 @@ impl GameLaunchManager {
         let native_launch = false;
         let mut native_helper_exited_at = None;
         let mut steam_progress = SteamLaunchProgress::default();
+        let mut process_monitor = game_process::ProcessMonitor::new();
         let mut cancelled_without_process_since = None;
         loop {
             #[cfg(windows)]
-            // CIM enumeration can lag behind a live native child.
+            // Process discovery can lag behind a live native child.
             if native_launch
                 && !cancel.load(Ordering::Acquire)
                 && child
@@ -801,7 +802,7 @@ impl GameLaunchManager {
             {
                 break;
             }
-            match game_process::matching_pids(&process_target) {
+            match process_monitor.matching_pids(&process_target) {
                 Ok(pids) if !pids.is_empty() => {
                     if cancel.load(Ordering::Acquire) {
                         let error = game_process::stop(&process_target).err();
@@ -982,7 +983,7 @@ impl GameLaunchManager {
                     )),
                 );
             }
-            match game_process::matching_pids(&process_target) {
+            match process_monitor.matching_pids(&process_target) {
                 Ok(pids) if pids.is_empty() => {
                     let since = missing_since.get_or_insert_with(Instant::now);
                     if since.elapsed() >= EXIT_GRACE {
@@ -1425,6 +1426,7 @@ struct SteamLaunchLog {
     path: PathBuf,
     offset: u64,
     pending: Vec<u8>,
+    cursor: usize,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1475,6 +1477,7 @@ impl SteamLaunchLog {
             path,
             offset,
             pending: Vec::new(),
+            cursor: 0,
         }
     }
 
@@ -1484,6 +1487,14 @@ impl SteamLaunchLog {
         if len < self.offset {
             self.offset = 0;
             self.pending.clear();
+            self.cursor = 0;
+        }
+        if let Some(event) = self.pending_event(app_id) {
+            return Some(event);
+        }
+        if self.cursor > 0 {
+            self.pending.drain(..self.cursor);
+            self.cursor = 0;
         }
         file.seek(SeekFrom::Start(self.offset)).ok()?;
         let mut chunk = Vec::new();
@@ -1491,33 +1502,59 @@ impl SteamLaunchLog {
         self.offset += chunk.len() as u64;
         self.pending.extend_from_slice(&chunk);
 
-        while let Some(end) = self.pending.iter().position(|byte| *byte == b'\n') {
-            let line = self.pending.drain(..=end).collect::<Vec<_>>();
-            if let Ok(line) = std::str::from_utf8(&line)
-                && let Some(event) = parse_launch_event(line, app_id)
-            {
-                return Some(event);
+        self.pending_event(app_id)
+    }
+
+    fn pending_event(&mut self, app_id: u32) -> Option<SteamLaunchEvent> {
+        while let Some(end) = self.pending[self.cursor..]
+            .iter()
+            .position(|byte| *byte == b'\n')
+        {
+            let end = self.cursor + end + 1;
+            let event = std::str::from_utf8(&self.pending[self.cursor..end])
+                .ok()
+                .and_then(|line| parse_launch_event(line, app_id));
+            self.cursor = end;
+            if event.is_some() {
+                return event;
             }
         }
-        if self.pending.len() > LOG_LINE_LIMIT {
+        if self.pending.len() - self.cursor > LOG_LINE_LIMIT {
             self.pending.clear();
+            self.cursor = 0;
         }
         None
     }
 }
 
 fn parse_launch_event(line: &str, app_id: u32) -> Option<SteamLaunchEvent> {
-    if line.contains(&format!("Game process added : AppID {app_id} ")) {
-        return Some(SteamLaunchEvent::ProcessAdded);
+    for (marker, event) in [
+        (
+            "Game process added : AppID ",
+            SteamLaunchEvent::ProcessAdded,
+        ),
+        (
+            "Game process updated : AppID ",
+            SteamLaunchEvent::ProcessUpdated,
+        ),
+        (
+            "Game process removed: AppID ",
+            SteamLaunchEvent::ProcessRemoved,
+        ),
+    ] {
+        if line
+            .split_once(marker)
+            .and_then(|(_, detail)| detail.split_once(' '))
+            .is_some_and(|(id, _)| id.parse::<u32>() == Ok(app_id))
+        {
+            return Some(event);
+        }
     }
-    if line.contains(&format!("Game process updated : AppID {app_id} ")) {
-        return Some(SteamLaunchEvent::ProcessUpdated);
+    let action = line.split_once("GameAction [AppID ")?.1;
+    let (id, action) = action.split_once(", ActionID ")?;
+    if id.parse::<u32>() != Ok(app_id) {
+        return None;
     }
-    if line.contains(&format!("Game process removed: AppID {app_id} ")) {
-        return Some(SteamLaunchEvent::ProcessRemoved);
-    }
-    let marker = format!("GameAction [AppID {app_id}, ActionID ");
-    let action = line.split_once(&marker)?.1;
     let action = action.split_once("] : LaunchApp ")?.1;
     if let Some(detail) = action.strip_prefix("failed with ") {
         let code = detail.split_whitespace().next()?;
