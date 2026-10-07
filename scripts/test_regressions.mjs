@@ -221,7 +221,7 @@ test("native launch events invalidate stale reads and reduce polling during game
   const request = deferred();
   let stateListener, failureListener;
   globalThis.legioLaunchEvents = {
-    settings, info,
+    settings, info, active: writable(true),
     list: () => request.promise,
     states: (callback) => { stateListener = callback; return Promise.resolve(() => {}); },
     failure: (callback) => { failureListener = callback; return Promise.resolve(() => {}); },
@@ -246,6 +246,7 @@ test("native launch events invalidate stale reads and reduce polling during game
       "../services/steam-accounts": service,
       "../utils/errors": errors,
       "./resource": await load("src/lib/stores/resource.ts"),
+      "./window-activity": dataModule("export const windowActive = globalThis.legioLaunchEvents.active;"),
       "./app-info": dataModule("export const appInfo = globalThis.legioLaunchEvents.info;"),
       "./settings": dataModule("export const settings = globalThis.legioLaunchEvents.settings;"),
       "../services/launch": dataModule("export const launchConfiguredGameWithRunner = async () => {}; export const launchNativeGame = async () => {};"),
@@ -259,6 +260,8 @@ test("native launch events invalidate stale reads and reduce polling during game
     request.resolve([]);
     await pending;
     assert.equal(get(launch.hasPendingLaunch), true, "an old snapshot cannot replace a newer native event");
+    globalThis.legioLaunchEvents.active.set(false);
+    assert.equal(intervals.at(-1).cleared, true, "native events continue without background UI polling");
     failureListener("shortcut failure");
     assert.equal(get(launch.launchError), "shortcut failure");
     stateListener([{ gameId: "game", status: "idle" }]);
@@ -365,5 +368,50 @@ test("hydration waits for startup recovery before loading games and displays fai
   } finally {
     globalThis.setInterval = originalInterval;
     delete globalThis.legioBootstrap;
+  }
+});
+
+test("download UI polling stops while inactive and catches completed work on restore", async () => {
+  const active = writable(false);
+  let jobs = [{ id: "download", status: "downloading" }];
+  let requests = 0;
+  globalThis.legioDownloadVisibility = { active, invoke: async (command) => {
+    assert.equal(command, "list_downloads");
+    requests++;
+    return jobs;
+  } };
+  const { load } = createModuleLoader({
+    "@tauri-apps/api/core": dataModule("export const invoke = (...args) => globalThis.legioDownloadVisibility.invoke(...args);"),
+    "src/lib/i18n": localeUrl,
+    "src/lib/stores/window-activity": dataModule("export const windowActive = globalThis.legioDownloadVisibility.active;"),
+  });
+  const timers = new Set();
+  const originalSet = globalThis.setInterval;
+  const originalClear = globalThis.clearInterval;
+  globalThis.setInterval = () => { const timer = {}; timers.add(timer); return timer; };
+  globalThis.clearInterval = (timer) => timers.delete(timer);
+  try {
+    const module = await import(await load("src/lib/stores/downloads.ts"));
+    module.downloads.set(jobs);
+    module.startDownloadProgressPolling();
+    assert.equal(timers.size, 0);
+    active.set(true);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(requests, 1);
+    assert.equal(timers.size, 1);
+    active.set(false);
+    assert.equal(timers.size, 0);
+    jobs = [{ id: "download", status: "installed" }];
+    assert.equal(requests, 1, "native work can continue without hidden UI requests");
+    active.set(true);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(requests, 2);
+    assert.equal(get(module.downloads).data[0].status, "installed");
+    assert.equal(timers.size, 0);
+  } finally {
+    active.set(false);
+    globalThis.setInterval = originalSet;
+    globalThis.clearInterval = originalClear;
+    delete globalThis.legioDownloadVisibility;
   }
 });

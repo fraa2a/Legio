@@ -11,6 +11,7 @@
     type SteamAssetKind,
   } from "../../services/steam-details";
   import { steamDetails } from "../../stores/steam-details";
+  import { windowActive } from "../../stores/window-activity";
   import { toMessage } from "../../utils/errors";
   import { fadeDuration } from "../../utils/motion";
 
@@ -103,7 +104,7 @@
   });
   $effect(() => {
     const current = request;
-    if (refreshAt === null) return;
+    if (refreshAt === null || !$windowActive) return;
     const timer = setTimeout(() => { void loadSteamImage(current); }, Math.max(0, refreshAt - Date.now()));
     return () => clearTimeout(timer);
   });
