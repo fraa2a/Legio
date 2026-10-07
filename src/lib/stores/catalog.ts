@@ -32,7 +32,6 @@ const initial: CatalogState = {
 export const catalog = writable<CatalogState>(initial);
 
 source.subscribe(({ data }) => {
-  if (data.manifest === null) return;
   catalog.update((state) => ({
     ...state,
     results: state.results.map((game) => ({ ...game, availability: sourceStatusFor(data.manifest, game.steamAppId).availability })),
@@ -47,11 +46,11 @@ function applySearch(state: CatalogState, search: CatalogSearch, refreshing: boo
   return {
     ...state,
     status: search.games.length === 0 ? "empty" : "ready",
-    results: snapshot.manifest === null ? search.games : search.games.map((game) => ({ ...game, availability: sourceStatusFor(snapshot.manifest, game.steamAppId).availability })),
+    results: search.games.map((game) => ({ ...game, availability: sourceStatusFor(snapshot.manifest, game.steamAppId).availability })),
     total: search.total,
     nextOffset: search.nextOffset,
     stale: search.stale,
-    sourceStale: snapshot.manifest === null ? search.sourceStale : snapshot.stale,
+    sourceStale: snapshot.stale,
     refreshing,
     error: null,
   };

@@ -8,7 +8,7 @@ This document describes the contracts currently consumed by Legio, their validat
 | --- | --- | --- |
 | Hydra | Catalog search and game names | Search response with `count` and `edges` |
 | Steam Store | Game details and Steam artwork | `appdetails` API and Steam assets |
-| Legio Store | Available releases, archive URLs, and source classification | `https://source.taxphobia.top/store.json` |
+| Legio Store | Available releases, archive URLs, and source classification | User-configured HTTPS manifests |
 | Legio News | Bilingual articles on Home | `https://source.taxphobia.top/news.json` |
 | GitHub Releases | Launcher updates | `latest.json`, installers, and Tauri signatures |
 
@@ -101,7 +101,11 @@ For `verified` releases, SHA-256 verification before extraction is enabled by de
 
 ### Transport, cache, and snapshot
 
-The launcher reads the manifest from the fixed HTTPS URL above. The client does not follow redirects originating from the source domain. After parsing, the document is saved in the SQLite `legio_source_cache` table with its fetch time. An invalid document does not replace the last valid copy.
+Legio ships without configured download sources. Users can add and remove up to 16 HTTPS manifest URLs in Settings > Sources, or add one through `legio://add-source?url=<percent-encoded HTTPS URL>`. Duplicate URLs are idempotent. A source is installed only after its manifest has been downloaded and validated. Source requests do not follow redirects.
+
+Each source has its own SQLite `download_sources` row, stable ID, manifest, fetch time, and refresh warning. Refreshes retain each source's last valid cache on failure. Removing a source immediately removes its releases from the Store without changing installed games or existing download jobs. Late refreshes cannot restore a removed source. Updating from the previous schema clears the legacy source cache.
+
+The combined manifest deduplicates identical releases by Steam App ID, archive URL, and version. Conflicting metadata or classifications for the same tuple are omitted with a warning until the sources are corrected or removed.
 
 The frontend contract returned by `get_legio_source` and `refresh_legio_source` is:
 
@@ -109,12 +113,13 @@ The frontend contract returned by `get_legio_source` and `refresh_legio_source` 
 {
   "manifest": null,
   "cachedAt": null,
-  "stale": true,
-  "warning": null
+  "stale": false,
+  "warning": null,
+  "sources": []
 }
 ```
 
-`manifest` contains the document when available. `cachedAt` is a Unix timestamp in seconds, separate from `generatedAt`. The cache becomes stale after 24 hours, if its fetch time is in the future, or if a refresh fails. On failure, refresh returns the last valid cache with `warning` and `stale: true`; without a valid cache, it returns an error.
+`manifest` contains the document when available. `cachedAt` is a Unix timestamp in seconds, separate from `generatedAt`. The cache becomes stale after 24 hours, if its fetch time is in the future, or if a refresh fails. On failure, refresh returns the last valid cache with `warning` and `stale: true`. With no configured sources, refresh makes no source requests and returns an empty, non-stale snapshot. `sources` lists each installed source as `{ id, url, cachedAt, stale, warning, gameCount }`.
 
 The Store groups results by Steam App ID and lets users choose a release by name and version. Aggregated catalog availability uses `unknown`, `unavailable`, `verified`, or `unverified`. Without a matching entry, downloading is unavailable.
 

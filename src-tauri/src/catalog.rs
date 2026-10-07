@@ -445,7 +445,8 @@ fn merge_source(
 ) -> CatalogSearch {
     if let Some(source) = source {
         result.source_cached_at = Some(source.fetched_at);
-        result.source_stale = legio_source_cache::is_stale(source.fetched_at, current_time);
+        result.source_stale = source.warning.is_some()
+            || legio_source_cache::is_stale(source.fetched_at, current_time);
         let verified: std::collections::HashSet<_> = source
             .manifest
             .verified
@@ -573,6 +574,7 @@ mod tests {
             Some(legio_source_cache::CachedSource {
                 manifest: manifest.into(),
                 fetched_at: 100,
+                warning: None,
             }),
             101,
         );

@@ -802,3 +802,27 @@ pub async fn prefetch_steam_hero(
     .await
     .map(|_| ())
 }
+
+#[tauri::command]
+pub async fn add_download_source(
+    app: tauri::AppHandle,
+    state: State<'_, NetworkState>,
+    url: String,
+) -> Result<legio_source_cache::SourceSnapshot, String> {
+    legio_source_cache::add_source(app, state.inner(), url).await
+}
+
+#[tauri::command]
+pub async fn remove_download_source(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<legio_source_cache::SourceSnapshot, String> {
+    legio_source_cache::remove_source(app, id).await
+}
+
+#[tauri::command]
+pub fn take_source_links(
+    state: State<'_, crate::source_links::SourceLinks>,
+) -> Result<crate::source_links::PendingLinks, String> {
+    state.take()
+}

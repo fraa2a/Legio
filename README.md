@@ -53,6 +53,18 @@ shader caches use a separate per-game cache directory. Game-specific umu fixes c
 be selected with the documented `GAMEID` and `STORE` environment variables; Legio
 does not infer an umu ID from a Steam App ID.
 
+## Download sources
+
+Add an HTTPS catalog in **Settings > Sources**. You can install multiple sources,
+refresh their cached releases, and remove them individually. No download source
+is configured by default.
+
+After starting Legio once, opening a link such as
+`legio://add-source?url=https%3A%2F%2Fcatalogo.example%2Fgames.json`
+opens the launcher and adds the catalog. The browser may ask to open Legio.
+AppImage users need `xdg-utils` and `desktop-file-utils` for protocol registration;
+keep the AppImage at a stable path, or run it again after moving it.
+
 ## Documentation
 
 - [Source schemas and download flow](_meta/docs/SCHEMA.md)

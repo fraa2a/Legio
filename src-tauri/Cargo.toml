@@ -33,6 +33,7 @@ tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "sync", "
 uuid = { version = "1", features = ["v4"] }
 webp = { version = "0.3", default-features = false }
 tauri-plugin-single-instance = "2"
+tauri-plugin-deep-link = "2"
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }

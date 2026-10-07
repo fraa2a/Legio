@@ -1480,7 +1480,7 @@ mod tests {
         let database = Database::open(&directory).unwrap();
         let manifest = br#"{"schemaVersion":1,"generatedAt":"2026-09-22T00:00:00Z","verified":[{"steamAppId":400,"name":"Portal","release":{"version":"1","publishedAt":"2026-09-22T00:00:00Z"},"download":{"url":"https://example.invalid/portal.zip","sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","sizeBytes":10}}],"unverified":[]}"#;
         database.with_connection(|connection| {
-            connection.execute("INSERT INTO legio_source_cache (id, manifest, fetched_at) VALUES (1, ?1, 1)", [manifest.as_slice()]).map_err(db_error)?;
+            connection.execute("INSERT INTO download_sources (id, url, manifest, fetched_at) VALUES ('test-source', 'https://example.invalid/games.json', ?1, 1)", [manifest.as_slice()]).map_err(db_error)?;
             Ok(())
         }).unwrap();
         (database, directory)
@@ -1497,7 +1497,7 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute(
-                        "UPDATE legio_source_cache SET manifest = ?1 WHERE id = 1",
+                        "UPDATE download_sources SET manifest = ?1 WHERE id = 'test-source'",
                         [manifest.as_bytes()],
                     )
                     .map_err(db_error)?;
@@ -1780,7 +1780,7 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute(
-                        "UPDATE legio_source_cache SET manifest = ?1",
+                        "UPDATE download_sources SET manifest = ?1",
                         [serde_json::to_vec(&manifest).unwrap()],
                     )
                     .map_err(db_error)?;
@@ -1820,7 +1820,7 @@ mod tests {
         manifest["unverified"] = manifest["verified"].clone();
         manifest["verified"] = serde_json::json!([]);
         database.with_connection(|connection| {
-            connection.execute("UPDATE legio_source_cache SET manifest = ?1", [serde_json::to_vec(&manifest).unwrap()]).map_err(db_error)?;
+            connection.execute("INSERT INTO legio_source_cache (id, manifest, fetched_at) VALUES (1, ?1, 1)", [serde_json::to_vec(&manifest).unwrap()]).map_err(db_error)?;
             connection.execute_batch("ALTER TABLE downloads DROP COLUMN source_verified; PRAGMA user_version = 19;").map_err(db_error)
         }).unwrap();
         drop(database);

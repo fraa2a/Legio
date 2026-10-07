@@ -13,7 +13,7 @@ const HYDRA_HOST: &str = "hydra-api-us-east-1.losbroxas.org";
 const MAX_CATALOG_BYTES: usize = 2 * 1024 * 1024;
 const STEAM_DETAILS_URL: &str = "https://store.steampowered.com/api/appdetails";
 const MAX_ASSET_BYTES: usize = 2 * 1024 * 1024;
-const LEGIO_SOURCE_HOST: &str = "source.taxphobia.top";
+const NEWS_HOST: &str = "source.taxphobia.top";
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -52,6 +52,7 @@ pub struct ConnectivityCheck {
 #[derive(Clone)]
 pub struct NetworkState {
     client: reqwest::Client,
+    source_client: reqwest::Client,
     status: Arc<Mutex<NetworkStatus>>,
     diagnostics: Diagnostics,
 }
@@ -67,7 +68,7 @@ impl NetworkState {
                     && !attempt
                         .previous()
                         .iter()
-                        .any(|url| url.host_str() == Some(LEGIO_SOURCE_HOST))
+                        .any(|url| url.host_str() == Some(NEWS_HOST))
                     && is_approved_redirect(attempt.url())
                 {
                     attempt.follow()
@@ -78,8 +79,18 @@ impl NetworkState {
             .user_agent(format!("Legio/{version}"))
             .build()
             .map_err(|error| format!("could not initialize the network client: {error}"))?;
+        let source_client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(CONNECT_TIMEOUT_SECONDS))
+            .read_timeout(std::time::Duration::from_secs(READ_TIMEOUT_SECONDS))
+            .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
+            .redirect(reqwest::redirect::Policy::none())
+            .https_only(true)
+            .user_agent(format!("Legio/{version}"))
+            .build()
+            .map_err(|error| format!("Could not initialize source client: {error}"))?;
         Ok(Self {
             client,
+            source_client,
             status: Arc::new(Mutex::new(NetworkStatus::Unknown)),
             diagnostics,
         })
@@ -108,13 +119,15 @@ impl NetworkState {
         self.get(url, MAX_ASSET_BYTES, Operation::SteamAsset).await
     }
 
-    pub async fn legio_source(&self) -> Result<Vec<u8>, NetworkError> {
-        self.get(
-            crate::legio_source::SOURCE_URL,
-            crate::legio_source::MAX_MANIFEST_BYTES,
-            Operation::LegioSource,
-        )
-        .await
+    pub async fn legio_source(&self, url: &str) -> Result<Vec<u8>, NetworkError> {
+        let mut log = self.diagnostics.request(Operation::LegioSource);
+        let result = async {
+            let response = self.source_client.get(url).send().await?;
+            Self::read_bounded_to(response, crate::legio_source::MAX_MANIFEST_BYTES, &mut log).await
+        }
+        .await;
+        log.finish(&result);
+        result
     }
 
     pub async fn news(&self) -> Result<Vec<u8>, NetworkError> {
