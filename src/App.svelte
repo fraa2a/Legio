@@ -5,6 +5,7 @@
   import { appInfo } from "./lib/stores/app-info";
   import AppBackground from "./lib/components/layout/AppBackground.svelte";
   import { onMount } from "svelte";
+  import { derived } from "svelte/store";
   import Sidebar from "./lib/components/layout/Sidebar.svelte";
   import OnboardingView from "./lib/features/onboarding/OnboardingView.svelte";
   import ErrorBanner from "./lib/components/ui/ErrorBanner.svelte";
@@ -20,6 +21,7 @@
   import { hasPendingLaunch } from "./lib/stores/launch";
   import { observeMediaPlayback } from "./lib/services/media-playback";
 
+  const mediaActive = derived([windowActive, hasPendingLaunch], ([$active, $pending]) => $active && !$pending);
   const appearance = $derived($appearancePreview?.appearance ?? $settings.data.appearance);
   const theme = $derived($appearancePreview?.theme ?? $settings.data.theme);
   let prefersDark = $state(window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -35,7 +37,7 @@
   });
 
   onMount(() => {
-    const stopMedia = observeMediaPlayback(windowActive.subscribe);
+    const stopMedia = observeMediaPlayback(mediaActive.subscribe);
     void hydrateApp().catch((reason) => console.error(reason));
     if (import.meta.env.PROD) void checkForAppUpdate();
 
@@ -68,7 +70,7 @@
 
 <svelte:window oncontextmenu={blockContextMenu} />
 
-<AppBackground id={appearance.background} animation={appearance.animatedBackground} animationOpacity={appearance.animatedOpacity} {accent} dither={appearance.dither} active={$windowActive && !$hasPendingLaunch} />
+<AppBackground id={appearance.background} animation={appearance.animatedBackground} animationOpacity={appearance.animatedOpacity} {accent} dither={appearance.dither} active={$mediaActive} />
 <div class="legio-shell relative flex h-dvh select-none">
   {#if $settings.status === "ready" && $settings.data.onboardingCompleted}<Sidebar />{/if}
   <div class="flex min-w-0 flex-1 flex-col pl-2.5 pr-2.5 pb-1.5">

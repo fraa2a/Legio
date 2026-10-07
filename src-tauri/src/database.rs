@@ -182,6 +182,8 @@ pub struct Settings {
     pub verify_verified_downloads: bool,
     #[serde(default = "default_true")]
     pub diagnostics_enabled: bool,
+    #[serde(default)]
+    pub defer_extraction_while_playing: bool,
 }
 
 fn default_true() -> bool {
@@ -221,6 +223,7 @@ impl Default for Settings {
             download_notifications: true,
             verify_verified_downloads: true,
             diagnostics_enabled: true,
+            defer_extraction_while_playing: false,
         }
     }
 }

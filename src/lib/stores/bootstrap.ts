@@ -5,7 +5,7 @@ import { startLibraryHeroCaching } from "./library-artwork";
 import { bandwidthLimit, downloads, installedFolder, startDownloadProgressPolling } from "./downloads";
 import { source, refreshSource } from "./source";
 import { checkConnectivity, network } from "./network";
-import { hasPendingLaunch, launchError, launchStates } from "./launch";
+import { hasPendingLaunch, launchError, launchStates, startLaunchEvents } from "./launch";
 import { playtime } from "./playtime";
 import { importSteamLibrary } from "./steam-library";
 import { get } from "svelte/store";
@@ -21,6 +21,7 @@ export function configureSteamScanInterval(minutes: number): void {
 }
 
 export async function hydrateApp(): Promise<void> {
+  await startLaunchEvents();
   if (get(settings).status !== "ready") await settings.load();
   await Promise.all([
     appInfo.load(),

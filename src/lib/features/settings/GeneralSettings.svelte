@@ -21,6 +21,7 @@
     { key: "hideOnGameStart", label: t("Nascondi Legio nell'area di notifica quando avvii un gioco", $language) },
     { key: "launchOnSystemStart", label: t("Avvia Legio all'accesso al sistema", $language) },
     { key: "launchMinimized", label: t("Avvia Legio ridotto nell'area di notifica", $language) },
+    { key: "deferExtractionWhilePlaying", label: t("Posticipa l’estrazione automatica dei download mentre giochi", $language) },
     { key: "launchInLibrary", label: t("Apri Legio sulla Libreria", $language) },
   ]);
   let saving = $state(false);

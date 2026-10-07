@@ -9,7 +9,7 @@ export const defaultSettings: Settings = {
   appearance: defaultAppearance(), theme: "system", language: "system", steamLibraryPollMinutes: 30, downloadPath: null,
   closeToTray: true, hideOnGameStart: true, launchOnSystemStart: false,
   launchMinimized: false, launchInLibrary: false, downloadNotifications: true, verifyVerifiedDownloads: true,
-  diagnosticsEnabled: true, sidebarCollapsed: true,
+  diagnosticsEnabled: true, sidebarCollapsed: true, deferExtractionWhilePlaying: false,
 };
 
 export const settings = createResource<Settings>(defaultSettings, getSettings);
