@@ -44,6 +44,7 @@ mod playtime_activity;
 mod runner_discovery;
 mod settings;
 mod startup;
+mod startup_recovery;
 
 struct TrayAvailable(bool);
 struct LaunchEvents(tauri::async_runtime::JoinHandle<()>);
@@ -108,7 +109,7 @@ pub fn run() -> tauri::Result<()> {
                 .database()
                 .and_then(database::Database::download_bandwidth_limit)
                 .map_err(std::io::Error::other)?;
-            game_transfer::recover(database.database()?).map_err(std::io::Error::other)?;
+            app.manage(startup_recovery::StartupRecovery::new());
             app.manage(database);
             let download_queue = download_queue::DownloadQueueState::new(
                 app.path().app_data_dir(),
@@ -158,7 +159,6 @@ pub fn run() -> tauri::Result<()> {
             })));
             app.state::<download_queue::DownloadQueueState>()
                 .set_defer_extraction(initial_settings.defer_extraction_while_playing);
-            download_queue::start(app.handle().clone()).map_err(std::io::Error::other)?;
             let diagnostics = diagnostics::Diagnostics::with_enabled(
                 app.path().app_log_dir().map_err(|error| error.to_string()),
                 initial_settings.diagnostics_enabled,
@@ -246,6 +246,7 @@ pub fn run() -> tauri::Result<()> {
                 game_id: shortcut_game_id.clone(),
                 error: std::sync::Mutex::new(None),
             });
+            startup_recovery::start(app.handle().clone());
             if let Some(game_id) = shortcut_game_id {
                 launch_shortcut(app.handle(), game_id);
             }
@@ -374,8 +375,18 @@ fn show_main_window(app: &tauri::AppHandle) {
 
 fn launch_shortcut(app: &tauri::AppHandle, game_id: String) {
     let app = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        if let Err(error) = prepare_shortcut(&app, &game_id) {
+    tauri::async_runtime::spawn(async move {
+        let worker_app = app.clone();
+        let result = match startup_recovery::wait(&app).await {
+            Ok(()) => tauri::async_runtime::spawn_blocking(move || {
+                prepare_shortcut(&worker_app, &game_id)
+            })
+            .await
+            .map_err(|error| format!("Shortcut preparation task failed: {error}"))
+            .and_then(|result| result),
+            Err(error) => Err(error),
+        };
+        if let Err(error) = result {
             eprintln!("Could not launch game from shortcut: {error}");
             match app.state::<StartupLaunch>().error.lock() {
                 Ok(mut saved) => *saved = Some(error.clone()),

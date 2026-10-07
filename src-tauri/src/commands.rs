@@ -32,7 +32,8 @@ pub struct GameActionResult {
 }
 
 #[tauri::command]
-pub fn get_app_info(app: AppHandle) -> Result<AppInfo, String> {
+pub async fn get_app_info(app: AppHandle) -> Result<AppInfo, String> {
+    let recovery_error = crate::startup_recovery::wait(&app).await.err();
     let package_info = app.package_info();
 
     Ok(AppInfo {
@@ -42,12 +43,12 @@ pub fn get_app_info(app: AppHandle) -> Result<AppInfo, String> {
         tray_available: app.state::<crate::TrayAvailable>().0,
         desktop_environment: desktop_environment(),
         startup_launch_game_id: app.state::<crate::StartupLaunch>().game_id.clone(),
-        startup_launch_error: app
+        startup_launch_error: recovery_error.or(app
             .state::<crate::StartupLaunch>()
             .error
             .lock()
             .map_err(|_| "Shortcut launch state is unavailable".to_owned())?
-            .clone(),
+            .clone()),
     })
 }
 
@@ -246,6 +247,7 @@ pub async fn create_game_shortcut(
     game_id: String,
     location: crate::desktop_shortcuts::ShortcutLocation,
 ) -> Result<crate::desktop_shortcuts::ShortcutCreationResult, String> {
+    crate::startup_recovery::wait(&app).await?;
     tauri::async_runtime::spawn_blocking(move || {
         crate::desktop_shortcuts::create_for_game(&app, &game_id, location)
     })
@@ -576,6 +578,7 @@ pub async fn scan_steam_installations() -> Result<steam_local::SteamScan, String
 pub async fn import_steam_installations(
     app: AppHandle,
 ) -> Result<crate::steam_import::SteamImportResult, String> {
+    crate::startup_recovery::wait(&app).await?;
     tauri::async_runtime::spawn_blocking(move || {
         crate::steam_import::import_default_installations(&app.state::<DatabaseState>())
     })
@@ -600,6 +603,7 @@ pub async fn import_manual_game(
     app: AppHandle,
     input: manual_import::ManualImportInput,
 ) -> Result<GameActionResult, String> {
+    crate::startup_recovery::wait(&app).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let game = manual_import::import(&app.state::<DatabaseState>(), input)?;
         Ok(GameActionResult {
@@ -640,6 +644,7 @@ pub async fn set_game_executable(
     game_id: String,
     executable_path: String,
 ) -> Result<GameActionResult, String> {
+    crate::startup_recovery::wait(&app).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let game = manual_import::set_executable(
             &app.state::<DatabaseState>(),
