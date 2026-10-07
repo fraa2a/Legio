@@ -21,9 +21,9 @@ function bucket(job: DownloadJob): "processing" | "queue" | "finished" {
 }
 
 export function splitDownloads(jobs: DownloadJob[]): DownloadSections {
-  const processing = jobs.filter((job) => bucket(job) === "processing");
-  const queue = jobs.filter((job) => bucket(job) === "queue");
-  const finished = jobs.filter((job) => bucket(job) === "finished");
+  const sections: Record<ReturnType<typeof bucket>, DownloadJob[]> = { processing: [], queue: [], finished: [] };
+  for (const job of jobs) sections[bucket(job)].push(job);
+  const { processing, queue, finished } = sections;
   const primary =
     processing[0] ??
     queue.find((job) => job.status === "paused") ??

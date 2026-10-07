@@ -87,7 +87,7 @@
       const [overrideResult, defaultsResult, runnersResult, onlineFixResult] = await Promise.allSettled([
         getGameCompatibilityOverrides(game.id),
         getCompatibilityDefaults(),
-        listCompatibilityRunners(),
+        section === "compatibility" ? listCompatibilityRunners() : Promise.resolve({ runners: [], diagnostics: [] }),
         section === "compatibility" ? getGameOnlineFixDetected(game.id) : Promise.resolve(false),
       ]);
       if (overrideResult.status === "fulfilled") {

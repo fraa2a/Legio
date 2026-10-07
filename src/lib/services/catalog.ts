@@ -28,6 +28,10 @@ const recent = new Map<string, { result: CatalogSearch; at: number }>();
 const pending = new Map<string, Promise<CatalogSearch>>();
 const maxAge = 24 * 60 * 60 * 1000;
 
+export function invalidateCatalogAvailability(): void {
+  recent.clear();
+}
+
 export function cachedCatalogSearch(query: string): CatalogSearch | null {
   const entry = recent.get(query.trim().toLocaleLowerCase());
   return entry !== undefined && Date.now() - entry.at < maxAge ? entry.result : null;

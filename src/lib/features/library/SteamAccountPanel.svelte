@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
-  import { onDestroy, untrack } from "svelte";
+  import { onDestroy, onMount, untrack } from "svelte";
   import type { Game } from "../../services/local-state";
   import { toMessage } from "../../utils/errors";
   import {
@@ -41,7 +41,7 @@
   const selectedSteamId = $derived(selection === noAccount ? null : selection);
   const changed = $derived(selectedSteamId !== game.steamAccountId);
 
-  $effect(() => ensureSavedSteamAccounts);
+  onMount(ensureSavedSteamAccounts);
 
   $effect(() => {
     if (!changed || pending || loading || selection === failedSelection) return;

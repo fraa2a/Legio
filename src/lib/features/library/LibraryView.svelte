@@ -11,34 +11,17 @@
   import { importSteamLibrary, steamLibrary } from "../../stores/steam-library";
   import AddGameDialog from "./AddGameDialog.svelte";
   import GameCard from "./GameCard.svelte";
+  import { libraryGroups, libraryItems } from "./library-model";
 
-  const collator = new Intl.Collator(undefined, { sensitivity: "base" });
   onMount(() => {
     void playtime.load();
     const timer = setInterval(() => void playtime.load(), 30000);
     return () => clearInterval(timer);
   });
 
-  const visible = $derived.by(() => {
-    const needle = $libraryQuery.trim().toLowerCase();
-    const groups: Record<string, typeof $games.data> = Object.create(null);
-    for (const game of $games.data) {
-      const key = game.steamAppId === null ? game.id : `steam:${game.steamAppId}`;
-      const group = groups[key] ?? [];
-      group.push(game);
-      groups[key] = group;
-    }
-    return Object.values(groups)
-      .filter((group) => needle.length === 0 || group.some((game) => game.name.toLowerCase().includes(needle)))
-      .map((group) => ({
-        game: group.find((game) => $launchStateByGame.get(game.id)?.status === "running" && (needle.length === 0 || game.name.toLowerCase().includes(needle)))
-          ?? (needle.length > 0 ? group.find((game) => game.name.toLowerCase().includes(needle)) : undefined)
-          ?? group.find((game) => game.steamInstallPath !== null)
-          ?? group[0],
-        totalMilliseconds: group.reduce((total, game) => total + ($playtime.data.find((summary) => summary.gameId === game.id)?.totalMilliseconds ?? 0), 0),
-      }))
-      .sort((left, right) => collator.compare(left.game.name, right.game.name));
-  });
+  const groups = $derived(libraryGroups($games.data, $libraryQuery));
+  const summaries = $derived(new Map($playtime.data.map((summary) => [summary.gameId, summary])));
+  const visible = $derived(libraryItems(groups, $libraryQuery, summaries, $launchStateByGame));
   const listStatus = $derived(
     $steamLibrary.importing && $games.data.length === 0 ? "loading" : $games.status,
   );
