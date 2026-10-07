@@ -79,6 +79,7 @@ fn transfer(
     source: &str,
     destination: &str,
 ) -> Result<TransferResult, String> {
+    crate::startup_recovery::require_ready(app)?;
     let manager = app.state::<GameLaunchManager>();
     let _operation = manager.operation()?;
     manager.require_idle(game_id)?;

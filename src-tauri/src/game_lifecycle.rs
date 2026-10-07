@@ -265,6 +265,7 @@ impl GameLaunchManager {
         game_id: String,
         confirm_account_switch: bool,
     ) -> Result<steam_switch::SteamLaunchResult, String> {
+        crate::startup_recovery::require_ready(&app)?;
         let _operation = self.operation()?;
         let game = app.state::<DatabaseState>().database()?.game(&game_id)?;
         let app_id = game
@@ -324,6 +325,7 @@ impl GameLaunchManager {
         app: AppHandle<R>,
         game_id: String,
     ) -> Result<(), String> {
+        crate::startup_recovery::require_ready(&app)?;
         let _operation = self.operation()?;
         let database = app.state::<DatabaseState>().shared_database()?;
         let game = database.game(&game_id)?;
@@ -460,6 +462,7 @@ impl GameLaunchManager {
         mut config: EffectiveCompatibilityConfig,
         resolve_runner: impl FnOnce(&str) -> Result<runner_discovery::InstalledRunner, String>,
     ) -> Result<(), String> {
+        crate::startup_recovery::require_ready(&app)?;
         let _operation = self.operation()?;
         let database = app.state::<DatabaseState>().shared_database()?;
         let game = database.game(&game_id)?;
@@ -1196,6 +1199,7 @@ impl GameLaunchManager {
 }
 
 pub(crate) fn remove_game(app: &AppHandle, id: &str) -> Result<(), String> {
+    crate::startup_recovery::require_ready(app)?;
     let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
     let _operation = manager.operation()?;
     manager.require_idle(id)?;
