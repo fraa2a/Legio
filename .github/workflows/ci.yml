@@ -7,6 +7,7 @@ on:
       - main
       - fix/**
       - refactor/**
+      - chore/**
   push:
     branches:
       - main
