@@ -29,7 +29,7 @@ pub struct PresenceSettings {
 impl Default for PresenceSettings {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             application_id: APPLICATION_ID.to_owned(),
         }
     }
@@ -254,10 +254,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn validates_ids_and_defaults_old_settings_to_disabled() {
+    fn validates_ids_and_defaults_missing_settings_to_enabled() {
         let defaults: PresenceSettings = serde_json::from_str("{}").unwrap();
-        assert!(!defaults.enabled);
+        assert!(defaults.enabled);
         assert_eq!(defaults.application_id, APPLICATION_ID);
+        let disabled: PresenceSettings = serde_json::from_str(r#"{"enabled":false}"#).unwrap();
+        assert!(!disabled.enabled);
+        assert_eq!(disabled.application_id, APPLICATION_ID);
         assert!(
             PresenceSettings {
                 enabled: true,
