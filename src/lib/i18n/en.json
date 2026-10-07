@@ -351,7 +351,6 @@
   "nello Store": "in Store",
   "Aggiornamento in corso...": "Refreshing...",
   "Sorgente non aggiornata": "Source not updated",
-  "Nessun gioco nella cache locale. Cerca un titolo o aggiorna la sorgente.": "No games in the local cache. Search for a title or refresh the source.",
   "Nessuno dei risultati trovati è disponibile nella sorgente Legio.": "None of the results are available in the Legio source.",
   "Generali": "General",
   "Aspetto": "Appearance",
@@ -599,5 +598,18 @@
   "Limite FPS": "FPS limit",
   "Senza limite": "Uncapped",
   "Una risoluzione inferiore riduce la qualità visiva. Il limite FPS può ridurre consumi e temperature.": "A lower resolution reduces visual quality. An FPS limit can reduce power use and temperatures.",
-  "GameMode e Gamescope sono facoltativi. Confronta prestazioni e frametime sul gioco; Wayland resta una scelta separata.": "GameMode and Gamescope are optional. Compare performance and frame times in the game; Wayland remains a separate choice."
+  "GameMode e Gamescope sono facoltativi. Confronta prestazioni e frametime sul gioco; Wayland resta una scelta separata.": "GameMode and Gamescope are optional. Compare performance and frame times in the game; Wayland remains a separate choice.",
+  "Sorgenti": "Sources",
+  "Sorgenti dei giochi": "Game sources",
+  "Aggiungi un catalogo HTTPS per rendere disponibili i suoi giochi nello Store.": "Add an HTTPS catalog to make its games available in the Store.",
+  "URL della sorgente": "Source URL",
+  "Aggiungi sorgente": "Add source",
+  "Sorgenti installate": "Installed sources",
+  "Nessuna sorgente installata.": "No sources installed.",
+  "giochi": "games",
+  "Cache da aggiornare": "Cached data needs refreshing",
+  "Aggiornata": "Up to date",
+  "Aggiorna sorgenti": "Refresh sources",
+  "Puoi aggiungere una sorgente anche aprendo un collegamento legio://add-source?url=... dopo il primo avvio di Legio.": "You can also add a source by opening a legio://add-source?url=... link after starting Legio for the first time.",
+  "Nessun gioco nella cache locale. Cerca un titolo o aggiungi una sorgente nelle impostazioni.": "No games in the local cache. Search for a title or add a source in settings."
 }

@@ -43,6 +43,13 @@
       "endpoints": [
         "https://github.com/fraa2a/Legio/releases/latest/download/latest.json"
       ]
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "legio"
+        ]
+      }
     }
   }
 }

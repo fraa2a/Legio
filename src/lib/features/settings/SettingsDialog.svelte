@@ -2,6 +2,8 @@
   import { t, language } from "../../i18n";
   import Dialog from "../../components/ui/Dialog.svelte";
   import Icon, { type IconName } from "../../components/ui/Icon.svelte";
+  import SourceSettings from "./SourceSettings.svelte";
+  import { settingsCategory } from "../../stores/navigation";
   import DownloadSettings from "./DownloadSettings.svelte";
   import CompatibilitySettings from "./CompatibilitySettings.svelte";
   import AdvancedSettings from "./AdvancedSettings.svelte";
@@ -15,13 +17,12 @@
     { id: "general", label: t("Generali", $language), icon: "settings" },
     { id: "appearance", label: t("Aspetto", $language), icon: "palette" },
     { id: "downloads", label: "Download", icon: "downloads" },
+    { id: "sources", label: t("Sorgenti", $language), icon: "downloads" },
     ...($appInfo.data.platform === "linux" ? [{ id: "compatibility", label: t("Compatibilità", $language), icon: "wrench" } as const] : []),
     { id: "advanced", label: t("Avanzate", $language), icon: "info" },
   ] as const);
 
-  type CategoryId = (typeof categories)[number]["id"];
-
-  let active = $state<CategoryId>("general");
+  const active = $derived($settingsCategory);
 
   function categoryClass(isActive: boolean): string {
     return isActive
@@ -54,7 +55,7 @@
           class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors duration-200 {categoryClass(
             active === category.id,
           )}"
-          onclick={() => (active = category.id)}
+          onclick={() => settingsCategory.set(category.id)}
         >
           <Icon name={category.icon} size="size-4 shrink-0" />
           {category.label}
@@ -67,6 +68,8 @@
         <GeneralSettings />
       {:else if active === "appearance"}
         <ThemeSettings {accent} />
+      {:else if active === "sources"}
+        <SourceSettings />
       {:else if active === "downloads"}
         <DownloadSettings />
       {:else if active === "compatibility" && $appInfo.data.platform === "linux"}

@@ -3,6 +3,7 @@ import { settings } from "./settings";
 import { games } from "./games";
 import { startLibraryHeroCaching } from "./library-artwork";
 import { bandwidthLimit, downloads, installedFolder, startDownloadProgressPolling } from "./downloads";
+import { startSourceLinks } from "./source-links";
 import { source, refreshSource } from "./source";
 import { checkConnectivity, network } from "./network";
 import { hasPendingLaunch, launchError, launchStates, startLaunchEvents } from "./launch";
@@ -46,5 +47,6 @@ export async function hydrateApp(): Promise<void> {
     configureSteamScanInterval(get(settings).data.steamLibraryPollMinutes);
     if (!get(hasPendingLaunch)) await importSteamLibrary();
   }
+  await startSourceLinks();
   await Promise.all([checkConnectivity(), refreshSource()]);
 }

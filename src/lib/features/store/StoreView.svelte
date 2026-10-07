@@ -45,7 +45,7 @@
 
   const emptyMessage = $derived.by(() => {
     if (trimmed.length === 0) {
-      return t("Nessun gioco nella cache locale. Cerca un titolo o aggiorna la sorgente.", $language);
+      return t("Nessun gioco nella cache locale. Cerca un titolo o aggiungi una sorgente nelle impostazioni.", $language);
     }
     return t("Nessun risultato per questa ricerca.", $language);
   });

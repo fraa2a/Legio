@@ -10,7 +10,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 24;
+const SCHEMA_VERSION: i64 = 25;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1557,6 +1557,21 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         }
         transaction
             .execute_batch("PRAGMA user_version = 24;")
+            .map_err(database_error)?;
+    }
+    if version < 25 {
+        transaction
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS download_sources (
+                id TEXT PRIMARY KEY,
+                url TEXT NOT NULL UNIQUE,
+                manifest BLOB NOT NULL CHECK (length(manifest) BETWEEN 1 AND 2097152),
+                fetched_at INTEGER NOT NULL CHECK (fetched_at >= 0),
+                warning TEXT
+             );
+             DELETE FROM legio_source_cache;
+             PRAGMA user_version = 25;",
+            )
             .map_err(database_error)?;
     }
     transaction.commit().map_err(database_error)
