@@ -1276,9 +1276,11 @@ fn game_wine_prefix(compatdata: &Path, kind: RunnerKind) -> Result<PathBuf, Stri
         let nested_prefix = fs::canonicalize(&nested)
             .map_err(|error| format!("Could not inspect existing Wine prefix: {error}"))?;
         if nested_prefix != compatdata
-            && (nested_prefix.join("system.reg").exists() || nested_prefix.join("drive_c").exists())
+            && (kind != RunnerKind::Wine
+                || nested_prefix.join("system.reg").is_file()
+                || nested_prefix.join("drive_c").is_dir())
         {
-            return Err("Both the selected directory and its pfx child contain Wine prefixes. Select the intended prefix explicitly".to_owned());
+            return Err("Existing Wine prefix has a separate pfx directory. Resolve the conflicting layouts before launching".to_owned());
         }
     }
     if root_is_prefix {
@@ -1689,6 +1691,35 @@ mod tests {
         assert!(!direct.join("pfx").exists());
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(direct).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn prefix_layout_rejects_separate_empty_pfx_and_escaping_links_but_accepts_umu_alias() {
+        let root = test_dir("prefix-conflict");
+        fs::create_dir_all(root.join("drive_c")).unwrap();
+        fs::write(root.join("drive_c/save.dat"), b"saved").unwrap();
+        fs::create_dir(root.join("pfx")).unwrap();
+        assert!(
+            game_wine_prefix(&root, RunnerKind::GeProton)
+                .unwrap_err()
+                .contains("separate pfx")
+        );
+        assert_eq!(game_wine_prefix(&root, RunnerKind::Wine).unwrap(), root);
+        assert_eq!(fs::read(root.join("drive_c/save.dat")).unwrap(), b"saved");
+        fs::remove_dir(root.join("pfx")).unwrap();
+        std::os::unix::fs::symlink(&root, root.join("pfx")).unwrap();
+        assert_eq!(game_wine_prefix(&root, RunnerKind::Proton).unwrap(), root);
+        fs::remove_file(root.join("pfx")).unwrap();
+        let compatdata = root.join("other-game");
+        fs::create_dir(&compatdata).unwrap();
+        std::os::unix::fs::symlink(&root, compatdata.join("pfx")).unwrap();
+        assert!(
+            game_wine_prefix(&compatdata, RunnerKind::Wine)
+                .unwrap_err()
+                .contains("escapes")
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(target_os = "linux")]
