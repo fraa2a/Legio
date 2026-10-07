@@ -152,12 +152,25 @@ impl LaunchTarget {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub(crate) struct GameLaunchManager {
     entries: Arc<Mutex<HashMap<String, Entry>>>,
     operations: Arc<Mutex<()>>,
+    changes: tokio::sync::watch::Sender<()>,
     #[cfg(target_os = "linux")]
     compatibility_log_root: Option<Result<PathBuf, String>>,
+}
+
+impl Default for GameLaunchManager {
+    fn default() -> Self {
+        Self {
+            entries: Arc::default(),
+            operations: Arc::default(),
+            changes: tokio::sync::watch::channel(()).0,
+            #[cfg(target_os = "linux")]
+            compatibility_log_root: None,
+        }
+    }
 }
 
 impl GameLaunchManager {
@@ -169,10 +182,13 @@ impl GameLaunchManager {
     #[cfg(target_os = "linux")]
     pub(crate) fn with_log_directory(directory: Result<PathBuf, String>) -> Self {
         Self {
-            entries: Arc::default(),
-            operations: Arc::default(),
             compatibility_log_root: Some(directory),
+            ..Self::default()
         }
+    }
+
+    pub(crate) fn subscribe_changes(&self) -> tokio::sync::watch::Receiver<()> {
+        self.changes.subscribe()
     }
 
     pub(crate) fn operation(&self) -> Result<std::sync::MutexGuard<'_, ()>, String> {
@@ -1058,6 +1074,7 @@ impl GameLaunchManager {
                 cancel: Arc::clone(&cancel),
             },
         );
+        self.changes.send_replace(());
         Ok(cancel)
     }
 
@@ -1123,6 +1140,7 @@ impl GameLaunchManager {
         if let Some(entry) = entries.get_mut(game_id) {
             entry.status = status;
             entry.error = error;
+            self.changes.send_replace(());
         }
     }
 
@@ -1130,6 +1148,31 @@ impl GameLaunchManager {
         self.entries
             .lock()
             .map_err(|_| "Game launch state is unavailable after an earlier task failed".to_owned())
+    }
+}
+
+pub(crate) fn remove_game(app: &AppHandle, id: &str) -> Result<(), String> {
+    let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
+    let _operation = manager.operation()?;
+    manager.require_idle(id)?;
+    app.state::<DatabaseState>().database()?.remove_game(id)?;
+    let mut errors = Vec::new();
+    if let Err(error) = app
+        .state::<crate::game_artwork::GameArtworkStore>()
+        .remove_for_game(id)
+    {
+        errors.push(format!("custom artwork: {error}"));
+    }
+    if let Err(error) = crate::desktop_shortcuts::remove(id) {
+        errors.push(format!("desktop shortcuts: {error}"));
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Game was removed, but cleanup failed: {}",
+            errors.join("; ")
+        ))
     }
 }
 

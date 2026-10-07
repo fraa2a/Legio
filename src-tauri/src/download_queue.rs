@@ -112,9 +112,10 @@ pub struct DownloadQueueState {
     client: reqwest::Client,
     running: AtomicBool,
     starting: AtomicBool,
-    active: std::sync::Mutex<Option<(String, std::sync::Arc<AtomicBool>)>>,
+    active: std::sync::Mutex<Option<(String, tokio::sync::watch::Sender<bool>)>>,
     bandwidth_limit: AtomicU64,
     wake: tokio::sync::Notify,
+    limit_changed: tokio::sync::Notify,
     staging: tokio::sync::Mutex<()>,
 }
 
@@ -139,6 +140,7 @@ impl DownloadQueueState {
             active: std::sync::Mutex::new(None),
             bandwidth_limit: AtomicU64::new(0),
             wake: tokio::sync::Notify::new(),
+            limit_changed: tokio::sync::Notify::new(),
             staging: tokio::sync::Mutex::new(()),
         })
     }
@@ -171,6 +173,7 @@ impl DownloadQueueState {
     pub(crate) fn set_bandwidth_limit(&self, bytes_per_second: u64) {
         self.bandwidth_limit
             .store(bytes_per_second, Ordering::Relaxed);
+        self.limit_changed.notify_one();
     }
 
     fn interrupt(&self, id: &str) -> Result<(), String> {
@@ -181,7 +184,7 @@ impl DownloadQueueState {
         if let Some((active_id, stopped)) = active.as_ref()
             && active_id == id
         {
-            stopped.store(true, Ordering::Release);
+            stopped.send_replace(true);
         }
         Ok(())
     }
@@ -690,10 +693,17 @@ fn kick<R: Runtime>(app: AppHandle<R>) {
 
 async fn run_queue<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     loop {
-        let database = app.state::<DatabaseState>();
-        let database = database.database()?;
-        let Some(job) = claim(database)? else {
-            if !has_status(database, DownloadStatus::Waiting)? {
+        let database = app.state::<DatabaseState>().shared_database()?;
+        let reader = database.clone();
+        let (job, waiting) = tauri::async_runtime::spawn_blocking(move || {
+            let job = claim(&reader)?;
+            let waiting = job.is_none() && has_status(&reader, DownloadStatus::Waiting)?;
+            Ok::<_, String>((job, waiting))
+        })
+        .await
+        .map_err(|error| format!("Download queue task failed: {error}"))??;
+        let Some(job) = job else {
+            if !waiting {
                 break;
             }
             let queue = app.state::<DownloadQueueState>();
@@ -706,55 +716,61 @@ async fn run_queue<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
             &job,
         )
         .await;
-        match outcome {
-            Ok(()) => {
-                finish(database, &job.id, DownloadStatus::Downloaded, None)?;
-                spawn_staging(app, &job.id);
-                match database.settings() {
-                    Ok(settings) if settings.download_notifications => {
-                        if let Err(error) = app
-                            .notification()
-                            .builder()
-                            .title(
-                                settings
-                                    .language
-                                    .text("Download completato", "Download complete"),
-                            )
-                            .body(&job.name)
-                            .show()
-                        {
-                            eprintln!("Could not show download notification: {error}");
+        let app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            match outcome {
+                Ok(()) => {
+                    finish(&database, &job.id, DownloadStatus::Downloaded, None)?;
+                    spawn_staging(&app, &job.id);
+                    match database.settings() {
+                        Ok(settings) if settings.download_notifications => {
+                            if let Err(error) = app
+                                .notification()
+                                .builder()
+                                .title(
+                                    settings
+                                        .language
+                                        .text("Download completato", "Download complete"),
+                                )
+                                .body(&job.name)
+                                .show()
+                            {
+                                eprintln!("Could not show download notification: {error}");
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            eprintln!("Could not read download notification setting: {error}")
                         }
                     }
-                    Ok(_) => {}
-                    Err(error) => {
-                        eprintln!("Could not read download notification setting: {error}")
+                }
+                Err(error) => {
+                    if status(&database, &job.id)? == "downloading" {
+                        let waiting = error.starts_with("Network:") || error.starts_with("HTTP 5");
+                        finish(
+                            &database,
+                            &job.id,
+                            if waiting {
+                                DownloadStatus::Waiting
+                            } else {
+                                DownloadStatus::Failed
+                            },
+                            Some(error),
+                        )?;
                     }
                 }
             }
-            Err(error) => {
-                if status(database, &job.id)? == "downloading" {
-                    let waiting = error.starts_with("Network:") || error.starts_with("HTTP 5");
-                    finish(
-                        database,
-                        &job.id,
-                        if waiting {
-                            DownloadStatus::Waiting
-                        } else {
-                            DownloadStatus::Failed
-                        },
-                        Some(error),
-                    )?;
+            if status(&database, &job.id)? == "cancelled" {
+                let path = app.state::<DownloadQueueState>().path(&job.id, "part")?;
+                if let Err(error) = remove_partial(&path) {
+                    let message = format!("Could not remove partial download: {error}");
+                    cancellation_error(&database, &job.id, &message)?;
                 }
             }
-        }
-        if status(database, &job.id)? == "cancelled" {
-            let path = app.state::<DownloadQueueState>().path(&job.id, "part")?;
-            if let Err(error) = remove_partial(&path) {
-                let message = format!("Could not remove partial download: {error}");
-                cancellation_error(database, &job.id, &message)?;
-            }
-        }
+            Ok::<_, String>(())
+        })
+        .await
+        .map_err(|error| format!("Download completion task failed: {error}"))??;
     }
     Ok(())
 }
@@ -852,12 +868,12 @@ async fn transfer(
     database: std::sync::Arc<Database>,
     job: &Transfer,
 ) -> Result<(), String> {
-    let stopped = std::sync::Arc::new(AtomicBool::new(false));
+    let (stop, mut stopped) = tokio::sync::watch::channel(false);
     *queue
         .active
         .lock()
         .map_err(|_| "Download control lock was poisoned".to_owned())? =
-        Some((job.id.clone(), stopped.clone()));
+        Some((job.id.clone(), stop));
     let checker = database.clone();
     let check_id = job.id.clone();
     if tauri::async_runtime::spawn_blocking(move || status(&checker, &check_id))
@@ -892,18 +908,10 @@ async fn transfer(
             request = request.header(IF_RANGE, etag);
         }
     }
-    let mut response = request
-        .send()
-        .await
-        .map_err(|error| format!("Network: {}", error.without_url()))?;
+    let mut response = interruptible_response(&mut stopped, request.send()).await?;
     if offset > 0 && !resume_matches(&response, job, offset) {
         offset = 0;
-        response = queue
-            .client
-            .get(&job.url)
-            .send()
-            .await
-            .map_err(|error| format!("Network: {}", error.without_url()))?;
+        response = interruptible_response(&mut stopped, queue.client.get(&job.url).send()).await?;
     }
     if response.status()
         != if offset > 0 {
@@ -929,12 +937,8 @@ async fn transfer(
     let initial = offset;
     let mut persisted = Instant::now();
     let mut limiter = BandwidthWindow::new(offset, queue.bandwidth_limit.load(Ordering::Relaxed));
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| format!("Network: {}", error.without_url()))?
-    {
-        if stopped.load(Ordering::Acquire) {
+    while let Some(chunk) = interruptible_response(&mut stopped, response.chunk()).await? {
+        if *stopped.borrow() {
             return Err("Download was stopped".to_owned());
         }
         let next = offset
@@ -948,7 +952,7 @@ async fn transfer(
             .map_err(|error| format!("Could not write partial download: {error}"))?;
         offset = next;
         loop {
-            if stopped.load(Ordering::Acquire) {
+            if *stopped.borrow() {
                 persist_progress(database.clone(), &job.id, offset, 0, None, etag.as_deref())
                     .await?;
                 return Err("Download was stopped".to_owned());
@@ -957,7 +961,12 @@ async fn transfer(
             if delay.is_zero() {
                 break;
             }
-            tokio::time::sleep(delay.min(Duration::from_millis(50))).await;
+            tokio::select! {
+                biased;
+                _ = stopped.changed() => {},
+                _ = queue.limit_changed.notified() => {},
+                _ = tokio::time::sleep(delay) => {},
+            }
         }
         let elapsed = started.elapsed().as_secs_f64();
         let speed = if elapsed > 0.0 {
@@ -994,13 +1003,27 @@ async fn transfer(
         .await
         .map_err(|error| format!("Could not sync download: {error}"))?;
     drop(file);
-    if stopped.load(Ordering::Acquire) {
+    if *stopped.borrow() {
         return Err("Download was stopped".to_owned());
     }
     tokio::fs::rename(&partial, &archive)
         .await
         .map_err(|error| format!("Could not finalize downloaded archive: {error}"))?;
     Ok(())
+}
+
+async fn interruptible_response<T>(
+    stopped: &mut tokio::sync::watch::Receiver<bool>,
+    response: impl std::future::Future<Output = Result<T, reqwest::Error>>,
+) -> Result<T, String> {
+    if *stopped.borrow() {
+        return Err("Download was stopped".to_owned());
+    }
+    tokio::select! {
+        biased;
+        _ = stopped.changed() => Err("Download was stopped".to_owned()),
+        result = response => result.map_err(|error| format!("Network: {}", error.without_url())),
+    }
 }
 
 #[tauri::command]
@@ -1342,6 +1365,33 @@ pub fn start(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn cancellation_interrupts_a_silent_response_and_is_not_lost_before_waiting() {
+        let (stop, mut stopped) = tokio::sync::watch::channel(false);
+        let pending = interruptible_response(
+            &mut stopped,
+            std::future::pending::<Result<(), reqwest::Error>>(),
+        );
+        let cancel = async {
+            tokio::task::yield_now().await;
+            stop.send_replace(true);
+        };
+        let (result, ()) = tokio::time::timeout(Duration::from_secs(1), async {
+            tokio::join!(pending, cancel)
+        })
+        .await
+        .unwrap();
+        assert_eq!(result.unwrap_err(), "Download was stopped");
+        assert!(
+            interruptible_response(
+                &mut stopped,
+                std::future::pending::<Result<(), reqwest::Error>>()
+            )
+            .await
+            .is_err()
+        );
+    }
     use sha2::{Digest, Sha256};
     use std::{
         io::{Read, Write},
@@ -1690,6 +1740,7 @@ mod tests {
                 Ok(())
             })
             .unwrap();
+        *database.source_cache.lock().unwrap() = None;
         let url = "https://example.invalid/portal.zip";
         assert!(enqueue(&database, 400, url, "1", false).is_err());
         let first = enqueue(&database, 400, url, "1", true).unwrap();
