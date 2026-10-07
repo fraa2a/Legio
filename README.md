@@ -71,6 +71,9 @@ Run `corepack pnpm install` and `corepack pnpm tauri dev` for local development.
 Tauri development runs use the `dev.fraa2a.legio.dev` application identifier,
 with a separate persistent database, settings, cache and logs. The first dev run
 starts with an empty library; subsequent dev runs reuse their own data.
+On Linux, the dev database is stored at
+`$XDG_DATA_HOME/dev.fraa2a.legio.dev/legio.sqlite3`, using `~/.local/share` when
+`XDG_DATA_HOME` is not set.
 Installed builds keep using `dev.fraa2a.legio`. Existing installed data is not
 copied, migrated or reset by development runs.
 
