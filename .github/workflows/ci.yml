@@ -5,6 +5,8 @@ on:
   pull_request:
     branches:
       - main
+      - fix/**
+      - refactor/**
   push:
     branches:
       - main
