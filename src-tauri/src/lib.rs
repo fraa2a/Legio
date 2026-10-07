@@ -44,10 +44,11 @@ mod settings;
 mod startup;
 
 struct TrayAvailable(bool);
+struct LaunchEvents(tauri::async_runtime::JoinHandle<()>);
 #[derive(Default)]
 pub(crate) struct StartupLaunch {
     pub game_id: Option<String>,
-    pub error: Option<String>,
+    pub error: std::sync::Mutex<Option<String>>,
 }
 mod steam_assets;
 mod steam_details;
@@ -82,9 +83,7 @@ pub fn run() -> tauri::Result<()> {
                     args.into_iter().skip(1).map(std::ffi::OsString::from),
                 ) {
                     Ok(Some(id)) => {
-                        if let Err(error) = launch_shortcut(&handle, &id) {
-                            eprintln!("Could not launch forwarded shortcut: {error}");
-                        }
+                        launch_shortcut(&handle, id);
                     }
                     Ok(None) => {}
                     Err(error) => eprintln!("Invalid forwarded shortcut: {error}"),
@@ -126,13 +125,40 @@ pub fn run() -> tauri::Result<()> {
                 .set_storage_root(&storage_root)
                 .map_err(std::io::Error::other)?;
             app.manage(download_queue);
-            download_queue::start(app.handle().clone()).map_err(std::io::Error::other)?;
             #[cfg(target_os = "linux")]
             app.manage(game_lifecycle::GameLaunchManager::with_log_directory(
                 app.path().app_log_dir().map_err(|error| error.to_string()),
             ));
             #[cfg(not(target_os = "linux"))]
             app.manage(game_lifecycle::GameLaunchManager::new());
+            let launch_manager = app.state::<game_lifecycle::GameLaunchManager>();
+            let mut changes = launch_manager.subscribe_changes();
+            let events_app = app.handle().clone();
+            app.manage(LaunchEvents(tauri::async_runtime::spawn(async move {
+                while changes.changed().await.is_ok() {
+                    match events_app
+                        .state::<game_lifecycle::GameLaunchManager>()
+                        .list()
+                    {
+                        Ok(states) => {
+                            if let Err(error) = events_app.emit("legio:game-launch-states", states)
+                            {
+                                eprintln!("Could not publish game activity: {error}");
+                            }
+                        }
+                        Err(error) => eprintln!("Could not read game activity: {error}"),
+                    }
+                }
+            })));
+            app.state::<download_queue::DownloadQueueState>()
+                .set_defer_extraction(
+                    app.state::<database::DatabaseState>()
+                        .database()?
+                        .settings()
+                        .map_err(std::io::Error::other)?
+                        .defer_extraction_while_playing,
+                );
+            download_queue::start(app.handle().clone()).map_err(std::io::Error::other)?;
             let diagnostics_enabled = app
                 .state::<database::DatabaseState>()
                 .database()?
@@ -232,16 +258,13 @@ pub fn run() -> tauri::Result<()> {
                 }
             }
 
-            let mut startup_launch = StartupLaunch::default();
+            app.manage(StartupLaunch {
+                game_id: shortcut_game_id.clone(),
+                error: std::sync::Mutex::new(None),
+            });
             if let Some(game_id) = shortcut_game_id {
-                startup_launch.game_id = Some(game_id.clone());
-                let launch_result = launch_shortcut(app.handle(), &game_id);
-                if let Err(error) = launch_result {
-                    eprintln!("Could not launch game from shortcut: {error}");
-                    startup_launch.error = Some(error);
-                }
+                launch_shortcut(app.handle(), game_id);
             }
-            app.manage(startup_launch);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -351,6 +374,7 @@ pub fn run() -> tauri::Result<()> {
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
                 app.state::<discord_presence::PresenceService>().shutdown();
+                app.state::<LaunchEvents>().0.abort();
             }
         });
     Ok(())
@@ -364,7 +388,23 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
-fn launch_shortcut(app: &tauri::AppHandle, game_id: &str) -> Result<(), String> {
+fn launch_shortcut(app: &tauri::AppHandle, game_id: String) {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Err(error) = prepare_shortcut(&app, &game_id) {
+            eprintln!("Could not launch game from shortcut: {error}");
+            match app.state::<StartupLaunch>().error.lock() {
+                Ok(mut saved) => *saved = Some(error.clone()),
+                Err(lock_error) => eprintln!("Could not save shortcut failure: {lock_error}"),
+            }
+            if let Err(event_error) = app.emit("legio:shortcut-launch-failed", error) {
+                eprintln!("Could not publish shortcut failure: {event_error}");
+            }
+        }
+    });
+}
+
+fn prepare_shortcut(app: &tauri::AppHandle, game_id: &str) -> Result<(), String> {
     let game = app
         .state::<database::DatabaseState>()
         .database()?

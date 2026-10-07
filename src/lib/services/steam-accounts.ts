@@ -1,3 +1,4 @@
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import type { Game } from "./local-state";
 
@@ -50,6 +51,14 @@ export interface GameLaunchState {
   gameId: string;
   status: "idle" | "launching" | "running";
   error?: string;
+}
+
+export function onGameLaunchStates(callback: (states: GameLaunchState[]) => void): Promise<UnlistenFn> {
+  return listen<GameLaunchState[]>("legio:game-launch-states", (event) => callback(event.payload));
+}
+
+export function onShortcutLaunchFailure(callback: (message: string) => void): Promise<UnlistenFn> {
+  return listen<string>("legio:shortcut-launch-failed", (event) => callback(event.payload));
 }
 
 export function listGameLaunchStates(): Promise<GameLaunchState[]> {

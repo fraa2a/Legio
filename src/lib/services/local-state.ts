@@ -21,6 +21,7 @@ export interface Settings {
   downloadNotifications: boolean;
   verifyVerifiedDownloads: boolean;
   diagnosticsEnabled: boolean;
+  deferExtractionWhilePlaying: boolean;
 }
 
 export interface Game {

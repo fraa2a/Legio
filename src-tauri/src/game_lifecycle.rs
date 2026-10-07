@@ -1720,6 +1720,54 @@ mod tests {
             .unwrap();
     }
 
+    #[tokio::test]
+    async fn deferred_extraction_resumes_on_game_exit_or_setting_change() {
+        let root = test_dir("extraction-scheduling");
+        let queue =
+            crate::download_queue::DownloadQueueState::new(Ok(root.clone()), "test").unwrap();
+        let manager = GameLaunchManager::new();
+        manager
+            .reserve_launch(
+                "game",
+                Some(42),
+                game_process::ProcessTarget::Steam {
+                    app_id: 42,
+                    install_path: root.clone(),
+                },
+                None,
+            )
+            .unwrap();
+        queue.set_defer_extraction(true);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(25), queue.wait_for_idle(&manager))
+                .await
+                .is_err()
+        );
+        let release = async {
+            tokio::task::yield_now().await;
+            manager.set_state("game", GameStatus::Idle, None);
+        };
+        let (result, ()) = tokio::time::timeout(Duration::from_secs(1), async {
+            tokio::join!(queue.wait_for_idle(&manager), release)
+        })
+        .await
+        .unwrap();
+        result.unwrap();
+        manager.set_state("game", GameStatus::Running, None);
+        let disable = async {
+            tokio::task::yield_now().await;
+            queue.set_defer_extraction(false);
+        };
+        let (result, ()) = tokio::time::timeout(Duration::from_secs(1), async {
+            tokio::join!(queue.wait_for_idle(&manager), disable)
+        })
+        .await
+        .unwrap();
+        result.unwrap();
+        assert_eq!(manager.list().unwrap()[0].status, GameStatus::Running);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn installation_changes_require_an_idle_game() {
         let manager = GameLaunchManager::new();

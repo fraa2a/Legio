@@ -70,3 +70,7 @@ Legio retries if Discord starts later or restarts. Disabling the toggle clears
 Legio's activity and disconnects; exiting Legio closes its IPC connection. Closing
 the window to the tray keeps Rich Presence active. Only the game name and session
 start time are published, never executable paths, Steam accounts or launch options.
+
+### Work during a game session
+
+Backgrounds, media and CSS animations pause when Legio loses focus, is minimized or is hidden in the tray, and during a tracked game session. Recent artwork prefetch and scheduled Steam scans wait until the session ends. General settings offer an optional switch to defer automatic download extraction until all tracked games are idle; existing extractions finish safely and network downloads continue. Explicit installation/finalization actions remain under user control. Game activity arrives through native events with a periodic recovery sync. Shortcut preparation runs outside the UI thread.

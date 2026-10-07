@@ -32,18 +32,23 @@ pub struct GameActionResult {
 }
 
 #[tauri::command]
-pub fn get_app_info(app: AppHandle) -> AppInfo {
+pub fn get_app_info(app: AppHandle) -> Result<AppInfo, String> {
     let package_info = app.package_info();
 
-    AppInfo {
+    Ok(AppInfo {
         name: package_info.name.clone(),
         version: package_info.version.to_string(),
         platform: std::env::consts::OS.to_owned(),
         tray_available: app.state::<crate::TrayAvailable>().0,
         desktop_environment: desktop_environment(),
         startup_launch_game_id: app.state::<crate::StartupLaunch>().game_id.clone(),
-        startup_launch_error: app.state::<crate::StartupLaunch>().error.clone(),
-    }
+        startup_launch_error: app
+            .state::<crate::StartupLaunch>()
+            .error
+            .lock()
+            .map_err(|_| "Shortcut launch state is unavailable".to_owned())?
+            .clone(),
+    })
 }
 
 #[tauri::command]
