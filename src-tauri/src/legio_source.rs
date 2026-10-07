@@ -7,9 +7,8 @@ use serde::{Deserialize, Serialize};
 use crate::network::NetworkState;
 
 pub const MAX_MANIFEST_BYTES: usize = 2 * 1024 * 1024;
-pub const SOURCE_URL: &str = "https://source.taxphobia.top/store.json";
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Manifest {
     pub schema_version: u32,
@@ -18,7 +17,7 @@ pub struct Manifest {
     pub unverified: Vec<SourceEntry>,
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourceEntry {
     pub steam_app_id: u32,
@@ -27,14 +26,14 @@ pub struct SourceEntry {
     pub download: Download,
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Release {
     pub version: String,
     pub published_at: String,
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Download {
     pub url: String,
@@ -77,10 +76,10 @@ impl fmt::Display for ManifestError {
 
 impl std::error::Error for ManifestError {}
 
-pub async fn fetch_manifest(network: &NetworkState) -> Result<Manifest, String> {
-    validate_manifest_url(SOURCE_URL).map_err(|error| error.to_string())?;
+pub async fn fetch_manifest(network: &NetworkState, url: &str) -> Result<Manifest, String> {
+    validate_manifest_url(url).map_err(|error| error.to_string())?;
     let bytes = network
-        .legio_source()
+        .legio_source(url)
         .await
         .map_err(|error| format!("Could not fetch Legio source: {error:?}"))?;
     tauri::async_runtime::spawn_blocking(move || {
@@ -184,6 +183,13 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {
 }
 
 pub fn validate_manifest_url(url: &str) -> Result<Url, ManifestError> {
+    if url.len() > 4096 || url.chars().any(char::is_control) {
+        return Err(ManifestError::new(
+            ManifestErrorKind::InvalidUrl,
+            "sourceUrl",
+            "invalid source URL length or characters",
+        ));
+    }
     let parsed = Url::parse(url).map_err(|_| {
         ManifestError::new(ManifestErrorKind::InvalidUrl, "sourceUrl", "invalid URL")
     })?;

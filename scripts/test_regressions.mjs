@@ -176,6 +176,8 @@ test("catalog load more requests the next remote page", async () => {
   assert.equal(get(state).results.length, 3);
   globalThis.legioSourceFixture.set({ data: { manifest: { verified: [{ steamAppId: 400 }], unverified: [] }, stale: false } });
   assert.equal(get(state).results[0].availability, "verified", "a refreshed source updates visible search results");
+  globalThis.legioSourceFixture.set({ data: { manifest: null, stale: false } });
+  assert.equal(get(state).results[0].availability, "unknown", "removing the last source clears cached availability");
 });
 
 test("library groups preserve matching versions and sum all installations through the summary index", async () => {
@@ -347,6 +349,7 @@ test("hydration waits for startup recovery before loading games and displays fai
     "src/lib/stores/playtime": fromGlobal("playtime"),
     "src/lib/stores/library-artwork": dataModule("export const startLibraryHeroCaching = () => {};"),
     "src/lib/stores/downloads": dataModule(["downloads", "bandwidthLimit", "installedFolder"].map((name) => `export const ${name} = globalThis.legioBootstrap.${name};`).join("\n") + "export const startDownloadProgressPolling = () => {};"),
+    "src/lib/stores/source-links": dataModule("export const startSourceLinks = async () => {};"),
     "src/lib/stores/source": dataModule("export const source = globalThis.legioBootstrap.source; export const refreshSource = async () => {};"),
     "src/lib/stores/network": dataModule("export const network = globalThis.legioBootstrap.network; export const checkConnectivity = async () => {};"),
     "src/lib/stores/launch": dataModule(["hasPendingLaunch", "launchError", "launchStates"].map((name) => `export const ${name} = globalThis.legioBootstrap.${name};`).join("\n") + "export const startLaunchEvents = async () => {};"),

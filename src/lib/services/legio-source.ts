@@ -19,6 +19,7 @@ export interface SourceSnapshot {
   cachedAt: number | null;
   stale: boolean;
   warning: string | null;
+  sources: InstalledSource[];
 }
 
 export function getLegioSource(): Promise<SourceSnapshot> {
@@ -27,4 +28,30 @@ export function getLegioSource(): Promise<SourceSnapshot> {
 
 export function refreshLegioSource(): Promise<SourceSnapshot> {
   return invoke<SourceSnapshot>("refresh_legio_source");
+}
+
+export interface InstalledSource {
+  id: string;
+  url: string;
+  cachedAt: number;
+  stale: boolean;
+  warning: string | null;
+  gameCount: number;
+}
+
+export function addDownloadSource(url: string): Promise<SourceSnapshot> {
+  return invoke<SourceSnapshot>("add_download_source", { url });
+}
+
+export function removeDownloadSource(id: string): Promise<SourceSnapshot> {
+  return invoke<SourceSnapshot>("remove_download_source", { id });
+}
+
+export interface PendingSourceLinks {
+  requests: { url: string | null; error: string | null }[];
+  registrationError: string | null;
+}
+
+export function takeSourceLinks(): Promise<PendingSourceLinks> {
+  return invoke<PendingSourceLinks>("take_source_links");
 }

@@ -43,6 +43,7 @@ mod pe_icons;
 mod playtime_activity;
 mod runner_discovery;
 mod settings;
+mod source_links;
 mod startup;
 mod startup_recovery;
 
@@ -82,6 +83,9 @@ pub fn run() -> tauri::Result<()> {
             let handle = app.clone();
             if let Err(error) = app.run_on_main_thread(move || {
                 show_main_window(&handle);
+                if let Err(error) = source_links::forward(&handle, &args) {
+                    eprintln!("Could not forward source link: {error}");
+                }
                 match desktop_shortcuts::requested_game_id(
                     args.into_iter().skip(1).map(std::ffi::OsString::from),
                 ) {
@@ -95,11 +99,26 @@ pub fn run() -> tauri::Result<()> {
                 eprintln!("Could not forward second-instance request: {error}");
             }
         }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(move |app| {
+            use tauri_plugin_deep_link::DeepLinkExt;
+            let source_links = source_links::SourceLinks::default();
+            source_links
+                .enqueue(std::env::args_os().skip(1))
+                .map_err(std::io::Error::other)?;
+            if !cfg!(debug_assertions)
+                && let Err(error) = app.deep_link().register_all()
+            {
+                eprintln!("Could not register Legio source links: {error}");
+                source_links
+                    .registration_failed(format!("Could not register Legio links: {error}"))
+                    .map_err(std::io::Error::other)?;
+            }
+            app.manage(source_links);
             let database = database::DatabaseState::new(app.path().app_data_dir());
             let initial_settings = database
                 .database()?
@@ -331,6 +350,9 @@ pub fn run() -> tauri::Result<()> {
             commands::get_network_status,
             commands::get_network_log_status,
             commands::get_legio_source,
+            commands::add_download_source,
+            commands::remove_download_source,
+            commands::take_source_links,
             download_queue::list_downloads,
             finalize_install::finalize_download,
             finalize_install::scan_staged_executables,

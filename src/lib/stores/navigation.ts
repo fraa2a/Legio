@@ -23,6 +23,7 @@ export interface StoreGameSelection {
 export const selectedStoreGame = writable<StoreGameSelection | null>(null);
 
 export const settingsOpen = writable(false);
+export const settingsCategory = writable("general");
 
 export function selectSection(section: Section): void {
   selectedGameId.set(null);
@@ -48,7 +49,8 @@ export function closeStoreGame(): void {
   selectedStoreGame.set(null);
 }
 
-export function openSettings(): void {
+export function openSettings(category = "general"): void {
+  settingsCategory.set(category);
   settingsOpen.set(true);
 }
 
