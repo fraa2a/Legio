@@ -468,6 +468,75 @@ fn read_bounded_metadata(path: &Path, limit: usize) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
+#[derive(PartialEq, Eq)]
+struct AppInfoSignature {
+    size: u64,
+    modified: std::time::SystemTime,
+    created: Option<std::time::SystemTime>,
+    #[cfg(target_os = "linux")]
+    changed: (i64, i64),
+}
+
+fn appinfo_signature(path: &Path) -> io::Result<AppInfoSignature> {
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.is_file() || metadata.len() > MAX_APPINFO_BYTES as u64 {
+        return Err(io::ErrorKind::InvalidData.into());
+    }
+    Ok(AppInfoSignature {
+        size: metadata.len(),
+        modified: metadata.modified()?,
+        created: metadata.created().ok(),
+        #[cfg(target_os = "linux")]
+        changed: {
+            use std::os::unix::fs::MetadataExt;
+            (metadata.ctime(), metadata.ctime_nsec())
+        },
+    })
+}
+
+struct AppTypeCache {
+    path: PathBuf,
+    signature: AppInfoSignature,
+    types: std::sync::Arc<HashMap<u32, bool>>,
+}
+
+fn cached_appinfo_types(path: &Path) -> io::Result<Option<std::sync::Arc<HashMap<u32, bool>>>> {
+    use std::sync::{Arc, Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<Vec<AppTypeCache>>> = OnceLock::new();
+    let signature = appinfo_signature(path)?;
+    let cache = CACHE.get_or_init(|| Mutex::new(Vec::new()));
+    {
+        let entries = cache
+            .lock()
+            .map_err(|_| io::Error::other("Steam app type cache is unavailable"))?;
+        if let Some(entry) = entries
+            .iter()
+            .find(|entry| entry.path == path && entry.signature == signature)
+        {
+            return Ok(Some(Arc::clone(&entry.types)));
+        }
+    }
+    let bytes = read_bounded_metadata(path, MAX_APPINFO_BYTES)?;
+    let Some(types) = parse_appinfo_types(&bytes).map(Arc::new) else {
+        return Ok(None);
+    };
+    if appinfo_signature(path)? == signature {
+        let mut entries = cache
+            .lock()
+            .map_err(|_| io::Error::other("Steam app type cache is unavailable"))?;
+        entries.retain(|entry| entry.path != path);
+        if entries.len() == 4 {
+            entries.remove(0);
+        }
+        entries.push(AppTypeCache {
+            path: path.to_path_buf(),
+            signature,
+            types: Arc::clone(&types),
+        });
+    }
+    Ok(Some(types))
+}
+
 fn read_u32(bytes: &[u8], offset: &mut usize) -> Option<u32> {
     let end = offset.checked_add(4)?;
     let value = u32::from_le_bytes(bytes.get(*offset..end)?.try_into().ok()?);
@@ -889,10 +958,10 @@ pub(crate) fn scan_installations(roots: impl IntoIterator<Item = PathBuf>) -> St
         }
         if let Some(root) = steamapps.parent() {
             let path = root.join("appcache/appinfo.vdf");
-            match read_bounded_metadata(&path, MAX_APPINFO_BYTES) {
-                Ok(bytes) => match parse_appinfo_types(&bytes) {
+            match cached_appinfo_types(&path) {
+                Ok(types) => match types {
                     Some(types) => {
-                        for (id, is_game) in types {
+                        for (&id, &is_game) in types.iter() {
                             app_types
                                 .entry(id)
                                 .and_modify(|known| *known &= is_game)
@@ -1187,6 +1256,27 @@ mod tests {
         let invalid = scan_installations([root]);
         assert!(invalid.games.is_empty());
         assert_eq!(invalid.diagnostics.len(), 2);
+    }
+
+    #[test]
+    fn appinfo_cache_reuses_unchanged_types_and_invalidates_rewrites() {
+        let root =
+            std::env::temp_dir().join(format!("legio-appinfo-cache-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let path = root.join("appinfo.vdf");
+        fs::write(&path, appinfo_fixture(&[(1, "Game")])).unwrap();
+        let first = cached_appinfo_types(&path).unwrap().unwrap();
+        let second = cached_appinfo_types(&path).unwrap().unwrap();
+        assert!(std::sync::Arc::ptr_eq(&first, &second));
+        fs::remove_file(&path).unwrap();
+        fs::write(&path, appinfo_fixture(&[(1, "Tool")])).unwrap();
+        assert_eq!(
+            cached_appinfo_types(&path).unwrap().unwrap().get(&1),
+            Some(&false)
+        );
+        fs::write(&path, b"invalid").unwrap();
+        assert!(cached_appinfo_types(&path).unwrap().is_none());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
