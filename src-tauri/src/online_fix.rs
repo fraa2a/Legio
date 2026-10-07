@@ -43,6 +43,33 @@ pub(crate) fn detected(database: &Database, game: &Game) -> Result<bool, String>
 }
 
 fn contains_online_fix(root: &Path) -> Result<bool, String> {
+    use std::sync::{Mutex, OnceLock};
+    static DETECTED: OnceLock<Mutex<Vec<(PathBuf, PathBuf)>>> = OnceLock::new();
+    let cache = DETECTED.get_or_init(|| Mutex::new(Vec::new()));
+    let known = cache
+        .lock()
+        .map_err(|_| "OnlineFix cache is unavailable".to_owned())?
+        .iter()
+        .find(|(directory, _)| directory == root)
+        .map(|(_, file)| file.clone());
+    if let Some(file) = known {
+        let safe_ancestors = file
+            .parent()
+            .into_iter()
+            .flat_map(Path::ancestors)
+            .take_while(|path| *path != root)
+            .all(|path| {
+                fs::symlink_metadata(path)
+                    .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
+            });
+        if safe_ancestors && fs::symlink_metadata(&file).is_ok_and(|metadata| metadata.is_file()) {
+            return Ok(true);
+        }
+        cache
+            .lock()
+            .map_err(|_| "OnlineFix cache is unavailable".to_owned())?
+            .retain(|(directory, _)| directory != root);
+    }
     let mut pending = vec![PathBuf::from(root)];
     let started = std::time::Instant::now();
     let mut scanned = 0_u32;
@@ -67,6 +94,14 @@ fn contains_online_fix(root: &Path) -> Result<bool, String> {
                     .to_str()
                     .is_some_and(|name| name.eq_ignore_ascii_case("OnlineFix64.dll"))
             {
+                let mut entries = cache
+                    .lock()
+                    .map_err(|_| "OnlineFix cache is unavailable".to_owned())?;
+                entries.retain(|(directory, _)| directory != root);
+                if entries.len() == 128 {
+                    entries.remove(0);
+                }
+                entries.push((root.to_path_buf(), entry.path()));
                 return Ok(true);
             }
         }
@@ -92,6 +127,21 @@ mod tests {
         fs::create_dir_all(&nested).unwrap();
         fs::write(nested.join("ONLINEFIX64.DLL"), b"").unwrap();
         assert!(contains_online_fix(&root).unwrap());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn positive_cache_rechecks_removed_fix_and_does_not_cache_absence() {
+        let root = std::env::temp_dir().join(format!("legio-fix-cache-{}", uuid::Uuid::new_v4()));
+        let nested = root.join("bin");
+        fs::create_dir_all(&nested).unwrap();
+        assert!(!contains_online_fix(&root).unwrap());
+        let fix = nested.join("OnlineFix64.dll");
+        fs::write(&fix, b"fix").unwrap();
+        assert!(contains_online_fix(&root).unwrap());
+        assert!(contains_online_fix(&root).unwrap());
+        fs::remove_file(fix).unwrap();
+        assert!(!contains_online_fix(&root).unwrap());
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -59,7 +59,7 @@ fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
                 .create_new(true)
                 .open(&to)
                 .map_err(|error| format!("Could not create destination file: {error}"))?;
-            io::copy(&mut input, &mut output)
+            crate::filesystem_copy::copy(&mut input, &mut output)
                 .map_err(|error| format!("Could not copy game file: {error}"))?;
             output
                 .sync_all()
