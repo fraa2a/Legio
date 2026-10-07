@@ -6,12 +6,13 @@
   import DitherBackground from "./DitherBackground.svelte";
   import { toMessage } from "../../utils/errors";
 
-  let { id, animation, animationOpacity, accent, dither }: {
+  let { id, animation, animationOpacity, accent, dither, active = true }: {
     id: string | null;
     animation: "none" | "particles" | "dither";
     animationOpacity: number;
     accent: string;
     dither: DitherSettings;
+    active?: boolean;
   } = $props();
   const selectedId = $derived(id);
   let url = $state<string | null>(null);
@@ -67,10 +68,10 @@
 
 <div class="legio-backdrop" aria-hidden="true">
   {#if url}<img src={url} alt="" class="legio-wallpaper" onerror={imageFailed} />{/if}
-  {#if animation === "dither"}
-    <DitherBackground opacity={animationOpacity} settings={dither} {accent} />
-  {:else if animation !== "none"}
-    {#key animation + accent}<AnimatedBackground opacity={animationOpacity} color={accent} />{/key}
+  {#if animationOpacity > 0 && animation === "dither"}
+    <DitherBackground opacity={animationOpacity} settings={dither} {accent} {active} />
+  {:else if animationOpacity > 0 && animation !== "none"}
+    {#key animation + accent}<AnimatedBackground opacity={animationOpacity} color={accent} {active} />{/key}
   {/if}
 </div>
 {#if error}

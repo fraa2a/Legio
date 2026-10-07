@@ -1,13 +1,16 @@
 <script lang="ts">
   import { onMount } from "svelte";
 
-  let { opacity, color }: {
+  let { opacity, color, active = true }: {
     opacity: number;
     color: string;
+    active?: boolean;
   } = $props();
 
   let container: HTMLDivElement;
   let canvas = $state<HTMLCanvasElement>();
+  let update = $state<((enabled: boolean) => void)>();
+  $effect(() => update?.(active));
 
   onMount(() => {
     if (!canvas) return;
@@ -22,6 +25,8 @@
     let width = 0;
     let height = 0;
     let frame = 0;
+    const rgb = color.match(/[\da-f]{2}/gi)?.slice(0, 3).map((part) => Number.parseInt(part, 16)) ?? [130, 200, 220];
+    const ink = `${rgb[0]}, ${rgb[1]}, ${rgb[2]}`;
 
     function resize(): void {
       const bounds = container.getBoundingClientRect();
@@ -39,13 +44,13 @@
           vx: (Math.random() - 0.5) * 0.42, vy: (Math.random() - 0.5) * 0.42,
         });
       }
-      if (motion.matches) draw();
+      if (active && motion.matches) draw();
     }
 
     function draw(): void {
+      frame = 0;
+      if (!active) return;
       context.clearRect(0, 0, width, height);
-      const rgb = color.match(/[\da-f]{2}/gi)?.slice(0, 3).map((part) => Number.parseInt(part, 16)) ?? [130, 200, 220];
-      const ink = `${rgb[0]}, ${rgb[1]}, ${rgb[2]}`;
       for (let index = 0; index < particles.length; index += 1) {
         const particle = particles[index];
         if (!motion.matches) {
@@ -56,8 +61,9 @@
         }
         for (let other = index + 1; other < particles.length; other += 1) {
           const next = particles[other];
-          const distance = Math.hypot(particle.x - next.x, particle.y - next.y);
-          if (distance > 140) continue;
+          const squared = (particle.x - next.x) ** 2 + (particle.y - next.y) ** 2;
+          if (squared > 140 ** 2) continue;
+          const distance = Math.sqrt(squared);
           context.strokeStyle = `rgba(${ink}, ${0.35 * (1 - distance / 140)})`;
           context.beginPath();
           context.moveTo(particle.x, particle.y);
@@ -81,13 +87,16 @@
     }
 
     function moved(event: PointerEvent): void {
+      if (!active) return;
       const bounds = container.getBoundingClientRect();
       pointer.x = event.clientX - bounds.left;
       pointer.y = event.clientY - bounds.top;
+      if (motion.matches) draw();
     }
 
     function motionChanged(): void {
       cancelAnimationFrame(frame);
+      frame = 0;
       draw();
     }
 
@@ -96,8 +105,13 @@
     window.addEventListener("pointermove", moved);
     motion.addEventListener("change", motionChanged);
     resize();
-    if (!motion.matches) frame = requestAnimationFrame(draw);
+    update = (enabled) => {
+      cancelAnimationFrame(frame);
+      frame = 0;
+      if (enabled) draw();
+    };
     return () => {
+      update = undefined;
       cancelAnimationFrame(frame);
       observer.disconnect();
       window.removeEventListener("pointermove", moved);

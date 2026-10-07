@@ -3,14 +3,17 @@
   import type { DitherSettings } from "../../services/appearance";
   import { ditherFragmentShader, waveFragmentShader, waveVertexShader } from "./dither-gl";
 
-  let { opacity, settings, accent }: {
+  let { opacity, settings, accent, active = true }: {
     opacity: number;
     settings: DitherSettings;
     accent: string;
+    active?: boolean;
   } = $props();
 
   let container: HTMLDivElement;
   let canvas = $state<HTMLCanvasElement>();
+  let update = $state<((enabled: boolean, configuration: DitherSettings, color: string) => void)>();
+  $effect(() => update?.(active, settings, accent));
 
   function toRgb(color: string): [number, number, number] {
     const value = Number.parseInt(color.replace("#", ""), 16);
@@ -114,11 +117,13 @@
     let time = 0;
     let frame = 0;
     let stale = true;
-    let drawn = "";
+    let previousTime: number | null = null;
     let mouseX = -1e6;
     let mouseY = -1e6;
-    let drawnMouseX = -1e6;
-    let drawnMouseY = -1e6;
+
+    function schedule(): void {
+      if (active && frame === 0) frame = requestAnimationFrame(render);
+    }
 
     function resize(): void {
       const bounds = container.getBoundingClientRect();
@@ -133,6 +138,7 @@
       gl.bindTexture(gl.TEXTURE_2D, texture);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
       stale = true;
+      schedule();
     }
 
     function draw(): void {
@@ -166,38 +172,52 @@
     }
 
     function render(now: number): void {
+      frame = 0;
+      if (!active) return;
       const frozen = settings.disableAnimation || motion.matches;
-      if (!frozen) time = now / 1000;
-      const signature = JSON.stringify([settings, accent]);
-      const changed = signature !== drawn;
-      const pointerMoved = mouseX !== drawnMouseX || mouseY !== drawnMouseY;
-      if (!frozen || changed || pointerMoved || stale) {
-        drawn = signature;
-        drawnMouseX = mouseX;
-        drawnMouseY = mouseY;
+      if (!frozen && previousTime !== null) time += Math.min(now - previousTime, 100) / 1000;
+      previousTime = frozen ? null : now;
+      if (!frozen || stale) {
         stale = false;
         draw();
       }
-      frame = requestAnimationFrame(render);
+      if (!frozen) schedule();
     }
 
     function moved(event: PointerEvent): void {
-      if (!settings.enableMouseInteraction) return;
+      if (!active || !settings.enableMouseInteraction) return;
       const bounds = container.getBoundingClientRect();
       mouseX = (event.clientX - bounds.left) * ratio;
       mouseY = (event.clientY - bounds.top) * ratio;
+      stale = true;
+      schedule();
+    }
+
+    function motionChanged(): void {
+      previousTime = null;
+      stale = true;
+      schedule();
     }
 
     const observer = new ResizeObserver(resize);
     observer.observe(container);
     window.addEventListener("pointermove", moved);
+    motion.addEventListener("change", motionChanged);
     resize();
-    frame = requestAnimationFrame(render);
+    update = (enabled) => {
+      cancelAnimationFrame(frame);
+      frame = 0;
+      previousTime = null;
+      stale = true;
+      if (enabled) schedule();
+    };
 
     return () => {
+      update = undefined;
       cancelAnimationFrame(frame);
       observer.disconnect();
       window.removeEventListener("pointermove", moved);
+      motion.removeEventListener("change", motionChanged);
       gl.deleteFramebuffer(framebuffer);
       gl.deleteTexture(texture);
       gl.deleteBuffer(quad);

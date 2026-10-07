@@ -16,6 +16,7 @@
     "test:regressions": "node --test scripts/test_regressions.mjs",
     "test:artwork": "node --conditions=browser --test scripts/test_library_artwork.mjs",
     "test:appearance": "node --conditions=browser --test scripts/test_appearance.mjs",
+    "test:window": "node --conditions=browser --test scripts/test_window_activity.mjs",
     "test:dialog": "node --conditions=browser --test scripts/test_dialog.mjs",
     "test:onboarding": "node --test scripts/test_onboarding_news.mjs"
   },

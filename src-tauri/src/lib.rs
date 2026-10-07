@@ -2,7 +2,7 @@
 compile_error!("Legio supports Linux and Windows only");
 
 use tauri::{
-    Manager,
+    Emitter, Manager,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
@@ -247,7 +247,10 @@ pub fn run() -> tauri::Result<()> {
                     .is_ok_and(|settings| settings.close_to_tray);
                 if close_to_tray && window.app_handle().state::<TrayAvailable>().0 {
                     api.prevent_close();
-                    if let Err(error) = window.hide() {
+                    if let Err(error) = window
+                        .hide()
+                        .and_then(|()| window.emit("legio:window-hidden", ()))
+                    {
                         eprintln!("Could not hide main window: {error}");
                     }
                 } else {
