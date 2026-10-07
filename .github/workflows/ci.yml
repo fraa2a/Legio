@@ -198,6 +198,13 @@ jobs:
         shell: bash
         run: corepack pnpm install --frozen-lockfile
 
+      - name: Test Windows development data isolation
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          LEGIO_WINDOWS_TESTS: "1"
+        run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib app_profile::tests::'
+
       - name: Test Windows Steam discovery
         if: runner.os == 'Windows'
         shell: bash
