@@ -9,8 +9,8 @@ use tauri::Manager;
 use tokio::{sync::watch, time::Instant};
 
 use crate::{
-    database::{Database, DatabaseState, PlaytimeSummary},
-    game_lifecycle::{GameLaunchManager, GameLaunchState, GameStatus},
+    database::{Database, DatabaseState},
+    game_lifecycle::{GameLaunchManager, GameStatus},
 };
 
 const APPLICATION_ID: &str = "1557120430475575366";
@@ -65,8 +65,9 @@ impl PresenceService {
             .shared_database()
             .map_err(io::Error::other)?;
         let manager = app.state::<GameLaunchManager>().inner().clone();
+        let lifecycle = manager.subscribe_changes();
         let (refresh, receiver) = watch::channel(());
-        let worker = tauri::async_runtime::spawn(run(database, manager, receiver));
+        let worker = tauri::async_runtime::spawn(run(database, manager, receiver, lifecycle));
         Ok(Self { refresh, worker })
     }
 
@@ -121,38 +122,16 @@ fn snapshot(
         return Ok((settings, activity));
     }
     let states = manager.list()?;
-    let summaries = database.playtime_summaries(crate::database::now_milliseconds()?)?;
-    let selected = select_running_game(&summaries, &states);
-    if let Some(summary) = selected {
-        let game = database.game(&summary.game_id)?;
-        activity.name = Some(limit_text(&game.name));
-        activity.started_at = if summary.active_sessions > 0 {
-            summary
-                .last_played_at
-                .map(|milliseconds| milliseconds / 1000)
-        } else {
-            None
-        };
+    let running: Vec<_> = states
+        .iter()
+        .filter(|state| state.status == GameStatus::Running)
+        .map(|state| state.game_id.as_str())
+        .collect();
+    if let Some((name, started_at)) = database.running_game_presence(&running)? {
+        activity.name = Some(limit_text(&name));
+        activity.started_at = started_at.map(|milliseconds| milliseconds / 1000);
     }
     Ok((settings, activity))
-}
-
-fn select_running_game<'a>(
-    summaries: &'a [PlaytimeSummary],
-    states: &[GameLaunchState],
-) -> Option<&'a PlaytimeSummary> {
-    summaries
-        .iter()
-        .filter(|summary| {
-            states.iter().any(|state| {
-                state.game_id == summary.game_id && state.status == GameStatus::Running
-            })
-        })
-        .max_by(|left, right| {
-            left.last_played_at
-                .cmp(&right.last_played_at)
-                .then_with(|| left.game_id.cmp(&right.game_id))
-        })
 }
 
 fn limit_text(text: &str) -> String {
@@ -174,6 +153,7 @@ async fn run(
     database: Arc<Database>,
     manager: GameLaunchManager,
     mut refresh: watch::Receiver<()>,
+    mut lifecycle: watch::Receiver<()>,
 ) {
     let mut interval = tokio::time::interval(POLL_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -182,9 +162,13 @@ async fn run(
     let mut last_sent = Instant::now();
     let mut retry_at = Instant::now();
     let mut last_error = None;
+    let mut enabled = true;
     loop {
         tokio::select! {
-            _ = interval.tick() => {},
+            _ = interval.tick(), if enabled => {},
+            changed = lifecycle.changed(), if enabled => {
+                if changed.is_err() { break; }
+            },
             changed = refresh.changed() => {
                 if changed.is_err() { break; }
                 retry_at = Instant::now();
@@ -209,6 +193,7 @@ async fn run(
                 continue;
             }
         };
+        enabled = settings.enabled;
         if client
             .as_ref()
             .is_some_and(|(id, _)| !settings.enabled || *id != settings.application_id)
@@ -303,44 +288,42 @@ mod tests {
     }
 
     #[test]
-    fn selects_latest_running_game_and_ignores_launching_or_stopped_games() {
-        let summaries: Vec<_> = [("older", 10), ("newer", 20), ("launching", 30)]
-            .into_iter()
-            .map(|(id, start)| PlaytimeSummary {
-                game_id: id.to_owned(),
-                total_milliseconds: 0,
-                active_sessions: 1,
-                last_played_at: Some(start),
+    fn presence_reads_only_running_games_and_keeps_the_latest_session_time() {
+        let directory =
+            std::env::temp_dir().join(format!("legio-presence-{}", uuid::Uuid::new_v4()));
+        let database = Database::open(&directory).unwrap();
+        let older = database
+            .create_game(crate::database::CreateGameInput {
+                name: "Older".into(),
+                steam_app_id: None,
             })
-            .collect();
-        let mut states: Vec<_> = [
-            ("older", GameStatus::Running),
-            ("newer", GameStatus::Running),
-            ("launching", GameStatus::Launching),
-        ]
-        .into_iter()
-        .map(|(id, status)| GameLaunchState {
-            game_id: id.to_owned(),
-            status,
-            error: None,
-            compatibility_options: None,
-            compatibility_log_path: None,
-            compatibility_log_error: None,
-            compatibility_log_truncated: false,
-            runner_exit_code: None,
-        })
-        .collect();
+            .unwrap();
+        let newer = database
+            .create_game(crate::database::CreateGameInput {
+                name: "Newer".into(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        database.start_game_session(&older.id, 10).unwrap();
+        database.start_game_session(&newer.id, 20).unwrap();
         assert_eq!(
-            select_running_game(&summaries, &states).unwrap().game_id,
-            "newer"
+            database
+                .running_game_presence(&[&older.id, &newer.id])
+                .unwrap(),
+            Some(("Newer".into(), Some(20)))
         );
-        states[1].status = GameStatus::Idle;
         assert_eq!(
-            select_running_game(&summaries, &states).unwrap().game_id,
-            "older"
+            database.running_game_presence(&[&older.id]).unwrap(),
+            Some(("Older".into(), Some(10)))
         );
-        states[0].status = GameStatus::Idle;
-        assert!(select_running_game(&summaries, &states).is_none());
+        database.end_game_session(&older.id, 30).unwrap();
+        assert_eq!(
+            database.running_game_presence(&[&older.id]).unwrap(),
+            Some(("Older".into(), None))
+        );
+        assert!(database.running_game_presence(&[]).unwrap().is_none());
+        drop(database);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
