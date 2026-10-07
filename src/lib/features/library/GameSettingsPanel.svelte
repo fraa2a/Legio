@@ -123,9 +123,7 @@
         loadError = toMessage(error);
       }
     }
-    if (loadError === null) baseline = $appInfo.data.platform === "linux"
-      ? JSON.stringify({ overrides, argumentsBefore, argumentsAfter, environmentText, dllOverridesText })
-      : JSON.stringify({ nativeArguments, nativeWorkingDirectory, nativeEnvironmentText });
+    if (loadError === null) baseline = currentSnapshot;
     loading = false;
   }
 
