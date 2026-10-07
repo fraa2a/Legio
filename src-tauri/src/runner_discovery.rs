@@ -285,7 +285,9 @@ fn discover_wine_from(
 
 #[cfg(target_os = "linux")]
 fn wine_version(path: &Path, timeout: Duration) -> Result<String, &'static str> {
-    let mut child = Command::new(path)
+    let mut command = Command::new(path);
+    crate::launch_environment::apply(&mut command);
+    let mut child = command
         .arg("--version")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

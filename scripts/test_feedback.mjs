@@ -103,3 +103,45 @@ test("an imported game with an icon warning closes the add dialog and reports su
     assert.ok(!target.textContent.includes("Could not extract shortcut icon"));
   } finally { await unmount(instance); target.remove(); clearNotices(); delete globalThis.feedbackImport; }
 });
+
+test("notifications remain dismissible while a modal is open and return outside after it closes", async () => {
+  const popovers = new WeakSet();
+  const query = document.querySelectorAll.bind(document);
+  const matches = Element.prototype.matches;
+  document.querySelectorAll = (selector) => query(selector === "dialog:modal" ? "dialog[open]" : selector);
+  Element.prototype.matches = function (selector) { return selector === ":popover-open" ? popovers.has(this) : matches.call(this, selector); };
+  HTMLElement.prototype.showPopover = function () { popovers.add(this); };
+  HTMLElement.prototype.hidePopover = function () { popovers.delete(this); };
+  const dialog = document.createElement("dialog");
+  dialog.setAttribute("open", "");
+  const target = document.createElement("div");
+  document.body.append(dialog, target);
+  const component = (await import(await load("src/lib/components/ui/ToastNotice.svelte"))).default;
+  const instance = mount(component, { target });
+  try {
+    notices.showToast("Launch warning", "error");
+    await settle();
+    const notice = document.querySelector(".legio-toast");
+    assert.equal(notice.parentNode, dialog);
+    assert.ok(popovers.has(notice));
+    notice.querySelector("button").click();
+    await settle();
+    assert.equal(get(notices.toast).length, 0);
+    notices.showToast("Saved", "success");
+    dialog.removeAttribute("open");
+    await settle();
+    assert.equal(notice.parentNode, target);
+    assert.ok(popovers.has(notice));
+    notice.querySelector("button").click();
+    await settle();
+    assert.equal(get(notices.toast).length, 0);
+  } finally {
+    await unmount(instance);
+    clearNotices();
+    dialog.remove(); target.remove();
+    document.querySelectorAll = query;
+    Element.prototype.matches = matches;
+    delete HTMLElement.prototype.showPopover;
+    delete HTMLElement.prototype.hidePopover;
+  }
+});

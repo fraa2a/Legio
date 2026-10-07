@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
+  import { onMount } from "svelte";
+  import { get } from "svelte/store";
   import { toast, dismissToast } from "../../stores/toast";
   import { fly } from "svelte/transition";
   import { reducedMotion } from "../../utils/motion";
@@ -8,12 +9,26 @@
 
   let notice: HTMLDivElement | undefined = $state();
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
+  let home: ParentNode | null = null;
+  let sibling: ChildNode | null = null;
+
+  function placeNotice(): void {
+    if (!notice) return;
+    if (home === null) { home = notice.parentNode; sibling = notice.nextSibling; }
+    const dialogs = document.querySelectorAll<HTMLDialogElement>("dialog:modal");
+    const target = dialogs.item(dialogs.length - 1) ?? home;
+    if (target && notice.parentNode !== target) {
+      if (notice.matches(":popover-open")) notice.hidePopover();
+      target.appendChild(notice);
+    }
+  }
 
   $effect(() => {
     if (!notice) return;
     if (hideTimer !== undefined) clearTimeout(hideTimer);
 
     const current = $toast;
+    placeNotice();
     if (current.length > 0) {
       if (notice.matches(":popover-open")) notice.hidePopover();
       notice.showPopover();
@@ -22,8 +37,17 @@
     }
   });
 
-  onDestroy(() => {
-    if (hideTimer !== undefined) clearTimeout(hideTimer);
+  onMount(() => {
+    const observer = new MutationObserver(() => {
+      placeNotice();
+      if (get(toast).length > 0 && notice && !notice.matches(":popover-open")) notice.showPopover();
+    });
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["open"] });
+    return () => {
+      observer.disconnect();
+      if (hideTimer !== undefined) clearTimeout(hideTimer);
+      if (notice && home) home.insertBefore(notice, sibling?.parentNode === home ? sibling : null);
+    };
   });
 </script>
 
