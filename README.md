@@ -31,7 +31,18 @@ Get the latest version from [Releases](https://github.com/fraa2a/Legio/releases)
 Steam must be installed for Steam integration and for games that require it.
 
 Manual Proton and GE-Proton games use [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher).
-Install `umu-run` on your PATH or in `~/.local/bin`; umu manages the required runtime.
+umu is a runtime dependency for these games, not for native Linux games, Wine
+launches or games launched through Steam.
+
+- **Standalone Linux downloads (AppImage, .deb and .rpm):** umu is not bundled.
+  Install `umu-launcher` separately and make `umu-run` available on your PATH or
+  in `~/.local/bin`.
+- **Arch Linux / AUR (`legio-launcher-bin`):** `umu-launcher` is declared as a
+  package dependency, so an AUR helper such as yay or paru installs it alongside
+  Legio. Enable the `multilib` repository, which provides `umu-launcher`.
+
+umu manages and downloads the required Steam Linux Runtime. A compatible Proton
+or GE-Proton runner must still be installed separately.
 Steam-managed games continue to launch through Steam. Manual games only need Steam
 when Steam integration or Online Fix is enabled. Existing Wine and Proton prefixes
 are reused without moving save files. A shared prefix can run one game at a time.
