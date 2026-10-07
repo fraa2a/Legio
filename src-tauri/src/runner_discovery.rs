@@ -34,6 +34,7 @@ pub struct InstalledRunner {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunnerDiscovery {
+    pub ntsync_available: bool,
     pub runners: Vec<InstalledRunner>,
     pub diagnostics: Vec<String>,
 }
@@ -42,11 +43,25 @@ pub struct RunnerDiscovery {
 pub(crate) fn resolve_runner(path: &str) -> Result<InstalledRunner, String> {
     let requested = fs::canonicalize(path)
         .map_err(|error| format!("Could not resolve selected compatibility runner: {error}"))?;
-    discover()
-        .runners
-        .into_iter()
-        .find(|runner| Path::new(&runner.path) == requested)
-        .ok_or_else(|| "Selected compatibility runner is no longer available".to_owned())
+    if let Some((kind, name)) = classify_proton_dir(&requested) {
+        return Ok(InstalledRunner {
+            kind,
+            version: read_proton_version(&requested, &name),
+            name,
+            path: requested.to_string_lossy().into_owned(),
+        });
+    }
+    if !is_executable_file(&requested) {
+        return Err("Selected compatibility runner is no longer available".to_owned());
+    }
+    let version = wine_version(&requested, WINE_PROBE_TIMEOUT)
+        .map_err(|error| format!("Selected Wine runner is unavailable: {error}"))?;
+    Ok(InstalledRunner {
+        kind: RunnerKind::Wine,
+        name: "Wine".to_owned(),
+        version,
+        path: requested.to_string_lossy().into_owned(),
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -55,138 +70,38 @@ pub(crate) fn launch_command(
     executable: &Path,
     arguments_before: &[String],
     arguments_after: &[String],
-    steam_runtime: Option<&Path>,
-) -> Command {
-    let program = match runner.kind {
-        RunnerKind::Proton | RunnerKind::GeProton => Path::new(&runner.path).join("proton"),
-        RunnerKind::Wine => Path::new(&runner.path).to_path_buf(),
+    umu: Option<&Path>,
+) -> Result<Command, String> {
+    let mut command = match runner.kind {
+        RunnerKind::Proton | RunnerKind::GeProton => {
+            let mut command = Command::new(umu.ok_or("Proton launch requires umu-run")?);
+            command
+                .env("PROTONPATH", &runner.path)
+                .env("GAMEID", "umu-default");
+            command
+        }
+        RunnerKind::Wine => Command::new(&runner.path),
     };
-    let mut command = if let Some(runtime) = steam_runtime {
-        let mut command = Command::new(runtime);
-        command.arg("--").arg(program);
-        command
-    } else {
-        Command::new(program)
-    };
-    if matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton) {
-        command.arg("run");
-    }
     command
         .args(arguments_before)
         .arg(executable)
         .args(arguments_after);
-    command
+    Ok(command)
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn steam_runtime_path(runner: &InstalledRunner) -> Result<PathBuf, String> {
-    let (runtime_dir, runtime_name) = steam_runtime_name(runner, std::env::consts::ARCH)?;
-    find_steam_runtime(
-        runner,
-        steam_local::default_steam_library_paths(),
-        runtime_dir,
-        runtime_name,
-    )
-}
-
-#[cfg(target_os = "linux")]
-fn steam_runtime_name(
-    runner: &InstalledRunner,
-    arch: &str,
-) -> Result<(&'static str, &'static str), String> {
-    if !matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton) {
-        return Err("Steam Linux Runtime can only wrap Proton runners".to_owned());
-    }
-    let (major, minor) = proton_version(runner).ok_or_else(|| {
-        format!(
-            "Could not determine the Proton version for {} ({})",
-            runner.name, runner.version
-        )
-    })?;
-    match (major, minor, arch) {
-        (11.., _, "aarch64") => Ok(("SteamLinuxRuntime_4-arm64", "Steam Linux Runtime 4.0")),
-        (11.., _, "x86_64") => Ok(("SteamLinuxRuntime_4", "Steam Linux Runtime 4.0")),
-        (11.., _, _) => Err(format!(
-            "Steam Linux Runtime 4.0 is unavailable for Proton {} on {arch}",
-            runner.version
-        )),
-        (8..=10, _, "x86_64") => Ok((
-            "SteamLinuxRuntime_sniper",
-            "Steam Linux Runtime 3.0 (sniper)",
-        )),
-        (8..=10, _, _) => Err(format!(
-            "Steam Linux Runtime 3.0 is unavailable for Proton {} on {arch}",
-            runner.version
-        )),
-        (5, 13.., "x86_64") | (6..=7, _, "x86_64") => Ok((
-            "SteamLinuxRuntime_soldier",
-            "Steam Linux Runtime 2.0 (soldier)",
-        )),
-        (5, 13.., _) | (6..=7, _, _) => Err(format!(
-            "Steam Linux Runtime 2.0 is unavailable for Proton {} on {arch}",
-            runner.version
-        )),
-        _ => Err(format!(
-            "No Steam Linux Runtime mapping is available for Proton {}",
-            runner.version
-        )),
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn proton_version(runner: &InstalledRunner) -> Option<(u32, u32)> {
-    [runner.version.as_str(), runner.name.as_str()]
-        .into_iter()
-        .find_map(|value| {
-            let lower = value.to_ascii_lowercase();
-            let marker = lower
-                .find("proton")
-                .map(|index| index + "proton".len())
-                .or_else(|| lower.find("cachyos-").map(|index| index + "cachyos-".len()))?;
-            let suffix = value[marker..].trim_start_matches(|ch: char| !ch.is_ascii_digit());
-            let (major, remainder) = take_number(suffix)?;
-            let minor = remainder
-                .strip_prefix('.')
-                .and_then(|value| take_number(value))
-                .map_or(0, |(number, _)| number);
-            Some((major, minor))
-        })
-}
-
-#[cfg(target_os = "linux")]
-fn take_number(value: &str) -> Option<(u32, &str)> {
-    let digits = value.bytes().take_while(u8::is_ascii_digit).count();
-    if digits == 0 {
-        return None;
-    }
-    Some((value[..digits].parse().ok()?, &value[digits..]))
-}
-
-#[cfg(target_os = "linux")]
-fn find_steam_runtime(
-    runner: &InstalledRunner,
-    libraries: impl IntoIterator<Item = PathBuf>,
-    runtime_dir: &str,
-    runtime_name: &str,
-) -> Result<PathBuf, String> {
-    for library in libraries {
-        let candidate = library
-            .join("steamapps/common")
-            .join(runtime_dir)
-            .join("run");
-        if is_executable_file(&candidate) {
-            return fs::canonicalize(candidate).map_err(|error| {
-                format!(
-                    "Could not resolve {runtime_name} for {}: {error}",
-                    runner.name
-                )
-            });
+pub(crate) fn umu_path() -> Result<PathBuf, String> {
+    let search_path = std::env::var_os("PATH").unwrap_or_default();
+    let directories = std::env::split_paths(&search_path)
+        .chain(std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/bin")));
+    for directory in directories {
+        let path = directory.join("umu-run");
+        if directory.is_absolute() && is_executable_file(&path) {
+            return fs::canonicalize(path)
+                .map_err(|error| format!("Could not resolve umu-run: {error}"));
         }
     }
-    Err(format!(
-        "{runtime_name} is not installed for {}. Install it in a Steam library and retry",
-        runner.name
-    ))
+    Err("Install umu-launcher to run manually imported Proton games, then restart Legio".to_owned())
 }
 
 pub fn discover() -> RunnerDiscovery {
@@ -197,6 +112,7 @@ pub fn discover() -> RunnerDiscovery {
     #[cfg(not(target_os = "linux"))]
     {
         RunnerDiscovery {
+            ntsync_available: false,
             runners: Vec::new(),
             diagnostics: vec!["Runner discovery is currently supported on Linux only".to_owned()],
         }
@@ -206,12 +122,18 @@ pub fn discover() -> RunnerDiscovery {
 #[cfg(target_os = "linux")]
 fn discover_linux() -> RunnerDiscovery {
     let mut runners = discover_proton();
-    let (wine, diagnostics) = discover_wine_from(
+    let (wine, mut diagnostics) = discover_wine_from(
         std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
         WINE_PROBE_TIMEOUT,
     );
     runners.extend(wine);
+    if runners.iter().any(|runner| runner.kind != RunnerKind::Wine)
+        && let Err(error) = umu_path()
+    {
+        diagnostics.push(error);
+    }
     RunnerDiscovery {
+        ntsync_available: fs::File::open("/dev/ntsync").is_ok(),
         runners,
         diagnostics,
     }
@@ -350,40 +272,87 @@ fn wine_version(path: &Path, timeout: Duration) -> Result<String, &'static str> 
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|_| "could not start executable")?;
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
+    let result = (|| {
+        let mut stdout = child.stdout.take().ok_or("version output is unavailable")?;
+        let mut stderr = child
+            .stderr
+            .take()
+            .ok_or("version error output is unavailable")?;
+        nonblocking(&stdout)?;
+        nonblocking(&stderr)?;
+        let mut output = Vec::new();
+        let mut errors = Vec::new();
+        let deadline = Instant::now() + timeout;
+        let status = loop {
+            let status = child
+                .try_wait()
+                .map_err(|_| "could not wait for executable")?;
+            read_version_output(&mut stdout, &mut output)?;
+            read_version_output(&mut stderr, &mut errors)?;
+            if output.len() + errors.len() > 4096 {
+                return Err("version output exceeds the size limit");
+            }
+            if let Some(status) = status {
+                break status;
+            }
+            if Instant::now() >= deadline {
                 return Err("version check timed out");
             }
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err("could not wait for executable");
-            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        if !status.success() {
+            return Err("version check exited unsuccessfully");
         }
-    };
-    let output = child
-        .wait_with_output()
-        .map_err(|_| "could not read version output")?;
-    if !status.success() {
-        return Err("version check exited unsuccessfully");
+        let version_output = format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&output),
+            String::from_utf8_lossy(&errors)
+        );
+        version_output
+            .lines()
+            .map(str::trim)
+            .find(|line| is_wine_version(line))
+            .map(str::to_owned)
+            .ok_or("version output was not recognized")
+    })();
+    if result.is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
     }
-    let version_output = format!(
-        "{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    version_output
-        .lines()
-        .map(str::trim)
-        .find(|line| is_wine_version(line))
-        .map(str::to_owned)
-        .ok_or("version output was not recognized")
+    result
+}
+
+#[cfg(target_os = "linux")]
+fn nonblocking(pipe: &impl std::os::fd::AsRawFd) -> Result<(), &'static str> {
+    let fd = pipe.as_raw_fd();
+    // SAFETY: fd is borrowed from a live child pipe; these commands read and set integer flags.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err("could not configure version output");
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn read_version_output(
+    pipe: &mut impl std::io::Read,
+    output: &mut Vec<u8>,
+) -> Result<(), &'static str> {
+    let mut buffer = [0_u8; 1024];
+    loop {
+        match pipe.read(&mut buffer) {
+            Ok(0) => return Ok(()),
+            Ok(size) => {
+                if output.len() + size > 4096 {
+                    return Err("version output exceeds the size limit");
+                }
+                output.extend_from_slice(&buffer[..size]);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return Err("could not read version output"),
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -450,7 +419,8 @@ mod tests {
         };
         let before = vec!["-windowed".to_owned()];
         let after = vec!["-safe".to_owned(), "two words".to_owned()];
-        let command = launch_command(&runner, Path::new("/games/game.exe"), &before, &after, None);
+        let command =
+            launch_command(&runner, Path::new("/games/game.exe"), &before, &after, None).unwrap();
         let arguments = command
             .get_args()
             .map(|argument| argument.to_string_lossy().into_owned())
@@ -463,91 +433,31 @@ mod tests {
     }
 
     #[test]
-    fn launch_command_places_proton_inside_the_selected_runtime() {
+    fn proton_command_uses_umu_and_preserves_structured_arguments() {
         let runner = InstalledRunner {
-            kind: RunnerKind::Proton,
-            name: "Proton 11.0".to_owned(),
-            version: "proton-11.0".to_owned(),
-            path: "/Steam Library/steamapps/common/Proton 11.0".to_owned(),
+            kind: RunnerKind::GeProton,
+            name: "GE-Proton".to_owned(),
+            version: "11".to_owned(),
+            path: "/Proton Tools/GE-Proton".to_owned(),
         };
         let command = launch_command(
             &runner,
             Path::new("/games/Windows Game/game.exe"),
             &["before".to_owned()],
-            &["after".to_owned()],
-            Some(Path::new(
-                "/Steam Library/steamapps/common/SteamLinuxRuntime_4/run",
-            )),
-        );
-        let arguments = command
-            .get_args()
-            .map(|argument| argument.to_string_lossy().into_owned())
-            .collect::<Vec<_>>();
-
-        assert_eq!(
-            command.get_program(),
-            "/Steam Library/steamapps/common/SteamLinuxRuntime_4/run"
-        );
-        assert_eq!(
-            arguments,
-            [
-                "--",
-                "/Steam Library/steamapps/common/Proton 11.0/proton",
-                "run",
-                "before",
-                "/games/Windows Game/game.exe",
-                "after"
-            ]
-        );
-    }
-
-    #[test]
-    fn chooses_steam_runtime_from_proton_version_and_architecture() {
-        let runner = InstalledRunner {
-            kind: RunnerKind::GeProton,
-            name: "GE-Proton10-33".to_owned(),
-            version: "1776473842 GE-Proton10-33-rtsp23-4-1".to_owned(),
-            path: "/unused".to_owned(),
-        };
-        assert_eq!(
-            steam_runtime_name(&runner, "x86_64"),
-            Ok((
-                "SteamLinuxRuntime_sniper",
-                "Steam Linux Runtime 3.0 (sniper)"
-            ))
-        );
-        let proton_11 = InstalledRunner {
-            name: "Proton 11.0".to_owned(),
-            version: "1788504981 proton-11.0-2c-x86_64".to_owned(),
-            kind: RunnerKind::Proton,
-            path: "/unused".to_owned(),
-        };
-        assert_eq!(
-            steam_runtime_name(&proton_11, "x86_64"),
-            Ok(("SteamLinuxRuntime_4", "Steam Linux Runtime 4.0"))
-        );
-        assert_eq!(
-            steam_runtime_name(&proton_11, "aarch64"),
-            Ok(("SteamLinuxRuntime_4-arm64", "Steam Linux Runtime 4.0"))
-        );
-    }
-
-    #[test]
-    fn runtime_discovery_reports_a_missing_local_runtime() {
-        let runner = InstalledRunner {
-            kind: RunnerKind::Proton,
-            name: "Proton 11.0".to_owned(),
-            version: "proton-11.0".to_owned(),
-            path: "/unused".to_owned(),
-        };
-        let error = find_steam_runtime(
-            &runner,
-            [],
-            "SteamLinuxRuntime_4",
-            "Steam Linux Runtime 4.0",
+            &["two words".to_owned()],
+            Some(Path::new("/tools/umu-run")),
         )
-        .unwrap_err();
-        assert!(error.contains("is not installed"));
+        .unwrap();
+        assert_eq!(command.get_program(), "/tools/umu-run");
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            ["before", "/games/Windows Game/game.exe", "two words"]
+        );
+        assert!(
+            command.get_envs().any(|(key, value)| key == "PROTONPATH"
+                && value == Some(std::ffi::OsStr::new(&runner.path)))
+        );
+        assert!(launch_command(&runner, Path::new("/game.exe"), &[], &[], None).is_err());
     }
 
     #[test]
@@ -587,6 +497,25 @@ mod tests {
 
         assert_eq!(read_proton_version(&ge, "GE-Proton9-2"), "9.2-custom");
         assert_eq!(read_proton_version(&proton, "Proton 8.0"), "8.0");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn selected_runner_is_validated_directly_and_noisy_version_output_is_bounded() {
+        let root = temp_dir();
+        fs::create_dir_all(&root).unwrap();
+        let path = make_runner(&root, "GE-Proton11-1", Some("11-1"));
+        assert_eq!(
+            resolve_runner(path.to_str().unwrap()).unwrap().kind,
+            RunnerKind::GeProton
+        );
+        let noisy = make_executable(&root, "noisy-wine", "#!/bin/sh\nhead -c 65536 /dev/zero\n");
+        let started = Instant::now();
+        assert_eq!(
+            wine_version(&noisy, Duration::from_secs(2)),
+            Err("version output exceeds the size limit")
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
         fs::remove_dir_all(root).unwrap();
     }
 

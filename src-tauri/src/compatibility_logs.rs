@@ -107,7 +107,7 @@ impl CompatibilityLog {
         let exit_code = open_log_file(&directory.join("runner-exit-code.txt"))?;
         let manifest = open_log_file(&directory.join("launch.json"))?;
         let proton_log = matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton)
-            .then(|| directory.join("steam-480.log"));
+            .then(|| directory.join(crate::compatibility_options::proton_log_name(config)));
         let report = LaunchReport {
             schema_version: 1,
             game_id,
@@ -334,7 +334,14 @@ fn debug_environment(
             let mut variables = vec![
                 ("PROTON_LOG", "1".to_owned()),
                 ("PROTON_LOG_DIR", directory.to_string_lossy().into_owned()),
-                ("SteamGameId", "480".to_owned()),
+                (
+                    "GAMEID",
+                    if config.environment.contains_key("GAMEID") {
+                        "configured_by_user".to_owned()
+                    } else {
+                        "umu-default".to_owned()
+                    },
+                ),
             ];
             if config.environment.contains_key("WINEDEBUG") {
                 variables.push(("WINEDEBUG", "configured_by_user".to_owned()));
@@ -613,7 +620,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("legio-proton-cap-{}", Uuid::new_v4()));
         let config = EffectiveCompatibilityConfig::default();
         let logs = test_log(&root, &config);
-        let path = logs.state().directory().join("steam-480.log");
+        let path = logs.state().directory().join("steam-default.log");
         fs::write(&path, vec![b'x'; MAX_PROTON_LOG_BYTES as usize + 1]).unwrap();
         logs.cap_runner_log();
         assert_eq!(fs::metadata(path).unwrap().len(), MAX_PROTON_LOG_BYTES);

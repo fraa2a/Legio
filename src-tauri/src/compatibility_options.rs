@@ -5,7 +5,7 @@ use std::process::Command;
 use crate::database::{
     AppliedCompatibilityOptions, EffectiveCompatibilityConfig, GraphicsRenderer, WaylandMode,
 };
-use crate::runner_discovery::{self, InstalledRunner, RunnerKind};
+use crate::runner_discovery::{InstalledRunner, RunnerKind};
 
 const STEAM_OVERLAY_LAYER: &str = "ENABLE_VK_LAYER_VALVE_steam_overlay_1";
 const STEAM_OVERLAY_GAME_ID: &str = "SteamOverlayGameId";
@@ -16,7 +16,6 @@ const WINE_DEBUG: &str = "+timestamp,+pid,+tid,+seh";
 
 #[derive(Debug)]
 pub(crate) struct PreparedOptions {
-    runtime_path: Option<PathBuf>,
     overlay_libraries: Option<[PathBuf; 2]>,
 }
 
@@ -32,19 +31,6 @@ impl PreparedOptions {
             return Err("Launch via Steam requires a Proton runner".to_owned());
         }
 
-        let runtime_path = if launch_via_steam {
-            match runner_discovery::steam_runtime_path(runner) {
-                Ok(path) => Some(path),
-                Err(error) => {
-                    eprintln!(
-                        "Steam Linux Runtime unavailable, launching Proton directly: {error}"
-                    );
-                    None
-                }
-            }
-        } else {
-            None
-        };
         let overlay_libraries = if launch_via_steam {
             let steam_root = steam_root
                 .ok_or_else(|| "Launch via Steam requires a Steam installation".to_owned())?;
@@ -59,14 +45,7 @@ impl PreparedOptions {
             None
         };
 
-        Ok(Self {
-            runtime_path,
-            overlay_libraries,
-        })
-    }
-
-    pub(crate) fn runtime_path(&self) -> Option<&Path> {
-        self.runtime_path.as_deref()
+        Ok(Self { overlay_libraries })
     }
 
     pub(crate) fn diagnostic(
@@ -94,13 +73,17 @@ impl PreparedOptions {
         }
 
         match config.graphics_renderer {
-            GraphicsRenderer::RunnerDefault => {}
+            GraphicsRenderer::RunnerDefault => {
+                command.env_remove("PROTON_USE_WINED3D");
+            }
             GraphicsRenderer::WineD3d => {
                 command.env("PROTON_USE_WINED3D", "1");
             }
         }
         match config.wayland {
-            WaylandMode::RunnerDefault => {}
+            WaylandMode::RunnerDefault => {
+                command.env_remove("PROTON_ENABLE_WAYLAND");
+            }
             WaylandMode::Disabled => {
                 command.env("PROTON_ENABLE_WAYLAND", "0");
             }
@@ -124,8 +107,7 @@ impl PreparedOptions {
             RunnerKind::Proton | RunnerKind::GeProton => {
                 command
                     .env(PROTON_LOG, "1")
-                    .env(PROTON_LOG_DIR, log_directory)
-                    .env(STEAM_GAME_ID, "480");
+                    .env(PROTON_LOG_DIR, log_directory);
             }
             RunnerKind::Wine if !config.environment.contains_key("WINEDEBUG") => {
                 command.env("WINEDEBUG", WINE_DEBUG);
@@ -158,7 +140,37 @@ impl PreparedOptions {
     }
 }
 
+pub(crate) fn proton_log_name(config: &EffectiveCompatibilityConfig) -> String {
+    let game_id = config
+        .environment
+        .get("GAMEID")
+        .map(String::as_str)
+        .filter(|id| !id.is_empty())
+        .unwrap_or("umu-default");
+    let app_id = game_id
+        .strip_prefix("umu-")
+        .filter(|id| {
+            !id.is_empty()
+                && id.len() <= 80
+                && id
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        })
+        .unwrap_or("0");
+    format!("steam-{app_id}.log")
+}
+
 fn validate(config: &EffectiveCompatibilityConfig, runner: &InstalledRunner) -> Result<(), String> {
+    if config.environment.get("GAMEID").is_some_and(|id| {
+        id.len() > 84
+            || !id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    }) {
+        return Err(
+            "GAMEID must be a short umu identifier without spaces or path separators".to_owned(),
+        );
+    }
     for key in [
         "PROTON_USE_WINED3D",
         "PROTON_ENABLE_WAYLAND",
@@ -301,6 +313,22 @@ mod tests {
     }
 
     #[test]
+    fn umu_log_identity_follows_game_id_without_assigning_a_fake_steam_id() {
+        let mut config = EffectiveCompatibilityConfig::default();
+        assert_eq!(proton_log_name(&config), "steam-default.log");
+        config
+            .environment
+            .insert("GAMEID".to_owned(), "umu-1234".to_owned());
+        assert_eq!(proton_log_name(&config), "steam-1234.log");
+        config
+            .environment
+            .insert("GAMEID".to_owned(), "../outside".to_owned());
+        assert!(
+            PreparedOptions::prepare(&config, &runner(RunnerKind::GeProton), None, false).is_err()
+        );
+    }
+
+    #[test]
     fn typed_options_reach_the_child_process_environment() {
         let config = EffectiveCompatibilityConfig {
             graphics_renderer: GraphicsRenderer::WineD3d,
@@ -346,7 +374,11 @@ mod tests {
                 .lines()
                 .any(|line| { line == format!("PROTON_LOG_DIR={}", log_directory.display()) })
         );
-        assert!(environment.lines().any(|line| line == "SteamGameId=480"));
+        assert!(
+            !environment
+                .lines()
+                .any(|line| line.starts_with("SteamGameId="))
+        );
     }
 
     #[test]

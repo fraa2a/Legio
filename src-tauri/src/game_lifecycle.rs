@@ -89,6 +89,7 @@ struct Entry {
     compatibility_log: Option<CompatibilityLogState>,
     runner_exit_code: Option<i32>,
     cancel: Arc<AtomicBool>,
+    prefix: Option<PathBuf>,
 }
 
 struct LaunchTarget {
@@ -426,30 +427,29 @@ impl GameLaunchManager {
             .state::<DatabaseState>()
             .database()?
             .effective_compatibility_config(&game_id)?;
-        let config = if config
+        if config
             .runner_path
             .as_deref()
             .is_some_and(|path| !path.is_empty())
         {
-            config
+            self.launch_with_compatibility_config(
+                app,
+                game_id,
+                config,
+                runner_discovery::resolve_runner,
+            )
         } else {
-            let runner_path = runner_discovery::discover()
+            let runner = runner_discovery::discover()
                 .runners
                 .into_iter()
                 .next()
-                .map(|runner| runner.path)
                 .ok_or_else(|| "No compatible Proton or Wine runner is installed".to_owned())?;
-            EffectiveCompatibilityConfig {
-                runner_path: Some(runner_path),
+            let config = EffectiveCompatibilityConfig {
+                runner_path: Some(runner.path.clone()),
                 ..config
-            }
-        };
-        self.launch_with_compatibility_config(
-            app,
-            game_id,
-            config,
-            runner_discovery::resolve_runner,
-        )
+            };
+            self.launch_with_compatibility_config(app, game_id, config, move |_| Ok(runner))
+        }
     }
 
     #[cfg(target_os = "linux")]
@@ -522,9 +522,13 @@ impl GameLaunchManager {
             config.prefix_root.as_deref(),
             config.prefix_path.as_deref(),
         )?;
-        let steam_root = if config.online_fix
-            || matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton)
-        {
+        let wine_prefix = game_wine_prefix(&compat_data_path, runner.kind)?;
+        let umu = if runner.kind != RunnerKind::Wine {
+            Some(runner_discovery::umu_path()?)
+        } else {
+            None
+        };
+        let steam_root = if config.online_fix || launch_via_steam {
             Some(steam_client_root()?)
         } else {
             None
@@ -540,26 +544,35 @@ impl GameLaunchManager {
             &executable_path,
             &config.arguments_before,
             &config.arguments_after,
-            options.runtime_path(),
-        );
+            umu.as_deref(),
+        )?;
         command.current_dir(working_directory).stdin(Stdio::null());
         options.apply(&mut command, &config)?;
-        if matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton)
-            && !config.environment.contains_key("WINEDEBUG")
-            && !config.debug_logging
-        {
+        if !config.environment.contains_key("WINEDEBUG") && !config.debug_logging {
             command.env("WINEDEBUG", "-all");
         }
         apply_dll_overrides(&mut command, &config);
-        if matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton) {
-            let steam_root = steam_root
-                .as_ref()
-                .ok_or_else(|| "Steam installation was not resolved for Proton".to_owned())?;
-            command
-                .env("STEAM_COMPAT_DATA_PATH", &compat_data_path)
-                .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
+        command
+            .env("WINEPREFIX", &wine_prefix)
+            .env_remove("STEAM_COMPAT_DATA_PATH");
+        if let Some(steam_root) = steam_root.as_ref() {
+            command.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
         } else {
-            command.env("WINEPREFIX", &compat_data_path);
+            command.env_remove("STEAM_COMPAT_CLIENT_INSTALL_PATH");
+        }
+        if runner.kind != RunnerKind::Wine
+            && !config.environment.contains_key("VKD3D_SHADER_CACHE_PATH")
+            && std::env::var_os("VKD3D_SHADER_CACHE_PATH").is_none()
+        {
+            let shader_cache = app
+                .path()
+                .app_cache_dir()
+                .map_err(|error| format!("Could not resolve shader cache directory: {error}"))?
+                .join("compatibility-shaders")
+                .join(&game.id);
+            fs::create_dir_all(&shader_cache)
+                .map_err(|error| format!("Could not create game shader cache: {error}"))?;
+            command.env("VKD3D_SHADER_CACHE_PATH", shader_cache);
         }
 
         let token = uuid::Uuid::new_v4().to_string();
@@ -574,11 +587,12 @@ impl GameLaunchManager {
             &config,
             launch_via_steam,
         );
-        let cancel = self.reserve_launch(
+        let cancel = self.reserve_launch_with_prefix(
             &game_id,
             None,
             process_target.clone(),
             Some(applied_options.clone()),
+            Some(&wine_prefix),
         )?;
         let mut compatibility_log = if config.debug_logging {
             let result = self
@@ -1046,6 +1060,23 @@ impl GameLaunchManager {
         process_target: game_process::ProcessTarget,
         compatibility_options: Option<AppliedCompatibilityOptions>,
     ) -> Result<Arc<AtomicBool>, String> {
+        self.reserve_launch_with_prefix(
+            game_id,
+            app_id,
+            process_target,
+            compatibility_options,
+            None,
+        )
+    }
+
+    fn reserve_launch_with_prefix(
+        &self,
+        game_id: &str,
+        app_id: Option<u32>,
+        process_target: game_process::ProcessTarget,
+        compatibility_options: Option<AppliedCompatibilityOptions>,
+        prefix: Option<&Path>,
+    ) -> Result<Arc<AtomicBool>, String> {
         let cancel = Arc::new(AtomicBool::new(false));
         let mut entries = self.lock()?;
         if entries.get(game_id).is_some_and(|entry| {
@@ -1061,6 +1092,16 @@ impl GameLaunchManager {
         }) {
             return Err("This Steam App ID is already launching or running".to_owned());
         }
+        if prefix.is_some_and(|prefix| {
+            entries.values().any(|entry| {
+                entry.prefix.as_deref() == Some(prefix) && entry.status != GameStatus::Idle
+            })
+        }) {
+            return Err(
+                "This compatibility prefix is already used by a launching or running game"
+                    .to_owned(),
+            );
+        }
         entries.insert(
             game_id.to_owned(),
             Entry {
@@ -1073,6 +1114,7 @@ impl GameLaunchManager {
                 compatibility_log: None,
                 runner_exit_code: None,
                 cancel: Arc::clone(&cancel),
+                prefix: prefix.map(Path::to_path_buf),
             },
         );
         self.changes.send_replace(());
@@ -1224,6 +1266,36 @@ fn create_prefix_directory(root: &Path, game_id: Option<&str>) -> Result<PathBuf
     Ok(prefix)
 }
 
+#[cfg(target_os = "linux")]
+fn game_wine_prefix(compatdata: &Path, kind: RunnerKind) -> Result<PathBuf, String> {
+    let nested = compatdata.join("pfx");
+    let root_is_prefix =
+        compatdata.join("system.reg").is_file() || compatdata.join("drive_c").is_dir();
+    if root_is_prefix && nested.exists() {
+        let nested_prefix = fs::canonicalize(&nested)
+            .map_err(|error| format!("Could not inspect existing Wine prefix: {error}"))?;
+        if nested_prefix != compatdata
+            && (nested_prefix.join("system.reg").exists() || nested_prefix.join("drive_c").exists())
+        {
+            return Err("Both the selected directory and its pfx child contain Wine prefixes. Select the intended prefix explicitly".to_owned());
+        }
+    }
+    if root_is_prefix {
+        return Ok(compatdata.to_path_buf());
+    }
+    if nested.exists() || kind != RunnerKind::Wine {
+        fs::create_dir_all(&nested)
+            .map_err(|error| format!("Could not create Wine prefix: {error}"))?;
+        let prefix = fs::canonicalize(nested)
+            .map_err(|error| format!("Could not resolve Wine prefix: {error}"))?;
+        if !prefix.starts_with(compatdata) {
+            return Err("Wine prefix escapes its compatibility directory".to_owned());
+        }
+        return Ok(prefix);
+    }
+    Ok(compatdata.to_path_buf())
+}
+
 fn game_working_directory(path: Option<&str>, game_directory: &Path) -> Result<PathBuf, String> {
     let Some(path) = path.filter(|path| !path.is_empty()) else {
         return Ok(game_directory.to_path_buf());
@@ -1259,6 +1331,11 @@ fn validate_launch_environment(
         }
         if [
             "WINEPREFIX",
+            "PROTONPATH",
+            "SteamAppId",
+            "SteamGameId",
+            "STEAM_COMPAT_APP_ID",
+            "UMU_ID",
             "STEAM_COMPAT_DATA_PATH",
             "STEAM_COMPAT_CLIENT_INSTALL_PATH",
             "WINEDLLOVERRIDES",
@@ -1587,6 +1664,61 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tauri::Manager;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn wine_and_proton_reuse_the_actual_prefix_without_moving_saves() {
+        let root = test_dir("prefix-layout");
+        fs::create_dir_all(root.join("pfx/drive_c")).unwrap();
+        let saved = root.join("pfx/drive_c/save.dat");
+        fs::write(&saved, b"save").unwrap();
+        let expected = fs::canonicalize(root.join("pfx")).unwrap();
+        assert_eq!(game_wine_prefix(&root, RunnerKind::Wine).unwrap(), expected);
+        assert_eq!(
+            game_wine_prefix(&root, RunnerKind::GeProton).unwrap(),
+            expected
+        );
+        assert_eq!(fs::read(saved).unwrap(), b"save");
+        let direct = test_dir("wine-prefix-layout");
+        fs::create_dir_all(direct.join("drive_c")).unwrap();
+        assert_eq!(
+            game_wine_prefix(&direct, RunnerKind::Proton).unwrap(),
+            direct
+        );
+        assert!(!direct.join("pfx").exists());
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(direct).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn prefix_reservation_prevents_concurrent_games_and_releases_when_idle() {
+        let manager = GameLaunchManager::new();
+        let prefix = Path::new("/test/shared-prefix");
+        let target = game_process::ProcessTarget::Runner {
+            token: "test".to_owned(),
+            executable_path: PathBuf::from("/test/game.exe"),
+            launcher_pid: None,
+        };
+        manager
+            .reserve_launch_with_prefix("one", None, target.clone(), None, Some(prefix))
+            .unwrap();
+        assert!(
+            manager
+                .reserve_launch_with_prefix("two", None, target.clone(), None, Some(prefix))
+                .is_err()
+        );
+        manager.set_state("one", GameStatus::Running, None);
+        assert!(
+            manager
+                .reserve_launch_with_prefix("two", None, target.clone(), None, Some(prefix))
+                .is_err()
+        );
+        manager.set_state("one", GameStatus::Idle, None);
+        manager
+            .reserve_launch_with_prefix("two", None, target, None, Some(prefix))
+            .unwrap();
+    }
 
     #[test]
     fn installation_changes_require_an_idle_game() {
@@ -2362,7 +2494,7 @@ mod tests {
                 &base
                     .join("logs/compatibility")
                     .join(&game.id)
-                    .join("steam-480.log"),
+                    .join("steam-default.log"),
             )
         });
         let active = database
@@ -2764,6 +2896,7 @@ mod tests {
                 compatibility_log: None,
                 runner_exit_code: None,
                 cancel: Arc::clone(&cancel),
+                prefix: None,
             },
         );
 
@@ -2833,6 +2966,7 @@ mod tests {
                 compatibility_log: None,
                 runner_exit_code: None,
                 cancel: Arc::clone(&cancel),
+                prefix: None,
             },
         );
 
