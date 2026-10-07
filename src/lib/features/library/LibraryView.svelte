@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
   import { onMount } from "svelte";
+  import { startVisibleRefresh } from "../../stores/visible-refresh";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
   import { games } from "../../stores/games";
@@ -13,11 +14,7 @@
   import GameCard from "./GameCard.svelte";
   import { libraryGroups, libraryItems } from "./library-model";
 
-  onMount(() => {
-    void playtime.load();
-    const timer = setInterval(() => void playtime.load(), 30000);
-    return () => clearInterval(timer);
-  });
+  onMount(() => startVisibleRefresh(() => void playtime.load(), 30000));
 
   const groups = $derived(libraryGroups($games.data, $libraryQuery));
   const summaries = $derived(new Map($playtime.data.map((summary) => [summary.gameId, summary])));
