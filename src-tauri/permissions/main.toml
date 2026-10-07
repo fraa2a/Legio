@@ -11,8 +11,6 @@ commands.allow = [
   "save_settings",
   "import_theme_background",
   "get_theme_background",
-  "import_theme_file",
-  "export_theme_file",
   "cleanup_theme_backgrounds",
   "get_compatibility_defaults",
   "save_compatibility_defaults",

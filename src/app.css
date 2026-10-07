@@ -33,63 +33,63 @@ html[data-motion-paused="true"] *::after {
 
 @font-face {
   font-family: "Motiva Sans";
-  src: url("./assets/fonts/MotivaSans-Thin.ttf") format("truetype");
+  src: url("./assets/fonts/MotivaSans-Thin.woff2") format("woff2");
   font-weight: 200;
   font-style: normal;
 }
 
 @font-face {
   font-family: "Motiva Sans";
-  src: url("./assets/fonts/MotivaSans-Light.ttf") format("truetype");
+  src: url("./assets/fonts/MotivaSans-Light.woff2") format("woff2");
   font-weight: 300;
   font-style: normal;
 }
 
 @font-face {
   font-family: "Motiva Sans";
-  src: url("./assets/fonts/MotivaSans-LightItalic.ttf") format("truetype");
+  src: url("./assets/fonts/MotivaSans-LightItalic.woff2") format("woff2");
   font-weight: 300;
   font-style: italic;
 }
 
 @font-face {
   font-family: "Motiva Sans";
-  src: url("./assets/fonts/MotivaSans-Regular.ttf") format("truetype");
+  src: url("./assets/fonts/MotivaSans-Regular.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
 }
 
 @font-face {
   font-family: "Motiva Sans";
-  src: url("./assets/fonts/MotivaSans-RegularItalic.ttf") format("truetype");
+  src: url("./assets/fonts/MotivaSans-RegularItalic.woff2") format("woff2");
   font-weight: 400;
   font-style: italic;
 }
 
 @font-face {
   font-family: "Motiva Sans";
-  src: url("./assets/fonts/MotivaSans-Medium.ttf") format("truetype");
+  src: url("./assets/fonts/MotivaSans-Medium.woff2") format("woff2");
   font-weight: 500;
   font-style: normal;
 }
 
 @font-face {
   font-family: "Motiva Sans";
-  src: url("./assets/fonts/MotivaSans-Bold.ttf") format("truetype");
+  src: url("./assets/fonts/MotivaSans-Bold.woff2") format("woff2");
   font-weight: 700;
   font-style: normal;
 }
 
 @font-face {
   font-family: "Motiva Sans";
-  src: url("./assets/fonts/MotivaSans-BoldItalic.ttf") format("truetype");
+  src: url("./assets/fonts/MotivaSans-BoldItalic.woff2") format("woff2");
   font-weight: 700;
   font-style: italic;
 }
 
 @font-face {
   font-family: "Motiva Sans";
-  src: url("./assets/fonts/MotivaSans-Black.ttf") format("truetype");
+  src: url("./assets/fonts/MotivaSans-Black.woff2") format("woff2");
   font-weight: 900;
   font-style: normal;
 }
