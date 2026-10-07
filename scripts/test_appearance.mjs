@@ -51,8 +51,8 @@ test("system palette follows the OS and Hyprland alone can enable window transpa
   assert.equal(document.documentElement.dataset.transparent, "true");
   assert.equal(document.documentElement.style.getPropertyValue("--legio-background"), dark.palette.background);
   assert.equal(document.documentElement.style.getPropertyValue("--legio-image-blur"), "12px");
-  assert.equal(document.documentElement.style.getPropertyValue("--legio-surface-blur"), "none");
-  assert.equal(document.documentElement.style.getPropertyValue("--legio-dialog-blur"), "none");
+  assert.equal(document.documentElement.style.getPropertyValue("--legio-surface-blur"), "blur(8px)");
+  assert.equal(document.documentElement.style.getPropertyValue("--legio-dialog-blur"), "blur(16px)");
   appearance.applyAppearance(document.documentElement, "dark", options, true, false);
   assert.equal(document.documentElement.dataset.transparent, "false");
   assert.equal(document.documentElement.style.getPropertyValue("--legio-surface-blur"), "blur(8px)");
@@ -124,10 +124,11 @@ test("the theme editor previews before auto save and preserves unrelated setting
   windowToggle.checked = true;
   windowToggle.dispatchEvent(new Event("change", { bubbles: true }));
   await settle();
-  assert.equal(blur.disabled, true);
-  assert.equal(dialogBlur.disabled, true);
+  assert.equal(blur.disabled, false);
+  assert.equal(dialogBlur.disabled, false);
   assert.equal(opacity.disabled, false);
-  assert.ok(target.textContent.includes("Il blur è disponibile solo con la trasparenza della finestra disattivata."));
+  assert.equal(blur.value, "14");
+  assert.equal(dialogBlur.value, "10");
   windowToggle.checked = false;
   windowToggle.dispatchEvent(new Event("change", { bubbles: true }));
   await settle();

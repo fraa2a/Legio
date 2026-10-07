@@ -30,6 +30,9 @@ mod image_format;
 mod image_response;
 mod image_trim;
 mod installed_folder;
+#[cfg(target_os = "linux")]
+mod launch_environment;
+mod launch_journal;
 pub mod legio_source;
 mod legio_source_cache;
 #[cfg(target_os = "linux")]
@@ -150,12 +153,9 @@ pub fn run() -> tauri::Result<()> {
                 .set_storage_root(&storage_root)
                 .map_err(std::io::Error::other)?;
             app.manage(download_queue);
-            #[cfg(target_os = "linux")]
             app.manage(game_lifecycle::GameLaunchManager::with_log_directory(
                 app.path().app_log_dir().map_err(|error| error.to_string()),
             ));
-            #[cfg(not(target_os = "linux"))]
-            app.manage(game_lifecycle::GameLaunchManager::new());
             let launch_manager = app.state::<game_lifecycle::GameLaunchManager>();
             let mut changes = launch_manager.subscribe_changes();
             let events_app = app.handle().clone();
@@ -373,6 +373,7 @@ pub fn run() -> tauri::Result<()> {
             commands::refresh_catalog,
             commands::get_steam_details,
             commands::get_steam_asset,
+            commands::reset_steam_artwork_cache,
             commands::prefetch_steam_hero,
             runner_discovery::list_compatibility_runners,
         ])

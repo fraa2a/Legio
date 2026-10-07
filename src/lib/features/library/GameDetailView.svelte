@@ -10,7 +10,6 @@
     cancelPendingGameId,
     dismissAccountSwitch,
     confirmAccountSwitch,
-    launchError,
     launchStateByGame,
     pendingGameId,
     playGame,
@@ -211,7 +210,6 @@
               {@render nameText()}
             {/if}
           </h2>
-          {#if storeGame === null && launch?.error}<p class="mt-1 max-w-full truncate rounded-lg bg-zinc-950/60 px-3 py-1.5 text-right text-sm text-red-300 light:bg-zinc-100/70 light:text-red-700" role="alert">{launch.error}</p>{/if}
         </div>
       </div>
     </section>
@@ -226,9 +224,6 @@
       <ErrorBanner message={artworkError} />
     {/if}
 
-    {#if storeGame === null && $launchError !== null}
-      <ErrorBanner message={$launchError} />
-    {/if}
 
     <div class="grid flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
       <div class="min-w-0">

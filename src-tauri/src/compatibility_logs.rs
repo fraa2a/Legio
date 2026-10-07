@@ -21,6 +21,7 @@ pub(crate) struct CompatibilityLogState {
     output_error: Arc<Mutex<Option<String>>>,
     truncated: Arc<AtomicBool>,
     redactions: Arc<Vec<Vec<u8>>>,
+    events: Arc<Mutex<File>>,
 }
 
 impl CompatibilityLogState {
@@ -37,6 +38,32 @@ impl CompatibilityLogState {
 
     pub(crate) fn truncated(&self) -> bool {
         self.truncated.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn record_event(&self, event: &str, detail: Option<&str>) {
+        let mut file = self
+            .events
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let mut redactor = StreamRedactor::new(self.redactions.clone());
+        let line = redactor.push(
+            format!("{timestamp} {event} {}\n", detail.unwrap_or("")).as_bytes(),
+            true,
+        );
+        let result = file.metadata().and_then(|metadata| {
+            if metadata.len() + line.len() as u64 > MAX_STREAM_BYTES {
+                self.truncated.store(true, Ordering::Relaxed);
+                return Ok(());
+            }
+            file.write_all(&line).and_then(|()| file.flush())
+        });
+        if let Err(error) = result {
+            self.report_error(&error, "launch events");
+        }
     }
 
     fn report_error(&self, error: &io::Error, stream: &str) {
@@ -78,6 +105,10 @@ struct LaunchReport<'a> {
     stdout_log: &'static str,
     stderr_log: &'static str,
     runner_exit_code_log: &'static str,
+    launch_event_log: &'static str,
+    executable: &'a Path,
+    working_directory: Option<&'a Path>,
+    argument_count: usize,
 }
 
 impl CompatibilityLog {
@@ -88,6 +119,7 @@ impl CompatibilityLog {
         runner: &InstalledRunner,
         config: &EffectiveCompatibilityConfig,
         applied_options: &AppliedCompatibilityOptions,
+        command: &std::process::Command,
     ) -> Result<Self, String> {
         let game_id = Uuid::parse_str(game_id)
             .map_err(|_| "Could not create compatibility diagnostics: invalid game ID".to_owned())?
@@ -107,6 +139,7 @@ impl CompatibilityLog {
         let stderr = open_log_file(&directory.join("stderr.log"))?;
         let exit_code = open_log_file(&directory.join("runner-exit-code.txt"))?;
         let manifest = open_log_file(&directory.join("launch.json"))?;
+        let events = open_log_file(&directory.join("launch.log"))?;
         let proton_log = matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton)
             .then(|| directory.join(crate::compatibility_options::proton_log_name(config)));
         let report = LaunchReport {
@@ -127,23 +160,30 @@ impl CompatibilityLog {
             stdout_log: "stdout.log",
             stderr_log: "stderr.log",
             runner_exit_code_log: "runner-exit-code.txt",
+            launch_event_log: "launch.log",
+            executable: Path::new(command.get_program()),
+            working_directory: command.get_current_dir(),
+            argument_count: command.get_args().count(),
         };
         serde_json::to_writer_pretty(manifest, &report)
             .map_err(|error| format!("Could not write compatibility launch report: {error}"))?;
 
-        Ok(Self {
+        let log = Self {
             state: CompatibilityLogState {
                 directory,
                 output_error: Arc::new(Mutex::new(None)),
                 truncated: Arc::new(AtomicBool::new(false)),
                 redactions: Arc::new(redaction_values(config)),
+                events: Arc::new(Mutex::new(events)),
             },
             stdout: Some(stdout),
             stderr: Some(stderr),
             exit_code,
             proton_log,
             readers: Vec::new(),
-        })
+        };
+        log.state.record_event("prepared", None);
+        Ok(log)
     }
 
     pub(crate) fn state(&self) -> CompatibilityLogState {
@@ -190,6 +230,8 @@ impl CompatibilityLog {
     }
 
     pub(crate) fn record_exit_code(&mut self, code: i32) {
+        self.state
+            .record_event("runner_exit", Some(&code.to_string()));
         if let Err(error) = self
             .exit_code
             .set_len(0)
@@ -331,6 +373,9 @@ fn debug_environment(
     config: &EffectiveCompatibilityConfig,
     directory: &Path,
 ) -> Vec<(&'static str, String)> {
+    if !config.debug_logging {
+        return Vec::new();
+    }
     match runner.kind {
         RunnerKind::Proton | RunnerKind::GeProton => {
             let mut variables = vec![
@@ -536,6 +581,7 @@ mod tests {
             &runner,
             config,
             &options,
+            &std::process::Command::new("/unused/runner"),
         )
         .unwrap()
     }
@@ -633,7 +679,10 @@ mod tests {
     #[test]
     fn launch_report_omits_custom_environment_values() {
         let root = std::env::temp_dir().join(format!("legio-compat-report-{}", Uuid::new_v4()));
-        let mut config = EffectiveCompatibilityConfig::default();
+        let mut config = EffectiveCompatibilityConfig {
+            debug_logging: true,
+            ..EffectiveCompatibilityConfig::default()
+        };
         config.environment.insert(
             "ACCESS_TOKEN".to_owned(),
             "do-not-write-this-value".to_owned(),
@@ -677,6 +726,7 @@ mod tests {
                 &runner,
                 &config,
                 &options,
+                &std::process::Command::new("/unused/runner"),
             )
             .is_err()
         );
@@ -689,6 +739,7 @@ mod tests {
             &runner,
             &config,
             &options,
+            &std::process::Command::new("/unused/runner"),
         ) {
             Ok(_) => panic!("file log root should fail"),
             Err(error) => error,

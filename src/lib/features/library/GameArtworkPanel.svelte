@@ -16,6 +16,9 @@
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
+  import { refreshSteamImages } from "../../services/steam-details";
+  import { loadSteamDetails } from "../../stores/steam-details";
+  import { showToast } from "../../stores/toast";
 
   let { game }: { game: Game } = $props();
   let iconUrl = $state<string | null>(null);
@@ -76,6 +79,18 @@
     });
   }
 
+  async function refreshImages(): Promise<void> {
+    await runAction(async () => {
+      if (game.steamAppId !== null) {
+        await loadSteamDetails(game.steamAppId, true);
+        await refreshSteamImages(game.steamAppId);
+      } else {
+        await extractGameIcon(game.id);
+      }
+      showToast(t("Immagini aggiornate.", $language), "success");
+    });
+  }
+
   async function reset(kind: "icon" | "banner"): Promise<void> {
     await runAction(async () => {
       if (kind === "icon") {
@@ -104,6 +119,10 @@
 
 <Panel title={t("Personalizzazione", $language)}>
   <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Scegli le immagini usate per questo gioco. I file vengono copiati nei dati di Legio.", $language)}</p>
+  <div class="flex flex-wrap items-center gap-3">
+    <Button label={t("Aggiorna immagini", $language)} variant="secondary" disabled={pending || (game.steamAppId === null && game.executablePath === null)} onClick={() => void refreshImages()} />
+    <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Riscarica le immagini Steam senza modificare quelle personalizzate. Per i giochi senza collegamento Steam, rigenera l'icona dall'eseguibile.", $language)}</p>
+  </div>
   {#if error !== null}<ErrorBanner message={error} onRetry={() => void load()} />{/if}
   {#if loading}
     <p class="text-sm text-zinc-400" role="status">{t("Caricamento delle immagini...", $language)}</p>

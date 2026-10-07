@@ -1,7 +1,7 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
   import type { Game } from "../../services/local-state";
-  import SteamArtwork from "../../features/library/SteamArtwork.svelte";
+  import GameIcon from "../../features/library/GameIcon.svelte";
   import { openGame } from "../../stores/navigation";
   import { fade } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
@@ -42,15 +42,8 @@
       class="pointer-events-none absolute top-1/2 left-2 flex size-8 -translate-y-1/2 items-center justify-center"
       aria-hidden="true"
     >
-      {#if visible && game.steamAppId !== null}
-        <SteamArtwork
-          steamAppId={game.steamAppId}
-          asset="client_icon"
-          caption={false}
-          class="size-8 rounded object-cover"
-        >
-          {#snippet placeholder()}{/snippet}
-        </SteamArtwork>
+      {#if visible}
+        <GameIcon {game} />
       {/if}
     </span>
     {#if expanded}

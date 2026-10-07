@@ -16,7 +16,7 @@
 </script>
 
 <div class="flex flex-col gap-5">
-  <SettingsGroup title={t("Sorgenti dei giochi", $language)} icon="downloads">
+  <SettingsGroup title={t("Sorgenti dei giochi", $language)} icon="globe">
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Aggiungi un catalogo HTTPS per rendere disponibili i suoi giochi nello Store.", $language)}</p>
     <form class="flex flex-col gap-3" onsubmit={submit}>
       <TextField id="source-url" label={t("URL della sorgente", $language)} bind:value={url} placeholder="https://catalogo.example/games.json" disabled={$sourceBusy} />
@@ -28,7 +28,7 @@
     {#if $source.error}<ErrorBanner message={$source.error} onRetry={() => { void source.load(); }} />{/if}
   </SettingsGroup>
 
-  <SettingsGroup title={t("Sorgenti installate", $language)} icon="downloads">
+  <SettingsGroup title={t("Sorgenti installate", $language)} icon="library">
     {#if $source.data.sources.length === 0}
       <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Nessuna sorgente installata.", $language)}</p>
     {:else}

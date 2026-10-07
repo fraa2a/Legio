@@ -68,7 +68,12 @@
   <title>Legio</title>
 </svelte:head>
 
-<svelte:window oncontextmenu={blockContextMenu} />
+<svelte:window
+  oncontextmenu={blockContextMenu}
+  ondragstart={(event) => { if (event.target instanceof HTMLImageElement) event.preventDefault(); }}
+  onpointerdown={() => { document.documentElement.dataset.inputMethod = "pointer"; }}
+  onkeydown={(event) => { if (event.key === "Tab" || event.key.startsWith("Arrow")) document.documentElement.dataset.inputMethod = "keyboard"; }}
+/>
 
 <AppBackground id={appearance.background} animation={appearance.animatedBackground} animationOpacity={appearance.animatedOpacity} {accent} dither={appearance.dither} active={$mediaActive} />
 <div class="legio-shell relative flex h-dvh select-none">

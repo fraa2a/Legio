@@ -87,6 +87,8 @@ struct Entry {
     compatibility_options: Option<AppliedCompatibilityOptions>,
     #[cfg(target_os = "linux")]
     compatibility_log: Option<CompatibilityLogState>,
+    #[cfg(target_os = "linux")]
+    compatibility_log_error: Option<String>,
     runner_exit_code: Option<i32>,
     cancel: Arc<AtomicBool>,
     prefix: Option<PathBuf>,
@@ -158,6 +160,7 @@ pub(crate) struct GameLaunchManager {
     entries: Arc<Mutex<HashMap<String, Entry>>>,
     operations: Arc<Mutex<()>>,
     changes: tokio::sync::watch::Sender<()>,
+    journal: Option<crate::launch_journal::LaunchJournal>,
     #[cfg(target_os = "linux")]
     compatibility_log_root: Option<Result<PathBuf, String>>,
 }
@@ -168,6 +171,7 @@ impl Default for GameLaunchManager {
             entries: Arc::default(),
             operations: Arc::default(),
             changes: tokio::sync::watch::channel(()).0,
+            journal: None,
             #[cfg(target_os = "linux")]
             compatibility_log_root: None,
         }
@@ -175,16 +179,23 @@ impl Default for GameLaunchManager {
 }
 
 impl GameLaunchManager {
-    #[cfg(any(not(target_os = "linux"), test))]
+    #[cfg(test)]
     pub(crate) fn new() -> Self {
         Self::default()
     }
 
-    #[cfg(target_os = "linux")]
     pub(crate) fn with_log_directory(directory: Result<PathBuf, String>) -> Self {
         Self {
+            journal: Some(crate::launch_journal::LaunchJournal::new(directory.clone())),
+            #[cfg(target_os = "linux")]
             compatibility_log_root: Some(directory),
             ..Self::default()
+        }
+    }
+
+    pub(crate) fn record_launch_request(&self, game_id: &str, failed: bool) {
+        if let Some(journal) = &self.journal {
+            journal.record(game_id, "request", failed, None);
         }
     }
 
@@ -216,16 +227,16 @@ impl GameLaunchManager {
             .map(|(game_id, entry)| {
                 #[cfg(target_os = "linux")]
                 let (compatibility_log_path, compatibility_log_error, compatibility_log_truncated) =
-                    entry
-                        .compatibility_log
-                        .as_ref()
-                        .map_or((None, None, false), |log| {
+                    entry.compatibility_log.as_ref().map_or(
+                        (None, entry.compatibility_log_error.clone(), false),
+                        |log| {
                             (
                                 Some(log.directory().to_path_buf()),
                                 log.output_error(),
                                 log.truncated(),
                             )
-                        });
+                        },
+                    );
                 #[cfg(not(target_os = "linux"))]
                 let (compatibility_log_path, compatibility_log_error, compatibility_log_truncated) =
                     (None, None, false);
@@ -598,7 +609,7 @@ impl GameLaunchManager {
             Some(applied_options.clone()),
             Some(&wine_prefix),
         )?;
-        let mut compatibility_log = if config.debug_logging {
+        let mut compatibility_log = {
             let result = self
                 .compatibility_logs_directory()
                 .and_then(|log_directory| {
@@ -609,17 +620,19 @@ impl GameLaunchManager {
                         &runner,
                         &config,
                         &applied_options,
+                        &command,
                     )
                 });
             match result {
                 Ok(log) => Some(log),
                 Err(error) => {
-                    self.set_state(&game_id, GameStatus::Idle, Some(error.clone()));
-                    return Err(error);
+                    let mut entries = self.lock()?;
+                    if let Some(entry) = entries.get_mut(&game_id) {
+                        entry.compatibility_log_error = Some(error);
+                    }
+                    None
                 }
             }
-        } else {
-            None
         };
         if let Some(log) = compatibility_log.as_mut() {
             crate::compatibility_options::PreparedOptions::apply_debug_logging(
@@ -882,6 +895,10 @@ impl GameLaunchManager {
                             status.code(),
                             compatibility_log.as_mut(),
                         );
+                        #[cfg(windows)]
+                        if let Some(code) = status.code() {
+                            self.set_runner_exit_code(&game_id, code);
+                        }
                         child.take();
                         if !status.success() && !cancel.load(Ordering::Acquire) {
                             let kind = if native_launch {
@@ -1116,6 +1133,8 @@ impl GameLaunchManager {
                 compatibility_options,
                 #[cfg(target_os = "linux")]
                 compatibility_log: None,
+                #[cfg(target_os = "linux")]
+                compatibility_log_error: None,
                 runner_exit_code: None,
                 cancel: Arc::clone(&cancel),
                 prefix: prefix.map(Path::to_path_buf),
@@ -1153,6 +1172,9 @@ impl GameLaunchManager {
     }
 
     fn set_runner_exit_code(&self, game_id: &str, code: i32) {
+        if let Some(journal) = &self.journal {
+            journal.record(game_id, "runner_exit", code != 0, Some(code));
+        }
         let mut entries = self
             .entries
             .lock()
@@ -1180,11 +1202,34 @@ impl GameLaunchManager {
     }
 
     fn set_state(&self, game_id: &str, status: GameStatus, error: Option<String>) {
+        if let Some(journal) = &self.journal {
+            journal.record(
+                game_id,
+                match status {
+                    GameStatus::Idle => "idle",
+                    GameStatus::Launching => "launching",
+                    GameStatus::Running => "running",
+                },
+                error.is_some(),
+                None,
+            );
+        }
         let mut entries = self
             .entries
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         if let Some(entry) = entries.get_mut(game_id) {
+            #[cfg(target_os = "linux")]
+            if let Some(log) = &entry.compatibility_log {
+                log.record_event(
+                    match status {
+                        GameStatus::Idle => "idle",
+                        GameStatus::Launching => "launching",
+                        GameStatus::Running => "running",
+                    },
+                    error.as_deref(),
+                );
+            }
             entry.status = status;
             entry.error = error;
             self.changes.send_replace(());
@@ -2357,7 +2402,6 @@ mod tests {
         let config = EffectiveCompatibilityConfig {
             runner_path: Some(runner.path.clone()),
             prefix_root: Some(base.join("prefixes").to_string_lossy().into_owned()),
-            debug_logging: true,
             environment: std::collections::BTreeMap::from([
                 (
                     "LEGIO_TEST_READY".to_owned(),
@@ -2409,6 +2453,11 @@ mod tests {
         assert!(state.compatibility_log_error.is_none());
         assert!(!state.compatibility_log_truncated);
         let log_directory = state.compatibility_log_path.unwrap();
+        let report: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(log_directory.join("launch.json")).unwrap())
+                .unwrap();
+        assert_eq!(report["appliedOptions"]["debugLogging"], false);
+        assert_eq!(report["debugEnvironment"], serde_json::json!([]));
         let output_timeout = Instant::now() + Duration::from_secs(3);
         loop {
             let stdout = fs::read_to_string(log_directory.join("stdout.log")).unwrap_or_default();
@@ -2977,6 +3026,8 @@ mod tests {
                 compatibility_options: None,
                 #[cfg(target_os = "linux")]
                 compatibility_log: None,
+                #[cfg(target_os = "linux")]
+                compatibility_log_error: None,
                 runner_exit_code: None,
                 cancel: Arc::clone(&cancel),
                 prefix: None,
@@ -3047,6 +3098,8 @@ mod tests {
                 compatibility_options: None,
                 #[cfg(target_os = "linux")]
                 compatibility_log: None,
+                #[cfg(target_os = "linux")]
+                compatibility_log_error: None,
                 runner_exit_code: None,
                 cancel: Arc::clone(&cancel),
                 prefix: None,

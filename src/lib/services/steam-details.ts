@@ -89,7 +89,8 @@ const pendingImages = new Map<string, Promise<SteamImage>>();
 const maxIdleImages = 128;
 const maxIdleBytes = 32 * 1024 * 1024;
 const freshFor = 72 * 60 * 60 * 1000;
-const refreshing = new Set<string>();
+const refreshing = new Map<string, Promise<void>>();
+const appRefreshes = new Map<number, Promise<void>>();
 export const steamImageRevision = writable(0);
 
 function imageKey(request: SteamImageRequest): string {
@@ -145,6 +146,8 @@ export function releaseSteamImage(request: SteamImageRequest): void {
 }
 
 export function loadSteamImage(request: SteamImageRequest): Promise<SteamImage> {
+  const batch = appRefreshes.get(request.steamAppId);
+  if (batch !== undefined) return batch.then(() => loadSteamImage(request));
   const key = imageKey(request);
   const cached = cachedImage(key);
   if (cached !== undefined) {
@@ -181,10 +184,9 @@ export function loadSteamImage(request: SteamImageRequest): Promise<SteamImage> 
 }
 
 function refreshImage(request: SteamImageRequest, key: string, previous: CachedSteamImage): void {
-  if (refreshing.has(key)) return;
-  refreshing.add(key);
+  if (refreshing.has(key) || appRefreshes.has(request.steamAppId)) return;
   previous.refreshAt = Date.now() + freshFor;
-  void getSteamAsset(request.steamAppId, request.asset, request.index ?? undefined, request.full, true)
+  const task = getSteamAsset(request.steamAppId, request.asset, request.index ?? undefined, request.full, true)
     .catch((error: unknown) => {
       if (request.fallbackAsset === null) throw error;
       return getSteamAsset(request.steamAppId, request.fallbackAsset, request.index ?? undefined, request.full, true);
@@ -212,4 +214,45 @@ function refreshImage(request: SteamImageRequest, key: string, previous: CachedS
       steamImageRevision.update(value => value + 1);
     })
     .finally(() => refreshing.delete(key));
+  refreshing.set(key, task);
+}
+
+function requestFromKey(key: string): SteamImageRequest {
+  const [steamAppId, asset, fallbackAsset, index, version, full] = JSON.parse(key);
+  return { steamAppId, asset, fallbackAsset, index, version, full };
+}
+
+export function refreshSteamImages(steamAppId: number): Promise<void> {
+  const current = appRefreshes.get(steamAppId);
+  if (current !== undefined) return current;
+  const task = (async () => {
+    const inflight = [...pendingImages, ...refreshing].filter(([key]) => requestFromKey(key).steamAppId === steamAppId);
+    await Promise.allSettled(inflight.map(([, promise]) => promise));
+    await invoke("reset_steam_artwork_cache", { steamAppId });
+    const requests = new Map<string, SteamImageRequest>();
+    for (const key of imageCache.keys()) {
+      const request = requestFromKey(key);
+      if (request.steamAppId === steamAppId) requests.set(key, request);
+    }
+    const results = await Promise.allSettled([...requests].map(async ([key, request]) => {
+      const result = await getSteamAsset(steamAppId, request.asset, request.index ?? undefined, request.full, true).catch((error: unknown) => {
+        if (request.fallbackAsset === null) throw error;
+        return getSteamAsset(steamAppId, request.fallbackAsset, request.index ?? undefined, request.full, true);
+      });
+      if (result.stale) throw new Error(result.cacheWarning ?? "Could not refresh Steam images");
+      const previous = imageCache.get(key);
+      const url = URL.createObjectURL(new Blob([result.bytes], { type: result.contentType }));
+      imageCache.set(key, {
+        url, users: previous?.users ?? 0, byteLength: result.bytes.byteLength,
+        stale: false, cacheWarning: result.cacheWarning, refreshAt: result.refreshAfter ?? Date.now() + freshFor,
+      });
+      if (previous !== undefined) URL.revokeObjectURL(previous.url);
+    }));
+    steamImageRevision.update((value) => value + 1);
+    pruneImages();
+    const failures = results.filter((result) => result.status === "rejected");
+    if (failures.length > 0) throw failures[0].reason;
+  })().finally(() => appRefreshes.delete(steamAppId));
+  appRefreshes.set(steamAppId, task);
+  return task;
 }

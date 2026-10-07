@@ -46,7 +46,7 @@
       try {
         settings.set(await saveSettings({ ...get(settings).data, sidebarCollapsed }));
       } catch (reason) {
-        showToast(toMessage(reason));
+        showToast(toMessage(reason), "error");
       }
     });
   }

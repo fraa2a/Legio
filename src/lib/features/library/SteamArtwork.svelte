@@ -111,12 +111,12 @@
 </script>
 
 {#if displayedUrl !== null}
-  <img src={displayedUrl} {alt} class={className} in:fade={{ duration: cached !== undefined || fromCache ? 0 : fadeDuration }} />
+  <img draggable="false" src={displayedUrl} {alt} class={className} in:fade={{ duration: cached !== undefined || fromCache ? 0 : fadeDuration }} />
 {:else if placeholder !== undefined}
   {@render placeholder()}
 {:else if error !== null}
   <div class="flex items-center justify-center rounded-lg text-xs text-zinc-500 {className}">
-    <span role="alert">{error}</span>
+    <span aria-hidden="true">{alt.trim().charAt(0).toUpperCase() || "?"}</span>
   </div>
 {:else}
   <div class="flex items-center justify-center rounded-lg {className}">

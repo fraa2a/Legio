@@ -1,5 +1,7 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
+  import { untrack } from "svelte";
+  import { showToast } from "../../stores/toast";
   let {
     message,
     onRetry,
@@ -9,20 +11,5 @@
     onRetry?: () => void;
     retryLabel?: string;
   } = $props();
+  $effect(() => { const current = message; if (current) untrack(() => showToast(current, "error", { onRetry, retryLabel })); });
 </script>
-
-<div
-  class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200 light:text-red-800"
-  role="alert"
->
-  <p class="min-w-0 break-words">{message}</p>
-  {#if onRetry}
-    <button
-      type="button"
-      class="shrink-0 rounded-lg bg-white/10 px-3 py-1.5 text-sm font-medium text-white transition-colors duration-200 hover:bg-white/20 light:bg-zinc-200 light:text-zinc-900"
-      onclick={onRetry}
-    >
-      {retryLabel}
-    </button>
-  {/if}
-</div>

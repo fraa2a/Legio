@@ -1,4 +1,5 @@
 {
+  "Gioco aggiunto. Avviso sull'icona: {0}": "Game added. Icon warning: {0}",
   "Avanzate": "Advanced",
   "Log e diagnostica": "Logs and diagnostics",
   "I log di rete sono salvati localmente per diagnosticare problemi di connessione.": "Network logs are saved locally to diagnose connection problems.",
@@ -611,5 +612,13 @@
   "Aggiornata": "Up to date",
   "Aggiorna sorgenti": "Refresh sources",
   "Puoi aggiungere una sorgente anche aprendo un collegamento legio://add-source?url=... dopo il primo avvio di Legio.": "You can also add a source by opening a legio://add-source?url=... link after starting Legio for the first time.",
-  "Nessun gioco nella cache locale. Cerca un titolo o aggiungi una sorgente nelle impostazioni.": "No games in the local cache. Search for a title or add a source in settings."
+  "Nessun gioco nella cache locale. Cerca un titolo o aggiungi una sorgente nelle impostazioni.": "No games in the local cache. Search for a title or add a source in settings.",
+  "Chiudi notifica": "Dismiss notification",
+  "Gioco aggiunto alla libreria.": "Game added to the library.",
+  "Aggiorna immagini": "Refresh artwork",
+  "Immagini aggiornate.": "Artwork refreshed.",
+  "Riscarica le immagini Steam senza modificare quelle personalizzate. Per i giochi senza collegamento Steam, rigenera l'icona dall'eseguibile.": "Download Steam artwork again while keeping custom images. For games without a Steam link, rebuild the icon from the executable.",
+  "Log degli avvii: {0}": "Launch logs: {0}",
+  "Registro degli avvii: game-launches.jsonl. Include fasi, errori e codici di uscita senza argomenti o valori delle variabili d'ambiente.": "Launch journal: game-launches.jsonl. Records stages, failures and exit codes without arguments or environment values.",
+  "Ogni gioco manuale salva launch.json, launch.log, stdout.log, stderr.log e runner-exit-code.txt nella propria cartella. Il debug aggiunge i dettagli di Proton o Wine.": "Each manual game saves launch.json, launch.log, stdout.log, stderr.log and runner-exit-code.txt in its own folder. Debug logging adds Proton or Wine details."
 }

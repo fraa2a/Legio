@@ -122,9 +122,9 @@ export function applyAppearance(
   root.style.setProperty("--legio-image-blur", appearance.backgroundBlur + "px");
   root.style.setProperty("--legio-image-opacity", String(appearance.backgroundOpacity / 100));
   root.style.setProperty("--legio-surface-opacity", String(appearance.surfaceOpacity / 100));
-  root.style.setProperty("--legio-surface-blur", blurFilter(windowTransparent ? 0 : appearance.surfaceBlur));
+  root.style.setProperty("--legio-surface-blur", blurFilter(appearance.surfaceBlur));
   root.style.setProperty("--legio-dialog-opacity", String(appearance.dialogOpacity / 100));
-  root.style.setProperty("--legio-dialog-blur", blurFilter(windowTransparent ? 0 : appearance.dialogBlur));
+  root.style.setProperty("--legio-dialog-blur", blurFilter(appearance.dialogBlur));
 }
 
 export async function chooseBackground(): Promise<string | null> {
