@@ -6,3 +6,5 @@ Font family used by the Steam client and Steam Store, included in Legio to match
 - Designer: Rodrigo Saiani
 - Foundry: Plau (formerly Niramekko), distributed via YouWorkForThem
 - License: proprietary web font license (YouWorkForThem). The license restricts redistribution without a purchased license; bundled here by explicit project decision.
+
+The bundled WOFF2 files are lossless conversions of the original TTF assets. Glyph coverage, horizontal metrics and units per em are preserved.

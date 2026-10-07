@@ -10,40 +10,36 @@
 
   const gamePrefix = "library:";
 
-  let rendered: string[] = $state(["home"]);
   let mounted = $state(false);
 
   const target = $derived($selectedGameId === null ? $activeSection : `${gamePrefix}${$selectedGameId}`);
 
   onMount(() => void (mounted = true));
 
-  $effect(() => {
-    void target;
-    if (rendered[0] !== target) rendered = [target];
-  });
+
 </script>
 
 <main
   class="legio-content relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl scrollbar-none"
 >
-  {#each rendered as id (id)}
+  {#key target}
     <div
-      data-page={id}
+      data-page={target}
       class="absolute inset-0 overflow-y-auto scrollbar-none"
       in:blurFade={{ duration: mounted ? undefined : 0 }}
       out:blurFade
     >
-      {#if id === "home"}
+      {#if target === "home"}
         <HomeView />
-      {:else if id === "library"}
+      {:else if target === "library"}
         <LibraryView />
-      {:else if id.startsWith(gamePrefix)}
-        <GameDetailView gameId={id.slice(gamePrefix.length)} />
-      {:else if id === "store"}
+      {:else if target.startsWith(gamePrefix)}
+        <GameDetailView gameId={target.slice(gamePrefix.length)} />
+      {:else if target === "store"}
         <StoreView />
       {:else}
         <DownloadsView />
       {/if}
     </div>
-  {/each}
+  {/key}
 </main>
