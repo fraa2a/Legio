@@ -1081,6 +1081,7 @@ pub async fn queue_download(
     release_version: String,
     accept_unverified: bool,
 ) -> Result<DownloadJob, String> {
+    crate::startup_recovery::wait(&app).await?;
     let worker_app = app.clone();
     let job = tauri::async_runtime::spawn_blocking(move || {
         app.state::<DownloadQueueState>().directory()?;
@@ -1100,6 +1101,7 @@ pub async fn queue_download(
 
 #[tauri::command]
 pub async fn pause_download(app: AppHandle, id: String) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
     tauri::async_runtime::spawn_blocking(move || {
         change_status(
             app.state::<DatabaseState>().database()?,
@@ -1119,6 +1121,7 @@ pub async fn pause_download(app: AppHandle, id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn resume_download(app: AppHandle, id: String) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
     let worker_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         change_status(
@@ -1136,6 +1139,7 @@ pub async fn resume_download(app: AppHandle, id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn retry_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
     let worker_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         change_status(
@@ -1153,6 +1157,7 @@ pub async fn retry_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result
 
 #[tauri::command]
 pub async fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let queue = app.state::<DownloadQueueState>();
         let database = app.state::<DatabaseState>();
@@ -1234,6 +1239,7 @@ fn remove_entry(queue: &DownloadQueueState, database: &Database, id: &str) -> Re
 
 #[tauri::command]
 pub async fn remove_download(app: AppHandle, id: String) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
     tauri::async_runtime::spawn_blocking(move || {
         remove_entry(
             &app.state::<DownloadQueueState>(),
@@ -1247,6 +1253,7 @@ pub async fn remove_download(app: AppHandle, id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn remove_finished_downloads(app: AppHandle) -> Result<Vec<String>, String> {
+    crate::startup_recovery::wait(&app).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let queue = app.state::<DownloadQueueState>();
         let state = app.state::<DatabaseState>();

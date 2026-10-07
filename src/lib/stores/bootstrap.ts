@@ -23,8 +23,8 @@ export function configureSteamScanInterval(minutes: number): void {
 export async function hydrateApp(): Promise<void> {
   await startLaunchEvents();
   if (get(settings).status !== "ready") await settings.load();
+  await appInfo.load();
   await Promise.all([
-    appInfo.load(),
     games.load(),
     downloads.load(),
     bandwidthLimit.load(),
@@ -40,8 +40,8 @@ export async function hydrateApp(): Promise<void> {
   const startup = get(appInfo).data;
   if (startup.startupLaunchGameId !== null) {
     openGame(startup.startupLaunchGameId);
-    if (startup.startupLaunchError !== null) launchError.set(startup.startupLaunchError);
   }
+  if (startup.startupLaunchError !== null) launchError.set(startup.startupLaunchError);
   if (steamScanTimer === null) {
     configureSteamScanInterval(get(settings).data.steamLibraryPollMinutes);
     if (!get(hasPendingLaunch)) await importSteamLibrary();
