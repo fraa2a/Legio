@@ -2,6 +2,8 @@ import { get, writable } from "svelte/store";
 import { cachedCatalogSearch, refreshCatalogCached, refreshCatalogPage, rememberCatalogSearch, searchCatalog, type CatalogGame, type CatalogSearch } from "../services/catalog";
 import { toMessage } from "../utils/errors";
 import type { LoadStatus } from "./resource";
+import { source } from "./source";
+import { sourceStatusFor } from "../features/store/source-status";
 
 interface CatalogState {
   query: string;
@@ -29,17 +31,27 @@ const initial: CatalogState = {
 
 export const catalog = writable<CatalogState>(initial);
 
+source.subscribe(({ data }) => {
+  if (data.manifest === null) return;
+  catalog.update((state) => ({
+    ...state,
+    results: state.results.map((game) => ({ ...game, availability: sourceStatusFor(data.manifest, game.steamAppId).availability })),
+    sourceStale: data.stale,
+  }));
+});
+
 let requestId = 0;
 
 function applySearch(state: CatalogState, search: CatalogSearch, refreshing: boolean): CatalogState {
+  const snapshot = get(source).data;
   return {
     ...state,
     status: search.games.length === 0 ? "empty" : "ready",
-    results: search.games,
+    results: snapshot.manifest === null ? search.games : search.games.map((game) => ({ ...game, availability: sourceStatusFor(snapshot.manifest, game.steamAppId).availability })),
     total: search.total,
     nextOffset: search.nextOffset,
     stale: search.stale,
-    sourceStale: search.sourceStale,
+    sourceStale: snapshot.manifest === null ? search.sourceStale : snapshot.stale,
     refreshing,
     error: null,
   };

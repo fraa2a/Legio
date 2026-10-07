@@ -1,10 +1,11 @@
 import { appInfo } from "./app-info";
 import { settings } from "./settings";
-import { games, startLibraryHeroCaching } from "./games";
+import { games } from "./games";
+import { startLibraryHeroCaching } from "./library-artwork";
 import { bandwidthLimit, downloads, installedFolder, startDownloadProgressPolling } from "./downloads";
 import { source, refreshSource } from "./source";
 import { checkConnectivity, network } from "./network";
-import { launchError, launchStates } from "./launch";
+import { hasPendingLaunch, launchError, launchStates } from "./launch";
 import { playtime } from "./playtime";
 import { importSteamLibrary } from "./steam-library";
 import { get } from "svelte/store";
@@ -14,11 +15,13 @@ let steamScanTimer: ReturnType<typeof setInterval> | null = null;
 
 export function configureSteamScanInterval(minutes: number): void {
   if (steamScanTimer !== null) clearInterval(steamScanTimer);
-  steamScanTimer = setInterval(() => void importSteamLibrary(), minutes * 60 * 1000);
+  steamScanTimer = setInterval(() => {
+    if (!get(hasPendingLaunch)) void importSteamLibrary();
+  }, minutes * 60 * 1000);
 }
 
 export async function hydrateApp(): Promise<void> {
-  await settings.load();
+  if (get(settings).status !== "ready") await settings.load();
   await Promise.all([
     appInfo.load(),
     games.load(),
@@ -40,7 +43,7 @@ export async function hydrateApp(): Promise<void> {
   }
   if (steamScanTimer === null) {
     configureSteamScanInterval(get(settings).data.steamLibraryPollMinutes);
-    await importSteamLibrary();
+    if (!get(hasPendingLaunch)) await importSteamLibrary();
   }
   await Promise.all([checkConnectivity(), refreshSource()]);
 }

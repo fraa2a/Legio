@@ -67,6 +67,7 @@
   const installTarget = $derived(
     $downloads.data.find((job) => job.id === $stagedInstall.jobId) ?? null,
   );
+  const gamesById = $derived(new Map($games.data.map((game) => [game.id, game])));
 
   async function run(action: (id: string) => Promise<void>, job: DownloadJob): Promise<void> {
     actionError = null;
@@ -117,7 +118,7 @@
   }
 
   function play(job: DownloadJob): void {
-    const game = $games.data.find((item) => item.steamAppId === job.steamAppId);
+    const game = gamesById.get(job.id);
     if (game === undefined) {
       actionError = t("{0} non è presente in libreria.", $language, [job.name]);
       return;
@@ -127,7 +128,7 @@
   }
 
   const canPlay = $derived((job: DownloadJob): boolean => {
-    const game = $games.data.find((item) => item.steamAppId === job.steamAppId);
+    const game = gamesById.get(job.id);
     if (game === undefined) return false;
     const launch = $launchStateByGame.get(game.id);
     return $pendingGameId === null && (launch === undefined || launch.status === "idle");
