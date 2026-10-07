@@ -5,6 +5,9 @@ on:
   pull_request:
     branches:
       - main
+      - fix/**
+      - refactor/**
+      - chore/**
   push:
     branches:
       - main
