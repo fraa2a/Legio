@@ -32,6 +32,8 @@ mod image_trim;
 mod installed_folder;
 pub mod legio_source;
 mod legio_source_cache;
+#[cfg(target_os = "linux")]
+mod linux_performance;
 mod locale;
 mod manual_import;
 mod network;

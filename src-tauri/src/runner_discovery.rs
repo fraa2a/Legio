@@ -35,6 +35,8 @@ pub struct InstalledRunner {
 #[serde(rename_all = "camelCase")]
 pub struct RunnerDiscovery {
     pub ntsync_available: bool,
+    pub game_mode_available: bool,
+    pub gamescope_available: bool,
     pub runners: Vec<InstalledRunner>,
     pub diagnostics: Vec<String>,
 }
@@ -91,17 +93,26 @@ pub(crate) fn launch_command(
 
 #[cfg(target_os = "linux")]
 pub(crate) fn umu_path() -> Result<PathBuf, String> {
+    executable_path("umu-run").ok_or_else(|| {
+        "Install umu-launcher to run manually imported Proton games, then restart Legio".to_owned()
+    })
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn executable_path(name: &str) -> Option<PathBuf> {
     let search_path = std::env::var_os("PATH").unwrap_or_default();
     let directories = std::env::split_paths(&search_path)
         .chain(std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/bin")));
     for directory in directories {
-        let path = directory.join("umu-run");
-        if directory.is_absolute() && is_executable_file(&path) {
-            return fs::canonicalize(path)
-                .map_err(|error| format!("Could not resolve umu-run: {error}"));
+        let path = directory.join(name);
+        if directory.is_absolute()
+            && is_executable_file(&path)
+            && let Ok(path) = fs::canonicalize(path)
+        {
+            return Some(path);
         }
     }
-    Err("Install umu-launcher to run manually imported Proton games, then restart Legio".to_owned())
+    None
 }
 
 pub fn discover() -> RunnerDiscovery {
@@ -113,6 +124,8 @@ pub fn discover() -> RunnerDiscovery {
     {
         RunnerDiscovery {
             ntsync_available: false,
+            game_mode_available: false,
+            gamescope_available: false,
             runners: Vec::new(),
             diagnostics: vec!["Runner discovery is currently supported on Linux only".to_owned()],
         }
@@ -134,6 +147,8 @@ fn discover_linux() -> RunnerDiscovery {
     }
     RunnerDiscovery {
         ntsync_available: fs::File::open("/dev/ntsync").is_ok(),
+        game_mode_available: executable_path("gamemoderun").is_some(),
+        gamescope_available: executable_path("gamescope").is_some(),
         runners,
         diagnostics,
     }
