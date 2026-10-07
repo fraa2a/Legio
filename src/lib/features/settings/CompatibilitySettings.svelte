@@ -28,6 +28,7 @@
   let dllOverridesText = $state("");
   let runners = $state<CompatibilityRunner[]>([]);
   let runnerDiagnostics = $state<string[]>([]);
+  let ntsyncAvailable = $state(false);
   let logsDirectory = $state<string | null>(null);
   let loading = $state(true);
   let saving = $state(false);
@@ -87,6 +88,7 @@
     if (runnersResult.status === "fulfilled") {
       runners = runnersResult.value.runners;
       runnerDiagnostics = runnersResult.value.diagnostics;
+      ntsyncAvailable = Boolean(runnersResult.value.ntsyncAvailable);
     } else if (loadError === null) {
       loadError = toMessage(runnersResult.reason);
     }
@@ -172,7 +174,10 @@
       <ErrorBanner message={loadError} onRetry={() => void load()} />
     {/if}
 
-    <SettingsGroup icon="wrench" title="Runner">
+    <p class="text-xs text-zinc-500">{t(ntsyncAvailable
+    ? "NTSync disponibile sul sistema. L'attivazione è gestita dal runner."
+    : "NTSync non disponibile sul sistema. Legio usa la sincronizzazione predefinita del runner.", $language)}</p>
+  <SettingsGroup icon="wrench" title="Runner">
       {#if runnerDiagnostics.length > 0}
         <div class="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-200 light:text-amber-900">
           <p class="font-medium">{t("Rilevamento runner", $language)}</p>

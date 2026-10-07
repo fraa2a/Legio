@@ -62,6 +62,7 @@ export function compatibilityRunnerLabel(runner: CompatibilityRunner): string {
 }
 
 export interface RunnerDiscovery {
+  ntsyncAvailable: boolean;
   runners: CompatibilityRunner[];
   diagnostics: string[];
 }
