@@ -83,7 +83,11 @@ pub async fn fetch_manifest(network: &NetworkState) -> Result<Manifest, String> 
         .legio_source()
         .await
         .map_err(|error| format!("Could not fetch Legio source: {error:?}"))?;
-    parse_manifest(&bytes).map_err(|error| format!("Invalid Legio source: {error}"))
+    tauri::async_runtime::spawn_blocking(move || {
+        parse_manifest(&bytes).map_err(|error| format!("Invalid Legio source: {error}"))
+    })
+    .await
+    .map_err(|error| format!("Legio source parsing task failed: {error}"))?
 }
 
 pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {

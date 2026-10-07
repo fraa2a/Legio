@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::OptionalExtension;
@@ -15,18 +16,26 @@ const STALE_SECONDS: i64 = 24 * 60 * 60;
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceSnapshot {
-    pub manifest: Option<Manifest>,
+    pub manifest: Option<Arc<Manifest>>,
     pub cached_at: Option<i64>,
     pub stale: bool,
     pub warning: Option<String>,
 }
 
+#[derive(Clone)]
 pub(crate) struct CachedSource {
-    pub manifest: Manifest,
+    pub manifest: Arc<Manifest>,
     pub fetched_at: i64,
 }
 
 pub(crate) fn cached(database: &Database) -> Result<Option<CachedSource>, String> {
+    let mut cache = database
+        .source_cache
+        .lock()
+        .map_err(|_| "Legio source cache is unavailable".to_owned())?;
+    if let Some(entry) = cache.as_ref() {
+        return Ok(Some(entry.clone()));
+    }
     let row: Option<(Vec<u8>, i64)> = database.with_connection(|connection| {
         connection
             .query_row(
@@ -37,23 +46,30 @@ pub(crate) fn cached(database: &Database) -> Result<Option<CachedSource>, String
             .optional()
             .map_err(|error| format!("Could not read Legio source cache: {error}"))
     })?;
-    row.map(|(bytes, fetched_at)| {
-        legio_source::parse_manifest(&bytes)
-            .map(|manifest| CachedSource {
-                manifest,
-                fetched_at,
-            })
-            .map_err(|error| format!("Cached Legio source is invalid: {error}"))
-    })
-    .transpose()
+    let entry = row
+        .map(|(bytes, fetched_at)| {
+            legio_source::parse_manifest(&bytes)
+                .map(|manifest| CachedSource {
+                    manifest: Arc::new(manifest),
+                    fetched_at,
+                })
+                .map_err(|error| format!("Cached Legio source is invalid: {error}"))
+        })
+        .transpose()?;
+    *cache = entry.clone();
+    Ok(entry)
 }
 
-fn store(database: &Database, manifest: &Manifest, fetched_at: i64) -> Result<(), String> {
-    let bytes = serde_json::to_vec(manifest)
+fn store(database: &Database, manifest: Manifest, fetched_at: i64) -> Result<CachedSource, String> {
+    let bytes = serde_json::to_vec(&manifest)
         .map_err(|error| format!("Could not encode Legio source cache: {error}"))?;
     if bytes.len() > legio_source::MAX_MANIFEST_BYTES {
         return Err("Legio source cache exceeds the size limit".to_owned());
     }
+    let mut cache = database
+        .source_cache
+        .lock()
+        .map_err(|_| "Legio source cache is unavailable".to_owned())?;
     database.with_connection(|connection| {
         connection
             .execute(
@@ -63,7 +79,13 @@ fn store(database: &Database, manifest: &Manifest, fetched_at: i64) -> Result<()
             )
             .map(|_| ())
             .map_err(|error| format!("Could not save Legio source cache: {error}"))
-    })
+    })?;
+    let entry = CachedSource {
+        manifest: Arc::new(manifest),
+        fetched_at,
+    };
+    *cache = Some(entry.clone());
+    Ok(entry)
 }
 
 fn now() -> Result<i64, String> {
@@ -118,15 +140,8 @@ pub async fn refresh_source(
         let database = database.database()?;
         let current_time = now()?;
         match fetched {
-            Ok(manifest) => match store(database, &manifest, current_time) {
-                Ok(()) => Ok(snapshot(
-                    Some(CachedSource {
-                        manifest,
-                        fetched_at: current_time,
-                    }),
-                    current_time,
-                    None,
-                )),
+            Ok(manifest) => match store(database, manifest, current_time) {
+                Ok(cache) => Ok(snapshot(Some(cache), current_time, None)),
                 Err(error) => fallback(database, current_time, error),
             },
             Err(error) => fallback(database, current_time, error),
@@ -176,8 +191,8 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("legio-source-cache-{}", uuid::Uuid::new_v4()));
         let database = Database::open(&directory).unwrap();
-        store(&database, &valid(400), 100).unwrap();
-        assert!(store(&database, &valid(401), -1).is_err());
+        store(&database, valid(400), 100).unwrap();
+        assert!(store(&database, valid(401), -1).is_err());
         let error = "Could not fetch Legio source: offline".to_owned();
         let result = fallback(&database, 101, error.clone()).unwrap();
         assert!(result.stale);
@@ -198,6 +213,23 @@ mod tests {
         std::fs::remove_dir_all(directory).unwrap();
     }
 
+    #[test]
+    fn reads_share_validated_manifest_and_successful_refresh_replaces_it() {
+        let directory =
+            std::env::temp_dir().join(format!("legio-source-share-{}", uuid::Uuid::new_v4()));
+        let database = Database::open(&directory).unwrap();
+        store(&database, valid(400), 100).unwrap();
+        let first = cached(&database).unwrap().unwrap();
+        let second = cached(&database).unwrap().unwrap();
+        assert!(Arc::ptr_eq(&first.manifest, &second.manifest));
+        store(&database, valid(401), 101).unwrap();
+        let refreshed = cached(&database).unwrap().unwrap();
+        assert!(!Arc::ptr_eq(&first.manifest, &refreshed.manifest));
+        assert_eq!(refreshed.manifest.verified[0].steam_app_id, 401);
+        drop(database);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
     #[tokio::test]
     async fn app_reads_cached_source_without_a_network_request() {
         let directory =
@@ -206,7 +238,7 @@ mod tests {
         let fetched_at = now().unwrap();
         store(
             app.state::<DatabaseState>().database().unwrap(),
-            &valid(400),
+            valid(400),
             fetched_at,
         )
         .unwrap();
@@ -224,7 +256,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("legio-source-age-{}", uuid::Uuid::new_v4()));
         let database = Database::open(&directory).unwrap();
-        store(&database, &valid(400), 100).unwrap();
+        store(&database, valid(400), 100).unwrap();
         let fresh = snapshot(cached(&database).unwrap(), 101, None);
         assert!(!fresh.stale);
         let old = snapshot(cached(&database).unwrap(), 100 + STALE_SECONDS, None);

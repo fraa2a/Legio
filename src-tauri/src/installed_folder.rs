@@ -49,21 +49,25 @@ pub struct InstalledFolderInfo {
 }
 
 #[tauri::command]
-pub fn get_installed_folder_info(app: AppHandle) -> Result<InstalledFolderInfo, String> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("Could not locate app data: {error}"))?;
-    let state = app.state::<crate::database::DatabaseState>();
-    let database = state.database()?;
-    let root = database.storage_root(&data_dir)?;
-    let directory = finalize_install::install_root(database, &root)?;
-    let (free_bytes, total_bytes) = disk_space(&directory)?;
-    Ok(InstalledFolderInfo {
-        directory: directory.to_string_lossy().into_owned(),
-        free_bytes,
-        total_bytes,
+pub async fn get_installed_folder_info(app: AppHandle) -> Result<InstalledFolderInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let data_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|error| format!("Could not locate app data: {error}"))?;
+        let state = app.state::<crate::database::DatabaseState>();
+        let database = state.database()?;
+        let root = database.storage_root(&data_dir)?;
+        let directory = finalize_install::install_root(database, &root)?;
+        let (free_bytes, total_bytes) = disk_space(&directory)?;
+        Ok(InstalledFolderInfo {
+            directory: directory.to_string_lossy().into_owned(),
+            free_bytes,
+            total_bytes,
+        })
     })
+    .await
+    .map_err(|error| format!("Installed folder task failed: {error}"))?
 }
 
 #[cfg(target_os = "linux")]
@@ -126,15 +130,19 @@ fn disk_space(path: &Path) -> Result<(u64, u64), String> {
 }
 
 #[tauri::command]
-pub fn open_installed_folder(app: AppHandle) -> Result<(), String> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("Could not locate app data: {error}"))?;
-    let state = app.state::<crate::database::DatabaseState>();
-    let database = state.database()?;
-    let root = database.storage_root(&data_dir)?;
-    open_directory(&finalize_install::install_root(database, &root)?)
+pub async fn open_installed_folder(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let data_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|error| format!("Could not locate app data: {error}"))?;
+        let state = app.state::<crate::database::DatabaseState>();
+        let database = state.database()?;
+        let root = database.storage_root(&data_dir)?;
+        open_directory(&finalize_install::install_root(database, &root)?)
+    })
+    .await
+    .map_err(|error| format!("Installed folder task failed: {error}"))?
 }
 
 #[cfg(target_os = "linux")]

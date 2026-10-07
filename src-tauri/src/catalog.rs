@@ -235,9 +235,7 @@ fn word_quality(name: &str, query: &str) -> Option<usize> {
     }
 }
 
-fn rank(name: &str, query: &str) -> Option<SearchRank> {
-    let name = name.to_lowercase();
-    let query = query.to_lowercase();
+fn rank_normalized(name: &str, query: &str, query_words: &[&str]) -> Option<SearchRank> {
     if query.is_empty() || name == query {
         return Some(SearchRank {
             tier: 0,
@@ -246,7 +244,7 @@ fn rank(name: &str, query: &str) -> Option<SearchRank> {
             span: 0,
         });
     }
-    if name.starts_with(&query) {
+    if name.starts_with(query) {
         return Some(SearchRank {
             tier: 1,
             missing_words: 0,
@@ -255,7 +253,6 @@ fn rank(name: &str, query: &str) -> Option<SearchRank> {
         });
     }
 
-    let query_words: Vec<_> = query.split_whitespace().collect();
     let name_words: Vec<_> = name
         .split(|character: char| !character.is_alphanumeric())
         .filter(|word| !word.is_empty())
@@ -263,7 +260,7 @@ fn rank(name: &str, query: &str) -> Option<SearchRank> {
     let mut used = vec![false; name_words.len()];
     let mut positions = Vec::with_capacity(query_words.len());
     let mut partial_words = 0;
-    for query_word in &query_words {
+    for query_word in query_words {
         let found = name_words
             .iter()
             .enumerate()
@@ -279,7 +276,7 @@ fn rank(name: &str, query: &str) -> Option<SearchRank> {
         }
     }
 
-    if positions.is_empty() && name.contains(&query) {
+    if positions.is_empty() && name.contains(query) {
         return Some(SearchRank {
             tier: 5,
             missing_words: 0,
@@ -349,7 +346,7 @@ fn search_with_limit(
             )
         })
         .collect();
-    database
+    let (last_refresh, rows) = database
         .with_connection(|connection| {
             let last_refresh: Option<i64> = connection
                 .query_row(
@@ -384,49 +381,52 @@ fn search_with_limit(
                 .map_err(sql_error)?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(sql_error)?;
-            let mut ranked = Vec::new();
-            let mut oldest = None;
-            for (steam_app_id, name, search_name, fetched_at) in rows {
-                if let Some(rank) = rank(&name, query) {
-                    oldest = Some(oldest.map_or(fetched_at, |value: i64| value.min(fetched_at)));
-                    ranked.push((
-                        rank,
-                        search_name,
-                        steam_app_id,
-                        CatalogGame {
-                            steam_app_id,
-                            name,
-                            availability: SourceAvailability::Unknown,
-                        },
-                    ));
-                }
-            }
-            let total = ranked.len() as u32;
-            let cached_at = oldest.or(last_refresh);
-            ranked.sort_unstable_by(|left, right| {
-                left.0
-                    .cmp(&right.0)
-                    .then_with(|| left.1.cmp(&right.1))
-                    .then_with(|| left.2.cmp(&right.2))
-            });
-            let games = ranked
-                .into_iter()
-                .take(limit as usize)
-                .map(|entry| entry.3)
-                .collect();
-            Ok(CatalogSearch {
-                games,
-                total,
-                next_offset: None,
-                cached_at,
-                stale: cached_at.is_none_or(|time| {
-                    time > current_time || current_time.saturating_sub(time) >= STALE_SECONDS
-                }),
-                source_cached_at: None,
-                source_stale: true,
-            })
+            Ok((last_refresh, rows))
         })
-        .map_err(CatalogError::database)
+        .map_err(CatalogError::database)?;
+    let normalized_query = query.to_lowercase();
+    let query_words: Vec<_> = normalized_query.split_whitespace().collect();
+    let mut ranked = Vec::new();
+    let mut oldest = None;
+    for (steam_app_id, name, search_name, fetched_at) in rows {
+        if let Some(rank) = rank_normalized(&search_name, &normalized_query, &query_words) {
+            oldest = Some(oldest.map_or(fetched_at, |value: i64| value.min(fetched_at)));
+            ranked.push((
+                rank,
+                search_name,
+                steam_app_id,
+                CatalogGame {
+                    steam_app_id,
+                    name,
+                    availability: SourceAvailability::Unknown,
+                },
+            ));
+        }
+    }
+    let total = ranked.len() as u32;
+    let cached_at = oldest.or(last_refresh);
+    ranked.sort_unstable_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| left.1.cmp(&right.1))
+            .then_with(|| left.2.cmp(&right.2))
+    });
+    let games = ranked
+        .into_iter()
+        .take(limit as usize)
+        .map(|entry| entry.3)
+        .collect();
+    Ok(CatalogSearch {
+        games,
+        total,
+        next_offset: None,
+        cached_at,
+        stale: cached_at.is_none_or(|time| {
+            time > current_time || current_time.saturating_sub(time) >= STALE_SECONDS
+        }),
+        source_cached_at: None,
+        source_stale: true,
+    })
 }
 
 #[cfg(test)]
@@ -446,20 +446,22 @@ fn merge_source(
     if let Some(source) = source {
         result.source_cached_at = Some(source.fetched_at);
         result.source_stale = legio_source_cache::is_stale(source.fetched_at, current_time);
+        let verified: std::collections::HashSet<_> = source
+            .manifest
+            .verified
+            .iter()
+            .map(|entry| entry.steam_app_id)
+            .collect();
+        let unverified: std::collections::HashSet<_> = source
+            .manifest
+            .unverified
+            .iter()
+            .map(|entry| entry.steam_app_id)
+            .collect();
         for game in &mut result.games {
-            game.availability = if source
-                .manifest
-                .verified
-                .iter()
-                .any(|entry| entry.steam_app_id == game.steam_app_id)
-            {
+            game.availability = if verified.contains(&game.steam_app_id) {
                 SourceAvailability::Verified
-            } else if source
-                .manifest
-                .unverified
-                .iter()
-                .any(|entry| entry.steam_app_id == game.steam_app_id)
-            {
+            } else if unverified.contains(&game.steam_app_id) {
                 SourceAvailability::Unverified
             } else {
                 SourceAvailability::Unavailable
@@ -569,7 +571,7 @@ mod tests {
         let merged = merge_source(
             search,
             Some(legio_source_cache::CachedSource {
-                manifest,
+                manifest: manifest.into(),
                 fetched_at: 100,
             }),
             101,
