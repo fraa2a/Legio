@@ -65,6 +65,15 @@ opens the launcher and adds the catalog. The browser may ask to open Legio.
 AppImage users need `xdg-utils` and `desktop-file-utils` for protocol registration;
 keep the AppImage at a stable path, or run it again after moving it.
 
+## Development
+
+Run `corepack pnpm install` and `corepack pnpm tauri dev` for local development.
+Tauri development runs use the `dev.fraa2a.legio.dev` application identifier,
+with a separate persistent database, settings, cache and logs. The first dev run
+starts with an empty library; subsequent dev runs reuse their own data.
+Installed builds keep using `dev.fraa2a.legio`. Existing installed data is not
+copied, migrated or reset by development runs.
+
 ## Documentation
 
 - [Source schemas and download flow](_meta/docs/SCHEMA.md)

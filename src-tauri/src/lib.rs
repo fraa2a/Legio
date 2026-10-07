@@ -7,6 +7,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 
+mod app_profile;
 mod appearance;
 pub mod archive_install;
 mod catalog;
@@ -71,6 +72,7 @@ pub fn run() -> tauri::Result<()> {
         .map_err(std::io::Error::other)?;
 
     let mut context = tauri::generate_context!();
+    app_profile::configure(context.config_mut(), tauri::is_dev());
     if let Some(window) = context
         .config_mut()
         .app
@@ -112,7 +114,8 @@ pub fn run() -> tauri::Result<()> {
             source_links
                 .enqueue(std::env::args_os().skip(1))
                 .map_err(std::io::Error::other)?;
-            if !cfg!(debug_assertions)
+            if !tauri::is_dev()
+                && !cfg!(debug_assertions)
                 && let Err(error) = source_links::register(app.handle())
             {
                 eprintln!("Could not register Legio source links: {error}");
