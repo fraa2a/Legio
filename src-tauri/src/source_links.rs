@@ -3,6 +3,7 @@ use std::sync::Mutex;
 
 use serde::Serialize;
 use tauri::{Emitter, Manager};
+use tauri_plugin_deep_link::DeepLinkExt;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -110,6 +111,29 @@ impl SourceLinks {
                 .clone(),
         })
     }
+}
+
+pub fn register(app: &tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("LEGIO_AUR_PACKAGE").is_some() {
+        // The package wrapper preserves the AUR updater settings.
+        let status = std::process::Command::new("xdg-mime")
+            .args([
+                "default",
+                "legio-launcher.desktop",
+                "x-scheme-handler/legio",
+            ])
+            .status()
+            .map_err(|error| format!("Could not register packaged Legio links: {error}"))?;
+        return if status.success() {
+            Ok(())
+        } else {
+            Err(format!("Could not register packaged Legio links: {status}"))
+        };
+    }
+    app.deep_link()
+        .register_all()
+        .map_err(|error| format!("Could not register Legio links: {error}"))
 }
 
 pub fn forward(app: &tauri::AppHandle, arguments: &[String]) -> Result<(), String> {

@@ -105,17 +105,16 @@ pub fn run() -> tauri::Result<()> {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(move |app| {
-            use tauri_plugin_deep_link::DeepLinkExt;
             let source_links = source_links::SourceLinks::default();
             source_links
                 .enqueue(std::env::args_os().skip(1))
                 .map_err(std::io::Error::other)?;
             if !cfg!(debug_assertions)
-                && let Err(error) = app.deep_link().register_all()
+                && let Err(error) = source_links::register(app.handle())
             {
                 eprintln!("Could not register Legio source links: {error}");
                 source_links
-                    .registration_failed(format!("Could not register Legio links: {error}"))
+                    .registration_failed(error)
                     .map_err(std::io::Error::other)?;
             }
             app.manage(source_links);
