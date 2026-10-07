@@ -591,5 +591,13 @@
   "Salva Application ID": "Save Application ID",
   "NTSync disponibile sul sistema. L'attivazione è gestita dal runner.": "NTSync is available on this system. Activation is managed by the runner.",
   "NTSync non disponibile sul sistema. Legio usa la sincronizzazione predefinita del runner.": "NTSync is unavailable on this system. Legio uses the runner's default synchronization.",
-  "Posticipa l’estrazione automatica dei download mentre giochi": "Defer automatic download extraction while playing"
+  "Posticipa l’estrazione automatica dei download mentre giochi": "Defer automatic download extraction while playing",
+  "Prestazioni Linux": "Linux performance",
+  "Installa GameMode o gamescope e riapri queste impostazioni per abilitarli.": "Install GameMode or gamescope and reopen these settings to enable them.",
+  "Risoluzione interna": "Internal resolution",
+  "Nativa": "Native",
+  "Limite FPS": "FPS limit",
+  "Senza limite": "Uncapped",
+  "Una risoluzione inferiore riduce la qualità visiva. Il limite FPS può ridurre consumi e temperature.": "A lower resolution reduces visual quality. An FPS limit can reduce power use and temperatures.",
+  "GameMode e Gamescope sono facoltativi. Confronta prestazioni e frametime sul gioco; Wayland resta una scelta separata.": "GameMode and Gamescope are optional. Compare performance and frame times in the game; Wayland remains a separate choice."
 }

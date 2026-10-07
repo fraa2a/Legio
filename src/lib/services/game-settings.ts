@@ -25,6 +25,17 @@ export interface CompatibilityDefaults {
   debugLogging: boolean;
 }
 
+export interface GamescopeConfig {
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+}
+
+export interface LinuxPerformance {
+  gameMode: boolean;
+  gamescope: GamescopeConfig | null;
+}
+
 export interface GameCompatibilityOverrides {
   launchViaSteam: boolean | null;
   runnerPath: string | null;
@@ -38,6 +49,7 @@ export interface GameCompatibilityOverrides {
   wayland: WaylandMode | null;
   debugLogging: boolean | null;
   onlineFix: boolean | null;
+  linuxPerformance: LinuxPerformance;
 }
 
 export interface NativeLaunchConfig {
@@ -63,6 +75,8 @@ export function compatibilityRunnerLabel(runner: CompatibilityRunner): string {
 
 export interface RunnerDiscovery {
   ntsyncAvailable: boolean;
+  gameModeAvailable: boolean;
+  gamescopeAvailable: boolean;
   runners: CompatibilityRunner[];
   diagnostics: string[];
 }
@@ -93,6 +107,7 @@ export const emptyGameCompatibilityOverrides: GameCompatibilityOverrides = {
   wayland: null,
   debugLogging: null,
   onlineFix: null,
+  linuxPerformance: { gameMode: false, gamescope: null },
 };
 
 export function getCompatibilityDefaults(): Promise<CompatibilityDefaults> {
