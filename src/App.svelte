@@ -16,6 +16,9 @@
   import { closeSettings, settingsOpen } from "./lib/stores/navigation";
   import { settings } from "./lib/stores/settings";
   import { checkForAppUpdate, installAppUpdate, updateState } from "./lib/services/app-updater";
+  import { windowActive } from "./lib/stores/window-activity";
+  import { hasPendingLaunch } from "./lib/stores/launch";
+  import { observeMediaPlayback } from "./lib/services/media-playback";
 
   const appearance = $derived($appearancePreview?.appearance ?? $settings.data.appearance);
   const theme = $derived($appearancePreview?.theme ?? $settings.data.theme);
@@ -32,6 +35,7 @@
   });
 
   onMount(() => {
+    const stopMedia = observeMediaPlayback(windowActive.subscribe);
     void hydrateApp().catch((reason) => console.error(reason));
     if (import.meta.env.PROD) void checkForAppUpdate();
 
@@ -43,6 +47,7 @@
     media.addEventListener("change", updateSystemTheme);
 
     return () => {
+      stopMedia();
       media.removeEventListener("change", updateSystemTheme);
     };
   });
@@ -63,7 +68,7 @@
 
 <svelte:window oncontextmenu={blockContextMenu} />
 
-<AppBackground id={appearance.background} animation={appearance.animatedBackground} animationOpacity={appearance.animatedOpacity} {accent} dither={appearance.dither} />
+<AppBackground id={appearance.background} animation={appearance.animatedBackground} animationOpacity={appearance.animatedOpacity} {accent} dither={appearance.dither} active={$windowActive && !$hasPendingLaunch} />
 <div class="legio-shell relative flex h-dvh select-none">
   {#if $settings.status === "ready" && $settings.data.onboardingCompleted}<Sidebar />{/if}
   <div class="flex min-w-0 flex-1 flex-col pl-2.5 pr-2.5 pb-1.5">
