@@ -30,6 +30,18 @@ Get the latest version from [Releases](https://github.com/fraa2a/Legio/releases)
 
 Steam must be installed for Steam integration and for games that require it.
 
+Manual Proton and GE-Proton games use [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher).
+Install `umu-run` on your PATH or in `~/.local/bin`; umu manages the required runtime.
+Steam-managed games continue to launch through Steam. Manual games only need Steam
+when Steam integration or Online Fix is enabled. Existing Wine and Proton prefixes
+are reused without moving save files. A shared prefix can run one game at a time.
+
+The runner's graphics and Wayland defaults clear inherited overrides for those two
+options. Explicit environment overrides for shader caching are preserved. vkd3d
+shader caches use a separate per-game cache directory. Game-specific umu fixes can
+be selected with the documented `GAMEID` and `STORE` environment variables; Legio
+does not infer an umu ID from a Steam App ID.
+
 ## Documentation
 
 - [Source schemas and download flow](_meta/docs/SCHEMA.md)
