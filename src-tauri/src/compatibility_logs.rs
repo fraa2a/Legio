@@ -72,6 +72,7 @@ struct LaunchReport<'a> {
     prefix_path: &'a Path,
     applied_options: &'a AppliedCompatibilityOptions,
     online_fix: bool,
+    linux_performance: &'a crate::database::LinuxPerformance,
     configured_environment_variables: Vec<&'a str>,
     debug_environment: Vec<(&'static str, String)>,
     stdout_log: &'static str,
@@ -116,6 +117,7 @@ impl CompatibilityLog {
             prefix_path,
             applied_options,
             online_fix: config.online_fix,
+            linux_performance: &config.linux_performance,
             configured_environment_variables: config
                 .environment
                 .keys()

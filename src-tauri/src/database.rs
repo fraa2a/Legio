@@ -10,7 +10,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 23;
+const SCHEMA_VERSION: i64 = 24;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -62,6 +62,44 @@ pub struct CompatibilityDefaults {
     pub debug_logging: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct LinuxPerformance {
+    pub game_mode: bool,
+    pub gamescope: Option<GamescopeConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct GamescopeConfig {
+    pub width: Option<u16>,
+    pub height: Option<u16>,
+    pub fps: Option<u16>,
+}
+
+impl LinuxPerformance {
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        if let Some(config) = &self.gamescope {
+            if config.width.is_some() != config.height.is_some()
+                || config
+                    .width
+                    .is_some_and(|value| !(64..=8192).contains(&value))
+                || config
+                    .height
+                    .is_some_and(|value| !(64..=8192).contains(&value))
+            {
+                return Err(
+                    "Gamescope resolution needs both dimensions between 64 and 8192".to_owned(),
+                );
+            }
+            if config.fps.is_some_and(|value| !(1..=360).contains(&value)) {
+                return Err("Gamescope frame limit must be between 1 and 360 FPS".to_owned());
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Per-game compatibility values. `None` inherits the global default; an empty
 /// string or argument list clears an inherited scalar or list. Nonempty
 /// environment and DLL maps replace matching keys and retain other default
@@ -82,6 +120,7 @@ pub struct GameCompatibilityOverrides {
     pub wayland: Option<WaylandMode>,
     pub debug_logging: Option<bool>,
     pub online_fix: Option<bool>,
+    pub linux_performance: LinuxPerformance,
 }
 
 /// Compatibility values after applying a game's overrides to global defaults.
@@ -101,6 +140,7 @@ pub struct EffectiveCompatibilityConfig {
     pub wayland: WaylandMode,
     pub debug_logging: bool,
     pub online_fix: bool,
+    pub linux_performance: LinuxPerformance,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -732,6 +772,11 @@ impl Database {
         mut overrides: GameCompatibilityOverrides,
     ) -> Result<GameCompatibilityOverrides, String> {
         overrides.prefix_path = normalize_prefix_path(overrides.prefix_path)?;
+        overrides.linux_performance.validate()?;
+        #[cfg(not(target_os = "linux"))]
+        if overrides.linux_performance != LinuxPerformance::default() {
+            return Err("Linux performance options are available on Linux only".to_owned());
+        }
         #[cfg(not(target_os = "linux"))]
         if overrides.launch_via_steam == Some(true) {
             return Err("Launch via Steam is available on Linux only".to_owned());
@@ -749,14 +794,15 @@ impl Database {
         let dll_overrides = encode_optional_json(&overrides.dll_overrides)?;
         let graphics_renderer = encode_optional_json(&overrides.graphics_renderer)?;
         let wayland = encode_optional_json(&overrides.wayland)?;
+        let linux_performance = encode_json(&overrides.linux_performance)?;
         self.with_connection(|connection| {
             let changed = connection
                 .execute(
                     "INSERT INTO game_compatibility_overrides
                         (game_id, runner_path, prefix_path, arguments_before,
                          arguments_after, working_directory, environment, dll_overrides,
-                         graphics_renderer, wayland, debug_logging, launch_via_steam, online_fix)
-                     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13
+                         graphics_renderer, wayland, debug_logging, launch_via_steam, online_fix, linux_performance)
+                     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14
                      WHERE EXISTS (SELECT 1 FROM games WHERE id = ?1)
                      ON CONFLICT(game_id) DO UPDATE SET
                         runner_path = excluded.runner_path,
@@ -770,7 +816,8 @@ impl Database {
                         wayland = excluded.wayland,
                         debug_logging = excluded.debug_logging,
                         launch_via_steam = excluded.launch_via_steam,
-                        online_fix = excluded.online_fix",
+                        online_fix = excluded.online_fix,
+                        linux_performance = excluded.linux_performance",
                     params![
                         game_id,
                         overrides.runner_path,
@@ -784,7 +831,8 @@ impl Database {
                         wayland,
                         overrides.debug_logging,
                         overrides.launch_via_steam,
-                        overrides.online_fix
+                        overrides.online_fix,
+                        linux_performance
                     ],
                 )
                 .map_err(database_error)?;
@@ -1495,6 +1543,22 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             .execute_batch("PRAGMA user_version = 23;")
             .map_err(database_error)?;
     }
+    if version < 24 {
+        let existing: i64 = transaction.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('game_compatibility_overrides') WHERE name = 'linux_performance'",
+            [], |row| row.get(0),
+        ).map_err(database_error)?;
+        if existing == 0 {
+            transaction
+                .execute_batch(
+                    "ALTER TABLE game_compatibility_overrides ADD COLUMN linux_performance TEXT;",
+                )
+                .map_err(database_error)?;
+        }
+        transaction
+            .execute_batch("PRAGMA user_version = 24;")
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }
 
@@ -1563,7 +1627,7 @@ fn load_game_compatibility_overrides(
             "SELECT o.runner_path, o.prefix_path, o.arguments_before,
                     o.arguments_after, o.working_directory, o.environment, o.dll_overrides,
                     o.graphics_renderer, o.wayland,
-                    o.debug_logging, o.launch_via_steam, o.online_fix
+                    o.debug_logging, o.launch_via_steam, o.online_fix, o.linux_performance
              FROM games AS g
              LEFT JOIN game_compatibility_overrides AS o ON o.game_id = g.id
              WHERE g.id = ?1",
@@ -1582,6 +1646,7 @@ fn load_game_compatibility_overrides(
                     row.get::<_, Option<bool>>(9)?,
                     row.get::<_, Option<bool>>(10)?,
                     row.get::<_, Option<bool>>(11)?,
+                    row.get::<_, Option<String>>(12)?,
                 ))
             },
         )
@@ -1600,6 +1665,7 @@ fn load_game_compatibility_overrides(
         debug_logging,
         launch_via_steam,
         online_fix,
+        linux_performance,
     )) = stored
     else {
         return Err("game was not found".to_owned());
@@ -1617,6 +1683,7 @@ fn load_game_compatibility_overrides(
         debug_logging,
         launch_via_steam,
         online_fix,
+        linux_performance: decode_optional_json(linux_performance)?.unwrap_or_default(),
     })
 }
 
@@ -1666,6 +1733,7 @@ fn merge_compatibility_config(
         wayland: overrides.wayland.unwrap_or(defaults.wayland),
         debug_logging: overrides.debug_logging.unwrap_or(defaults.debug_logging),
         online_fix: overrides.online_fix.unwrap_or(false),
+        linux_performance: overrides.linux_performance,
     }
 }
 
@@ -2913,6 +2981,7 @@ mod tests {
                 wayland: WaylandMode::RunnerDefault,
                 debug_logging: false,
                 online_fix: false,
+                linux_performance: LinuxPerformance::default(),
             }
         );
         fs::remove_dir_all(directory).unwrap();
@@ -2984,6 +3053,69 @@ mod tests {
         assert_eq!(reset.wayland, WaylandMode::Native);
         assert!(reset.debug_logging);
         assert!(!reset.online_fix);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_performance_migration_preserves_overrides_and_validates_persisted_options() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let game = database
+            .create_game(CreateGameInput {
+                name: "Performance".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        database
+            .save_game_compatibility_overrides(
+                &game.id,
+                GameCompatibilityOverrides {
+                    graphics_renderer: Some(GraphicsRenderer::WineD3d),
+                    ..GameCompatibilityOverrides::default()
+                },
+            )
+            .unwrap();
+        database.with_connection(|connection| {
+            connection.execute_batch("ALTER TABLE game_compatibility_overrides DROP COLUMN linux_performance; PRAGMA user_version = 23;").map_err(database_error)
+        }).unwrap();
+        drop(database);
+        let database = Database::open(&directory).unwrap();
+        let mut overrides = database.game_compatibility_overrides(&game.id).unwrap();
+        assert_eq!(overrides.graphics_renderer, Some(GraphicsRenderer::WineD3d));
+        assert_eq!(overrides.linux_performance, LinuxPerformance::default());
+        overrides.linux_performance = LinuxPerformance {
+            game_mode: true,
+            gamescope: Some(GamescopeConfig {
+                width: Some(1280),
+                height: Some(720),
+                fps: Some(123),
+            }),
+        };
+        database
+            .save_game_compatibility_overrides(&game.id, overrides.clone())
+            .unwrap();
+        drop(database);
+        let database = Database::open(&directory).unwrap();
+        assert_eq!(
+            database.game_compatibility_overrides(&game.id).unwrap(),
+            overrides
+        );
+        let mut invalid = overrides.clone();
+        invalid.linux_performance.gamescope.as_mut().unwrap().width = Some(1);
+        assert!(
+            database
+                .save_game_compatibility_overrides(&game.id, invalid)
+                .is_err()
+        );
+        assert_eq!(
+            database
+                .effective_compatibility_config(&game.id)
+                .unwrap()
+                .linux_performance,
+            overrides.linux_performance
+        );
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
