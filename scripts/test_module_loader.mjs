@@ -4,6 +4,15 @@ import ts from "typescript";
 
 export const dataModule = (code) => `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`;
 
+export function artworkPacket({ bytes, ...metadata }) {
+  const header = new TextEncoder().encode(JSON.stringify(metadata));
+  const packet = new Uint8Array(4 + header.length + bytes.length);
+  new DataView(packet.buffer).setUint32(0, header.length, true);
+  packet.set(header, 4);
+  packet.set(bytes, 4 + header.length);
+  return packet.buffer;
+}
+
 export function createModuleLoader(mocks) {
   const modules = new Map();
 
