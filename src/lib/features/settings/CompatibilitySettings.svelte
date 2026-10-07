@@ -81,7 +81,7 @@
       argumentsAfter = defaults.argumentsAfter.join("\n");
       environmentText = mapToText(defaults.environment);
       dllOverridesText = mapToText(defaults.dllOverrides);
-      baseline = JSON.stringify({ defaults, argumentsBefore, argumentsAfter, environmentText, dllOverridesText });
+      baseline = serialized;
     } else {
       loadError = toMessage(defaultsResult.reason);
     }
