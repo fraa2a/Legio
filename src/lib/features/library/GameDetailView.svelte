@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
   import { onMount } from "svelte";
+  import { startVisibleRefresh } from "../../stores/visible-refresh";
   import { formatBytes, formatDate, formatDateTime } from "../../utils/format";
   import { games } from "../../stores/games";
   import {
@@ -77,9 +78,7 @@
 
   onMount(() => {
     if (storeGame !== null) return;
-    void playtime.load();
-    const timer = setInterval(() => void playtime.load(), 30000);
-    return () => clearInterval(timer);
+    return startVisibleRefresh(() => void playtime.load(), 30000);
   });
 
   $effect(() => {

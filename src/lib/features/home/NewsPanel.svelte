@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { startVisibleRefresh } from "../../stores/visible-refresh";
   import { t, language } from "../../i18n";
   import { loadNews, news } from "../../stores/news";
   import type { NewsArticle } from "../../services/news";
@@ -9,11 +10,7 @@
   let selected = $state<NewsArticle | null>(null);
   const articles = $derived([...($news.data.feed?.items ?? [])].filter(article => Date.parse(article.publishedAt) <= Date.now()).sort((a,b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt)));
   const date = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value));
-  onMount(() => {
-    void loadNews();
-    const timer = setInterval(() => void loadNews(), 15 * 60 * 1000);
-    return () => clearInterval(timer);
-  });
+  onMount(() => startVisibleRefresh(() => void loadNews(), 15 * 60 * 1000));
 </script>
 
 <section class="legio-glass flex min-h-0 flex-col gap-3 rounded-2xl bg-zinc-900 p-4 light:bg-zinc-100" aria-labelledby="news-title">
