@@ -6,7 +6,7 @@
   import StateBlock from "../../components/ui/StateBlock.svelte";
   import { games } from "../../stores/games";
   import { addGameDialogOpen, libraryPortrait, libraryQuery } from "../../stores/library-ui";
-  import { launchError, launchStateByGame } from "../../stores/launch";
+  import { launchStateByGame } from "../../stores/launch";
   import { openGame } from "../../stores/navigation";
   import { playtime } from "../../stores/playtime";
   import { importSteamLibrary, steamLibrary } from "../../stores/steam-library";
@@ -25,9 +25,6 @@
 </script>
 
 <div class="flex min-h-full flex-col gap-4">
-  {#if $launchError}
-    <ErrorBanner message={$launchError} />
-  {/if}
 
   {#if $steamLibrary.error !== null}
     <ErrorBanner message={$steamLibrary.error} onRetry={() => void importSteamLibrary()} retryLabel={t("Riprova", $language)} />

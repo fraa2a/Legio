@@ -75,12 +75,9 @@
       </div>
     </div>
 
-    {#if showTitle || launch?.error}
+    {#if showTitle}
       <div class="relative p-3 {portrait ? 'mt-auto' : 'm-auto'}">
         <div class="flex w-full min-w-0 max-w-full flex-col items-center gap-1.5">
-          {#if launch?.error}
-            <span class="rounded-lg bg-zinc-950/60 px-3 py-1.5 text-xs text-red-300 light:bg-zinc-100/70 light:text-red-700" role="alert">{launch.error}</span>
-          {/if}
           {#if showTitle}
             <GameLogo {game} />
           {/if}

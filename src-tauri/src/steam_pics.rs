@@ -21,16 +21,16 @@ pub(crate) struct PicsAssets(BTreeMap<String, String>);
 
 impl PicsAssets {
     pub(crate) fn url(&self, app_id: u32, filename: &str) -> Option<String> {
-        let path = self.0.get(filename).or_else(|| {
-            (filename == "clienticon.ico")
-                .then(|| self.0.get("clienticon.jpg"))
-                .flatten()
-        })?;
         if filename == "clienticon.ico" {
-            valid_hash(path).then(|| format!("{COMMUNITY_ICON_CDN}/{app_id}/{path}.ico"))
-        } else {
-            valid_asset_path(path, filename).then(|| format!("{CDN}/{app_id}/{path}"))
+            for (name, extension) in [("clienticon.jpg", "jpg"), ("clienticon.ico", "ico")] {
+                if let Some(hash) = self.0.get(name).filter(|hash| valid_hash(hash)) {
+                    return Some(format!("{COMMUNITY_ICON_CDN}/{app_id}/{hash}.{extension}"));
+                }
+            }
+            return None;
         }
+        let path = self.0.get(filename)?;
+        valid_asset_path(path, filename).then(|| format!("{CDN}/{app_id}/{path}"))
     }
 
     fn from_vdf(info: &VdfValue) -> Self {
@@ -91,6 +91,9 @@ impl PicsAssets {
         }
         if let Some(hash) = common.get_str("clienticon").filter(|hash| valid_hash(hash)) {
             paths.insert("clienticon.ico".to_owned(), hash.to_owned());
+        }
+        if let Some(hash) = common.get_str("icon").filter(|hash| valid_hash(hash)) {
+            paths.insert("clienticon.jpg".to_owned(), hash.to_owned());
         }
         Self(paths)
     }
@@ -287,7 +290,7 @@ mod tests {
         assert_eq!(
             PicsAssets(BTreeMap::from([("clienticon.jpg".into(), hash.into(),)]))
                 .url(4656000, "clienticon.ico"),
-            Some(format!("{COMMUNITY_ICON_CDN}/4656000/{hash}.ico"))
+            Some(format!("{COMMUNITY_ICON_CDN}/4656000/{hash}.jpg"))
         );
         assert!(
             PicsAssets(BTreeMap::from([(

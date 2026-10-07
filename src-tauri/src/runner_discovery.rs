@@ -88,6 +88,7 @@ pub(crate) fn launch_command(
         .args(arguments_before)
         .arg(executable)
         .args(arguments_after);
+    crate::launch_environment::apply(&mut command);
     Ok(command)
 }
 
@@ -100,7 +101,8 @@ pub(crate) fn umu_path() -> Result<PathBuf, String> {
 
 #[cfg(target_os = "linux")]
 pub(crate) fn executable_path(name: &str) -> Option<PathBuf> {
-    let search_path = std::env::var_os("PATH").unwrap_or_default();
+    let search_path =
+        crate::launch_environment::host_path(&std::env::var_os("PATH").unwrap_or_default());
     let directories = std::env::split_paths(&search_path)
         .chain(std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/bin")));
     for directory in directories {
@@ -136,7 +138,9 @@ pub fn discover() -> RunnerDiscovery {
 fn discover_linux() -> RunnerDiscovery {
     let mut runners = discover_proton();
     let (wine, mut diagnostics) = discover_wine_from(
-        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
+        std::env::split_paths(&crate::launch_environment::host_path(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        )),
         WINE_PROBE_TIMEOUT,
     );
     runners.extend(wine);

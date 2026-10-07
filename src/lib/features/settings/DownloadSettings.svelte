@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
+  import SourceSettings from "./SourceSettings.svelte";
   import { onDestroy } from "svelte";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
@@ -121,4 +122,5 @@
   <SettingsGroup icon="info" title={t("Notifiche dei download", $language)}>
     <div class="flex items-center gap-2"><div class="min-w-0 flex-1"><Toggle label={t("Notifica di sistema al termine del download", $language)} checked={$settings.data.downloadNotifications} disabled={savingSettings} onChange={(checked) => void updateSettings({ downloadNotifications: checked })} /></div><ResetSetting label={t("Ripristina notifiche dei download", $language)} disabled={savingSettings || $settings.data.downloadNotifications === defaultSettings.downloadNotifications} onClick={() => void updateSettings({ downloadNotifications: defaultSettings.downloadNotifications })} /></div>
   </SettingsGroup>
+  <SourceSettings />
 </section>

@@ -248,6 +248,7 @@ test("native launch events invalidate stale reads and reduce polling during game
       "../services/steam-accounts": service,
       "../utils/errors": errors,
       "./resource": await load("src/lib/stores/resource.ts"),
+      "./toast": dataModule("export const showToast = () => {};"),
       "./window-activity": dataModule("export const windowActive = globalThis.legioLaunchEvents.active;"),
       "./app-info": dataModule("export const appInfo = globalThis.legioLaunchEvents.info;"),
       "./settings": dataModule("export const settings = globalThis.legioLaunchEvents.settings;"),
@@ -417,4 +418,28 @@ test("download UI polling stops while inactive and catches completed work on res
     globalThis.clearInterval = originalClear;
     delete globalThis.legioDownloadVisibility;
   }
+});
+
+test("manual artwork refresh renews visible URLs and resets only its Steam App ID", async () => {
+  const calls = [];
+  let revision = 0;
+  globalThis.legioRefreshArtwork = async (command, args) => {
+    calls.push([command, args]);
+    if (command === "reset_steam_artwork_cache") { revision++; return; }
+    return artworkPacket({ bytes: [revision + 1], contentType: "image/png", stale: false, cacheWarning: null, refreshAfter: Date.now() + 100000 });
+  };
+  const { load } = createModuleLoader({ "@tauri-apps/api/core": dataModule("export const invoke = (...args) => globalThis.legioRefreshArtwork(...args);"), "src/lib/i18n": localeUrl });
+  const images = await import(await load("src/lib/services/steam-details.ts"));
+  const request = (steamAppId) => ({ steamAppId, asset: "logo", fallbackAsset: null, index: null, version: null, full: false });
+  const old = await images.loadSteamImage(request(400));
+  const untouched = await images.loadSteamImage(request(401));
+  images.retainSteamImage(request(400));
+  const first = images.refreshSteamImages(400);
+  assert.equal(images.refreshSteamImages(400), first);
+  await first;
+  assert.notEqual(images.peekSteamImage(request(400)).url, old.url);
+  assert.equal(images.peekSteamImage(request(401)).url, untouched.url);
+  assert.equal(calls.filter(([command]) => command === "reset_steam_artwork_cache").length, 1);
+  assert.ok(calls.filter(([command, args]) => command === "get_steam_asset" && args.refresh).every(([, args]) => args.steamAppId === 400));
+  images.releaseSteamImage(request(400));
 });

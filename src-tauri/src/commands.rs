@@ -299,9 +299,12 @@ pub async fn get_game_icon(
 ) -> Result<tauri::ipc::Response, String> {
     tauri::async_runtime::spawn_blocking(move || {
         app.state::<DatabaseState>().database()?.game(&game_id)?;
-        let artwork = app
-            .state::<crate::game_artwork::GameArtworkStore>()
-            .get(&game_id, crate::game_artwork::ArtworkKind::Icon)?;
+        let store = app.state::<crate::game_artwork::GameArtworkStore>();
+        let artwork = store.get(&game_id, crate::game_artwork::ArtworkKind::Icon)?;
+        let artwork = match artwork {
+            Some(artwork) => Some(artwork),
+            None => store.get(&game_id, crate::game_artwork::ArtworkKind::ShortcutIcon)?,
+        };
         match artwork {
             Some(value) => value.into_response(),
             None => Ok(tauri::ipc::Response::new(Vec::new())),
@@ -393,8 +396,13 @@ pub async fn launch_steam_game(
     game_id: String,
     confirm_account_switch: bool,
 ) -> Result<crate::steam_switch::SteamLaunchResult, String> {
-    app.state::<crate::game_lifecycle::GameLaunchManager>()
-        .launch(app.clone(), game_id, confirm_account_switch)
+    let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
+    manager.record_launch_request(&game_id, false);
+    let result = manager.launch(app.clone(), game_id.clone(), confirm_account_switch);
+    if result.is_err() {
+        manager.record_launch_request(&game_id, true);
+    }
+    result
 }
 
 #[tauri::command]
@@ -408,7 +416,12 @@ pub async fn launch_game_with_runner(
         .inner()
         .clone();
     tauri::async_runtime::spawn_blocking(move || {
-        manager.launch_with_runner(app, game_id, runner_path)
+        manager.record_launch_request(&game_id, false);
+        let result = manager.launch_with_runner(app, game_id.clone(), runner_path);
+        if result.is_err() {
+            manager.record_launch_request(&game_id, true);
+        }
+        result
     })
     .await
     .map_err(|error| format!("Compatibility runner launch task failed: {error}"))?
@@ -423,9 +436,16 @@ pub async fn launch_configured_game_with_runner(
         .state::<crate::game_lifecycle::GameLaunchManager>()
         .inner()
         .clone();
-    tauri::async_runtime::spawn_blocking(move || manager.launch_configured(app, game_id))
-        .await
-        .map_err(|error| format!("Compatibility runner launch task failed: {error}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        manager.record_launch_request(&game_id, false);
+        let result = manager.launch_configured(app, game_id.clone());
+        if result.is_err() {
+            manager.record_launch_request(&game_id, true);
+        }
+        result
+    })
+    .await
+    .map_err(|error| format!("Compatibility runner launch task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -434,9 +454,16 @@ pub async fn launch_native_game(app: AppHandle, game_id: String) -> Result<(), S
         .state::<crate::game_lifecycle::GameLaunchManager>()
         .inner()
         .clone();
-    tauri::async_runtime::spawn_blocking(move || manager.launch_native(app, game_id))
-        .await
-        .map_err(|error| format!("Native game launch task failed: {error}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        manager.record_launch_request(&game_id, false);
+        let result = manager.launch_native(app, game_id.clone());
+        if result.is_err() {
+            manager.record_launch_request(&game_id, true);
+        }
+        result
+    })
+    .await
+    .map_err(|error| format!("Native game launch task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -742,6 +769,11 @@ pub async fn get_steam_details(
         language.resolve(),
     )
     .await
+}
+
+#[tauri::command]
+pub async fn reset_steam_artwork_cache(app: AppHandle, steam_app_id: u32) -> Result<(), String> {
+    crate::steam_assets::reset(app, steam_app_id).await
 }
 
 #[tauri::command]

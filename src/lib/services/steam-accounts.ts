@@ -51,6 +51,9 @@ export interface GameLaunchState {
   gameId: string;
   status: "idle" | "launching" | "running";
   error?: string;
+  compatibilityLogPath?: string;
+  compatibilityLogError?: string;
+  runnerExitCode?: number;
 }
 
 export function onGameLaunchStates(callback: (states: GameLaunchState[]) => void): Promise<UnlistenFn> {

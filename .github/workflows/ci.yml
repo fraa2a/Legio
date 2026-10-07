@@ -62,6 +62,9 @@ jobs:
       - name: Test window activity and media playback
         run: corepack pnpm test:window
 
+      - name: Test dialogs and notifications
+        run: corepack pnpm test:dialog && corepack pnpm test:feedback
+
       - name: Test onboarding and persistent news
         run: corepack pnpm test:onboarding
 

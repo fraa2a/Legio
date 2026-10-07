@@ -9,16 +9,20 @@
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
+  import { appInfo } from "../../stores/app-info";
+  import { getCompatibilityLogsDirectory } from "../../services/game-settings";
 
   let status = $state<NetworkLogStatus | null>(null);
   let error = $state<string | null>(null);
   let saving = $state(false);
+  let launchDirectory = $state<string | null>(null);
 
   onMount(() => { void refresh(); });
 
   async function refresh(): Promise<void> {
     try {
       status = await getNetworkLogStatus();
+      if ($appInfo.data.platform === "linux") launchDirectory = await getCompatibilityLogsDirectory();
       error = null;
     } catch (cause) {
       error = toMessage(cause);
@@ -47,7 +51,12 @@
       <div class="pt-3">
         <p class="text-xs text-zinc-500 light:text-zinc-600">{t("Cartella dei log", $language)}</p>
         <p class="mt-1 break-all font-mono text-xs text-zinc-300 light:text-zinc-700">{status.directory}</p>
+        <p class="mt-2 text-xs text-zinc-400 light:text-zinc-600">{t("Registro degli avvii: game-launches.jsonl. Include fasi, errori e codici di uscita senza argomenti o valori delle variabili d'ambiente.", $language)}</p>
       </div>
+    {/if}
+    {#if launchDirectory}
+      <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Ogni gioco manuale salva launch.json, launch.log, stdout.log, stderr.log e runner-exit-code.txt nella propria cartella. Il debug aggiunge i dettagli di Proton o Wine.", $language)}</p>
+      <p class="break-all font-mono text-xs text-zinc-300 light:text-zinc-700">{launchDirectory}</p>
     {/if}
     {#if status?.lastError}<p class="text-xs text-amber-300 light:text-amber-800" role="status">{status.lastError}</p>{/if}
   </SettingsGroup>

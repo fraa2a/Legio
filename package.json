@@ -18,6 +18,7 @@
     "test:appearance": "node --conditions=browser --test scripts/test_appearance.mjs",
     "test:window": "node --conditions=browser --test scripts/test_window_activity.mjs",
     "test:dialog": "node --conditions=browser --test scripts/test_dialog.mjs",
+    "test:feedback": "node --conditions=browser --test scripts/test_feedback.mjs",
     "test:onboarding": "node --test scripts/test_onboarding_news.mjs",
     "test:sources": "node --test scripts/test_sources.mjs"
   },

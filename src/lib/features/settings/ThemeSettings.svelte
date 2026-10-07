@@ -23,7 +23,7 @@
   let { accent }: { accent: string } = $props();
 
   type SliderKey = "backgroundBlur" | "backgroundOpacity" | "animatedOpacity" | "surfaceOpacity" | "surfaceBlur" | "dialogOpacity" | "dialogBlur";
-  type SliderConfig = { key: SliderKey; label: string; min: number; max: number; unit: string; windowLocked?: boolean };
+  type SliderConfig = { key: SliderKey; label: string; min: number; max: number; unit: string };
   type DitherSliderKey = "waveSpeed" | "waveFrequency" | "waveAmplitude" | "colorNum" | "pixelSize" | "mouseRadius";
   type DitherSliderConfig = { key: DitherSliderKey; label: string; min: number; max: number; step: number; decimals: number };
   type DitherToggleKey = "disableAnimation" | "enableMouseInteraction";
@@ -43,7 +43,6 @@
   const serialized = $derived(JSON.stringify({ theme, appearance: draft }));
   const dirty = $derived(serialized !== baseline);
   const hyprland = $derived($appInfo.data.platform === "linux" && $appInfo.data.desktopEnvironment === "hyprland");
-  const windowTransparent = $derived(hyprland && draft.transparent);
   const themeOptions: { id: Theme; label: string; preset: (typeof themePresets)[number] | null }[] = $derived([
     { id: "system", label: t("Sistema", $language), preset: null },
     ...themePresets.map((preset) => ({ id: preset.id as Theme, label: t(preset.name, $language), preset })),
@@ -54,9 +53,9 @@
   ]);
   const surfaceEffects: SliderConfig[] = $derived([
     { key: "surfaceOpacity", label: t("Opacità dei pannelli", $language), min: 0, max: 100, unit: "%" },
-    { key: "surfaceBlur", label: t("Blur dei pannelli", $language), min: 0, max: 40, unit: "px", windowLocked: true },
+    { key: "surfaceBlur", label: t("Blur dei pannelli", $language), min: 0, max: 40, unit: "px" },
     { key: "dialogOpacity", label: t("Opacità dei dialoghi", $language), min: 0, max: 100, unit: "%" },
-    { key: "dialogBlur", label: t("Blur dei dialoghi", $language), min: 0, max: 40, unit: "px", windowLocked: true },
+    { key: "dialogBlur", label: t("Blur dei dialoghi", $language), min: 0, max: 40, unit: "px" },
   ]);
   const animatedOptions: { id: Appearance["animatedBackground"]; label: string }[] = $derived([
     { id: "none", label: t("Nessuno", $language) },
@@ -109,7 +108,7 @@
         settings.set(saved);
         baseline = snapshot;
         failedSnapshot = null;
-        if (!disposed && serialized === snapshot) showToast(t("Aspetto salvato.", get(language)));
+        if (!disposed && serialized === snapshot) showToast(t("Aspetto salvato.", get(language)), "success");
         await cleanupBackgrounds();
       } catch (reason) {
         failedSnapshot = snapshot;
@@ -134,10 +133,6 @@
     } finally {
       busy = false;
     }
-  }
-
-  function isLocked(effect: SliderConfig): boolean {
-    return effect.windowLocked === true && windowTransparent;
   }
 
   function setDitherValue(key: DitherSliderKey, value: number, decimals: number): void {
@@ -229,12 +224,9 @@
   <SettingsGroup title={t("Pannelli e dialoghi", $language)} icon="landscape" collapsible>
     <div class="grid gap-3 sm:grid-cols-2">
       {#each surfaceEffects as effect (effect.key)}
-        <AppearanceSlider id={"theme-" + effect.key} label={effect.label} value={isLocked(effect) ? 0 : draft[effect.key]} min={effect.min} max={effect.max} unit={effect.unit} resetValue={defaultAppearance()[effect.key]} disabled={busy || isLocked(effect)} onChange={(value) => { draft[effect.key] = value; }} />
+        <AppearanceSlider id={"theme-" + effect.key} label={effect.label} value={draft[effect.key]} min={effect.min} max={effect.max} unit={effect.unit} resetValue={defaultAppearance()[effect.key]} disabled={busy} onChange={(value) => { draft[effect.key] = value; }} />
       {/each}
     </div>
-    {#if windowTransparent}
-      <p class="text-xs text-zinc-500">{t("Il blur è disponibile solo con la trasparenza della finestra disattivata.", $language)}</p>
-    {/if}
   </SettingsGroup>
 
   {#if hyprland}

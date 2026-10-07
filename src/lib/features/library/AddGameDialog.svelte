@@ -21,6 +21,7 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import TextField from "../../components/ui/TextField.svelte";
   import SteamArtwork from "./SteamArtwork.svelte";
+  import { showToast } from "../../stores/toast";
 
   let { onClose, prefill = null }: { onClose: () => void; prefill?: { steamAppId: number; name: string; suggestedName: string } | null } = $props();
 
@@ -33,7 +34,6 @@
   let previewPending = $state(false);
   let previewError = $state<string | null>(null);
   let pending = $state(false);
-  let added = $state(false);
   let actionError = $state<string | null>(null);
   let previewRequest = 0;
   let searchRequest = 0;
@@ -53,7 +53,7 @@
     game.steamAppId === parsedAppId && game.name.trim().toLocaleLowerCase() === $manualImport.gameName.trim().toLocaleLowerCase()));
   const canAdd = $derived(
     $manualImport.gameName.trim().length > 0 && (selectedPath !== null || parsedAppId !== null) &&
-    !duplicateName && !previewPending && !pending && !added,
+    !duplicateName && !previewPending && !pending,
   );
 
   function fileStem(path: string): string {
@@ -157,19 +157,19 @@
         };
         const result = await importScannedGame(name, identity);
         if (result.linkingError !== null || result.shortcutWarning !== null) {
-          added = true;
-          actionError = [
+          const warning = [
             result.linkingError === null ? null : t("Gioco aggiunto. Collegamento Steam non riuscito: {0}", $language, [result.linkingError]),
-            result.shortcutWarning,
+            result.shortcutWarning === null ? null : t("Gioco aggiunto. Avviso sull'icona: {0}", $language, [result.shortcutWarning]),
           ].filter((message) => message !== null).join(" ");
-          return;
+          showToast(warning, "error");
         }
       } else if (parsedAppId !== null) {
         await addGame({ name, steamAppId: parsedAppId });
       }
+      showToast(t("Gioco aggiunto alla libreria.", $language), "success");
       close();
     } catch (error) {
-      actionError = toMessage(error);
+      showToast(toMessage(error), "error");
     } finally {
       pending = false;
     }
@@ -186,7 +186,7 @@
   <div class="flex flex-col gap-5">
     <div class="flex flex-col gap-2">
         <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Associa il gioco corretto su Steam se il rilevamento automatico è errato o non trova il gioco.", $language)}</p>
-        <TextField id="add-steam-game-search" label={t("Cerca gioco su Steam", $language)} type="search" value={steamQuery} placeholder={t("Cerca per nome", $language)} disabled={pending || added}
+        <TextField id="add-steam-game-search" label={t("Cerca gioco su Steam", $language)} type="search" value={steamQuery} placeholder={t("Cerca per nome", $language)} disabled={pending}
           oninput={(value) => { steamQuery = value; selectedSteamGame = null; }} />
         {#if searchStatus === "loading"}
           <p class="text-xs text-zinc-400" role="status">{t("Ricerca in corso...", $language)}</p>
@@ -199,7 +199,7 @@
             {#each searchResults as result (result.steamAppId)}
               <li>
                 <button type="button" class="flex h-12 w-full items-center px-3 text-left text-sm text-zinc-200 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white light:text-zinc-800 light:hover:bg-zinc-900/5 light:focus-visible:outline-zinc-900"
-                  disabled={pending || added} onclick={() => selectSteamGame(result)}>
+                  disabled={pending} onclick={() => selectSteamGame(result)}>
                   <span class="truncate">{result.name}</span>
                 </button>
               </li>
@@ -220,7 +220,7 @@
         {#if preview?.status === "ambiguous"}
           <div class="flex flex-wrap gap-2" aria-label={t("Corrispondenze Steam", $language)}>
             {#each preview.candidates as candidate (candidate.steamAppId)}
-              <Button label={candidate.name} variant="secondary" disabled={pending || added} onClick={() => selectSteamGame(candidate)} />
+              <Button label={candidate.name} variant="secondary" disabled={pending} onClick={() => selectSteamGame(candidate)} />
             {/each}
           </div>
         {/if}
@@ -243,7 +243,7 @@
       label={t("Nome gioco", $language)}
       value={$manualImport.gameName}
       placeholder={t("Nome da mostrare in libreria", $language)}
-      disabled={pending || added}
+      disabled={pending}
       oninput={setScanGameName}
     />
     {#if duplicateName}<p class="text-sm text-amber-300 light:text-amber-800" role="alert">{t("Il nome è già usato per questo gioco Steam. Scegli un nome diverso.", $language)}</p>{/if}
@@ -252,10 +252,10 @@
       <span class="text-sm font-medium text-zinc-100 light:text-zinc-900">{t("Eseguibile del gioco", $language)}</span>
       <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Scegli il file del gioco oppure scansiona la sua cartella. Puoi aggiungerlo anche senza eseguibile se hai selezionato un gioco Steam.", $language)}</p>
       <div class="flex flex-wrap items-center gap-2">
-        <Button label={t("Scegli .exe", $language)} variant="secondary" disabled={pending || added} onClick={() => void pickExecutable()} />
-        <Button label={t("Scansiona cartella", $language)} variant="secondary" disabled={pending || added} onClick={() => void browseGameDirectory()} />
+        <Button label={t("Scegli .exe", $language)} variant="secondary" disabled={pending} onClick={() => void pickExecutable()} />
+        <Button label={t("Scansiona cartella", $language)} variant="secondary" disabled={pending} onClick={() => void browseGameDirectory()} />
         {#if $manualImport.directory !== null}
-          <Button label={t("Ripeti scansione", $language)} variant="secondary" disabled={pending || added} onClick={() => void rescanCurrentDirectory()} />
+          <Button label={t("Ripeti scansione", $language)} variant="secondary" disabled={pending} onClick={() => void rescanCurrentDirectory()} />
         {/if}
       </div>
       <p class="min-h-5 break-all text-xs text-zinc-400 light:text-zinc-600">{selectedPath ?? t("Nessun file selezionato", $language)}</p>
@@ -267,7 +267,7 @@
         <ErrorBanner message={$manualImport.error} onRetry={() => void rescanCurrentDirectory()} />
       {/if}
       {#if $manualImport.candidates.length > 0}
-        <fieldset class="max-h-40 space-y-1 overflow-y-auto rounded-lg bg-white/5 p-2 light:bg-zinc-100" disabled={pending || added}>
+        <fieldset class="max-h-40 space-y-1 overflow-y-auto rounded-lg bg-white/5 p-2 light:bg-zinc-100" disabled={pending}>
           <legend class="sr-only">{t("Eseguibili trovati", $language)}</legend>
           {#each $manualImport.candidates as candidate (candidate.path)}
             <label class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-zinc-200 hover:bg-white/10 light:text-zinc-800 light:hover:bg-zinc-200">
@@ -281,8 +281,8 @@
 
     {#if actionError !== null}<ErrorBanner message={actionError} />{/if}
     <div class="flex justify-end gap-2">
-      <Button label={added ? t("Chiudi", $language) : t("Annulla", $language)} variant="secondary" onClick={dismiss} />
-      {#if !added}<Button label={pending ? t("Aggiunta in corso...", $language) : t("Aggiungi alla libreria", $language)} disabled={!canAdd} onClick={() => void add()} />{/if}
+      <Button label={t("Annulla", $language)} variant="secondary" onClick={dismiss} />
+      <Button label={pending ? t("Aggiunta in corso...", $language) : t("Aggiungi alla libreria", $language)} disabled={!canAdd} onClick={() => void add()} />
     </div>
   </div>
   {/snippet}

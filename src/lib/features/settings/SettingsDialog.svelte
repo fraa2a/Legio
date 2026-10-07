@@ -2,7 +2,6 @@
   import { t, language } from "../../i18n";
   import Dialog from "../../components/ui/Dialog.svelte";
   import Icon, { type IconName } from "../../components/ui/Icon.svelte";
-  import SourceSettings from "./SourceSettings.svelte";
   import { settingsCategory } from "../../stores/navigation";
   import DownloadSettings from "./DownloadSettings.svelte";
   import CompatibilitySettings from "./CompatibilitySettings.svelte";
@@ -17,12 +16,11 @@
     { id: "general", label: t("Generali", $language), icon: "settings" },
     { id: "appearance", label: t("Aspetto", $language), icon: "palette" },
     { id: "downloads", label: "Download", icon: "downloads" },
-    { id: "sources", label: t("Sorgenti", $language), icon: "downloads" },
     ...($appInfo.data.platform === "linux" ? [{ id: "compatibility", label: t("Compatibilità", $language), icon: "wrench" } as const] : []),
     { id: "advanced", label: t("Avanzate", $language), icon: "info" },
   ] as const);
 
-  const active = $derived($settingsCategory);
+  const active = $derived($settingsCategory === "sources" ? "downloads" : $settingsCategory);
 
   function categoryClass(isActive: boolean): string {
     return isActive
@@ -68,8 +66,6 @@
         <GeneralSettings />
       {:else if active === "appearance"}
         <ThemeSettings {accent} />
-      {:else if active === "sources"}
-        <SourceSettings />
       {:else if active === "downloads"}
         <DownloadSettings />
       {:else if active === "compatibility" && $appInfo.data.platform === "linux"}
