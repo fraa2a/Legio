@@ -590,5 +590,6 @@
   "L'ID di Legio è già configurato. Modificalo solo per usare una tua applicazione Discord. Non inserire token o segreti.": "Legio's application ID is already configured. Change it only to use your own Discord application. Do not enter tokens or secrets.",
   "Salva Application ID": "Save Application ID",
   "NTSync disponibile sul sistema. L'attivazione è gestita dal runner.": "NTSync is available on this system. Activation is managed by the runner.",
-  "NTSync non disponibile sul sistema. Legio usa la sincronizzazione predefinita del runner.": "NTSync is unavailable on this system. Legio uses the runner's default synchronization."
+  "NTSync non disponibile sul sistema. Legio usa la sincronizzazione predefinita del runner.": "NTSync is unavailable on this system. Legio uses the runner's default synchronization.",
+  "Posticipa l’estrazione automatica dei download mentre giochi": "Defer automatic download extraction while playing"
 }

@@ -4,6 +4,8 @@ import {
   cancelGameLaunch,
   inspectSteamGameLaunch,
   listGameLaunchStates,
+  onGameLaunchStates,
+  onShortcutLaunchFailure,
   launchSteamGame,
   stopGame,
   type GameLaunchState,
@@ -34,6 +36,8 @@ export const pendingGameId = writable<string | null>(null);
 export const cancelPendingGameId = writable<string | null>(null);
 export const accountSwitchGame = writable<Game | null>(null);
 
+let eventsReady = false;
+let listening: Promise<void> | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 const hiddenForSession = new Set<string>();
 const restoreOnExit = new Set<string>();
@@ -58,14 +62,32 @@ launchStates.subscribe((state) => {
   }
 });
 
-hasPendingLaunch.subscribe((pending) => {
-  if (pending && pollTimer === null) {
-    pollTimer = setInterval(() => void launchStates.load(), 2000);
-  } else if (!pending && pollTimer !== null) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
-});
+function configureLaunchPolling(): void {
+  if (pollTimer !== null) clearInterval(pollTimer);
+  pollTimer = get(hasPendingLaunch)
+    ? setInterval(() => void launchStates.load(), eventsReady ? 30000 : 2000)
+    : null;
+}
+
+hasPendingLaunch.subscribe(configureLaunchPolling);
+
+export function startLaunchEvents(): Promise<void> {
+  listening ??= (async () => {
+    try {
+      await onGameLaunchStates((states) => launchStates.set(states));
+      eventsReady = true;
+      configureLaunchPolling();
+    } catch (error) {
+      console.warn("Game activity events unavailable; polling remains enabled", error);
+    }
+    try {
+      await onShortcutLaunchFailure((message) => launchError.set(message));
+    } catch (error) {
+      console.warn("Shortcut failure events unavailable", error);
+    }
+  })();
+  return listening;
+}
 
 export async function playGame(game: Game): Promise<void> {
   launchError.set(null);
