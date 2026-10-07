@@ -51,30 +51,6 @@ does not infer an umu ID from a Steam App ID.
 
 See [LICENSE](LICENSE) for the terms of use and distribution.
 
-## Discord Rich Presence
-
-Enable Discord Rich Presence in **Settings > General** to share the running game's
-name and session timer. When no game is running, Discord shows Legio's library
-activity. If multiple games are running, the most recently started game is shown.
-The feature is disabled by default and works through local Discord desktop IPC
-on Linux and Windows; it does not require a bot token or a Discord login in Legio.
-
-Legio's Discord Application ID (`1557120430475575366`) is configured by default.
-Enable the toggle, keep Discord desktop running, and enable activity sharing in
-Discord's privacy/activity settings. No setup in the Developer Portal, client
-secret or bot token is needed. The Application ID field is an optional override
-for users who want to use their own Discord application. Empty IDs saved by earlier
-builds fall back to Legio's official application.
-
-Legio retries if Discord starts later or restarts. Disabling the toggle clears
-Legio's activity and disconnects; exiting Legio closes its IPC connection. Closing
-the window to the tray keeps Rich Presence active. Only the game name and session
-start time are published, never executable paths, Steam accounts or launch options.
-
-### Work during a game session
-
-Backgrounds, media and CSS animations pause when Legio loses focus, is minimized or is hidden in the tray, and during a tracked game session. Recent artwork prefetch and scheduled Steam scans wait until the session ends. General settings offer an optional switch to defer automatic download extraction until all tracked games are idle; existing extractions finish safely and network downloads continue. Explicit installation/finalization actions remain under user control. Game activity arrives through native events with a periodic recovery sync. Shortcut preparation runs outside the UI thread.
-
 ### Optional Linux performance controls
 
 The compatibility panel of each manually imported game offers GameMode and gamescope. They are disabled by default and require the corresponding executable in PATH or ~/.local/bin. Install the distribution packages and reopen the panel to refresh availability. GameMode also needs a working user service and its preload libraries; Legio does not change its system configuration.
