@@ -1,4 +1,5 @@
 use std::path::Path;
+#[cfg(windows)]
 use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -28,17 +29,11 @@ pub(crate) enum ProcessTarget {
     },
 }
 
+#[cfg(any(windows, test))]
 pub(crate) fn matching_pids(target: &ProcessTarget) -> Result<Vec<u32>, String> {
     #[cfg(target_os = "linux")]
     {
-        match target {
-            ProcessTarget::Steam { app_id, .. } => linux_matching_pids(*app_id),
-            ProcessTarget::Runner {
-                token,
-                executable_path,
-                launcher_pid,
-            } => linux_runner_matching_pids(token, executable_path, *launcher_pid),
-        }
+        linux_discover(target).map(|pids| pids.into_iter().map(|(pid, _)| pid).collect())
     }
     #[cfg(windows)]
     {
@@ -60,13 +55,14 @@ pub(crate) fn matching_pids(target: &ProcessTarget) -> Result<Vec<u32>, String> 
 }
 
 pub(crate) fn stop(target: &ProcessTarget) -> Result<(), String> {
-    let pids = matching_pids(target)?;
+    let mut monitor = ProcessMonitor::new();
+    let pids = monitor.matching_pids(target)?;
     if pids.is_empty() {
         return Ok(());
     }
     for pid in pids {
         // Recheck each PID before signaling to avoid acting on a reused process ID.
-        if !matching_pids(target)?.contains(&pid) {
+        if !monitor.matching_pids(target)?.contains(&pid) {
             continue;
         }
         #[cfg(windows)]
@@ -77,7 +73,7 @@ pub(crate) fn stop(target: &ProcessTarget) -> Result<(), String> {
         stop_pid(pid)?;
     }
     let start = Instant::now();
-    while !matching_pids(target)?.is_empty() {
+    while !monitor.matching_pids(target)?.is_empty() {
         if start.elapsed() >= STOP_TIMEOUT {
             return Err("The game did not exit after the stop request".to_owned());
         }
@@ -86,106 +82,138 @@ pub(crate) fn stop(target: &ProcessTarget) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
-fn linux_matching_pids(app_id: u32) -> Result<Vec<u32>, String> {
-    use std::fs;
+pub(crate) struct ProcessMonitor {
+    #[cfg(target_os = "linux")]
+    known: Vec<(u32, u64)>,
+    #[cfg(target_os = "linux")]
+    discovered_at: Option<Instant>,
+}
 
+impl ProcessMonitor {
+    pub(crate) fn new() -> Self {
+        Self {
+            #[cfg(target_os = "linux")]
+            known: Vec::new(),
+            #[cfg(target_os = "linux")]
+            discovered_at: None,
+        }
+    }
+
+    pub(crate) fn matching_pids(&mut self, target: &ProcessTarget) -> Result<Vec<u32>, String> {
+        #[cfg(target_os = "linux")]
+        {
+            let mut live = Vec::with_capacity(self.known.len());
+            for &(pid, started_at) in &self.known {
+                if linux_start_time(pid)? == Some(started_at) && linux_matches(target, pid)? {
+                    live.push((pid, started_at));
+                }
+            }
+            let discover = live.is_empty()
+                || self
+                    .discovered_at
+                    .is_none_or(|last| last.elapsed() >= Duration::from_secs(3));
+            self.known = live;
+            if discover {
+                self.known = linux_discover(target)?;
+                self.discovered_at = Some(Instant::now());
+            }
+            Ok(self.known.iter().map(|&(pid, _)| pid).collect())
+        }
+        #[cfg(windows)]
+        matching_pids(target)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_discover(target: &ProcessTarget) -> Result<Vec<(u32, u64)>, String> {
     let mut pids = Vec::new();
-    for entry in fs::read_dir("/proc")
+    for entry in std::fs::read_dir("/proc")
         .map_err(|error| format!("Could not inspect game processes: {error}"))?
     {
         let entry = entry.map_err(|error| format!("Could not inspect game processes: {error}"))?;
         let Some(pid) = entry
             .file_name()
             .to_str()
-            .and_then(|name| name.parse::<u32>().ok())
+            .and_then(|name| name.parse().ok())
         else {
             continue;
         };
-        if pid == std::process::id() {
-            continue;
-        }
-        let process = entry.path();
-        let comm = match fs::read_to_string(process.join("comm")) {
-            Ok(name) => name,
-            Err(error) if process_disappeared(&error) => continue,
-            Err(error) => return Err(format!("Could not inspect game process {pid}: {error}")),
-        };
-        if is_steam_helper(comm.trim()) {
-            continue;
-        }
-        let Some(environ) = read_linux_process_bytes(pid, &process.join("environ"), 1024 * 1024)?
-        else {
+        // Identity is captured before reading the process attributes.
+        let Some(started_at) = linux_start_time(pid)? else {
             continue;
         };
-        if has_steam_app_id(&environ, app_id) {
-            let Some(command) = read_linux_process_bytes(pid, &process.join("cmdline"), u64::MAX)?
-            else {
-                continue;
-            };
-            if !is_proton_wrapper(comm.trim().as_bytes(), &command) {
-                pids.push(pid);
-            }
+        if linux_matches(target, pid)? && linux_start_time(pid)? == Some(started_at) {
+            pids.push((pid, started_at));
         }
     }
     Ok(pids)
 }
 
 #[cfg(target_os = "linux")]
-fn linux_runner_matching_pids(
-    token: &str,
-    executable_path: &Path,
-    launcher_pid: Option<u32>,
-) -> Result<Vec<u32>, String> {
-    use std::fs;
+fn linux_start_time(pid: u32) -> Result<Option<u64>, String> {
+    let Some(stat) = read_linux_process_bytes(
+        pid,
+        &Path::new("/proc").join(pid.to_string()).join("stat"),
+        4096,
+    )?
+    else {
+        return Ok(None);
+    };
+    Ok(std::str::from_utf8(&stat)
+        .ok()
+        .and_then(|stat| stat.rsplit_once(')'))
+        .and_then(|(_, fields)| fields.split_whitespace().nth(19))
+        .and_then(|value| value.parse().ok()))
+}
 
-    let executable_name = executable_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| "Game executable name is invalid".to_owned())?;
-    let mut pids = Vec::new();
-    for entry in fs::read_dir("/proc")
-        .map_err(|error| format!("Could not inspect game processes: {error}"))?
+#[cfg(target_os = "linux")]
+fn linux_matches(target: &ProcessTarget, pid: u32) -> Result<bool, String> {
+    if pid == std::process::id() {
+        return Ok(false);
+    }
+    if let ProcessTarget::Runner { launcher_pid, .. } = target
+        && Some(pid) == *launcher_pid
     {
-        let entry = entry.map_err(|error| format!("Could not inspect game processes: {error}"))?;
-        let Some(pid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|name| name.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        if pid == std::process::id() || Some(pid) == launcher_pid {
-            continue;
-        }
-        let process = entry.path();
-        let comm = match fs::read(process.join("comm")) {
-            Ok(name) => trim_process_name(name),
-            Err(error) if process_disappeared(&error) => continue,
-            Err(error) => return Err(format!("Could not inspect game process {pid}: {error}")),
-        };
-        if is_wine_launcher(&comm) {
-            continue;
-        }
-        let Some(environ) = read_linux_process_bytes(pid, &process.join("environ"), 1024 * 1024)?
-        else {
-            continue;
-        };
-        if !has_launch_token(&environ, token) {
-            continue;
-        }
-        let Some(command) = read_linux_process_bytes(pid, &process.join("cmdline"), u64::MAX)?
-        else {
-            continue;
-        };
-        if is_proton_wrapper(&comm, &command) {
-            continue;
-        }
-        if process_names_executable(&comm, &command, executable_name) {
-            pids.push(pid);
+        return Ok(false);
+    }
+    let process = Path::new("/proc").join(pid.to_string());
+    let Some(comm) = read_linux_process_bytes(pid, &process.join("comm"), 4096)? else {
+        return Ok(false);
+    };
+    let comm = trim_process_name(comm);
+    if is_steam_helper(&String::from_utf8_lossy(&comm)) || is_wine_launcher(&comm) {
+        return Ok(false);
+    }
+    let Some(environ) = read_linux_process_bytes(pid, &process.join("environ"), 1024 * 1024)?
+    else {
+        return Ok(false);
+    };
+    let matches = match target {
+        ProcessTarget::Steam { app_id, .. } => has_steam_app_id(&environ, *app_id),
+        ProcessTarget::Runner { token, .. } => has_launch_token(&environ, token),
+    };
+    if !matches {
+        return Ok(false);
+    }
+    let Some(command) = read_linux_process_bytes(pid, &process.join("cmdline"), 1024 * 1024)?
+    else {
+        return Ok(false);
+    };
+    if is_proton_wrapper(&comm, &command) {
+        return Ok(false);
+    }
+    match target {
+        ProcessTarget::Steam { .. } => Ok(true),
+        ProcessTarget::Runner {
+            executable_path, ..
+        } => {
+            let name = executable_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| "Game executable name is invalid".to_owned())?;
+            Ok(process_names_executable(&comm, &command, name))
         }
     }
-    Ok(pids)
 }
 
 #[cfg(target_os = "linux")]
@@ -248,9 +276,9 @@ fn has_steam_app_id(environ: &[u8], app_id: u32) -> bool {
 
 #[cfg(target_os = "linux")]
 fn has_launch_token(environ: &[u8], token: &str) -> bool {
-    environ.split(|byte| *byte == 0).any(|entry| {
-        entry.strip_prefix(format!("{LAUNCH_TOKEN_ENV}=").as_bytes()) == Some(token.as_bytes())
-    })
+    environ
+        .split(|byte| *byte == 0)
+        .any(|entry| entry.strip_prefix(b"LEGIO_LAUNCH_TOKEN=") == Some(token.as_bytes()))
 }
 
 #[cfg(target_os = "linux")]
@@ -277,10 +305,7 @@ fn process_names_executable(comm: &[u8], command: &[u8], executable_name: &str) 
 #[cfg(windows)]
 fn windows_matching_pids(install_path: &Path) -> Result<Vec<u32>, String> {
     let processes = windows_processes()?;
-    Ok(windows_pids_from_json(
-        &processes,
-        &install_path.to_string_lossy(),
-    ))
+    Ok(windows_pids(&processes, &install_path.to_string_lossy()))
 }
 
 #[cfg(windows)]
@@ -294,7 +319,7 @@ fn windows_native_matching_pids(
     let mut known = known_pids
         .lock()
         .map_err(|_| "Game process tracking is unavailable".to_owned())?;
-    Ok(windows_native_pids_from_json(
+    Ok(windows_native_pids(
         &processes,
         &game_directory.to_string_lossy(),
         started_after_ms,
@@ -303,43 +328,104 @@ fn windows_native_matching_pids(
     ))
 }
 
+#[cfg(any(windows, test))]
+struct WindowsProcess {
+    pid: u32,
+    parent: u32,
+    executable: String,
+    started_at: i64,
+}
+
 #[cfg(windows)]
-fn windows_processes() -> Result<serde_json::Value, String> {
-    let output = Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,ExecutablePath,@{Name='StartedAt';Expression={if ($_.CreationDate) {([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds()}}} | ConvertTo-Json -Compress",
-        ])
-        .output()
-        .map_err(|error| format!("Could not inspect game processes: {error}"))?;
-    if !output.status.success() {
+struct ProcessHandle(windows_sys::Win32::Foundation::HANDLE);
+
+#[cfg(windows)]
+impl Drop for ProcessHandle {
+    fn drop(&mut self) {
+        // SAFETY: this handle was opened successfully and is owned by this guard.
+        unsafe {
+            windows_sys::Win32::Foundation::CloseHandle(self.0);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn windows_processes() -> Result<Vec<WindowsProcess>, String> {
+    use windows_sys::Win32::Foundation::{ERROR_NO_MORE_FILES, FILETIME, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows_sys::Win32::System::Threading::{
+        GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+    };
+    // SAFETY: the snapshot flag requests process entries, without pointer arguments.
+    let raw = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if raw == INVALID_HANDLE_VALUE {
         return Err(format!(
             "Could not inspect game processes: {}",
-            output.status
+            std::io::Error::last_os_error()
         ));
     }
-    serde_json::from_slice(&output.stdout)
-        .map_err(|error| format!("Could not read game process list: {error}"))
+    let snapshot = ProcessHandle(raw);
+    let mut entry = PROCESSENTRY32W {
+        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
+    let mut path = vec![0_u16; 32768];
+    let mut processes = Vec::new();
+    // SAFETY: the snapshot is live and entry has the required size and writable storage.
+    let mut found = unsafe { Process32FirstW(snapshot.0, &mut entry) };
+    while found != 0 {
+        // SAFETY: this requests query access only, without handle inheritance.
+        let raw = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, entry.th32ProcessID) };
+        if !raw.is_null() {
+            let process = ProcessHandle(raw);
+            let mut size = path.len() as u32;
+            let mut created = FILETIME::default();
+            let mut exited = FILETIME::default();
+            let mut kernel = FILETIME::default();
+            let mut user = FILETIME::default();
+            // SAFETY: the process handle is live; all buffers and sizes are writable and bounded.
+            let readable = unsafe {
+                QueryFullProcessImageNameW(process.0, 0, path.as_mut_ptr(), &mut size) != 0
+                    && GetProcessTimes(process.0, &mut created, &mut exited, &mut kernel, &mut user)
+                        != 0
+            };
+            if readable {
+                let ticks =
+                    (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime);
+                let started_at = ticks
+                    .checked_sub(116_444_736_000_000_000)
+                    .and_then(|ticks| i64::try_from(ticks / 10_000).ok());
+                if let Some(started_at) = started_at {
+                    processes.push(WindowsProcess {
+                        pid: entry.th32ProcessID,
+                        parent: entry.th32ParentProcessID,
+                        executable: String::from_utf16_lossy(&path[..size as usize]),
+                        started_at,
+                    });
+                }
+            }
+        }
+        // SAFETY: the snapshot and correctly sized entry remain live for iteration.
+        found = unsafe { Process32NextW(snapshot.0, &mut entry) };
+    }
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() != Some(ERROR_NO_MORE_FILES as i32) {
+        return Err(format!("Could not enumerate game processes: {error}"));
+    }
+    Ok(processes)
 }
 
 #[cfg(any(windows, test))]
-fn windows_pids_from_json(processes: &serde_json::Value, root: &str) -> Vec<u32> {
+fn windows_pids(processes: &[WindowsProcess], root: &str) -> Vec<u32> {
     let root = normalize_windows_path(root);
     let prefix = format!("{}\\", root.trim_end_matches('\\'));
-    let rows = processes
-        .as_array()
-        .map(Vec::as_slice)
-        .unwrap_or_else(|| std::slice::from_ref(processes));
-    rows.iter()
-        .filter_map(|process| {
-            let path = normalize_windows_path(process.get("ExecutablePath")?.as_str()?);
-            if !path.starts_with(&prefix) {
-                return None;
-            }
-            process.get("ProcessId")?.as_u64()?.try_into().ok()
-        })
+    processes
+        .iter()
+        .filter(|process| normalize_windows_path(&process.executable).starts_with(&prefix))
+        .map(|process| process.pid)
         .collect()
 }
 
@@ -354,8 +440,8 @@ fn normalize_windows_path(path: &str) -> String {
 }
 
 #[cfg(any(windows, test))]
-fn windows_native_pids_from_json(
-    processes: &serde_json::Value,
+fn windows_native_pids(
+    processes: &[WindowsProcess],
     root: &str,
     started_after_ms: i64,
     launcher_pid: Option<u32>,
@@ -366,44 +452,17 @@ fn windows_native_pids_from_json(
     if let Some(pid) = launcher_pid {
         known.insert(pid);
     }
-    let rows = processes
-        .as_array()
-        .map(Vec::as_slice)
-        .unwrap_or_else(|| std::slice::from_ref(processes));
     let mut matched = std::collections::HashSet::new();
     loop {
         let before = matched.len();
-        for process in rows {
-            let Some(pid) = process
-                .get("ProcessId")
-                .and_then(serde_json::Value::as_u64)
-                .and_then(|pid| pid.try_into().ok())
-            else {
-                continue;
-            };
-            let Some(parent) = process
-                .get("ParentProcessId")
-                .and_then(serde_json::Value::as_u64)
-                .and_then(|pid| pid.try_into().ok())
-            else {
-                continue;
-            };
-            let Some(created) = process.get("StartedAt").and_then(serde_json::Value::as_i64) else {
-                continue;
-            };
-            let Some(path) = process
-                .get("ExecutablePath")
-                .and_then(serde_json::Value::as_str)
-            else {
-                continue;
-            };
-            if created >= started_after_ms
-                && normalize_windows_path(path).starts_with(&prefix)
-                && (Some(pid) == launcher_pid
-                    || known.contains(&parent)
-                    || matched.contains(&parent))
+        for process in processes {
+            if process.started_at >= started_after_ms
+                && normalize_windows_path(&process.executable).starts_with(&prefix)
+                && (Some(process.pid) == launcher_pid
+                    || known.contains(&process.parent)
+                    || matched.contains(&process.parent))
             {
-                matched.insert(pid);
+                matched.insert(process.pid);
             }
         }
         if matched.len() == before {
@@ -418,14 +477,20 @@ fn windows_native_pids_from_json(
 
 #[cfg(target_os = "linux")]
 fn stop_pid(pid: u32) -> Result<(), String> {
-    let status = Command::new("kill")
-        .args(["-TERM", &pid.to_string()])
-        .status()
-        .map_err(|error| format!("Could not stop game process {pid}: {error}"))?;
-    if status.success() {
+    let pid = i32::try_from(pid)
+        .ok()
+        .filter(|pid| *pid > 0)
+        .ok_or_else(|| "Game process ID is invalid".to_owned())?;
+    // SAFETY: the positive PID targets one process and SIGTERM is a valid signal.
+    if unsafe { libc::kill(pid, libc::SIGTERM) } == 0 {
         Ok(())
     } else {
-        Err(format!("Could not stop game process {pid}: {status}"))
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::ESRCH) {
+            Ok(())
+        } else {
+            Err(format!("Could not stop game process {pid}: {error}"))
+        }
     }
 }
 
@@ -457,6 +522,20 @@ fn stop_native_pid(pid: u32) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    fn test_processes(value: serde_json::Value) -> Vec<super::WindowsProcess> {
+        value
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|process| super::WindowsProcess {
+                pid: process["ProcessId"].as_u64().unwrap() as u32,
+                parent: process["ParentProcessId"].as_u64().unwrap() as u32,
+                executable: process["ExecutablePath"].as_str().unwrap().to_owned(),
+                started_at: process["StartedAt"].as_i64().unwrap(),
+            })
+            .collect()
+    }
+
     #[cfg(windows)]
     #[test]
     fn native_stop_forces_requested_process_to_exit() {
@@ -479,31 +558,31 @@ mod tests {
     #[test]
     fn windows_native_processes_follow_launcher_ancestry_and_normalize_paths() {
         let root = r"\\?\C:\Games\One";
-        let first = serde_json::json!([
+        let first = test_processes(serde_json::json!([
             {"ProcessId": 1, "ParentProcessId": 99, "ExecutablePath": "C:\\Games\\One\\old.exe", "StartedAt": 99},
             {"ProcessId": 2, "ParentProcessId": 99, "ExecutablePath": "C:\\Games\\One\\game.exe", "StartedAt": 100},
             {"ProcessId": 3, "ParentProcessId": 99, "ExecutablePath": "C:\\Games\\OneMore\\game.exe", "StartedAt": 200},
             {"ProcessId": 4, "ParentProcessId": 99, "ExecutablePath": "C:\\Games\\One\\unrelated.exe", "StartedAt": 101}
-        ]);
+        ]));
         let mut known = std::collections::HashSet::new();
         assert_eq!(
-            super::windows_native_pids_from_json(&first, root, 100, Some(2), &mut known),
+            super::windows_native_pids(&first, root, 100, Some(2), &mut known),
             vec![2]
         );
-        let second = serde_json::json!([
+        let second = test_processes(serde_json::json!([
             {"ProcessId": 6, "ParentProcessId": 5, "ExecutablePath": "C:\\Games\\One\\deep.exe", "StartedAt": 106},
             {"ProcessId": 5, "ParentProcessId": 2, "ExecutablePath": "C:\\Games\\One\\child.exe", "StartedAt": 105},
             {"ProcessId": 4, "ParentProcessId": 99, "ExecutablePath": "C:\\Games\\One\\unrelated.exe", "StartedAt": 101}
-        ]);
+        ]));
         assert_eq!(
-            super::windows_native_pids_from_json(&second, root, 100, Some(2), &mut known),
+            super::windows_native_pids(&second, root, 100, Some(2), &mut known),
             vec![5, 6]
         );
         assert_eq!(
             super::normalize_windows_path(r"\\?\UNC\Server\Share\Game"),
             r"\\server\share\game"
         );
-        assert_eq!(super::windows_pids_from_json(&first, root), vec![1, 2, 4]);
+        assert_eq!(super::windows_pids(&first, root), vec![1, 2, 4]);
     }
     #[cfg(target_os = "linux")]
     #[test]
@@ -595,6 +674,37 @@ mod tests {
         helper.kill().unwrap();
         helper.wait().unwrap();
         std::fs::remove_file(executable).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn monitor_reuses_live_identity_and_rediscovers_after_exit() {
+        let app_id = 4_294_967_280;
+        let target = super::ProcessTarget::Steam {
+            app_id,
+            install_path: std::path::PathBuf::new(),
+        };
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .env("SteamAppId", app_id.to_string())
+            .spawn()
+            .unwrap();
+        let mut monitor = super::ProcessMonitor::new();
+        assert_eq!(monitor.matching_pids(&target).unwrap(), vec![child.id()]);
+        let first_scan = monitor.discovered_at;
+        assert_eq!(monitor.matching_pids(&target).unwrap(), vec![child.id()]);
+        assert_eq!(monitor.discovered_at, first_scan);
+        child.kill().unwrap();
+        child.wait().unwrap();
+        let mut replacement = std::process::Command::new("sleep")
+            .arg("30")
+            .env("SteamAppId", app_id.to_string())
+            .spawn()
+            .unwrap();
+        let result = monitor.matching_pids(&target);
+        replacement.kill().unwrap();
+        replacement.wait().unwrap();
+        assert_eq!(result.unwrap(), vec![replacement.id()]);
     }
 
     #[cfg(target_os = "linux")]
