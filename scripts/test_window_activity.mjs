@@ -180,3 +180,46 @@ test("static dither redraws on changes without keeping a frame loop alive", asyn
   await unmount(instance);
   target.remove();
 });
+
+test("visible refresh has no timer while inactive and refreshes immediately on focus restore", async () => {
+  focused = false;
+  visible = true;
+  minimized = false;
+  const intervals = new Map();
+  let nextTimer = 0;
+  let refreshes = 0;
+  const originalSet = globalThis.setInterval;
+  const originalClear = globalThis.clearInterval;
+  globalThis.setInterval = (callback) => { const id = ++nextTimer; intervals.set(id, callback); return id; };
+  globalThis.clearInterval = (id) => intervals.delete(id);
+  let stop;
+  try {
+    const { startVisibleRefresh } = await import(await load("src/lib/stores/visible-refresh.ts"));
+    stop = startVisibleRefresh(() => refreshes++, 30000);
+    await settle();
+    assert.equal(refreshes, 0);
+    assert.equal(intervals.size, 0);
+    focused = true;
+    focusChanged({ payload: true });
+    await settle();
+    assert.equal(refreshes, 1);
+    assert.equal(intervals.size, 1);
+    intervals.values().next().value();
+    assert.equal(refreshes, 2);
+    focused = false;
+    focusChanged({ payload: false });
+    assert.equal(intervals.size, 0);
+    focused = true;
+    focusChanged({ payload: true });
+    await settle();
+    assert.equal(refreshes, 3);
+    assert.equal(intervals.size, 1);
+    stop();
+    stop = undefined;
+    assert.equal(intervals.size, 0);
+  } finally {
+    stop?.();
+    globalThis.setInterval = originalSet;
+    globalThis.clearInterval = originalClear;
+  }
+});

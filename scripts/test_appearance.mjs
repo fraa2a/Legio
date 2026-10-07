@@ -22,6 +22,7 @@ const previewStore = writable(null);
 globalThis.themeSettings = settingsStore;
 globalThis.themePreview = previewStore;
 const mocks = {
+  "src/lib/stores/window-activity": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const windowActive = writable(true);`),
   "@tauri-apps/api/core": invoke,
   "@tauri-apps/plugin-dialog": dialog,
   "src/lib/i18n": locale,
