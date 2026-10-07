@@ -198,12 +198,16 @@ pub fn list_games(state: State<'_, DatabaseState>) -> Result<Vec<Game>, String> 
 }
 
 #[tauri::command]
-pub fn get_playtime_summaries(
-    state: State<'_, DatabaseState>,
+pub async fn get_playtime_summaries(
+    app: AppHandle,
 ) -> Result<Vec<database::PlaytimeSummary>, String> {
-    state
-        .database()?
-        .playtime_summaries(database::now_milliseconds()?)
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<DatabaseState>()
+            .database()?
+            .playtime_summaries(database::now_milliseconds()?)
+    })
+    .await
+    .map_err(|error| format!("Playtime summary task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -370,29 +374,10 @@ pub fn update_game(
 }
 
 #[tauri::command]
-pub fn remove_game(app: AppHandle, id: String) -> Result<(), String> {
-    let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
-    let _operation = manager.operation()?;
-    manager.require_idle(&id)?;
-    app.state::<DatabaseState>().database()?.remove_game(&id)?;
-    let mut errors = Vec::new();
-    if let Err(error) = app
-        .state::<crate::game_artwork::GameArtworkStore>()
-        .remove_for_game(&id)
-    {
-        errors.push(format!("custom artwork: {error}"));
-    }
-    if let Err(error) = crate::desktop_shortcuts::remove(&id) {
-        errors.push(format!("desktop shortcuts: {error}"));
-    }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(format!(
-            "Game was removed, but cleanup failed: {}",
-            errors.join("; ")
-        ))
-    }
+pub async fn remove_game(app: AppHandle, id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::game_lifecycle::remove_game(&app, &id))
+        .await
+        .map_err(|error| format!("Game removal task failed: {error}"))?
 }
 
 #[tauri::command]

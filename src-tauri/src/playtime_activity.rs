@@ -19,20 +19,40 @@ pub(crate) fn daily_playtime(
     database.with_connection(|connection| {
         let mut statement = connection
             .prepare(
-                "SELECT COALESCE(SUM(MAX(0,
-                     MIN(COALESCE(ended_at, ?3), ?2, ?3) - MAX(started_at, ?1))), 0)
+                "SELECT started_at, MIN(COALESCE(ended_at, ?3), ?3)
                  FROM game_sessions
                  WHERE started_at < ?2 AND COALESCE(ended_at, ?3) > ?1",
             )
             .map_err(|error| format!("could not read playtime activity: {error}"))?;
-        day_boundaries
-            .windows(2)
-            .map(|day| {
-                statement
-                    .query_row(rusqlite::params![day[0], day[1], now], |row| row.get(0))
-                    .map_err(|error| format!("could not read daily playtime: {error}"))
-            })
-            .collect()
+        let rows = statement
+            .query_map(
+                rusqlite::params![
+                    day_boundaries[0],
+                    day_boundaries[day_boundaries.len() - 1],
+                    now
+                ],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .map_err(|error| format!("could not read playtime activity: {error}"))?;
+        let mut totals = vec![0i64; day_boundaries.len() - 1];
+        for row in rows {
+            let (start, end) =
+                row.map_err(|error| format!("could not read playtime activity: {error}"))?;
+            let first = day_boundaries
+                .partition_point(|boundary| *boundary <= start)
+                .saturating_sub(1);
+            for index in first..totals.len() {
+                if day_boundaries[index] >= end {
+                    break;
+                }
+                let overlap =
+                    (end.min(day_boundaries[index + 1]) - start.max(day_boundaries[index])).max(0);
+                totals[index] = totals[index]
+                    .checked_add(overlap)
+                    .ok_or("Playtime activity exceeded the supported range")?;
+            }
+        }
+        Ok(totals)
     })
 }
 

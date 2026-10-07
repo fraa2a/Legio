@@ -307,6 +307,7 @@ impl DatabaseState {
 
 pub struct Database {
     connection: Mutex<Connection>,
+    pub(crate) source_cache: Mutex<Option<crate::legio_source_cache::CachedSource>>,
 }
 
 impl Database {
@@ -454,6 +455,7 @@ impl Database {
         migrate(&connection)?;
         let database = Self {
             connection: Mutex::new(connection),
+            source_cache: Mutex::new(None),
         };
         database.recover_open_game_sessions(now_milliseconds()?)?;
         Ok(database)
@@ -994,6 +996,29 @@ impl Database {
                 })
                 .map_err(database_error)?;
             rows.collect::<Result<Vec<_>, _>>().map_err(database_error)
+        })
+    }
+
+    pub(crate) fn running_game_presence(
+        &self,
+        game_ids: &[&str],
+    ) -> Result<Option<(String, Option<i64>)>, String> {
+        if game_ids.is_empty() {
+            return Ok(None);
+        }
+        let placeholders = (1..=game_ids.len())
+            .map(|index| format!("?{index}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        self.with_connection(|connection| {
+            connection.query_row(&format!(
+                "SELECT COALESCE(g.name_override, g.automatic_name),
+                    CASE WHEN SUM(CASE WHEN s.id IS NOT NULL AND s.ended_at IS NULL THEN 1 ELSE 0 END) > 0 THEN MAX(s.started_at) END
+                 FROM games g LEFT JOIN game_sessions s ON s.game_id = g.id
+                 WHERE g.id IN ({placeholders}) GROUP BY g.id
+                 ORDER BY MAX(s.started_at) DESC, g.id DESC LIMIT 1"),
+                rusqlite::params_from_iter(game_ids.iter()), |row| Ok((row.get(0)?, row.get(1)?)))
+                .optional().map_err(database_error)
         })
     }
 
@@ -2231,6 +2256,7 @@ mod tests {
         assert_eq!(cached_query, "portal");
         let database = Database {
             connection: Mutex::new(connection),
+            source_cache: Mutex::new(None),
         };
         assert_eq!(database.settings().unwrap().theme, Theme::Dark);
         assert_eq!(

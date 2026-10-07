@@ -80,6 +80,11 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Feed, String> {
     }
     let feed: Feed =
         serde_json::from_slice(bytes).map_err(|error| format!("Invalid news JSON: {error}"))?;
+    validate(&feed)?;
+    Ok(feed)
+}
+
+fn validate(feed: &Feed) -> Result<(), String> {
     if feed.schema_version != 1 || feed.items.len() > 100 {
         return Err("Unsupported news schema or too many articles.".to_owned());
     }
@@ -101,7 +106,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Feed, String> {
         text(&article.summary, 600, false)?;
         text(&article.body, 12000, true)?;
     }
-    Ok(feed)
+    Ok(())
 }
 
 fn read_cache(database: &Database) -> Result<Snapshot, String> {
@@ -124,7 +129,7 @@ fn read_cache(database: &Database) -> Result<Snapshot, String> {
     let snapshot: Snapshot =
         serde_json::from_str(&raw).map_err(|error| format!("Invalid cached news: {error}"))?;
     if let Some(feed) = &snapshot.feed {
-        parse(&serde_json::to_vec(feed).map_err(|error| error.to_string())?)?;
+        validate(feed)?;
     }
     Ok(snapshot)
 }
@@ -141,12 +146,11 @@ pub async fn refresh(app: AppHandle, state: &NetworkState) -> Result<Snapshot, S
     let fetched = state
         .news()
         .await
-        .map_err(|error| format!("Could not fetch news: {error:?}"))
-        .and_then(|bytes| parse(&bytes));
+        .map_err(|error| format!("Could not fetch news: {error:?}"));
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatabaseState>();
         let database = state.database()?;
-        let fresh = fetched.and_then(|feed| {
+        let fresh = fetched.and_then(|bytes| parse(&bytes)).and_then(|feed| {
             let cached_at = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_secs() as i64;
             let snapshot = Snapshot { feed: Some(feed), cached_at: Some(cached_at), warning: None };
             let raw = serde_json::to_string(&snapshot).map_err(|error| error.to_string())?;
