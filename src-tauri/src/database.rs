@@ -1988,15 +1988,17 @@ mod tests {
     #[test]
     fn discord_presence_defaults_persist_and_invalid_ids_do_not_overwrite_settings() {
         let old: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(old.discord_presence.enabled);
         assert_eq!(
             old.discord_presence,
             crate::discord_presence::PresenceSettings::default()
         );
         let directory = temporary_directory();
         let database = Database::open(&directory).unwrap();
+        assert!(database.settings().unwrap().discord_presence.enabled);
         let settings = Settings {
             discord_presence: crate::discord_presence::PresenceSettings {
-                enabled: true,
+                enabled: false,
                 application_id: "123456789012345678".to_owned(),
             },
             ..Settings::default()
