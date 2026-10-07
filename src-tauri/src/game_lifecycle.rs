@@ -1381,13 +1381,12 @@ fn validate_dll_overrides(
 
 #[cfg(target_os = "linux")]
 fn apply_dll_overrides(command: &mut Command, config: &EffectiveCompatibilityConfig) {
-    let overrides = if config.online_fix {
-        baseline_dll_overrides(&config.dll_overrides)
-    } else {
-        config.dll_overrides.clone()
-    };
+    let merged = config
+        .online_fix
+        .then(|| baseline_dll_overrides(&config.dll_overrides));
+    let overrides = merged.as_ref().unwrap_or(&config.dll_overrides);
     if !overrides.is_empty() {
-        command.env("WINEDLLOVERRIDES", format_dll_overrides(&overrides));
+        command.env("WINEDLLOVERRIDES", format_dll_overrides(overrides));
     }
 }
 
