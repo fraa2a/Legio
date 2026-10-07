@@ -100,6 +100,10 @@ pub fn run() -> tauri::Result<()> {
         .plugin(tauri_plugin_process::init())
         .setup(move |app| {
             let database = database::DatabaseState::new(app.path().app_data_dir());
+            let initial_settings = database
+                .database()?
+                .settings()
+                .map_err(std::io::Error::other)?;
             let bandwidth_limit = database
                 .database()
                 .and_then(database::Database::download_bandwidth_limit)
@@ -153,23 +157,11 @@ pub fn run() -> tauri::Result<()> {
                 }
             })));
             app.state::<download_queue::DownloadQueueState>()
-                .set_defer_extraction(
-                    app.state::<database::DatabaseState>()
-                        .database()?
-                        .settings()
-                        .map_err(std::io::Error::other)?
-                        .defer_extraction_while_playing,
-                );
+                .set_defer_extraction(initial_settings.defer_extraction_while_playing);
             download_queue::start(app.handle().clone()).map_err(std::io::Error::other)?;
-            let diagnostics_enabled = app
-                .state::<database::DatabaseState>()
-                .database()?
-                .settings()
-                .map_err(std::io::Error::other)?
-                .diagnostics_enabled;
             let diagnostics = diagnostics::Diagnostics::with_enabled(
                 app.path().app_log_dir().map_err(|error| error.to_string()),
-                diagnostics_enabled,
+                initial_settings.diagnostics_enabled,
             );
             let assets = steam_assets::AssetCacheState::new(app.path().app_cache_dir());
             let maintenance = assets.clone();
@@ -191,11 +183,7 @@ pub fn run() -> tauri::Result<()> {
             );
             app.manage(diagnostics);
             app.manage(discord_presence::PresenceService::start(app.handle())?);
-            let language = app
-                .state::<database::DatabaseState>()
-                .database()?
-                .settings()?
-                .language;
+            let language = initial_settings.language;
             let open = MenuItem::with_id(
                 app,
                 "open",
@@ -243,15 +231,9 @@ pub fn run() -> tauri::Result<()> {
             }
             app.manage(TrayAvailable(tray_result.is_ok()));
             if std::env::args_os().any(|argument| argument == "--minimized") {
-                let minimized = app
-                    .state::<database::DatabaseState>()
-                    .database()
-                    .and_then(database::Database::settings)
-                    .is_ok_and(|settings| {
-                        settings.onboarding_completed
-                            && settings.launch_on_system_start
-                            && settings.launch_minimized
-                    });
+                let minimized = initial_settings.onboarding_completed
+                    && initial_settings.launch_on_system_start
+                    && initial_settings.launch_minimized;
                 if minimized
                     && tray_result.is_ok()
                     && let Some(window) = app.get_webview_window("main")
