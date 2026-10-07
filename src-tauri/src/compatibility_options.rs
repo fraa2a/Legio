@@ -72,6 +72,13 @@ impl PreparedOptions {
             command.env(key, value);
         }
 
+        if !config.debug_logging && !config.environment.contains_key(PROTON_LOG) {
+            command.env_remove(PROTON_LOG);
+            if !config.environment.contains_key(PROTON_LOG_DIR) {
+                command.env_remove(PROTON_LOG_DIR);
+            }
+        }
+
         match config.graphics_renderer {
             GraphicsRenderer::RunnerDefault => {
                 command.env_remove("PROTON_USE_WINED3D");
@@ -352,6 +359,43 @@ mod tests {
                 .lines()
                 .any(|line| line == "PROTON_ENABLE_WAYLAND=1")
         );
+    }
+
+    #[test]
+    fn disabled_debug_logging_clears_inherited_proton_flags_and_preserves_explicit_values() {
+        let runner = runner(RunnerKind::Proton);
+        let mut config = EffectiveCompatibilityConfig::default();
+        let prepared = PreparedOptions::prepare(&config, &runner, None, false).unwrap();
+        let mut command = Command::new("/usr/bin/env");
+        command
+            .env(PROTON_LOG, "1")
+            .env(PROTON_LOG_DIR, "/inherited-log-dir");
+        prepared.apply(&mut command, &config).unwrap();
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| key == PROTON_LOG && value.is_none())
+        );
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| key == PROTON_LOG_DIR && value.is_none())
+        );
+        config
+            .environment
+            .insert(PROTON_LOG.to_owned(), "1".to_owned());
+        config
+            .environment
+            .insert(PROTON_LOG_DIR.to_owned(), "/explicit-log-dir".to_owned());
+        prepared.apply(&mut command, &config).unwrap();
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| key == PROTON_LOG && value == Some("1".as_ref()))
+        );
+        assert!(command.get_envs().any(
+            |(key, value)| key == PROTON_LOG_DIR && value == Some("/explicit-log-dir".as_ref())
+        ));
     }
 
     #[test]
