@@ -1,5 +1,6 @@
+import { windowActive } from "./window-activity";
 import { t } from "../i18n";
-import { derived, writable } from "svelte/store";
+import { derived, get, writable } from "svelte/store";
 import {
   cancelDownload,
   getDownloadBandwidthLimit,
@@ -87,7 +88,11 @@ function syncProgressPolling(count: number): void {
 export function startDownloadProgressPolling(): void {
   if (progressPollingSubscribed) return;
   progressPollingSubscribed = true;
-  activeDownloadCount.subscribe(syncProgressPolling);
+  windowActive.subscribe((active) => {
+    if (active) void downloads.load();
+    syncProgressPolling(active ? get(activeDownloadCount) : 0);
+  });
+  activeDownloadCount.subscribe((count) => syncProgressPolling(get(windowActive) ? count : 0));
 }
 
 export async function queueJob(steamAppId: number, downloadUrl: string, releaseVersion: string, acceptUnverified: boolean): Promise<void> {
