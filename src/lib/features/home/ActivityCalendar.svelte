@@ -25,7 +25,7 @@
   onMount(() => {
     const timer = setInterval(() => {
       now = new Date();
-      void activity.load();
+      if (monthOffset === 0) void activity.load();
     }, 30000);
     return () => clearInterval(timer);
   });

@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFile } from "node:fs/promises";
 import ts from "typescript";
-import { get } from "svelte/store";
+import { get, writable } from "svelte/store";
+import { createModuleLoader } from "./test_module_loader.mjs";
 
 const dataModule = (code) => `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`;
 const localeSource = await readFile(new URL("../src/lib/i18n/index.ts", import.meta.url), "utf8");
@@ -142,7 +143,13 @@ test("catalog load more requests the next remote page", async () => {
     rememberCatalogSearch: () => {},
   };
   const service = dataModule("export const cachedCatalogSearch = (...args) => globalThis.legioCatalogMock.cachedCatalogSearch(...args); export const searchCatalog = (...args) => globalThis.legioCatalogMock.searchCatalog(...args); export const refreshCatalogCached = (...args) => globalThis.legioCatalogMock.refreshCatalogCached(...args); export const refreshCatalogPage = (...args) => globalThis.legioCatalogMock.refreshCatalogPage(...args); export const rememberCatalogSearch = (...args) => globalThis.legioCatalogMock.rememberCatalogSearch(...args);");
-  const { catalog: state, runCatalogSearch, loadMoreCatalog } = await loadModule("../src/lib/stores/catalog.ts", { "../services/catalog": service, "../utils/errors": errors });
+  globalThis.legioSourceFixture = writable({ data: { manifest: null, stale: false } });
+  const { load } = createModuleLoader({
+    "src/lib/services/catalog": service,
+    "src/lib/utils/errors": errors,
+    "src/lib/stores/source": dataModule("export const source = globalThis.legioSourceFixture;"),
+  });
+  const { catalog: state, runCatalogSearch, loadMoreCatalog } = await import(await load("src/lib/stores/catalog.ts"));
   await runCatalogSearch("portal");
   assert.equal(get(state).nextOffset, 50);
   await loadMoreCatalog("portal", 40);
@@ -150,6 +157,34 @@ test("catalog load more requests the next remote page", async () => {
   await loadMoreCatalog("portal", 60);
   assert.deepEqual(pages, [50]);
   assert.equal(get(state).results.length, 3);
+  globalThis.legioSourceFixture.set({ data: { manifest: { verified: [{ steamAppId: 400 }], unverified: [] }, stale: false } });
+  assert.equal(get(state).results[0].availability, "verified", "a refreshed source updates visible search results");
+});
+
+test("library groups preserve matching versions and sum all installations through the summary index", async () => {
+  const { libraryGroups, libraryItems } = await loadModule("../src/lib/features/library/library-model.ts");
+  const games = [
+    { id: "first", name: "Portal original", steamAppId: 400, steamInstallPath: "/steam" },
+    { id: "second", name: "Portal modded", steamAppId: 400, steamInstallPath: null },
+    { id: "manual", name: "Other game", steamAppId: null, steamInstallPath: null },
+  ];
+  const summaries = new Map([["first", { totalMilliseconds: 100 }], ["second", { totalMilliseconds: 200 }]]);
+  const launches = new Map([["second", { status: "running" }]]);
+  assert.equal(libraryGroups(games, "").length, 2);
+  const modded = libraryItems(libraryGroups(games, "modded"), "modded", summaries, launches);
+  assert.equal(modded[0].game.id, "second");
+  assert.equal(modded[0].totalMilliseconds, 300);
+  const original = libraryItems(libraryGroups(games, "original"), "original", summaries, launches);
+  assert.equal(original[0].game.id, "first", "running versions do not override a different query match");
+});
+
+test("source indexing preserves verified precedence and release order", async () => {
+  const { sourceStatusFor, sourceReleasesFor } = await loadModule("../src/lib/features/store/source-status.ts");
+  const manifest = { verified: [{ steamAppId: 400, name: "verified" }, { steamAppId: 400, name: "second" }], unverified: [{ steamAppId: 400, name: "unverified" }] };
+  assert.equal(sourceStatusFor(manifest, 400).entry.name, "verified");
+  assert.deepEqual(sourceReleasesFor(manifest, 400).map(({ entry }) => entry.name), ["verified", "second", "unverified"]);
+  assert.equal(sourceStatusFor(manifest, 401).availability, "unavailable");
+  assert.equal(sourceStatusFor(null, 400).availability, "unknown");
 });
 
 

@@ -15,6 +15,23 @@ export interface SourceReleaseStatus {
   entry: SourceEntry;
 }
 
+const releaseIndexes = new WeakMap<SourceManifest, Map<number, SourceReleaseStatus[]>>();
+
+function releaseIndex(manifest: SourceManifest): Map<number, SourceReleaseStatus[]> {
+  const cached = releaseIndexes.get(manifest);
+  if (cached !== undefined) return cached;
+  const index = new Map<number, SourceReleaseStatus[]>();
+  for (const availability of ["verified", "unverified"] as const) {
+    for (const entry of manifest[availability]) {
+      const releases = index.get(entry.steamAppId);
+      if (releases === undefined) index.set(entry.steamAppId, [{ availability, entry }]);
+      else releases.push({ availability, entry });
+    }
+  }
+  releaseIndexes.set(manifest, index);
+  return index;
+}
+
 export const availabilityMeta: Record<
   SourceAvailability,
   { label: string; tone: SourceTone }
@@ -42,11 +59,7 @@ export function sourceStatusFor(
   steamAppId: number,
 ): SourceStatus {
   if (manifest === null) return { availability: "unknown", entry: null };
-  const verified = manifest.verified.find((entry) => entry.steamAppId === steamAppId);
-  if (verified !== undefined) return { availability: "verified", entry: verified };
-  const unverified = manifest.unverified.find((entry) => entry.steamAppId === steamAppId);
-  if (unverified !== undefined) return { availability: "unverified", entry: unverified };
-  return { availability: "unavailable", entry: null };
+  return releaseIndex(manifest).get(steamAppId)?.[0] ?? { availability: "unavailable", entry: null };
 }
 
 export function sourceReleasesFor(
@@ -54,10 +67,7 @@ export function sourceReleasesFor(
   steamAppId: number,
 ): SourceReleaseStatus[] {
   if (manifest === null) return [];
-  return [
-    ...manifest.verified.filter((entry) => entry.steamAppId === steamAppId).map((entry) => ({ availability: "verified" as const, entry })),
-    ...manifest.unverified.filter((entry) => entry.steamAppId === steamAppId).map((entry) => ({ availability: "unverified" as const, entry })),
-  ];
+  return releaseIndex(manifest).get(steamAppId) ?? [];
 }
 
 export function sourceReleaseId(entry: SourceEntry): string {
