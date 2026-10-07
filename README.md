@@ -74,3 +74,11 @@ start time are published, never executable paths, Steam accounts or launch optio
 ### Work during a game session
 
 Backgrounds, media and CSS animations pause when Legio loses focus, is minimized or is hidden in the tray, and during a tracked game session. Recent artwork prefetch and scheduled Steam scans wait until the session ends. General settings offer an optional switch to defer automatic download extraction until all tracked games are idle; existing extractions finish safely and network downloads continue. Explicit installation/finalization actions remain under user control. Game activity arrives through native events with a periodic recovery sync. Shortcut preparation runs outside the UI thread.
+
+### Optional Linux performance controls
+
+The compatibility panel of each manually imported game offers GameMode and gamescope. They are disabled by default and require the corresponding executable in PATH or ~/.local/bin. Install the distribution packages and reopen the panel to refresh availability. GameMode also needs a working user service and its preload libraries; Legio does not change its system configuration.
+
+With gamescope enabled, choose a native or explicit internal resolution and an optional frame cap. Commands use the structured order `gamescope [numeric options] -- gamemoderun umu-run game.exe [game arguments]`; disabled wrappers are omitted and Wine replaces umu-run for Wine runners. Steam-managed games keep their existing client launch path. Resolution and FPS are validated before saving and launching. A lower internal resolution changes visual quality, and the additional compositor can change latency. GameMode, gamescope and native Wine Wayland are independent controls. Compare each change against the default for the same game; no FPS gain is guaranteed.
+
+References: [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher), [vkd3d-proton shader cache](https://github.com/HansKristian-Work/vkd3d-proton), [GameMode](https://github.com/FeralInteractive/gamemode) and [gamescope](https://github.com/ValveSoftware/gamescope).

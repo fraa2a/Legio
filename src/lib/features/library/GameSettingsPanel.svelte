@@ -35,6 +35,8 @@
   let defaults = $state<CompatibilityDefaults | null>(null);
   let runners = $state<{ kind: string; name: string; version: string; path: string }[]>([]);
   let runnerDiagnostics = $state<string[]>([]);
+  let gameModeAvailable = $state(false);
+  let gamescopeAvailable = $state(false);
   let argumentsBefore = $state("");
   let argumentsAfter = $state("");
   let environmentText = $state("");
@@ -87,7 +89,7 @@
       const [overrideResult, defaultsResult, runnersResult, onlineFixResult] = await Promise.allSettled([
         getGameCompatibilityOverrides(game.id),
         getCompatibilityDefaults(),
-        section === "compatibility" ? listCompatibilityRunners() : Promise.resolve({ runners: [], diagnostics: [] }),
+        section === "compatibility" ? listCompatibilityRunners() : Promise.resolve({ runners: [], diagnostics: [], gameModeAvailable: false, gamescopeAvailable: false }),
         section === "compatibility" ? getGameOnlineFixDetected(game.id) : Promise.resolve(false),
       ]);
       if (overrideResult.status === "fulfilled") {
@@ -104,6 +106,8 @@
       if (runnersResult.status === "fulfilled") {
         runners = runnersResult.value.runners;
         runnerDiagnostics = runnersResult.value.diagnostics;
+        gameModeAvailable = runnersResult.value.gameModeAvailable;
+        gamescopeAvailable = runnersResult.value.gamescopeAvailable;
       } else if (loadError === null) {
         loadError = toMessage(runnersResult.reason);
       }
@@ -181,6 +185,28 @@
 
   function setWayland(value: string): void {
     if (value === "inherit" || isWaylandMode(value)) setOverride("wayland", value === "inherit" ? null : value);
+  }
+
+  function setPerformance(changes: Partial<GameCompatibilityOverrides["linuxPerformance"]>): void {
+    setOverride("linuxPerformance", { ...overrides.linuxPerformance, ...changes });
+  }
+
+  function setGamescopeResolution(value: string): void {
+    const config = overrides.linuxPerformance.gamescope;
+    if (config === null) return;
+    if (value === "native") {
+      setPerformance({ gamescope: { ...config, width: null, height: null } });
+    } else {
+      const [width, height] = value.split("x").map(Number);
+      if (Number.isInteger(width) && Number.isInteger(height)) setPerformance({ gamescope: { ...config, width, height } });
+    }
+  }
+
+  function setGamescopeFps(value: string): void {
+    const config = overrides.linuxPerformance.gamescope;
+    if (config === null) return;
+    const fps = value === "uncapped" ? null : Number(value);
+    if (fps === null || (Number.isInteger(fps) && fps >= 1 && fps <= 360)) setPerformance({ gamescope: { ...config, fps } });
   }
 
   function setDebugLogging(value: string): void {
@@ -347,6 +373,33 @@
     <Toggle label={t("Avvia con OnlineFix", $language)} checked={overrides.onlineFix ?? onlineFixDetected}
       onChange={(checked) => setOverride("onlineFix", checked ? (onlineFixDetected ? null : true) : false)} />
     {#if onlineFixDetected}<p class="text-xs text-zinc-500">{t("OnlineFix64.dll rilevato nella cartella del gioco.", $language)}</p>{/if}
+
+    <div class="flex flex-col gap-3">
+      <span class="text-sm text-zinc-400 light:text-zinc-600">{t("Prestazioni Linux", $language)}</span>
+      <Toggle label="GameMode" checked={overrides.linuxPerformance.gameMode}
+        disabled={!gameModeAvailable && !overrides.linuxPerformance.gameMode}
+        onChange={(checked) => setPerformance({ gameMode: checked })} />
+      <Toggle label="Gamescope" checked={overrides.linuxPerformance.gamescope !== null}
+        disabled={!gamescopeAvailable && overrides.linuxPerformance.gamescope === null}
+        onChange={(checked) => setPerformance({ gamescope: checked ? { width: null, height: null, fps: null } : null })} />
+      {#if !gameModeAvailable || !gamescopeAvailable}
+        <p class="text-xs text-zinc-500">{t("Installa GameMode o gamescope e riapri queste impostazioni per abilitarli.", $language)}</p>
+      {/if}
+      {#if overrides.linuxPerformance.gamescope !== null}
+        {@const config = overrides.linuxPerformance.gamescope}
+        <div class="grid gap-4 md:grid-cols-2">
+          <SelectField id="gamescope-resolution" label={t("Risoluzione interna", $language)}
+            value={config.width === null ? "native" : `${config.width}x${config.height}`}
+            options={[{ value: "native", label: t("Nativa", $language) }, ...[...new Set(["1280x720", "1600x900", "1920x1080", "2560x1440", "3840x2160", ...(config.width === null ? [] : [`${config.width}x${config.height}`])])].map((value) => ({ value, label: value }))]}
+            onChange={setGamescopeResolution} />
+          <SelectField id="gamescope-fps" label={t("Limite FPS", $language)} value={config.fps === null ? "uncapped" : String(config.fps)}
+            options={[{ value: "uncapped", label: t("Senza limite", $language) }, ...[...new Set([30, 40, 60, 90, 120, 144, 165, 240, 360, ...(config.fps === null ? [] : [config.fps])])].map((fps) => ({ value: String(fps), label: String(fps) }))]}
+            onChange={setGamescopeFps} />
+        </div>
+        <p class="text-xs text-zinc-500">{t("Una risoluzione inferiore riduce la qualità visiva. Il limite FPS può ridurre consumi e temperature.", $language)}</p>
+      {/if}
+      <p class="text-xs text-zinc-500">{t("GameMode e Gamescope sono facoltativi. Confronta prestazioni e frametime sul gioco; Wayland resta una scelta separata.", $language)}</p>
+    </div>
 
     <div class="grid gap-4 md:grid-cols-2">
       <SelectField id="game-compat-renderer" label={t("Renderer grafico", $language)} value={overrides.graphicsRenderer ?? "inherit"} options={[{ value: "inherit", label: t("Eredita default", $language) }, { value: "runner_default", label: t("Predefinito del runner", $language) }, { value: "wine_d3d", label: "WineD3D" }]} onChange={setGraphicsRenderer} />
