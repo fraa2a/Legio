@@ -117,6 +117,8 @@ pub struct DownloadQueueState {
     wake: tokio::sync::Notify,
     limit_changed: tokio::sync::Notify,
     staging: tokio::sync::Mutex<()>,
+    defer_extraction: AtomicBool,
+    staging_changed: tokio::sync::Notify,
 }
 
 impl DownloadQueueState {
@@ -142,7 +144,39 @@ impl DownloadQueueState {
             wake: tokio::sync::Notify::new(),
             limit_changed: tokio::sync::Notify::new(),
             staging: tokio::sync::Mutex::new(()),
+            defer_extraction: AtomicBool::new(false),
+            staging_changed: tokio::sync::Notify::new(),
         })
+    }
+
+    pub(crate) fn set_defer_extraction(&self, enabled: bool) {
+        self.defer_extraction.store(enabled, Ordering::Release);
+        self.staging_changed.notify_waiters();
+    }
+
+    pub(crate) async fn wait_for_idle(
+        &self,
+        manager: &crate::game_lifecycle::GameLaunchManager,
+    ) -> Result<(), String> {
+        let mut changes = manager.subscribe_changes();
+        loop {
+            let settings_changed = self.staging_changed.notified();
+            tokio::pin!(settings_changed);
+            settings_changed.as_mut().enable();
+            changes.borrow_and_update();
+            if !self.defer_extraction.load(Ordering::Acquire)
+                || !manager
+                    .list()?
+                    .iter()
+                    .any(|state| state.status != crate::game_lifecycle::GameStatus::Idle)
+            {
+                return Ok(());
+            }
+            tokio::select! {
+                result = changes.changed() => result.map_err(|_| "Game activity notifications stopped".to_owned())?,
+                () = settings_changed => {},
+            }
+        }
     }
 
     fn directory(&self) -> Result<PathBuf, String> {
@@ -520,6 +554,12 @@ fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
     tauri::async_runtime::spawn(async move {
         let queue = app.state::<DownloadQueueState>();
         let _staging = queue.staging.lock().await;
+        if let Some(manager) = app.try_state::<crate::game_lifecycle::GameLaunchManager>()
+            && let Err(error) = queue.wait_for_idle(&manager).await
+        {
+            eprintln!("Could not schedule download extraction {id}: {error}");
+            return;
+        }
         let worker_app = app.clone();
         let worker_id = id.clone();
         let outcome = tauri::async_runtime::spawn_blocking(move || {
