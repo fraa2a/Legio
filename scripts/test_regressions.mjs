@@ -323,3 +323,47 @@ test("recent hero prefetch pauses during games and retries failures without exce
     delete globalThis.legioHeroPrefetch;
   }
 });
+
+test("hydration waits for startup recovery before loading games and displays failures without a shortcut", async () => {
+  const ready = deferred();
+  const calls = [];
+  const resource = (name) => ({ ...writable({ data: [] }), load: async () => { calls.push(name); } });
+  const appInfo = { ...writable({ data: { startupLaunchGameId: null, startupLaunchError: "Startup recovery failed: marker conflict" } }), load: () => { calls.push("appInfo"); return ready.promise; } };
+  const settings = writable({ status: "ready", data: { launchInLibrary: false, steamLibraryPollMinutes: 30 } });
+  const launchError = writable(null);
+  globalThis.legioBootstrap = { appInfo, settings, launchError,
+    games: resource("games"), downloads: resource("downloads"), bandwidthLimit: resource("bandwidth"), installedFolder: resource("folder"),
+    source: resource("source"), network: resource("network"), launchStates: resource("launch"), playtime: resource("playtime"),
+    hasPendingLaunch: writable(false), activeSection: writable("home"),
+  };
+  const fromGlobal = (...names) => dataModule(names.map((name) => `export const ${name} = globalThis.legioBootstrap.${name};`).join("\n"));
+  const { load } = createModuleLoader({
+    "src/lib/stores/app-info": fromGlobal("appInfo"),
+    "src/lib/stores/settings": fromGlobal("settings"),
+    "src/lib/stores/games": fromGlobal("games"),
+    "src/lib/stores/playtime": fromGlobal("playtime"),
+    "src/lib/stores/library-artwork": dataModule("export const startLibraryHeroCaching = () => {};"),
+    "src/lib/stores/downloads": dataModule(["downloads", "bandwidthLimit", "installedFolder"].map((name) => `export const ${name} = globalThis.legioBootstrap.${name};`).join("\n") + "export const startDownloadProgressPolling = () => {};"),
+    "src/lib/stores/source": dataModule("export const source = globalThis.legioBootstrap.source; export const refreshSource = async () => {};"),
+    "src/lib/stores/network": dataModule("export const network = globalThis.legioBootstrap.network; export const checkConnectivity = async () => {};"),
+    "src/lib/stores/launch": dataModule(["hasPendingLaunch", "launchError", "launchStates"].map((name) => `export const ${name} = globalThis.legioBootstrap.${name};`).join("\n") + "export const startLaunchEvents = async () => {};"),
+    "src/lib/stores/steam-library": dataModule("export const importSteamLibrary = async () => {};"),
+    "src/lib/stores/navigation": dataModule("export const activeSection = globalThis.legioBootstrap.activeSection; export const openGame = () => {};"),
+  });
+  const originalInterval = globalThis.setInterval;
+  globalThis.setInterval = () => 0;
+  try {
+    const { hydrateApp } = await import(await load("src/lib/stores/bootstrap.ts"));
+    const hydration = hydrateApp();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(calls, ["appInfo"], "game and folder operations wait for native recovery");
+    ready.resolve();
+    await hydration;
+    assert.ok(calls.includes("games"));
+    assert.ok(calls.includes("folder"));
+    assert.equal(get(launchError), "Startup recovery failed: marker conflict");
+  } finally {
+    globalThis.setInterval = originalInterval;
+    delete globalThis.legioBootstrap;
+  }
+});

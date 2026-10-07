@@ -50,6 +50,7 @@ pub struct InstalledFolderInfo {
 
 #[tauri::command]
 pub async fn get_installed_folder_info(app: AppHandle) -> Result<InstalledFolderInfo, String> {
+    crate::startup_recovery::wait(&app).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let data_dir = app
             .path()
@@ -131,6 +132,7 @@ fn disk_space(path: &Path) -> Result<(u64, u64), String> {
 
 #[tauri::command]
 pub async fn open_installed_folder(app: AppHandle) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let data_dir = app
             .path()
