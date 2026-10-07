@@ -11,7 +11,7 @@ html[data-motion-paused="true"] *::after {
 @theme {
   --color-legio-accent: var(--legio-accent);
   --color-legio-accent-text: var(--legio-accent-text);
-  --font-sans: "Motiva Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --color-legio-download: #2563eb;
   --color-legio-download-hover: #1d4ed8;
   --color-legio-play: #008038;
@@ -32,72 +32,25 @@ html[data-motion-paused="true"] *::after {
 }
 
 @font-face {
-  font-family: "Motiva Sans";
-  src: url("./assets/fonts/MotivaSans-Thin.woff2") format("woff2");
-  font-weight: 200;
+  font-family: "Inter";
+  src: url("./assets/fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
   font-style: normal;
+  font-display: swap;
 }
 
 @font-face {
-  font-family: "Motiva Sans";
-  src: url("./assets/fonts/MotivaSans-Light.woff2") format("woff2");
-  font-weight: 300;
-  font-style: normal;
-}
-
-@font-face {
-  font-family: "Motiva Sans";
-  src: url("./assets/fonts/MotivaSans-LightItalic.woff2") format("woff2");
-  font-weight: 300;
+  font-family: "Inter";
+  src: url("./assets/fonts/InterVariable-Italic.woff2") format("woff2");
+  font-weight: 100 900;
   font-style: italic;
-}
-
-@font-face {
-  font-family: "Motiva Sans";
-  src: url("./assets/fonts/MotivaSans-Regular.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-}
-
-@font-face {
-  font-family: "Motiva Sans";
-  src: url("./assets/fonts/MotivaSans-RegularItalic.woff2") format("woff2");
-  font-weight: 400;
-  font-style: italic;
-}
-
-@font-face {
-  font-family: "Motiva Sans";
-  src: url("./assets/fonts/MotivaSans-Medium.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-}
-
-@font-face {
-  font-family: "Motiva Sans";
-  src: url("./assets/fonts/MotivaSans-Bold.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-}
-
-@font-face {
-  font-family: "Motiva Sans";
-  src: url("./assets/fonts/MotivaSans-BoldItalic.woff2") format("woff2");
-  font-weight: 700;
-  font-style: italic;
-}
-
-@font-face {
-  font-family: "Motiva Sans";
-  src: url("./assets/fonts/MotivaSans-Black.woff2") format("woff2");
-  font-weight: 900;
-  font-style: normal;
+  font-display: swap;
 }
 
 body {
   background-color: var(--legio-background);
   color: var(--legio-text, #fafafa);
-  font-family: "Motiva Sans", system-ui, sans-serif;
+  font-family: "Inter", system-ui, sans-serif;
 }
 
 html, body, #app { min-height: 100%; }

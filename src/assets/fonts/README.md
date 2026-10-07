@@ -1,10 +1,9 @@
-# Motiva Sans
+# Inter
 
-Font family used by the Steam client and Steam Store, included in Legio to match Steam's UI look.
+Legio bundles the unmodified Inter variable fonts for normal and italic text, covering weights 100 through 900.
 
-- Source: `https://store.akamai.steamstatic.com/public/shared/fonts/` (version 4.015)
-- Designer: Rodrigo Saiani
-- Foundry: Plau (formerly Niramekko), distributed via YouWorkForThem
-- License: proprietary web font license (YouWorkForThem). The license restricts redistribution without a purchased license; bundled here by explicit project decision.
+- Source: https://github.com/rsms/inter/tree/master/docs/font-files
+- Copyright: The Inter Project Authors
+- License: SIL Open Font License 1.1, included in `OFL.txt`.
 
-The bundled WOFF2 files are lossless conversions of the original TTF assets. Glyph coverage, horizontal metrics and units per em are preserved.
+The fonts load locally, without a CDN or runtime network access.
