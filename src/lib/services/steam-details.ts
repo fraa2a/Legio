@@ -1,6 +1,7 @@
 import { get, writable } from "svelte/store";
 import { language } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
+import { decodeImageResponse } from "./image-response";
 
 export interface SteamDetails {
   steamAppId: number;
@@ -41,7 +42,7 @@ export function getSteamDetails(steamAppId: number, refresh: boolean): Promise<S
 export type SteamAssetKind = "header" | "capsule" | "screenshot" | "hero" | "logo" | "library_capsule" | "library_header" | "hero_blur" | "client_icon";
 
 export interface SteamAsset {
-  bytes: number[];
+  bytes: Uint8Array<ArrayBuffer>;
   contentType: string;
   stale: boolean;
   cacheWarning: string | null;
@@ -55,7 +56,11 @@ export function getSteamAsset(
   full?: boolean,
   refresh = false,
 ): Promise<SteamAsset> {
-  return invoke<SteamAsset>("get_steam_asset", { steamAppId, asset, index, full, refresh });
+  return invoke<ArrayBuffer>("get_steam_asset", { steamAppId, asset, index, full, refresh }).then(decodeImageResponse<SteamAsset>);
+}
+
+export function prefetchSteamHero(steamAppId: number): Promise<void> {
+  return invoke("prefetch_steam_hero", { steamAppId });
 }
 
 export interface SteamImageRequest {
@@ -76,11 +81,13 @@ export interface SteamImage {
 
 interface CachedSteamImage extends SteamImage {
   users: number;
+  byteLength: number;
 }
 
 const imageCache = new Map<string, CachedSteamImage>();
 const pendingImages = new Map<string, Promise<SteamImage>>();
 const maxIdleImages = 128;
+const maxIdleBytes = 32 * 1024 * 1024;
 const freshFor = 72 * 60 * 60 * 1000;
 const refreshing = new Set<string>();
 export const steamImageRevision = writable(0);
@@ -91,7 +98,7 @@ function imageKey(request: SteamImageRequest): string {
     request.asset,
     request.fallbackAsset,
     request.index,
-    request.version,
+    ["header", "capsule", "screenshot"].includes(request.asset) ? request.version : null,
     request.full,
   ]);
 }
@@ -107,12 +114,14 @@ function cachedImage(key: string): CachedSteamImage | undefined {
 
 function pruneImages(protectedKey?: string): void {
   let idle = [...imageCache.values()].filter((image) => image.users === 0).length;
+  let bytes = [...imageCache.values()].filter((image) => image.users === 0).reduce((total, image) => total + image.byteLength, 0);
   for (const [key, image] of imageCache) {
-    if (idle <= maxIdleImages) break;
+    if (idle <= maxIdleImages && bytes <= maxIdleBytes) break;
     if (image.users > 0 || key === protectedKey) continue;
     URL.revokeObjectURL(image.url);
     imageCache.delete(key);
     idle--;
+    bytes -= image.byteLength;
   }
 }
 
@@ -155,10 +164,11 @@ export function loadSteamImage(request: SteamImageRequest): Promise<SteamImage> 
     return getSteamAsset(request.steamAppId, request.fallbackAsset, request.index ?? undefined, request.full);
   }).then((result) => {
     const image: CachedSteamImage = {
-      url: URL.createObjectURL(new Blob([Uint8Array.from(result.bytes)], { type: result.contentType })),
+      url: URL.createObjectURL(new Blob([result.bytes], { type: result.contentType })),
       stale: result.stale,
       cacheWarning: result.cacheWarning,
       users: 0,
+      byteLength: result.bytes.byteLength,
       refreshAt: result.stale ? 0 : result.refreshAfter ?? Date.now() + freshFor,
     };
     imageCache.set(key, image);
@@ -186,7 +196,8 @@ function refreshImage(request: SteamImageRequest, key: string, previous: CachedS
         previous.refreshAt = Date.now() + 5 * 60 * 1000;
       } else {
         const oldUrl = previous.url;
-        previous.url = URL.createObjectURL(new Blob([Uint8Array.from(result.bytes)], { type: result.contentType }));
+        previous.url = URL.createObjectURL(new Blob([result.bytes], { type: result.contentType }));
+        previous.byteLength = result.bytes.byteLength;
         previous.stale = false;
         previous.refreshAt = result.refreshAfter ?? Date.now() + freshFor;
         previous.cacheWarning = result.cacheWarning;
