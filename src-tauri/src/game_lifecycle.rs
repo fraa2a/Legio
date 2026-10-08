@@ -649,6 +649,7 @@ impl GameLaunchManager {
         } else {
             command.stdout(Stdio::null()).stderr(Stdio::null());
         }
+        let overlay_log = compatibility_log.as_ref().map(CompatibilityLog::state);
         let manager = self.clone();
         let worker_id = game_id.clone();
         let session_database = database;
@@ -671,6 +672,21 @@ impl GameLaunchManager {
                             steam_root.as_deref(),
                             |root| steam_process::ensure_running(root, STEAM_START_TIMEOUT, cancel),
                         )?;
+                        if config.online_fix && runner.kind != RunnerKind::Wine {
+                            let root = steam_root
+                                .as_deref()
+                                .ok_or("Steam installation is unavailable")?;
+                            let copied = crate::steam_overlay::prepare_prefix(root, &wine_prefix)?;
+                            if let Some(log) = overlay_log.as_ref() {
+                                log.record_event(
+                                    "steam_overlay_prepared",
+                                    Some(if copied { "copied" } else { "existing" }),
+                                );
+                            }
+                        }
+                        if cancel.load(Ordering::Acquire) {
+                            return Err("Launch cancelled".to_owned());
+                        }
                         command.spawn().map(Some).map_err(|error| {
                             format!("Could not start compatibility runner: {error}")
                         })
