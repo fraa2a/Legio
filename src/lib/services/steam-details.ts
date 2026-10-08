@@ -2,6 +2,7 @@ import { get, writable } from "svelte/store";
 import { language } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { decodeImageResponse } from "./image-response";
+import { artworkDisplayWidth } from "../stores/artwork-display";
 
 export interface SteamDetails {
   steamAppId: number;
@@ -70,6 +71,7 @@ export interface SteamImageRequest {
   index: number | null;
   version: number | null;
   full: boolean;
+  displayWidth?: number;
 }
 
 export interface SteamImage {
@@ -100,7 +102,8 @@ function imageKey(request: SteamImageRequest): string {
     request.fallbackAsset,
     request.index,
     ["header", "capsule", "screenshot"].includes(request.asset) ? request.version : null,
-    request.full,
+    ["hero", "hero_blur"].includes(request.asset) ? false : request.full,
+    ["hero", "hero_blur"].includes(request.asset) ? request.displayWidth ?? get(artworkDisplayWidth) : null,
   ]);
 }
 
@@ -184,6 +187,8 @@ export function loadSteamImage(request: SteamImageRequest): Promise<SteamImage> 
 }
 
 function refreshImage(request: SteamImageRequest, key: string, previous: CachedSteamImage): void {
+  if (["hero", "hero_blur"].includes(request.asset) && request.displayWidth !== undefined
+    && request.displayWidth !== get(artworkDisplayWidth)) return;
   if (refreshing.has(key) || appRefreshes.has(request.steamAppId)) return;
   previous.refreshAt = Date.now() + freshFor;
   const task = getSteamAsset(request.steamAppId, request.asset, request.index ?? undefined, request.full, true)
@@ -218,8 +223,8 @@ function refreshImage(request: SteamImageRequest, key: string, previous: CachedS
 }
 
 function requestFromKey(key: string): SteamImageRequest {
-  const [steamAppId, asset, fallbackAsset, index, version, full] = JSON.parse(key);
-  return { steamAppId, asset, fallbackAsset, index, version, full };
+  const [steamAppId, asset, fallbackAsset, index, version, full, displayWidth] = JSON.parse(key);
+  return { steamAppId, asset, fallbackAsset, index, version, full, displayWidth: displayWidth ?? undefined };
 }
 
 export function refreshSteamImages(steamAppId: number): Promise<void> {
@@ -232,7 +237,8 @@ export function refreshSteamImages(steamAppId: number): Promise<void> {
     const requests = new Map<string, SteamImageRequest>();
     for (const key of imageCache.keys()) {
       const request = requestFromKey(key);
-      if (request.steamAppId === steamAppId) requests.set(key, request);
+      if (request.steamAppId === steamAppId && (!["hero", "hero_blur"].includes(request.asset)
+        || request.displayWidth === get(artworkDisplayWidth))) requests.set(key, request);
     }
     const results = await Promise.allSettled([...requests].map(async ([key, request]) => {
       const result = await getSteamAsset(steamAppId, request.asset, request.index ?? undefined, request.full, true).catch((error: unknown) => {

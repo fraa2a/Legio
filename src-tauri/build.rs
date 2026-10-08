@@ -82,6 +82,7 @@ fn main() {
             "refresh_catalog",
             "get_steam_details",
             "get_steam_asset",
+            "get_artwork_display_width",
             "prefetch_steam_hero",
             "list_compatibility_runners",
         ]),

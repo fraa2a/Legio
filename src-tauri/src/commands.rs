@@ -756,6 +756,11 @@ pub async fn reset_steam_artwork_cache(app: AppHandle, steam_app_id: u32) -> Res
 }
 
 #[tauri::command]
+pub fn get_artwork_display_width(app: AppHandle) -> u32 {
+    crate::artwork_display::refresh(&app)
+}
+
+#[tauri::command]
 pub async fn get_steam_asset(
     app: AppHandle,
     state: State<'_, NetworkState>,

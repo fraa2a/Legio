@@ -48,7 +48,8 @@ impl AssetKind {
             Self::LibraryCapsule => "library_capsule.jpg",
             Self::LibraryHeader if full => "library_header_2x.jpg",
             Self::LibraryHeader => "library_header.jpg",
-            Self::HeroBlur => "library_hero_blur.jpg",
+            Self::HeroBlur if full => "library_hero_2x.jpg",
+            Self::HeroBlur => "library_hero.jpg",
             Self::ClientIcon => "clienticon.ico",
             Self::Header | Self::Capsule | Self::Screenshot => return None,
         })
@@ -375,24 +376,36 @@ fn selected_url(
 
 static IMAGE_WORKERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 
-async fn optimized_asset_bytes(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
+async fn optimized_asset_bytes(
+    bytes: Vec<u8>,
+    hero: Option<(u32, bool)>,
+) -> Result<Vec<u8>, String> {
     let permit = IMAGE_WORKERS
         .acquire()
         .await
         .map_err(|error| error.to_string())?;
-    let result = tauri::async_runtime::spawn_blocking(move || webp_asset(&bytes))
-        .await
-        .map_err(|error| format!("Artwork processing task failed: {error}"))?;
+    let result = tauri::async_runtime::spawn_blocking(move || match hero {
+        Some((width, blurred)) => crate::image_trim::hero_webp(&bytes, width, blurred),
+        None => webp_asset(&bytes),
+    })
+    .await
+    .map_err(|error| format!("Artwork processing task failed: {error}"))?;
     drop(permit);
     result
+}
+
+struct HeroSource {
+    width: u32,
+    fallback_url: Option<String>,
 }
 
 async fn load_asset(
     cache: AssetCacheState,
     network: &NetworkState,
     key: String,
-    url: String,
+    mut url: String,
     refresh: bool,
+    hero: Option<HeroSource>,
 ) -> Result<AssetResult, String> {
     let reader = cache.clone();
     let read_key = key.clone();
@@ -417,9 +430,18 @@ async fn load_asset(
             cache_warning: None,
         });
     }
-    let fetched = network
-        .steam_asset(&url)
-        .await
+    let fetched = match network.steam_asset(&url).await {
+        Err(crate::network::NetworkError::Http { status: 404 }) => {
+            if let Some(fallback) = hero.as_ref().and_then(|hero| hero.fallback_url.as_ref()) {
+                url = fallback.clone();
+                network.steam_asset(&url).await
+            } else {
+                Err(crate::network::NetworkError::Http { status: 404 })
+            }
+        }
+        result => result,
+    };
+    let fetched = fetched
         .map_err(|error| format!("Steam image request failed: {error:?}"))
         .and_then(|bytes| {
             ImageFormat::from_steam_bytes(&bytes)
@@ -427,7 +449,7 @@ async fn load_asset(
                 .ok_or_else(|| "Steam returned unsupported image content.".to_owned())
         });
     let fetched = match fetched {
-        Ok(bytes) => optimized_asset_bytes(bytes).await,
+        Ok(bytes) => optimized_asset_bytes(bytes, hero.map(|hero| (hero.width, false))).await,
         Err(error) => Err(error),
     };
     match fetched {
@@ -485,6 +507,11 @@ fn library_url(
         assets
             .url(app_id, filename)
             .or_else(|| assets.url(app_id, portrait))
+            .or_else(|| {
+                (filename == "library_hero_2x.jpg")
+                    .then(|| assets.url(app_id, "library_hero.jpg"))
+                    .flatten()
+            })
     }) {
         Ok(url)
     } else if filename == "clienticon.ico" {
@@ -509,12 +536,26 @@ pub async fn get_asset<R: tauri::Runtime>(
         return Err("Invalid image selection.".to_owned());
     }
     let state = app.state::<AssetCacheState>().inner().clone();
+    let display_width = crate::artwork_display::width(&app);
+    let adaptive_hero = matches!(asset, AssetKind::Hero | AssetKind::HeroBlur);
+    let full = if adaptive_hero {
+        display_width > 1920
+    } else {
+        full
+    };
     let filename = asset.library_filename(full);
-    let suffix = if full { "-full" } else { "" };
+    let suffix = if adaptive_hero {
+        format!("-display-v1-{display_width}")
+    } else if full {
+        "-full".to_owned()
+    } else {
+        String::new()
+    };
     let kind = match asset {
         AssetKind::Header => "header",
         AssetKind::Capsule => "capsule",
         AssetKind::Hero => "hero",
+        AssetKind::HeroBlur => "hero-blur",
         AssetKind::Logo => "logo",
         AssetKind::Screenshot => "screenshot",
         // Avoid reusing opaque JPEG icons cached before ICO became the preferred source.
@@ -546,7 +587,46 @@ pub async fn get_asset<R: tauri::Runtime>(
             Err(error) => eprintln!("Steam image cache read failed: {error}"),
         }
     }
-    let (selected, metadata_warning) = if let Some(filename) = filename {
+    if matches!(asset, AssetKind::HeroBlur) {
+        // The sharp cache is shared with banners; cards persist their own resized blur.
+        let hero = Box::pin(get_asset(
+            app,
+            network,
+            app_id,
+            AssetKind::Hero,
+            None,
+            full,
+            refresh,
+        ))
+        .await?;
+        let bytes = optimized_asset_bytes(hero.bytes, Some((display_width, true))).await?;
+        let stale = hero.stale;
+        let (bytes, written) = tauri::async_runtime::spawn_blocking(move || {
+            let written = if stale {
+                Ok(())
+            } else {
+                state.write(&key, "derived:library_hero", &bytes, "image/webp")
+            };
+            (bytes, written)
+        })
+        .await
+        .map_err(|error| format!("Card image cache task failed: {error}"))?;
+        let mut warning = hero.cache_warning;
+        if let Err(error) = written {
+            warning = Some(match warning {
+                Some(existing) => format!("{existing} Card image cache: {error}"),
+                None => format!("Card image cache: {error}"),
+            });
+        }
+        return Ok(AssetResult {
+            bytes,
+            content_type: "image/webp",
+            stale,
+            refresh_after: hero.refresh_after,
+            cache_warning: warning,
+        });
+    }
+    let (selected, metadata_warning, hero_fallback) = if let Some(filename) = filename {
         let path = state
             .directory()
             .map(|directory| directory.join("pics").join(format!("{app_id}.json")));
@@ -556,7 +636,16 @@ pub async fn get_asset<R: tauri::Runtime>(
         if let Some(warning) = warning.as_deref() {
             eprintln!("Steam asset metadata lookup for {app_id}: {warning}");
         }
-        (library_url(app_id, filename, assets.as_ref()), warning)
+        let fallback = if matches!(asset, AssetKind::Hero) && full {
+            Some(library_url(app_id, "library_hero.jpg", assets.as_ref())?)
+        } else {
+            None
+        };
+        (
+            library_url(app_id, filename, assets.as_ref()),
+            warning,
+            fallback,
+        )
     } else {
         let app_for_lookup = app.clone();
         let url = tauri::async_runtime::spawn_blocking(move || {
@@ -571,10 +660,23 @@ pub async fn get_asset<R: tauri::Runtime>(
         })
         .await
         .map_err(|error| format!("Image lookup task failed: {error}"))?;
-        (url, None)
+        (url, None, None)
     };
     let loaded = match selected {
-        Ok(url) => load_asset(state, network, key, url, refresh).await,
+        Ok(url) => {
+            load_asset(
+                state,
+                network,
+                key,
+                url,
+                refresh,
+                adaptive_hero.then_some(HeroSource {
+                    width: display_width,
+                    fallback_url: hero_fallback,
+                }),
+            )
+            .await
+        }
         Err(error) => Err(error),
     };
     let mut result = loaded.map_err(|error| match metadata_warning.as_deref() {
@@ -723,6 +825,74 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn card_blur_is_persisted_and_reused_without_processing_the_sharp_source() {
+        let cache = cache();
+        let root = cache.directory().unwrap().parent().unwrap().to_path_buf();
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().identifier = format!("org.legio.test.{}", uuid::Uuid::new_v4());
+        let app = tauri::test::mock_builder()
+            .manage(cache.clone())
+            .build(context)
+            .unwrap();
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            1920,
+            620,
+            image::Rgba([20, 40, 60, 255]),
+        ))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+        let sharp = crate::image_trim::hero_webp(png.get_ref(), 1920, false).unwrap();
+        cache
+            .write("400-hero-display-v1-1920", "test", &sharp, "image/webp")
+            .unwrap();
+        let network = NetworkState::new(
+            "0.1.0",
+            crate::diagnostics::Diagnostics::new(Err("test".into())),
+        )
+        .unwrap();
+        let _guard = cache.pics_lock.lock().await;
+        let first = get_asset(
+            app.handle().clone(),
+            &network,
+            400,
+            AssetKind::HeroBlur,
+            None,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+        let decoded = image::load_from_memory(&first.bytes).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (1248, 403));
+        assert_eq!(
+            cache
+                .read_cached("400-hero-blur-display-v1-1920", None)
+                .unwrap()
+                .unwrap()
+                .bytes,
+            first.bytes
+        );
+        // An invalid sharp image would fail if the card were processed again.
+        cache
+            .write("400-hero-display-v1-1920", "test", b"invalid", "image/webp")
+            .unwrap();
+        let second = get_asset(
+            app.handle().clone(),
+            &network,
+            400,
+            AssetKind::HeroBlur,
+            None,
+            true,
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(first.bytes, second.bytes);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn cached_artwork_bypasses_locked_metadata_lookup() {
         let cache = cache();
         let root = cache.directory().unwrap().parent().unwrap();
@@ -761,7 +931,7 @@ mod tests {
         .unwrap();
         let _guard = cache.pics_lock.lock().await;
         for (asset, index, key) in [
-            (AssetKind::Hero, None, "400-hero"),
+            (AssetKind::Hero, None, "400-hero-display-v1-1920"),
             (AssetKind::Header, None, "400-header"),
             (AssetKind::Capsule, None, "400-capsule"),
             (AssetKind::Screenshot, Some(0), "400-screenshot-0"),
@@ -791,12 +961,12 @@ mod tests {
     }
 
     #[test]
-    fn library_assets_preserve_legacy_urls_and_blurred_hero_selection() {
+    fn blurred_heroes_use_the_sharp_source_and_preserve_legacy_urls() {
         let filename = AssetKind::HeroBlur.library_filename(false).unwrap();
-        assert_eq!(filename, "library_hero_blur.jpg");
+        assert_eq!(filename, "library_hero.jpg");
         assert_eq!(
             library_url(400, filename, None).unwrap(),
-            "https://cdn.cloudflare.steamstatic.com/steam/apps/400/library_hero_blur.jpg"
+            "https://cdn.cloudflare.steamstatic.com/steam/apps/400/library_hero.jpg"
         );
         assert_eq!(
             library_url(400, AssetKind::Logo.library_filename(true).unwrap(), None).unwrap(),
@@ -840,6 +1010,7 @@ mod tests {
             "4656000-logo".into(),
             url.clone(),
             false,
+            None,
         )
         .await
         .unwrap();
@@ -847,6 +1018,44 @@ mod tests {
         assert_eq!(first.bytes, second.bytes);
         assert_eq!(first.content_type, "image/webp");
         assert!(!second.stale);
+        fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn missing_double_size_hero_falls_back_and_caches_the_available_source() {
+        let cache = cache();
+        let (missing, missing_server) = server(
+            b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+        );
+        let (fallback, fallback_server) = server(response(PNG));
+        let network = NetworkState::new(
+            "0.1.0",
+            crate::diagnostics::Diagnostics::new(Err("test".into())),
+        )
+        .unwrap();
+        let first = tauri::async_runtime::block_on(load_asset(
+            cache.clone(),
+            &network,
+            "400-hero-display-v1-3840".into(),
+            missing,
+            false,
+            Some(HeroSource {
+                width: 3840,
+                fallback_url: Some(fallback.clone()),
+            }),
+        ))
+        .unwrap();
+        missing_server.join().unwrap();
+        fallback_server.join().unwrap();
+        assert_eq!(image::load_from_memory(&first.bytes).unwrap().width(), 2);
+        assert_eq!(
+            cache
+                .read("400-hero-display-v1-3840", &fallback)
+                .unwrap()
+                .unwrap()
+                .bytes,
+            first.bytes
+        );
         fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
     }
 
@@ -866,6 +1075,7 @@ mod tests {
             "400-header".into(),
             url.clone(),
             false,
+            None,
         ))
         .unwrap();
         server.join().unwrap();
@@ -875,6 +1085,7 @@ mod tests {
             "400-header".into(),
             url,
             false,
+            None,
         ))
         .unwrap();
         assert_eq!(first.bytes, second.bytes);
@@ -906,6 +1117,7 @@ mod tests {
             "400-header".into(),
             url,
             false,
+            None,
         ))
         .unwrap();
         server.join().unwrap();
@@ -939,6 +1151,7 @@ mod tests {
             "400-header".into(),
             url,
             false,
+            None,
         ))
         .unwrap();
         server.join().unwrap();
@@ -999,7 +1212,8 @@ mod tests {
                 &network,
                 "400-header".into(),
                 url,
-                false
+                false,
+                None,
             ))
             .is_err()
         );
@@ -1166,6 +1380,7 @@ mod tests {
                 "400-header".into(),
                 url.clone(),
                 false,
+                None,
             ))
             .unwrap();
             server.join().unwrap();
@@ -1196,6 +1411,7 @@ mod tests {
             "400-header".into(),
             url,
             false,
+            None,
         ))
         .unwrap_err();
         server.join().unwrap();
@@ -1222,6 +1438,7 @@ mod tests {
             "400-header".into(),
             url,
             false,
+            None,
         ))
         .unwrap();
         server.join().unwrap();
