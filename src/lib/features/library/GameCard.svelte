@@ -6,7 +6,7 @@
   import ArtworkTile from "../../components/ui/ArtworkTile.svelte";
   import Badge from "../../components/ui/Badge.svelte";
   import Icon from "../../components/ui/Icon.svelte";
-  import GameLogo from "./GameLogo.svelte";
+  import GameIcon from "./GameIcon.svelte";
 
   let {
     game,
@@ -77,10 +77,9 @@
 
     {#if showTitle}
       <div class="relative p-3 {portrait ? 'mt-auto' : 'm-auto'}">
-        <div class="flex w-full min-w-0 max-w-full flex-col items-center gap-1.5">
-          {#if showTitle}
-            <GameLogo {game} />
-          {/if}
+        <div class="flex min-w-0 max-w-full items-center gap-2 rounded-lg bg-zinc-950/60 px-3 py-1.5 font-medium text-zinc-50 light:bg-zinc-100/70 light:text-zinc-900">
+          <GameIcon {game} class="size-6 shrink-0 rounded object-contain" />
+          <span class="truncate">{game.name}</span>
         </div>
       </div>
     {/if}

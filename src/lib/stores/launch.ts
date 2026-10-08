@@ -33,6 +33,10 @@ export const hasPendingLaunch = derived(launchStates, (state) =>
   state.data.some((launch) => launch.status !== "idle"),
 );
 
+export const hasRunningGame = derived(launchStates, (state) =>
+  state.data.some((launch) => launch.status === "running"),
+);
+
 export const launchError = writable<string | null>(null);
 export const pendingGameId = writable<string | null>(null);
 export const cancelPendingGameId = writable<string | null>(null);

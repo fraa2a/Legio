@@ -28,7 +28,6 @@ commands.allow = [
   "create_game_shortcut",
   "transfer_game",
   "set_game_icon",
-  "extract_game_icon",
   "get_game_icon",
   "reset_game_icon",
   "set_game_banner",

@@ -1254,11 +1254,11 @@ pub(crate) fn create_application_menu(
 ) -> Result<Option<String>, String> {
     use tauri::Manager;
 
-    let (icon, warning) = app
+    let icon = app
         .state::<crate::game_artwork::GameArtworkStore>()
         .shortcut_icon_path(game)?;
     create(game, ShortcutLocation::ApplicationsMenu, icon.as_deref())?;
-    Ok(warning)
+    Ok(None)
 }
 
 #[derive(serde::Serialize)]
@@ -1283,7 +1283,7 @@ pub(crate) fn create_for_game(
     } else {
         None
     };
-    let (icon, warning) = app
+    let icon = app
         .state::<crate::game_artwork::GameArtworkStore>()
         .shortcut_icon_path(&game)?;
     let path = crate::desktop_shortcuts::create(&game, location, icon.as_deref())?;
@@ -1305,6 +1305,6 @@ pub(crate) fn create_for_game(
             .to_str()
             .ok_or_else(|| "The desktop shortcut path is not valid UTF-8".to_owned())?
             .to_owned(),
-        warning,
+        warning: None,
     })
 }

@@ -16,7 +16,6 @@ tauri-build = { version = "2", features = [] }
 base64 = "0.23"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 compress-tools = "0.16"
-icoextract_rs = "0.1.2"
 image = { version = "0.25", default-features = false, features = ["ico", "png", "jpeg", "webp"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }

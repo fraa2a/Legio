@@ -7,7 +7,7 @@ use std::{
 
 use serde::Serialize;
 
-use crate::{database::Game, image_format::ImageFormat, manual_import, pe_icons};
+use crate::{database::Game, image_format::ImageFormat};
 
 const MAX_ARTWORK_BYTES: usize = 2 * 1024 * 1024;
 
@@ -84,51 +84,8 @@ impl GameArtworkStore {
         self.store(game_id, kind, bytes)
     }
 
-    pub(crate) fn extract(
-        &self,
-        game_id: &str,
-        executable: &Path,
-    ) -> Result<GameArtworkResult, String> {
-        let game_id = canonical_game_id(game_id)?;
-        let bytes = pe_icons::extract_png(executable)?;
-        self.store(game_id, ArtworkKind::Icon, bytes)
-    }
-
-    pub(crate) fn shortcut_icon_path(
-        &self,
-        game: &Game,
-    ) -> Result<(Option<PathBuf>, Option<String>), String> {
-        let executable = match shortcut_executable(game) {
-            Ok(executable) => executable,
-            Err(error) => {
-                return Ok((
-                    self.path(&game.id, ArtworkKind::Icon)?,
-                    Some(format!("Could not find a shortcut executable: {error}")),
-                ));
-            }
-        };
-        if let Some(executable) = executable {
-            #[cfg(windows)]
-            return Ok((Some(executable), None));
-            #[cfg(target_os = "linux")]
-            match pe_icons::extract_png(&executable) {
-                Ok(bytes) => {
-                    self.store(
-                        canonical_game_id(&game.id)?,
-                        ArtworkKind::ShortcutIcon,
-                        bytes,
-                    )?;
-                    return Ok((self.path(&game.id, ArtworkKind::ShortcutIcon)?, None));
-                }
-                Err(error) => {
-                    return Ok((
-                        self.path(&game.id, ArtworkKind::Icon)?,
-                        Some(format!("Could not extract shortcut icon: {error}")),
-                    ));
-                }
-            }
-        }
-        Ok((self.path(&game.id, ArtworkKind::Icon)?, None))
+    pub(crate) fn shortcut_icon_path(&self, game: &Game) -> Result<Option<PathBuf>, String> {
+        self.path(&game.id, ArtworkKind::Icon)
     }
 
     fn store(
@@ -283,42 +240,6 @@ impl GameArtworkStore {
         }
         Ok(directory)
     }
-}
-
-fn shortcut_executable(game: &Game) -> Result<Option<PathBuf>, String> {
-    if let Some(path) = game.executable_path.as_deref().map(PathBuf::from)
-        && path.is_file()
-    {
-        return Ok(Some(path));
-    }
-    let Some(root) = game.steam_install_path.as_deref() else {
-        return Ok(None);
-    };
-    manual_import::scan_directory(root, game.automatic_name.as_deref().or(Some(&game.name))).map(
-        |scan| {
-            scan.candidates
-                .into_iter()
-                .map(|candidate| PathBuf::from(candidate.path))
-                .find(|path| {
-                    path.extension()
-                        .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
-                })
-        },
-    )
-}
-
-pub(crate) fn extract_for_game(
-    store: &GameArtworkStore,
-    game: &Game,
-) -> Result<GameArtworkResult, String> {
-    if game.steam_app_id.is_some() || game.steam_install_path.is_some() {
-        return Err("Embedded icons are supported for manually imported Windows games".to_owned());
-    }
-    let executable = game
-        .executable_path
-        .as_deref()
-        .ok_or_else(|| "This game has no selected Windows executable".to_owned())?;
-    store.extract(&game.id, Path::new(executable))
 }
 
 fn canonical_game_id(game_id: &str) -> Result<String, String> {
@@ -555,36 +476,23 @@ mod tests {
     }
 
     #[test]
-    fn steam_shortcut_finds_a_game_executable() {
+    fn shortcut_uses_custom_icon_without_reading_the_executable() {
         let root = test_dir();
-        let executable = root.join("Portal.exe");
-        fs::write(&executable, b"MZ").unwrap();
+        let source = root.join("selected.png");
+        fs::write(&source, PNG).unwrap();
+        let store = GameArtworkStore::new(Ok(root.join("app-data")));
         let mut game = manual_game();
-        game.automatic_name = Some("Portal".to_owned());
-        game.steam_install_path = Some(root.to_string_lossy().into_owned());
-        assert_eq!(shortcut_executable(&game).unwrap(), Some(executable));
+        game.executable_path = Some(root.join("invalid.exe").to_string_lossy().into_owned());
+        fs::write(game.executable_path.as_ref().unwrap(), b"MZ").unwrap();
+
+        assert_eq!(store.shortcut_icon_path(&game).unwrap(), None);
+        assert!(!root.join("app-data/game-shortcut-icons").exists());
+        store.set(&game.id, ArtworkKind::Icon, &source).unwrap();
+        assert_eq!(
+            store.shortcut_icon_path(&game).unwrap(),
+            store.path(&game.id, ArtworkKind::Icon).unwrap()
+        );
         fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn extraction_requires_a_selected_executable() {
-        let store = GameArtworkStore::new(Err("store is unavailable".to_owned()));
-
-        let error = extract_for_game(&store, &manual_game()).unwrap_err();
-
-        assert!(error.contains("no selected Windows executable"));
-    }
-
-    #[test]
-    fn extraction_rejects_steam_managed_games() {
-        let store = GameArtworkStore::new(Err("store is unavailable".to_owned()));
-        let mut game = manual_game();
-        game.steam_app_id = Some(123);
-        game.executable_path = Some("/invalid/game.exe".to_owned());
-
-        let error = extract_for_game(&store, &game).unwrap_err();
-
-        assert!(error.contains("manually imported Windows games"));
     }
 
     #[test]
@@ -875,31 +783,6 @@ mod tests {
                 .contains("unsupported image format")
         );
         store.remove(game_id, ArtworkKind::Icon).unwrap();
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    #[ignore = "requires an installed Windows game with embedded PE icons"]
-    fn extracted_icon_is_persisted_across_store_reopen() {
-        let executable = std::env::var_os("LEGIO_TEST_WINDOWS_GAME_EXE")
-            .map(PathBuf::from)
-            .expect("set LEGIO_TEST_WINDOWS_GAME_EXE to a Windows game executable");
-        let root = test_dir();
-        let app_data = root.join("app-data");
-        let game_id = "00000000-0000-0000-0000-000000000001";
-        let store = GameArtworkStore::new(Ok(app_data.clone()));
-
-        let extracted = store.extract(game_id, &executable).unwrap();
-
-        assert_eq!(extracted.content_type, "image/png");
-        assert!(extracted.bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
-        assert_eq!(
-            GameArtworkStore::new(Ok(app_data))
-                .get(game_id, ArtworkKind::Icon)
-                .unwrap()
-                .unwrap(),
-            extracted
-        );
         fs::remove_dir_all(root).unwrap();
     }
 }

@@ -276,23 +276,6 @@ pub async fn set_game_icon(
 }
 
 #[tauri::command]
-pub async fn extract_game_icon(
-    app: AppHandle,
-    game_id: String,
-) -> Result<tauri::ipc::Response, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let game = app.state::<DatabaseState>().database()?.game(&game_id)?;
-        crate::game_artwork::extract_for_game(
-            &app.state::<crate::game_artwork::GameArtworkStore>(),
-            &game,
-        )
-    })
-    .await
-    .map_err(|error| format!("Game icon extraction task failed: {error}"))?
-    .and_then(crate::game_artwork::GameArtworkResult::into_response)
-}
-
-#[tauri::command]
 pub async fn get_game_icon(
     app: AppHandle,
     game_id: String,
@@ -301,10 +284,6 @@ pub async fn get_game_icon(
         app.state::<DatabaseState>().database()?.game(&game_id)?;
         let store = app.state::<crate::game_artwork::GameArtworkStore>();
         let artwork = store.get(&game_id, crate::game_artwork::ArtworkKind::Icon)?;
-        let artwork = match artwork {
-            Some(artwork) => Some(artwork),
-            None => store.get(&game_id, crate::game_artwork::ArtworkKind::ShortcutIcon)?,
-        };
         match artwork {
             Some(value) => value.into_response(),
             None => Ok(tauri::ipc::Response::new(Vec::new())),

@@ -258,7 +258,13 @@ test("native launch events invalidate stale reads and reduce polling during game
     });
     await launch.startLaunchEvents();
     const pending = launch.launchStates.load();
+    stateListener([{ gameId: "game", status: "launching" }]);
+    assert.equal(get(launch.hasPendingLaunch), true, "launching still needs state updates");
+    assert.equal(get(launch.hasRunningGame), false, "launch preparation must not pause media");
     stateListener([{ gameId: "game", status: "running" }]);
+    assert.equal(get(launch.hasRunningGame), true);
+    stateListener([{ gameId: "game", status: "launching" }, { gameId: "other", status: "running" }]);
+    assert.equal(get(launch.hasRunningGame), true, "any running game suspends media");
     assert.equal(intervals.at(-1).milliseconds, 30000);
     request.resolve([]);
     await pending;
@@ -267,7 +273,9 @@ test("native launch events invalidate stale reads and reduce polling during game
     assert.equal(intervals.at(-1).cleared, true, "native events continue without background UI polling");
     failureListener("shortcut failure");
     assert.equal(get(launch.launchError), "shortcut failure");
-    stateListener([{ gameId: "game", status: "idle" }]);
+    stateListener([{ gameId: "game", status: "idle", error: "launch failed" }]);
+    assert.equal(get(launch.hasRunningGame), false, "failed launches leave media active");
+    assert.equal(get(launch.hasPendingLaunch), false);
     assert.equal(intervals.at(-1).cleared, true);
   } finally {
     globalThis.setInterval = originalSetInterval;
