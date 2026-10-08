@@ -45,7 +45,7 @@ pub(crate) fn prepare(
         .env("STEAM_COMPAT_TOOL_PATHS", &mounts)
         .env("STEAM_COMPAT_MOUNTS", mounts)
         .env("SteamGameId", "0")
-        .env("SteamAppId", "0")
+        .env_remove("SteamAppId")
         .env_remove("UMU_ID");
     Ok(command)
 }
@@ -191,7 +191,7 @@ mod tests {
         let runner_path = root.join("Proton Tools/GE-Proton10-33");
         executable(
             &runner_path.join("proton"),
-            "#!/bin/sh\nprintf '%s\\n' \"$STEAM_COMPAT_CLIENT_INSTALL_PATH\" \"$STEAM_COMPAT_DATA_PATH\" \"${UMU_ID-unset}\" \"$@\"\n",
+            "#!/bin/sh\nprintf '%s\\n' \"$STEAM_COMPAT_CLIENT_INSTALL_PATH\" \"$STEAM_COMPAT_DATA_PATH\" \"${UMU_ID-unset}\" \"${SteamAppId-unset}\" \"$@\"\n",
         );
         fs::write(
             runner_path.join("toolmanifest.vdf"),
@@ -244,6 +244,7 @@ mod tests {
             [
                 steam.to_str().unwrap(),
                 data.to_str().unwrap(),
+                "unset",
                 "unset",
                 "run",
                 "before",
