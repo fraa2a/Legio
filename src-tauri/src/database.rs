@@ -2027,7 +2027,10 @@ mod tests {
         let mut settings = database.settings().unwrap();
         assert!(!settings.discord_presence.enabled);
         assert_eq!(settings.theme, Theme::Light);
-        assert_eq!(settings.language, crate::locale::LanguagePreference::Italian);
+        assert_eq!(
+            settings.language,
+            crate::locale::LanguagePreference::Italian
+        );
         settings.discord_presence.enabled = true;
         database.save_settings(settings.clone()).unwrap();
         settings.discord_presence.enabled = false;
