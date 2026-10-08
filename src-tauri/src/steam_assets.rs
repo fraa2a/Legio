@@ -394,13 +394,18 @@ async fn optimized_asset_bytes(
     result
 }
 
+struct HeroSource {
+    width: u32,
+    fallback_url: Option<String>,
+}
+
 async fn load_asset(
     cache: AssetCacheState,
     network: &NetworkState,
     key: String,
-    url: String,
+    mut url: String,
     refresh: bool,
-    hero_width: Option<u32>,
+    hero: Option<HeroSource>,
 ) -> Result<AssetResult, String> {
     let reader = cache.clone();
     let read_key = key.clone();
@@ -425,9 +430,18 @@ async fn load_asset(
             cache_warning: None,
         });
     }
-    let fetched = network
-        .steam_asset(&url)
-        .await
+    let fetched = match network.steam_asset(&url).await {
+        Err(crate::network::NetworkError::Http { status: 404 }) => {
+            if let Some(fallback) = hero.as_ref().and_then(|hero| hero.fallback_url.as_ref()) {
+                url = fallback.clone();
+                network.steam_asset(&url).await
+            } else {
+                Err(crate::network::NetworkError::Http { status: 404 })
+            }
+        }
+        result => result,
+    };
+    let fetched = fetched
         .map_err(|error| format!("Steam image request failed: {error:?}"))
         .and_then(|bytes| {
             ImageFormat::from_steam_bytes(&bytes)
@@ -435,7 +449,7 @@ async fn load_asset(
                 .ok_or_else(|| "Steam returned unsupported image content.".to_owned())
         });
     let fetched = match fetched {
-        Ok(bytes) => optimized_asset_bytes(bytes, hero_width.map(|width| (width, false))).await,
+        Ok(bytes) => optimized_asset_bytes(bytes, hero.map(|hero| (hero.width, false))).await,
         Err(error) => Err(error),
     };
     match fetched {
@@ -612,7 +626,7 @@ pub async fn get_asset<R: tauri::Runtime>(
             cache_warning: warning,
         });
     }
-    let (selected, metadata_warning) = if let Some(filename) = filename {
+    let (selected, metadata_warning, hero_fallback) = if let Some(filename) = filename {
         let path = state
             .directory()
             .map(|directory| directory.join("pics").join(format!("{app_id}.json")));
@@ -622,7 +636,16 @@ pub async fn get_asset<R: tauri::Runtime>(
         if let Some(warning) = warning.as_deref() {
             eprintln!("Steam asset metadata lookup for {app_id}: {warning}");
         }
-        (library_url(app_id, filename, assets.as_ref()), warning)
+        let fallback = if matches!(asset, AssetKind::Hero) && full {
+            Some(library_url(app_id, "library_hero.jpg", assets.as_ref())?)
+        } else {
+            None
+        };
+        (
+            library_url(app_id, filename, assets.as_ref()),
+            warning,
+            fallback,
+        )
     } else {
         let app_for_lookup = app.clone();
         let url = tauri::async_runtime::spawn_blocking(move || {
@@ -637,7 +660,7 @@ pub async fn get_asset<R: tauri::Runtime>(
         })
         .await
         .map_err(|error| format!("Image lookup task failed: {error}"))?;
-        (url, None)
+        (url, None, None)
     };
     let loaded = match selected {
         Ok(url) => {
@@ -647,7 +670,10 @@ pub async fn get_asset<R: tauri::Runtime>(
                 key,
                 url,
                 refresh,
-                adaptive_hero.then_some(display_width),
+                adaptive_hero.then_some(HeroSource {
+                    width: display_width,
+                    fallback_url: hero_fallback,
+                }),
             )
             .await
         }
@@ -992,6 +1018,44 @@ mod tests {
         assert_eq!(first.bytes, second.bytes);
         assert_eq!(first.content_type, "image/webp");
         assert!(!second.stale);
+        fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn missing_double_size_hero_falls_back_and_caches_the_available_source() {
+        let cache = cache();
+        let (missing, missing_server) = server(
+            b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+        );
+        let (fallback, fallback_server) = server(response(PNG));
+        let network = NetworkState::new(
+            "0.1.0",
+            crate::diagnostics::Diagnostics::new(Err("test".into())),
+        )
+        .unwrap();
+        let first = tauri::async_runtime::block_on(load_asset(
+            cache.clone(),
+            &network,
+            "400-hero-display-v1-3840".into(),
+            missing,
+            false,
+            Some(HeroSource {
+                width: 3840,
+                fallback_url: Some(fallback.clone()),
+            }),
+        ))
+        .unwrap();
+        missing_server.join().unwrap();
+        fallback_server.join().unwrap();
+        assert_eq!(image::load_from_memory(&first.bytes).unwrap().width(), 2);
+        assert_eq!(
+            cache
+                .read("400-hero-display-v1-3840", &fallback)
+                .unwrap()
+                .unwrap()
+                .bytes,
+            first.bytes
+        );
         fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
     }
 
