@@ -93,10 +93,14 @@ pub(crate) struct CompatibilityLog {
 #[serde(rename_all = "camelCase")]
 struct LaunchReport<'a> {
     schema_version: u8,
+    launch_backend: &'static str,
     game_id: String,
     runner: &'a str,
     runner_version: &'a str,
     prefix_path: &'a Path,
+    compatdata_path: Option<&'a Path>,
+    wine_prefix_path: Option<&'a Path>,
+    steam_client_path: Option<&'a Path>,
     applied_options: &'a AppliedCompatibilityOptions,
     online_fix: bool,
     linux_performance: &'a crate::database::LinuxPerformance,
@@ -143,11 +147,31 @@ impl CompatibilityLog {
         let proton_log = matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton)
             .then(|| directory.join(crate::compatibility_options::proton_log_name(config)));
         let report = LaunchReport {
-            schema_version: 1,
+            schema_version: 2,
+            launch_backend: match runner.kind {
+                RunnerKind::Wine => "wine",
+                RunnerKind::Proton | RunnerKind::GeProton if config.online_fix => "steam_proton",
+                RunnerKind::Proton | RunnerKind::GeProton => "umu",
+            },
             game_id,
             runner: &runner.name,
             runner_version: &runner.version,
             prefix_path,
+            compatdata_path: command.get_envs().find_map(|(key, value)| {
+                (key == "STEAM_COMPAT_DATA_PATH")
+                    .then_some(value.map(Path::new))
+                    .flatten()
+            }),
+            wine_prefix_path: command.get_envs().find_map(|(key, value)| {
+                (key == "WINEPREFIX")
+                    .then_some(value.map(Path::new))
+                    .flatten()
+            }),
+            steam_client_path: command.get_envs().find_map(|(key, value)| {
+                (key == "STEAM_COMPAT_CLIENT_INSTALL_PATH")
+                    .then_some(value.map(Path::new))
+                    .flatten()
+            }),
             applied_options,
             online_fix: config.online_fix,
             linux_performance: &config.linux_performance,
@@ -381,15 +405,19 @@ fn debug_environment(
             let mut variables = vec![
                 ("PROTON_LOG", "1".to_owned()),
                 ("PROTON_LOG_DIR", directory.to_string_lossy().into_owned()),
-                (
+            ];
+            if config.online_fix {
+                variables.push(("SteamGameId", "0".to_owned()));
+            } else {
+                variables.push((
                     "GAMEID",
                     if config.environment.contains_key("GAMEID") {
                         "configured_by_user".to_owned()
                     } else {
                         "umu-default".to_owned()
                     },
-                ),
-            ];
+                ));
+            }
             if config.environment.contains_key("WINEDEBUG") {
                 variables.push(("WINEDEBUG", "configured_by_user".to_owned()));
             }
@@ -604,7 +632,56 @@ mod tests {
         let report: serde_json::Value =
             serde_json::from_slice(&fs::read(directory.join("launch.json")).unwrap()).unwrap();
         assert_eq!(report["onlineFix"], true);
+        assert_eq!(report["launchBackend"], "steam_proton");
         drop(log);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn online_fix_report_records_actual_prefix_and_steam_paths_and_caps_the_correct_log() {
+        let root = std::env::temp_dir().join(format!("legio-direct-proton-log-{}", Uuid::new_v4()));
+        let config = EffectiveCompatibilityConfig {
+            online_fix: true,
+            debug_logging: true,
+            ..EffectiveCompatibilityConfig::default()
+        };
+        let runner = InstalledRunner {
+            kind: RunnerKind::GeProton,
+            name: "GE-Proton".to_owned(),
+            version: "10".to_owned(),
+            path: "/runner".to_owned(),
+        };
+        let options =
+            crate::compatibility_options::PreparedOptions::diagnostic(&runner, &config, true);
+        let mut command = std::process::Command::new("/runtime/run");
+        command
+            .env("WINEPREFIX", "/prefix/pfx")
+            .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", "/Steam Client");
+        let logs = CompatibilityLog::create(
+            &root,
+            &Uuid::new_v4().to_string(),
+            Path::new("/prefix"),
+            &runner,
+            &config,
+            &options,
+            &command,
+        )
+        .unwrap();
+        let directory = logs.state().directory().to_path_buf();
+        let report: serde_json::Value =
+            serde_json::from_slice(&fs::read(directory.join("launch.json")).unwrap()).unwrap();
+        assert_eq!(report["launchBackend"], "steam_proton");
+        assert_eq!(report["winePrefixPath"], "/prefix/pfx");
+        assert_eq!(report["steamClientPath"], "/Steam Client");
+        assert_eq!(
+            report["debugEnvironment"][2],
+            serde_json::json!(["SteamGameId", "0"])
+        );
+        let path = directory.join("steam-0.log");
+        fs::write(&path, vec![b'x'; MAX_PROTON_LOG_BYTES as usize + 1]).unwrap();
+        logs.cap_runner_log();
+        assert_eq!(fs::metadata(path).unwrap().len(), MAX_PROTON_LOG_BYTES);
+        drop(logs);
         fs::remove_dir_all(root).unwrap();
     }
 

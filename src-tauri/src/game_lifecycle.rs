@@ -537,11 +537,7 @@ impl GameLaunchManager {
             config.prefix_path.as_deref(),
         )?;
         let wine_prefix = game_wine_prefix(&compat_data_path, runner.kind)?;
-        let umu = if runner.kind != RunnerKind::Wine {
-            Some(runner_discovery::umu_path()?)
-        } else {
-            None
-        };
+        let direct_proton = config.online_fix && runner.kind != RunnerKind::Wine;
         let steam_root = if config.online_fix || launch_via_steam {
             Some(steam_client_root()?)
         } else {
@@ -553,13 +549,35 @@ impl GameLaunchManager {
             steam_root.as_deref(),
             launch_via_steam,
         )?;
-        let command = runner_discovery::launch_command(
-            &runner,
-            &executable_path,
-            &config.arguments_before,
-            &config.arguments_after,
-            umu.as_deref(),
-        )?;
+        let command = if direct_proton {
+            let root = steam_root
+                .as_deref()
+                .ok_or("Steam installation is unavailable")?;
+            let mut command =
+                crate::proton_runtime::prepare(&runner, root, &compat_data_path, &wine_prefix)?;
+            command
+                .args(&config.arguments_before)
+                .arg(&executable_path)
+                .args(&config.arguments_after)
+                .env(
+                    "STEAM_COMPAT_INSTALL_PATH",
+                    executable_path.parent().unwrap_or(&working_directory),
+                );
+            command
+        } else {
+            let umu = if runner.kind != RunnerKind::Wine {
+                Some(runner_discovery::umu_path()?)
+            } else {
+                None
+            };
+            runner_discovery::launch_command(
+                &runner,
+                &executable_path,
+                &config.arguments_before,
+                &config.arguments_after,
+                umu.as_deref(),
+            )?
+        };
         let mut command = crate::linux_performance::wrap(command, &config.linux_performance)?;
         command.current_dir(working_directory).stdin(Stdio::null());
         options.apply(&mut command, &config)?;
@@ -567,9 +585,10 @@ impl GameLaunchManager {
             command.env("WINEDEBUG", "-all");
         }
         apply_dll_overrides(&mut command, &config);
-        command
-            .env("WINEPREFIX", &wine_prefix)
-            .env_remove("STEAM_COMPAT_DATA_PATH");
+        command.env("WINEPREFIX", &wine_prefix);
+        if !direct_proton {
+            command.env_remove("STEAM_COMPAT_DATA_PATH");
+        }
         if let Some(steam_root) = steam_root.as_ref() {
             command.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_root);
         } else {
@@ -649,7 +668,6 @@ impl GameLaunchManager {
         } else {
             command.stdout(Stdio::null()).stderr(Stdio::null());
         }
-        let overlay_log = compatibility_log.as_ref().map(CompatibilityLog::state);
         let manager = self.clone();
         let worker_id = game_id.clone();
         let session_database = database;
@@ -672,18 +690,6 @@ impl GameLaunchManager {
                             steam_root.as_deref(),
                             |root| steam_process::ensure_running(root, STEAM_START_TIMEOUT, cancel),
                         )?;
-                        if config.online_fix && runner.kind != RunnerKind::Wine {
-                            let root = steam_root
-                                .as_deref()
-                                .ok_or("Steam installation is unavailable")?;
-                            let copied = crate::steam_overlay::prepare_prefix(root, &wine_prefix)?;
-                            if let Some(log) = overlay_log.as_ref() {
-                                log.record_event(
-                                    "steam_overlay_prepared",
-                                    Some(if copied { "copied" } else { "existing" }),
-                                );
-                            }
-                        }
                         if cancel.load(Ordering::Acquire) {
                             return Err("Launch cancelled".to_owned());
                         }

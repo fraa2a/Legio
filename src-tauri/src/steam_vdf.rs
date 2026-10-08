@@ -205,10 +205,35 @@ pub(crate) fn patch_keyvalues_scalar(
     path: &[&str],
     value: &str,
 ) -> Result<Vec<u8>, VdfError> {
+    if value.chars().any(char::is_control) {
+        return Err(VdfError::Malformed { offset: 0 });
+    }
+    let (start, end) = keyvalues_scalar_span(bytes, path)?;
+    let replacement = format!("\"{}\"", escape_scalar(value));
+    let mut output = bytes.to_vec();
+    output.splice(start..end, replacement.bytes());
+    Ok(output)
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn keyvalues_scalar(bytes: &[u8], path: &[&str]) -> Result<String, VdfError> {
+    let (start, _) = keyvalues_scalar_span(bytes, path)?;
+    let mut parser = Parser {
+        bytes,
+        offset: start,
+        entries: 0,
+    };
+    parser
+        .next()?
+        .map(|token| token.value)
+        .ok_or_else(|| parser.malformed())
+}
+
+fn keyvalues_scalar_span(bytes: &[u8], path: &[&str]) -> Result<(usize, usize), VdfError> {
     if bytes.len() > MAX_LOGINUSERS_BYTES {
         return Err(VdfError::InputTooLarge);
     }
-    if path.is_empty() || value.chars().any(char::is_control) {
+    if path.is_empty() {
         return Err(VdfError::Malformed { offset: 0 });
     }
     let text = std::str::from_utf8(bytes).map_err(|_| VdfError::InvalidUtf8)?;
@@ -234,10 +259,7 @@ pub(crate) fn patch_keyvalues_scalar(
             VdfError::AmbiguousSelection
         });
     };
-    let replacement = format!("\"{}\"", escape_scalar(value));
-    let mut output = bytes.to_vec();
-    output.splice(*start..*end, replacement.bytes());
-    Ok(output)
+    Ok((*start, *end))
 }
 
 /// Updates a scalar or inserts it into an existing, unique parent object.

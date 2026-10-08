@@ -95,7 +95,7 @@ pub(crate) fn launch_command(
 #[cfg(target_os = "linux")]
 pub(crate) fn umu_path() -> Result<PathBuf, String> {
     executable_path("umu-run").ok_or_else(|| {
-        "Install umu-launcher to run manually imported Proton games, then restart Legio".to_owned()
+        "Install umu-launcher to run Proton games without Online Fix, then restart Legio".to_owned()
     })
 }
 

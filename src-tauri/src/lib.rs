@@ -44,6 +44,8 @@ mod network;
 mod news;
 mod online_fix;
 mod playtime_activity;
+#[cfg(target_os = "linux")]
+mod proton_runtime;
 mod runner_discovery;
 mod settings;
 mod source_links;
@@ -61,8 +63,6 @@ mod steam_assets;
 mod steam_details;
 mod steam_import;
 mod steam_local;
-#[cfg(target_os = "linux")]
-mod steam_overlay;
 mod steam_pics;
 mod steam_process;
 mod steam_switch;
