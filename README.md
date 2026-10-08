@@ -30,7 +30,7 @@ Get the latest version from [Releases](https://github.com/fraa2a/Legio/releases)
 
 Steam must be installed for Steam integration and for games that require it.
 
-Manual Proton and GE-Proton games use [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher).
+Manual Proton and GE-Proton games without Online Fix use [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher).
 umu is a runtime dependency for these games, not for native Linux games, Wine
 launches or games launched through Steam.
 
@@ -43,6 +43,10 @@ launches or games launched through Steam.
 
 umu manages and downloads the required Steam Linux Runtime. A compatible Proton
 or GE-Proton runner must still be installed separately.
+Online Fix games using Proton launch through the Steam Linux Runtime declared by
+the runner's manifest, installed in a Steam library. Install the required runtime
+in Steam when prompted. These launches do not require umu; Proton manages the
+Steam files in the existing prefix.
 Steam-managed games continue to launch through Steam. Manual games only need Steam
 when Steam integration or Online Fix is enabled. Existing Wine and Proton prefixes
 are reused without moving save files. A shared prefix can run one game at a time.
@@ -90,7 +94,7 @@ See [LICENSE](LICENSE) for the terms of use and distribution.
 
 The compatibility panel of each manually imported game offers GameMode and gamescope. They are disabled by default and require the corresponding executable in PATH or ~/.local/bin. Install the distribution packages and reopen the panel to refresh availability. GameMode also needs a working user service and its preload libraries; Legio does not change its system configuration.
 
-With gamescope enabled, choose a native or explicit internal resolution and an optional frame cap. Commands use the structured order `gamescope [numeric options] -- gamemoderun umu-run game.exe [game arguments]`; disabled wrappers are omitted and Wine replaces umu-run for Wine runners. Steam-managed games keep their existing client launch path. Resolution and FPS are validated before saving and launching. A lower internal resolution changes visual quality, and the additional compositor can change latency. GameMode, gamescope and native Wine Wayland are independent controls. Compare each change against the default for the same game; no FPS gain is guaranteed.
+With gamescope enabled, choose a native or explicit internal resolution and an optional frame cap. Commands use the structured order `gamescope [numeric options] -- gamemoderun umu-run game.exe [game arguments]`; disabled wrappers are omitted. Online Fix uses `runtime/run -- proton run` in place of `umu-run`, and Wine uses its own executable. Steam-managed games keep their existing client launch path. Resolution and FPS are validated before saving and launching. A lower internal resolution changes visual quality, and the additional compositor can change latency. GameMode, gamescope and native Wine Wayland are independent controls. Compare each change against the default for the same game; no FPS gain is guaranteed.
 
 References: [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher), [vkd3d-proton shader cache](https://github.com/HansKristian-Work/vkd3d-proton), [GameMode](https://github.com/FeralInteractive/gamemode) and [gamescope](https://github.com/ValveSoftware/gamescope).
 

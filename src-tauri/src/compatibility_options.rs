@@ -148,6 +148,9 @@ impl PreparedOptions {
 }
 
 pub(crate) fn proton_log_name(config: &EffectiveCompatibilityConfig) -> String {
+    if config.online_fix {
+        return "steam-0.log".to_owned();
+    }
     let game_id = config
         .environment
         .get("GAMEID")
@@ -333,6 +336,18 @@ mod tests {
         assert!(
             PreparedOptions::prepare(&config, &runner(RunnerKind::GeProton), None, false).is_err()
         );
+    }
+
+    #[test]
+    fn online_fix_proton_log_uses_the_direct_launch_identity() {
+        let mut config = EffectiveCompatibilityConfig {
+            online_fix: true,
+            ..EffectiveCompatibilityConfig::default()
+        };
+        config
+            .environment
+            .insert("GAMEID".to_owned(), "umu-1234".to_owned());
+        assert_eq!(proton_log_name(&config), "steam-0.log");
     }
 
     #[test]
