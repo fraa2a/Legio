@@ -4,7 +4,7 @@ import { writable } from "svelte/store";
 import { createResource } from "./resource";
 
 export const defaultSettings: Settings = {
-  discordPresence: { enabled: true, applicationId: "1557120430475575366" },
+  discordPresence: { enabled: true },
   onboardingCompleted: false,
   appearance: defaultAppearance(), theme: "system", language: "system", steamLibraryPollMinutes: 30, downloadPath: null,
   closeToTray: true, hideOnGameStart: true, launchOnSystemStart: false,

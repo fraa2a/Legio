@@ -23,33 +23,11 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 #[serde(default, rename_all = "camelCase")]
 pub struct PresenceSettings {
     pub enabled: bool,
-    pub application_id: String,
 }
 
 impl Default for PresenceSettings {
     fn default() -> Self {
-        Self {
-            enabled: true,
-            application_id: APPLICATION_ID.to_owned(),
-        }
-    }
-}
-
-impl PresenceSettings {
-    pub(crate) fn validate(&self) -> Result<(), String> {
-        if self.application_id.is_empty() {
-            return Ok(());
-        }
-        if !(17..=20).contains(&self.application_id.len())
-            || !self
-                .application_id
-                .bytes()
-                .all(|byte| byte.is_ascii_digit())
-            || !self.application_id.parse::<u64>().is_ok_and(|id| id > 0)
-        {
-            return Err("Discord Application ID must be a valid numeric application ID".to_owned());
-        }
-        Ok(())
+        Self { enabled: true }
     }
 }
 
@@ -109,11 +87,7 @@ fn snapshot(
     database: &Database,
     manager: &GameLaunchManager,
 ) -> Result<(PresenceSettings, Activity), String> {
-    let mut settings = database.settings()?.discord_presence;
-    if settings.application_id.is_empty() {
-        settings.application_id = APPLICATION_ID.to_owned();
-    }
-    settings.validate()?;
+    let settings = database.settings()?.discord_presence;
     let mut activity = Activity {
         name: None,
         started_at: None,
@@ -157,7 +131,7 @@ async fn run(
 ) {
     let mut interval = tokio::time::interval(POLL_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut client: Option<(String, Connection)> = None;
+    let mut client: Option<Connection> = None;
     let mut last_activity = None;
     let mut last_sent = Instant::now();
     let mut retry_at = Instant::now();
@@ -194,13 +168,10 @@ async fn run(
             }
         };
         enabled = settings.enabled;
-        if client
-            .as_ref()
-            .is_some_and(|(id, _)| !settings.enabled || *id != settings.application_id)
+        if !settings.enabled
+            && let Some(mut connection) = client.take()
         {
-            if let Some((_, mut connection)) = client.take()
-                && let Err(error) = connection.set_activity(None).await
-            {
+            if let Err(error) = connection.set_activity(None).await {
                 report_error(&mut last_error, error.to_string());
             }
             last_activity = None;
@@ -209,9 +180,9 @@ async fn run(
             continue;
         }
         if client.is_none() {
-            match Connection::connect(&settings.application_id).await {
+            match Connection::connect(APPLICATION_ID).await {
                 Ok(connection) => {
-                    client = Some((settings.application_id, connection));
+                    client = Some(connection);
                     last_activity = None;
                 }
                 Err(error) => {
@@ -224,7 +195,7 @@ async fn run(
         if last_activity.as_ref() == Some(&activity) && last_sent.elapsed() < HEARTBEAT_INTERVAL {
             continue;
         }
-        if let Some((_, connection)) = client.as_mut() {
+        if let Some(connection) = client.as_mut() {
             match connection.set_activity(Some(activity.payload())).await {
                 Ok(()) => {
                     last_activity = Some(activity);
@@ -254,40 +225,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn validates_ids_and_defaults_missing_settings_to_enabled() {
+    fn defaults_to_enabled_and_ignores_legacy_application_ids() {
         let defaults: PresenceSettings = serde_json::from_str("{}").unwrap();
         assert!(defaults.enabled);
-        assert_eq!(defaults.application_id, APPLICATION_ID);
         let disabled: PresenceSettings = serde_json::from_str(r#"{"enabled":false}"#).unwrap();
         assert!(!disabled.enabled);
-        assert_eq!(disabled.application_id, APPLICATION_ID);
-        assert!(
-            PresenceSettings {
-                enabled: true,
-                application_id: String::new()
+        for enabled in [true, false] {
+            for id in ["123456789012345678", "invalid", ""] {
+                let legacy: PresenceSettings = serde_json::from_value(json!({
+                    "enabled": enabled,
+                    "applicationId": id,
+                }))
+                .unwrap();
+                assert_eq!(legacy.enabled, enabled);
+                assert_eq!(
+                    serde_json::to_value(legacy).unwrap(),
+                    json!({ "enabled": enabled })
+                );
             }
-            .validate()
-            .is_ok()
-        );
-        assert!(defaults.validate().is_ok());
-        for id in ["abc", "123", "18446744073709551616", " 123456789012345678"] {
-            assert!(
-                PresenceSettings {
-                    enabled: true,
-                    application_id: id.into()
-                }
-                .validate()
-                .is_err()
-            );
         }
-        assert!(
-            PresenceSettings {
-                enabled: true,
-                application_id: "123456789012345678".into()
-            }
-            .validate()
-            .is_ok()
-        );
     }
 
     #[test]

@@ -579,7 +579,6 @@ impl Database {
 
     pub fn save_settings(&self, settings: Settings) -> Result<Settings, String> {
         crate::appearance::validate(&settings.appearance)?;
-        settings.discord_presence.validate()?;
         validate_steam_library_poll_minutes(settings.steam_library_poll_minutes)?;
         if settings.launch_minimized && !settings.launch_on_system_start {
             return Err("Launch minimized requires launch on system startup".to_owned());
@@ -2001,7 +2000,7 @@ mod tests {
     }
 
     #[test]
-    fn discord_presence_defaults_persist_and_invalid_ids_do_not_overwrite_settings() {
+    fn discord_presence_ignores_legacy_ids_and_persists_the_toggle() {
         let old: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
         assert!(old.discord_presence.enabled);
         assert_eq!(
@@ -2011,17 +2010,44 @@ mod tests {
         let directory = temporary_directory();
         let database = Database::open(&directory).unwrap();
         assert!(database.settings().unwrap().discord_presence.enabled);
-        let settings = Settings {
-            discord_presence: crate::discord_presence::PresenceSettings {
-                enabled: false,
-                application_id: "123456789012345678".to_owned(),
-            },
-            ..Settings::default()
-        };
+        database
+            .save_settings(Settings {
+                theme: Theme::Light,
+                ..Settings::default()
+            })
+            .unwrap();
+        database
+            .with_connection(|connection| {
+                connection.execute(
+                    "UPDATE settings SET value = ?1 WHERE key = 'app_preferences'",
+                    [r#"{"theme":"light","language":"it","discordPresence":{"enabled":false,"applicationId":"invalid"}}"#],
+                ).map(|_| ()).map_err(database_error)
+            })
+            .unwrap();
+        let mut settings = database.settings().unwrap();
+        assert!(!settings.discord_presence.enabled);
+        assert_eq!(settings.theme, Theme::Light);
+        assert_eq!(settings.language, "it");
+        settings.discord_presence.enabled = true;
         database.save_settings(settings.clone()).unwrap();
-        let mut invalid = settings.clone();
-        invalid.discord_presence.application_id = "invalid".to_owned();
-        assert!(database.save_settings(invalid).is_err());
+        settings.discord_presence.enabled = false;
+        database.save_settings(settings.clone()).unwrap();
+        let stored: String = database
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT value FROM settings WHERE key = 'app_preferences'",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .map_err(database_error)
+            })
+            .unwrap();
+        let stored: serde_json::Value = serde_json::from_str(&stored).unwrap();
+        assert_eq!(
+            stored["discordPresence"],
+            serde_json::json!({ "enabled": false })
+        );
         drop(database);
         let reopened = Database::open(&directory).unwrap();
         assert_eq!(reopened.settings().unwrap(), settings);
