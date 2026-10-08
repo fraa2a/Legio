@@ -517,6 +517,8 @@ pub async fn get_asset<R: tauri::Runtime>(
         AssetKind::Hero => "hero",
         AssetKind::Logo => "logo",
         AssetKind::Screenshot => "screenshot",
+        // Avoid reusing opaque JPEG icons cached before ICO became the preferred source.
+        AssetKind::ClientIcon => "clienticon-alpha",
         _ => filename.ok_or("Invalid image selection.")?,
     };
     let key = match index {

@@ -49,62 +49,64 @@
 <svelte:window onpointerdown={outside} />
 
 <div bind:this={root} class="relative z-20 h-[60px] w-[260px] shrink-0">
-  <button
-    type="button"
-    aria-label={t("Seleziona versione: {0}, {1}", $language, [selected.name, selected.subtitle])}
-    aria-expanded={open}
-    disabled={!hasChoices}
-    onkeydown={handleKeydown}
-    class="flex size-full items-center gap-2 border border-white/10 bg-zinc-950/60 px-3 text-left text-zinc-100 light:border-zinc-900/10 light:bg-zinc-100/70 light:text-zinc-900 {open ? 'rounded-b-xl border-t-0' : 'rounded-xl hover:bg-zinc-950/75 light:hover:bg-zinc-200'}"
-    onclick={() => (open = !open)}
-  >
-    {#if steamAppId !== null}
-      <SteamArtwork {steamAppId} asset="logo" caption={false} alt="" class="size-10 shrink-0 object-contain">
-        {#snippet placeholder()}<span class="flex size-10 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold">{selected.name.charAt(0).toUpperCase()}</span>{/snippet}
-      </SteamArtwork>
-    {:else}
-      <span class="flex size-10 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold">{selected.name.charAt(0).toUpperCase()}</span>
-    {/if}
-    <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-      <span class="flex min-w-0 items-center gap-1.5">
-        <span class="truncate text-lg leading-6 font-semibold">{selected.name}</span>
-        {#if selected.isSteam}<span class="shrink-0 rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-bold leading-none text-sky-300 light:text-sky-700">STEAM</span>{/if}
-      </span>
-      <span class="truncate text-xs leading-4 text-zinc-400 light:text-zinc-600">{selected.subtitle}</span>
-    </span>
-    {#if hasChoices}<span class="transition-transform duration-150 {open ? 'rotate-180' : ''}"><Icon name="chevron-down" size="h-4 w-4 shrink-0 text-zinc-400 light:text-zinc-600" /></span>{/if}
-  </button>
-  {#if open}
-    <div class="absolute bottom-full left-0 z-50 max-h-48 w-full overflow-y-auto rounded-t-xl border border-b-0 border-white/10 bg-zinc-950/60 p-1 shadow-xl light:border-zinc-900/10 light:bg-zinc-100/70">
-      {#each alternatives as option (option.id)}
-        <button
-          type="button"
-          aria-current={option.id === selectedId ? "true" : undefined}
-          onkeydown={handleKeydown}
-          class="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-white/10 focus-visible:bg-white/10 light:hover:bg-zinc-100 light:focus-visible:bg-zinc-100"
-          onclick={() => choose(option.id)}
-        >
-          {#if steamAppId !== null}
-            <SteamArtwork {steamAppId} asset="logo" caption={false} alt="" class="size-9 shrink-0 object-contain">
-              {#snippet placeholder()}<span class="flex size-9 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold">{option.name.charAt(0).toUpperCase()}</span>{/snippet}
-            </SteamArtwork>
-          {:else}
-            <span class="flex size-9 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold">{option.name.charAt(0).toUpperCase()}</span>
-          {/if}
-          <span class="flex min-w-0 flex-col">
-            <span class="flex min-w-0 items-center gap-1.5">
-              <span class="truncate text-sm font-semibold text-zinc-100 light:text-zinc-900">{option.name}</span>
-              {#if option.isSteam}<span class="shrink-0 rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-bold leading-none text-sky-300 light:text-sky-700">STEAM</span>{/if}
-            </span>
-            <span class="truncate text-xs text-zinc-400 light:text-zinc-600">{option.subtitle}</span>
-          </span>
-        </button>
-      {/each}
-      {#if onAdd}
-        <button type="button" class="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-200 hover:bg-white/10 focus-visible:bg-white/10 light:text-zinc-800 light:hover:bg-zinc-900/10" onclick={() => { open = false; onAdd(); }}>
-          <Icon name="plus" size="size-5" />{t("Aggiungi un'altra versione", $language)}
-        </button>
+  <div class="absolute bottom-0 left-0 flex w-full flex-col-reverse overflow-hidden rounded-xl border border-white/10 bg-zinc-950/60 backdrop-blur-md light:border-zinc-900/10 light:bg-zinc-100/70 {open ? 'shadow-xl' : 'hover:bg-zinc-950/75 light:hover:bg-zinc-200'}">
+    <button
+      type="button"
+      aria-label={t("Seleziona versione: {0}, {1}", $language, [selected.name, selected.subtitle])}
+      aria-expanded={open}
+      disabled={!hasChoices}
+      onkeydown={handleKeydown}
+      class="flex h-[58px] w-full items-center gap-2 bg-transparent px-3 text-left text-zinc-100 light:text-zinc-900"
+      onclick={() => (open = !open)}
+    >
+      {#if steamAppId !== null}
+        <SteamArtwork {steamAppId} asset="logo" caption={false} alt="" class="size-10 shrink-0 object-contain">
+          {#snippet placeholder()}<span class="flex size-10 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold">{selected.name.charAt(0).toUpperCase()}</span>{/snippet}
+        </SteamArtwork>
+      {:else}
+        <span class="flex size-10 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold">{selected.name.charAt(0).toUpperCase()}</span>
       {/if}
-    </div>
-  {/if}
+      <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span class="flex min-w-0 items-center gap-1.5">
+          <span class="truncate text-lg leading-6 font-semibold">{selected.name}</span>
+          {#if selected.isSteam}<span class="shrink-0 rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-bold leading-none text-sky-300 light:text-sky-700">STEAM</span>{/if}
+        </span>
+        <span class="truncate text-xs leading-4 text-zinc-400 light:text-zinc-600">{selected.subtitle}</span>
+      </span>
+      {#if hasChoices}<span class="transition-transform duration-150 {open ? 'rotate-180' : ''}"><Icon name="chevron-down" size="h-4 w-4 shrink-0 text-zinc-400 light:text-zinc-600" /></span>{/if}
+    </button>
+    {#if open}
+      <div class="max-h-[188px] overflow-y-auto overscroll-contain p-1">
+        {#each alternatives as option (option.id)}
+          <button
+            type="button"
+            aria-current={option.id === selectedId ? "true" : undefined}
+            onkeydown={handleKeydown}
+            class="flex h-[60px] w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-white/10 focus-visible:bg-white/10 light:hover:bg-zinc-900/10 light:focus-visible:bg-zinc-900/10"
+            onclick={() => choose(option.id)}
+          >
+            {#if steamAppId !== null}
+              <SteamArtwork {steamAppId} asset="logo" caption={false} alt="" class="size-9 shrink-0 object-contain">
+                {#snippet placeholder()}<span class="flex size-9 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold">{option.name.charAt(0).toUpperCase()}</span>{/snippet}
+              </SteamArtwork>
+            {:else}
+              <span class="flex size-9 shrink-0 items-center justify-center rounded-md bg-zinc-700 text-sm font-semibold">{option.name.charAt(0).toUpperCase()}</span>
+            {/if}
+            <span class="flex min-w-0 flex-col">
+              <span class="flex min-w-0 items-center gap-1.5">
+                <span class="truncate text-sm font-semibold text-zinc-100 light:text-zinc-900">{option.name}</span>
+                {#if option.isSteam}<span class="shrink-0 rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-bold leading-none text-sky-300 light:text-sky-700">STEAM</span>{/if}
+              </span>
+              <span class="truncate text-xs text-zinc-400 light:text-zinc-600">{option.subtitle}</span>
+            </span>
+          </button>
+        {/each}
+        {#if onAdd}
+          <button type="button" class="flex h-[60px] w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-200 hover:bg-white/10 focus-visible:bg-white/10 light:text-zinc-800 light:hover:bg-zinc-900/10" onclick={() => { open = false; onAdd(); }}>
+            <Icon name="plus" size="size-5" />{t("Aggiungi un'altra versione", $language)}
+          </button>
+        {/if}
+      </div>
+    {/if}
+  </div>
 </div>

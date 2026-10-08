@@ -188,21 +188,38 @@ test("missing Steam client icons keep a monogram without substituting a branding
   } finally { await unmount(component); }
 });
 
-test("library cards show the small custom icon beside the game name", async () => {
+test("library cards keep a manual game's name without requesting a small icon", async () => {
   const { default: GameCard } = await import(await moduleUrl("src/lib/features/library/GameCard.svelte"));
-  globalThis.artworkInvoke = (command) => {
-    assert.equal(command, "get_game_icon");
-    return Promise.resolve(artworkPacket({ bytes: [1], contentType: "image/png" }));
-  };
+  globalThis.artworkInvoke = () => assert.fail("Manual cards must not request icon artwork");
   const target = document.createElement("div");
   const component = mount(GameCard, { target, props: {
     game: { id: "card-icon", name: "Manual game", steamAppId: null }, launch: undefined, onOpen() {},
   } });
   try {
     await settle();
-    const icon = target.querySelector('img[draggable="false"]');
-    assert.ok(icon);
-    assert.equal(icon.nextElementSibling.textContent, "Manual game");
+    assert.equal(target.querySelector("img"), null);
+    assert.match(target.textContent, /Manual game/);
+  } finally { await unmount(component); }
+});
+
+test("library cards use the branding logo instead of a small icon", async () => {
+  const { default: GameCard } = await import(await moduleUrl("src/lib/features/library/GameCard.svelte"));
+  const calls = [];
+  globalThis.artworkInvoke = (command, args) => {
+    calls.push([command, args]);
+    if (command === "get_steam_details") return Promise.resolve({ details: null, cachedAt: null, stale: false });
+    assert.equal(command, "get_steam_asset");
+    assert.ok(["logo", "hero_blur"].includes(args.asset));
+    return Promise.resolve(artworkPacket({ bytes: [1], contentType: "image/png", stale: false, cacheWarning: null }));
+  };
+  const target = document.createElement("div");
+  const component = mount(GameCard, { target, props: {
+    game: { id: "card-logo", name: "Portal", steamAppId: 7142 }, launch: undefined, onOpen() {},
+  } });
+  try {
+    await settle();
+    assert.equal(calls.filter(([command, args]) => command === "get_steam_asset" && args.asset === "logo").length, 1);
+    assert.equal(target.querySelectorAll("img").length, 2);
   } finally { await unmount(component); }
 });
 
