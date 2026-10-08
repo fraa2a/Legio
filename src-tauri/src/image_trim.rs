@@ -160,6 +160,24 @@ mod tests {
     }
 
     #[test]
+    fn transparent_icon_pixels_survive_png_ico_and_webp_processing() {
+        let mut rgba = RgbaImage::from_pixel(16, 16, image::Rgba([20, 40, 60, 120]));
+        rgba.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
+        rgba.put_pixel(8, 8, image::Rgba([0, 0, 0, 0]));
+        let source = DynamicImage::ImageRgba8(rgba.clone());
+        for format in [ImageFormat::Png, ImageFormat::Ico, ImageFormat::WebP] {
+            let mut input = Cursor::new(Vec::new());
+            source.write_to(&mut input, format).unwrap();
+            let output = webp_asset(input.get_ref()).unwrap();
+            let decoded = image::load_from_memory(&output).unwrap().to_rgba8();
+            assert_eq!(decoded.dimensions(), rgba.dimensions());
+            for (original, decoded) in rgba.pixels().zip(decoded.pixels()) {
+                assert_eq!(decoded[3], original[3], "{format:?} must preserve alpha");
+            }
+        }
+    }
+
+    #[test]
     fn trims_transparent_padding() {
         let mut frame = image::RgbaImage::new(100, 100);
         for pixel in frame.pixels_mut() {

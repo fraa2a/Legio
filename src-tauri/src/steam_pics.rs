@@ -22,7 +22,7 @@ pub(crate) struct PicsAssets(BTreeMap<String, String>);
 impl PicsAssets {
     pub(crate) fn url(&self, app_id: u32, filename: &str) -> Option<String> {
         if filename == "clienticon.ico" {
-            for (name, extension) in [("clienticon.jpg", "jpg"), ("clienticon.ico", "ico")] {
+            for (name, extension) in [("clienticon.ico", "ico"), ("clienticon.jpg", "jpg")] {
                 if let Some(hash) = self.0.get(name).filter(|hash| valid_hash(hash)) {
                     return Some(format!("{COMMUNITY_ICON_CDN}/{app_id}/{hash}.{extension}"));
                 }
@@ -303,6 +303,19 @@ mod tests {
     }
 
     const HASH: &str = "94e9d990ddd19610b268faf629865e17dcda0bb8";
+
+    #[test]
+    fn client_icon_prefers_alpha_capable_ico_over_jpeg() {
+        let jpeg_hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let info = parse_vdf(&format!(
+            r#""appinfo" {{ "common" {{ "clienticon" "{HASH}" "icon" "{jpeg_hash}" }} }}"#
+        ))
+        .unwrap();
+        assert_eq!(
+            PicsAssets::from_vdf(&info).url(400, "clienticon.ico"),
+            Some(format!("{COMMUNITY_ICON_CDN}/400/{HASH}.ico"))
+        );
+    }
 
     fn logo_assets(hash: &str) -> PicsAssets {
         PicsAssets(BTreeMap::from([(
