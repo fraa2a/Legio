@@ -1143,16 +1143,16 @@ mod tests {
         .unwrap();
         let (url, first_server) = server(response(b"<svg></svg>"));
         assert!(
-                    tauri::async_runtime::block_on(load_asset(
-                        cache.clone(),
-                        &network,
-                        "400-header".into(),
-                        url,
-                        false
-                    None,
-        ))
-                    .is_err()
-                );
+            tauri::async_runtime::block_on(load_asset(
+                cache.clone(),
+                &network,
+                "400-header".into(),
+                url,
+                false,
+                None,
+            ))
+            .is_err()
+        );
         first_server.join().unwrap();
 
         let oversized = format!(
