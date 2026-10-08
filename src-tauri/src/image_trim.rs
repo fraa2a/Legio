@@ -1,6 +1,6 @@
 use std::io::Cursor;
 
-use image::{DynamicImage, ImageFormat, ImageReader, Limits, RgbaImage};
+use image::{ImageFormat, ImageReader, Limits, RgbaImage};
 
 const MAX_PIXELS: u64 = 8_000_000;
 const MAX_DIMENSION: u32 = 8192;
@@ -18,11 +18,6 @@ fn bounded_reader(bytes: &[u8], format: ImageFormat) -> Result<ImageReader<Curso
     limits.max_alloc = Some(MAX_PIXELS * 8);
     reader.limits(limits);
     Ok(reader)
-}
-
-pub(crate) fn trim_dynamic(source: &DynamicImage) -> Result<Vec<u8>, String> {
-    validate_dimensions(source.width(), source.height())?;
-    encode_png(trim_rgba(source.to_rgba8()))
 }
 
 fn trim_rgba(mut rgba: RgbaImage) -> RgbaImage {
@@ -44,14 +39,6 @@ fn trim_rgba(mut rgba: RgbaImage) -> RgbaImage {
     } else {
         rgba
     }
-}
-
-fn encode_png(rgba: RgbaImage) -> Result<Vec<u8>, String> {
-    let mut output = Cursor::new(Vec::new());
-    DynamicImage::ImageRgba8(rgba)
-        .write_to(&mut output, ImageFormat::Png)
-        .map_err(|error| error.to_string())?;
-    bounded_output(output.into_inner())
 }
 
 fn format(bytes: &[u8]) -> Result<ImageFormat, String> {
@@ -120,7 +107,7 @@ fn validate_dimensions(width: u32, height: u32) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    use image::GenericImageView;
+    use image::{DynamicImage, GenericImageView};
 
     #[test]
     fn rejects_oversized_dimensions_before_allocating_pixels() {

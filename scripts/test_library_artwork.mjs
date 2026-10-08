@@ -5,7 +5,7 @@ import { JSDOM } from "jsdom";
 import { artworkPacket, createModuleLoader, dataModule } from "./test_module_loader.mjs";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBeVisual: true });
-for (const key of ["window", "document", "navigator", "Node", "Text", "Comment", "Element", "HTMLElement", "Event", "CustomEvent", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"]) {
+for (const key of ["window", "document", "navigator", "Node", "Text", "Comment", "Element", "HTMLElement", "HTMLMediaElement", "Event", "CustomEvent", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"]) {
   const value = dom.window[key];
   Object.defineProperty(globalThis, key, { configurable: true, value: typeof value === "function" && key.endsWith("AnimationFrame") ? value.bind(dom.window) : value });
 }
@@ -129,6 +129,80 @@ test("failed background refresh preserves the cached cover", async () => {
     await settle();
     assert.match(target.querySelector("img").src, /^blob:/);
     assert.match(target.textContent, /offline/);
+  } finally { await unmount(component); }
+});
+
+test("game icons prioritize custom artwork, fall back to Steam client icons and reset without EXE extraction", async () => {
+  const { default: GameIcon } = await import(await moduleUrl("src/lib/features/library/GameIcon.svelte"));
+  const artwork = await import(await moduleUrl("src/lib/services/game-artwork.ts"));
+  const game = { id: "custom-icon", name: "Portal", steamAppId: 7140, executablePath: "/games/game.exe" };
+  let custom = true;
+  let resolveCustom;
+  requests.length = 0;
+  globalThis.artworkInvoke = (command, args) => {
+    requests.push([command, args]);
+    if (command === "get_game_icon") return new Promise(resolve => { resolveCustom = resolve; });
+    if (command === "reset_game_icon") { custom = false; return Promise.resolve(); }
+    assert.equal(command, "get_steam_asset");
+    assert.equal(args.asset, "client_icon");
+    return Promise.resolve(artworkPacket({ bytes: [2], contentType: "image/png", stale: false, cacheWarning: null }));
+  };
+  const target = document.createElement("div");
+  const component = mount(GameIcon, { target, props: { game } });
+  try {
+    await settle();
+    assert.deepEqual(requests.map(([command]) => command), ["get_game_icon"], "wait for custom artwork before requesting a fallback");
+    resolveCustom(artworkPacket({ bytes: [1], contentType: "image/png" }));
+    await settle();
+    const customUrl = target.querySelector("img").src;
+    assert.match(customUrl, /^blob:/);
+    assert.equal(target.querySelector("img").draggable, false);
+    assert.equal(requests.length, 1);
+    await artwork.resetGameIcon(game.id);
+    await settle();
+    assert.equal(custom, false);
+    resolveCustom(new ArrayBuffer(0));
+    await settle();
+    assert.ok(requests.some(([command, args]) => command === "get_steam_asset" && args.asset === "client_icon"));
+    assert.notEqual(target.querySelector("img").src, customUrl);
+  } finally { await unmount(component); }
+});
+
+test("missing Steam client icons keep a monogram without substituting a branding logo", async () => {
+  const { default: GameIcon } = await import(await moduleUrl("src/lib/features/library/GameIcon.svelte"));
+  requests.length = 0;
+  globalThis.artworkInvoke = (command, args) => {
+    requests.push([command, args]);
+    if (command === "get_game_icon") return Promise.resolve(new ArrayBuffer(0));
+    assert.equal(command, "get_steam_asset");
+    assert.equal(args.asset, "client_icon");
+    return Promise.reject(new Error("No client icon"));
+  };
+  const target = document.createElement("div");
+  const component = mount(GameIcon, { target, props: { game: { id: "missing-icon", name: "Portal", steamAppId: 7141 } } });
+  try {
+    await settle();
+    assert.equal(target.querySelector("img"), null);
+    assert.equal(target.textContent.trim(), "P");
+    assert.equal(requests.filter(([command]) => command === "get_steam_asset").length, 1);
+  } finally { await unmount(component); }
+});
+
+test("library cards show the small custom icon beside the game name", async () => {
+  const { default: GameCard } = await import(await moduleUrl("src/lib/features/library/GameCard.svelte"));
+  globalThis.artworkInvoke = (command) => {
+    assert.equal(command, "get_game_icon");
+    return Promise.resolve(artworkPacket({ bytes: [1], contentType: "image/png" }));
+  };
+  const target = document.createElement("div");
+  const component = mount(GameCard, { target, props: {
+    game: { id: "card-icon", name: "Manual game", steamAppId: null }, launch: undefined, onOpen() {},
+  } });
+  try {
+    await settle();
+    const icon = target.querySelector('img[draggable="false"]');
+    assert.ok(icon);
+    assert.equal(icon.nextElementSibling.textContent, "Manual game");
   } finally { await unmount(component); }
 });
 

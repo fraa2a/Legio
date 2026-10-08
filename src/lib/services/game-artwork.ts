@@ -95,13 +95,6 @@ export function setGameIcon(gameId: string, filePath: string): Promise<GameArtwo
   });
 }
 
-export function extractGameIcon(gameId: string): Promise<GameArtwork> {
-  return invoke<ArrayBuffer>("extract_game_icon", { gameId }).then(decodeImageResponse<GameArtwork>).then((result) => {
-    artworkChanged(gameId, "icon");
-    return result;
-  });
-}
-
 export function resetGameIcon(gameId: string): Promise<void> {
   return invoke<void>("reset_game_icon", { gameId }).then(() => artworkChanged(gameId, "icon"));
 }

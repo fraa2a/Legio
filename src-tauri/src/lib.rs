@@ -43,7 +43,6 @@ mod manual_import;
 mod network;
 mod news;
 mod online_fix;
-mod pe_icons;
 mod playtime_activity;
 mod runner_discovery;
 mod settings;
@@ -322,7 +321,6 @@ pub fn run() -> tauri::Result<()> {
             commands::create_game_shortcut,
             game_transfer::transfer_game,
             commands::set_game_icon,
-            commands::extract_game_icon,
             commands::get_game_icon,
             commands::reset_game_icon,
             commands::set_game_banner,

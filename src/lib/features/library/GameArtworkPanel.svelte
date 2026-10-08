@@ -3,7 +3,6 @@
   import { onDestroy } from "svelte";
   import type { Game } from "../../services/local-state";
   import {
-    extractGameIcon,
     acquireGameArtwork,
     gameArtworkRevision,
     resetGameBanner,
@@ -73,19 +72,11 @@
     }
   }
 
-  async function extractIcon(): Promise<void> {
-    await runAction(async () => {
-      await extractGameIcon(game.id);
-    });
-  }
-
   async function refreshImages(): Promise<void> {
     await runAction(async () => {
       if (game.steamAppId !== null) {
         await loadSteamDetails(game.steamAppId, true);
         await refreshSteamImages(game.steamAppId);
-      } else {
-        await extractGameIcon(game.id);
       }
       showToast(t("Immagini aggiornate.", $language), "success");
     });
@@ -120,8 +111,8 @@
 <Panel title={t("Personalizzazione", $language)}>
   <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Scegli le immagini usate per questo gioco. I file vengono copiati nei dati di Legio.", $language)}</p>
   <div class="flex flex-wrap items-center gap-3">
-    <Button label={t("Aggiorna immagini", $language)} variant="secondary" disabled={pending || (game.steamAppId === null && game.executablePath === null)} onClick={() => void refreshImages()} />
-    <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Riscarica le immagini Steam senza modificare quelle personalizzate. Per i giochi senza collegamento Steam, rigenera l'icona dall'eseguibile.", $language)}</p>
+    <Button label={t("Aggiorna immagini", $language)} variant="secondary" disabled={pending || game.steamAppId === null} onClick={() => void refreshImages()} />
+    <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Riscarica le immagini Steam senza modificare quelle personalizzate.", $language)}</p>
   </div>
   {#if error !== null}<ErrorBanner message={error} onRetry={() => void load()} />{/if}
   {#if loading}
@@ -133,7 +124,6 @@
         {#if iconUrl !== null}<img src={iconUrl} alt="{t("Icona personalizzata di ", $language)}{game.name}" class="size-20 rounded-xl object-cover" />{/if}
         <div class="flex flex-wrap gap-2">
           <Button label={t("Scegli immagine", $language)} variant="secondary" disabled={pending} onClick={() => void choose("icon")} />
-          {#if game.executablePath !== null}<Button label={t("Estrai dall'eseguibile", $language)} variant="secondary" disabled={pending} onClick={() => void extractIcon()} />{/if}
           {#if iconUrl !== null}<Button label={t("Ripristina", $language)} variant="secondary" disabled={pending} onClick={() => void reset("icon")} />{/if}
         </div>
       </section>

@@ -5,6 +5,7 @@
 
   let { game, class: className = "size-8 rounded object-contain" }: { game: Game; class?: string } = $props();
   let url = $state<string | null>(null);
+  let loading = $state(true);
   const gameId = $derived(game.id);
 
   $effect(() => {
@@ -13,17 +14,18 @@
     const artwork = acquireGameArtwork(id, "icon");
     let cancelled = false;
     url = artwork.url;
+    loading = url === null;
     void artwork.ready.then((value) => { if (!cancelled) url = value; }).catch((error: unknown) => {
       console.warn("Could not load local game icon", error);
-    });
+    }).finally(() => { if (!cancelled) loading = false; });
     return () => { cancelled = true; artwork.release(); };
   });
 </script>
 
 {#if url !== null}
   <img src={url} alt="" draggable="false" class={className} onerror={() => { console.warn("Could not display local game icon", gameId); url = null; }} />
-{:else if game.steamAppId !== null}
-  <SteamArtwork steamAppId={game.steamAppId} asset="client_icon" fallbackAsset="logo" caption={false} alt="" class={className}>
+{:else if !loading && game.steamAppId !== null}
+  <SteamArtwork steamAppId={game.steamAppId} asset="client_icon" caption={false} alt="" class={className}>
     {#snippet placeholder()}{@render monogram()}{/snippet}
   </SteamArtwork>
 {:else}
