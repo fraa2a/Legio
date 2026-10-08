@@ -10,6 +10,7 @@ use tauri::{
 mod app_profile;
 mod appearance;
 pub mod archive_install;
+mod artwork_display;
 mod catalog;
 mod commands;
 #[cfg(target_os = "linux")]
@@ -186,6 +187,8 @@ pub fn run() -> tauri::Result<()> {
                 initial_settings.diagnostics_enabled,
             );
             let assets = steam_assets::AssetCacheState::new(app.path().app_cache_dir());
+            app.manage(artwork_display::ArtworkDisplayState::default());
+            artwork_display::refresh(app.handle());
             let maintenance = assets.clone();
             tauri::async_runtime::spawn_blocking(move || {
                 if let Err(error) = maintenance.maintain() {
@@ -376,6 +379,7 @@ pub fn run() -> tauri::Result<()> {
             commands::refresh_catalog,
             commands::get_steam_details,
             commands::get_steam_asset,
+            commands::get_artwork_display_width,
             commands::reset_steam_artwork_cache,
             commands::prefetch_steam_hero,
             runner_discovery::list_compatibility_runners,

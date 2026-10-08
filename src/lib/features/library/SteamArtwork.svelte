@@ -14,6 +14,7 @@
   import { windowActive } from "../../stores/window-activity";
   import { toMessage } from "../../utils/errors";
   import { fadeDuration } from "../../utils/motion";
+  import { artworkDisplayWidth } from "../../stores/artwork-display";
 
   let {
     steamAppId,
@@ -40,7 +41,7 @@
   } = $props();
 
   const currentVersion = $derived(version ?? $steamDetails[steamAppId]?.cachedAt ?? null);
-  const request = $derived({ steamAppId, asset, fallbackAsset, index, version: currentVersion, full });
+  const request = $derived({ steamAppId, asset, fallbackAsset, index, version: currentVersion, full, displayWidth: $artworkDisplayWidth });
   const cached = $derived.by(() => {
     void $steamImageRevision;
     return peekSteamImage(request);

@@ -20,6 +20,7 @@
   import { windowActive } from "./lib/stores/window-activity";
   import { hasRunningGame } from "./lib/stores/launch";
   import { observeMediaPlayback } from "./lib/services/media-playback";
+  import { startArtworkDisplayTracking } from "./lib/services/artwork-display";
 
   const mediaActive = derived([windowActive, hasRunningGame], ([$active, $running]) => $active && !$running);
   const appearance = $derived($appearancePreview?.appearance ?? $settings.data.appearance);
@@ -37,6 +38,7 @@
   });
 
   onMount(() => {
+    const stopArtworkDisplays = startArtworkDisplayTracking();
     const stopMedia = observeMediaPlayback(mediaActive.subscribe);
     void hydrateApp().catch((reason) => console.error(reason));
     if (import.meta.env.PROD) void checkForAppUpdate();
@@ -49,6 +51,7 @@
     media.addEventListener("change", updateSystemTheme);
 
     return () => {
+      stopArtworkDisplays();
       stopMedia();
       media.removeEventListener("change", updateSystemTheme);
     };

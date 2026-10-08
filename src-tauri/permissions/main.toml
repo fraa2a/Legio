@@ -81,6 +81,7 @@ commands.allow = [
   "refresh_catalog",
   "get_steam_details",
   "get_steam_asset",
+    "get_artwork_display_width",
   "reset_steam_artwork_cache",
     "prefetch_steam_hero",
   "list_compatibility_runners",

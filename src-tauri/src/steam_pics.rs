@@ -73,7 +73,12 @@ impl PicsAssets {
                     }
                     for filename in filenames {
                         if image == hash || valid_asset_path(image, filename) {
-                            paths.insert((*filename).to_owned(), format!("{hash}/{filename}"));
+                            let path = format!("{hash}/{filename}");
+                            if filename.contains("_2x") == (field == "image2x") {
+                                paths.insert((*filename).to_owned(), path);
+                            } else {
+                                paths.entry((*filename).to_owned()).or_insert(path);
+                            }
                         }
                     }
                 }
@@ -303,6 +308,23 @@ mod tests {
     }
 
     const HASH: &str = "94e9d990ddd19610b268faf629865e17dcda0bb8";
+
+    #[test]
+    fn standard_and_double_size_assets_keep_their_own_hashes() {
+        let high = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let info = parse_vdf(&format!(
+            r#""appinfo" {{ "common" {{ "library_assets_full" {{ "library_hero" {{ "image" {{ "english" "{HASH}" }} "image2x" {{ "english" "{high}" }} }} }} }} }}"#
+        )).unwrap();
+        let assets = PicsAssets::from_vdf(&info);
+        assert_eq!(
+            assets.url(400, "library_hero.jpg"),
+            Some(format!("{CDN}/400/{HASH}/library_hero.jpg"))
+        );
+        assert_eq!(
+            assets.url(400, "library_hero_2x.jpg"),
+            Some(format!("{CDN}/400/{high}/library_hero_2x.jpg"))
+        );
+    }
 
     #[test]
     fn client_icon_prefers_alpha_capable_ico_over_jpeg() {
