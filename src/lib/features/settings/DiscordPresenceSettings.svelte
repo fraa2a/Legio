@@ -1,7 +1,6 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
-  import { saveSettings } from "../../services/local-state";
-  import { settings } from "../../stores/settings";
+  import { settings, updateSettings } from "../../stores/settings";
   import { toMessage } from "../../utils/errors";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
@@ -14,7 +13,7 @@
     saving = true;
     error = null;
     try {
-      settings.set(await saveSettings({ ...$settings.data, discordPresence: { enabled } }));
+      await updateSettings({ discordPresence: { enabled } });
     } catch (cause) {
       error = toMessage(cause);
     } finally {

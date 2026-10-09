@@ -53,6 +53,15 @@
   let baseline = $state<string | null>(null);
   let failedSnapshot: string | null = null;
   let savingTask: Promise<void> | null = null;
+  let disposed = false;
+
+  function compatibilityDraft() {
+    return { overrides: structuredClone($state.snapshot(overrides)), argumentsBefore, argumentsAfter, environmentText, dllOverridesText };
+  }
+
+  function nativeDraft() {
+    return { nativeArguments, nativeWorkingDirectory, nativeEnvironmentText };
+  }
   const compatibilitySnapshot = $derived(JSON.stringify({ overrides, argumentsBefore, argumentsAfter, environmentText, dllOverridesText }));
   const nativeSnapshot = $derived(JSON.stringify({ nativeArguments, nativeWorkingDirectory, nativeEnvironmentText }));
   const currentSnapshot = $derived($appInfo.data.platform === "linux" ? compatibilitySnapshot : nativeSnapshot);
@@ -68,9 +77,12 @@
   });
 
   onDestroy(() => {
+    const snapshot = JSON.stringify($appInfo.data.platform === "linux" ? compatibilityDraft() : nativeDraft());
+    const shouldSave = !loading && loadError === null && baseline !== null;
+    disposed = true;
     void (async () => {
       if (savingTask !== null) await savingTask;
-      if (!loading && loadError === null && baseline !== null && currentSnapshot !== baseline && currentSnapshot !== failedSnapshot) await persist();
+      if (shouldSave && snapshot !== baseline && snapshot !== failedSnapshot) await persist(snapshot);
     })();
   });
 
@@ -224,19 +236,16 @@
     setOverride("runnerPath", path === inheritedRunner ? null : path);
   }
 
-  function persist(): Promise<void> {
+  function persist(snapshot?: string): Promise<void> {
     if (savingTask !== null) return savingTask;
-    savingTask = ($appInfo.data.platform === "linux" ? saveCompatibility() : saveNative()).finally(() => { savingTask = null; });
+    savingTask = ($appInfo.data.platform === "linux" ? saveCompatibility(snapshot) : saveNative(snapshot)).finally(() => { savingTask = null; });
     return savingTask;
   }
 
-  async function saveCompatibility(): Promise<void> {
-    const snapshot = compatibilitySnapshot;
-    const draft = structuredClone($state.snapshot(overrides));
-    const before = argumentsBefore;
-    const after = argumentsAfter;
-    const environment = environmentText;
-    const dll = dllOverridesText;
+  async function saveCompatibility(captured?: string): Promise<void> {
+    const values: ReturnType<typeof compatibilityDraft> = captured === undefined ? compatibilityDraft() : JSON.parse(captured);
+    const snapshot = JSON.stringify(values);
+    const { overrides: draft, argumentsBefore: before, argumentsAfter: after, environmentText: environment, dllOverridesText: dll } = values;
     saving = true;
     saveError = null;
     saved = false;
@@ -252,7 +261,7 @@
         dllOverrides: draft.dllOverrides === null ? null : parseMap(dll, t("Override DLL", $language)),
       });
       baseline = JSON.stringify({ overrides: updated, argumentsBefore: before, argumentsAfter: after, environmentText: environment, dllOverridesText: dll });
-      if (compatibilitySnapshot === snapshot) overrides = updated;
+      if (!disposed && compatibilitySnapshot === snapshot) overrides = updated;
       failedSnapshot = null;
       saved = true;
     } catch (error) {
@@ -273,11 +282,10 @@
     dllOverridesText = "";
   }
 
-  async function saveNative(): Promise<void> {
-    const snapshot = nativeSnapshot;
-    const argumentsText = nativeArguments;
-    const workingDirectory = nativeWorkingDirectory;
-    const environmentText = nativeEnvironmentText;
+  async function saveNative(captured?: string): Promise<void> {
+    const values: ReturnType<typeof nativeDraft> = captured === undefined ? nativeDraft() : JSON.parse(captured);
+    const snapshot = JSON.stringify(values);
+    const { nativeArguments: argumentsText, nativeWorkingDirectory: workingDirectory, nativeEnvironmentText: environmentText } = values;
     saving = true;
     saveError = null;
     saved = false;
@@ -288,7 +296,7 @@
         environment: parseMap(environmentText, t("Variabili ambiente", $language)),
       });
       baseline = JSON.stringify({ nativeArguments: formatLaunchArguments(updated.arguments), nativeWorkingDirectory: updated.workingDirectory ?? "", nativeEnvironmentText: mapToText(updated.environment) });
-      if (nativeSnapshot === snapshot) {
+      if (!disposed && nativeSnapshot === snapshot) {
         nativeConfig = updated;
         nativeArguments = formatLaunchArguments(updated.arguments);
         nativeWorkingDirectory = updated.workingDirectory ?? "";

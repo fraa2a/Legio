@@ -1,11 +1,10 @@
 <script lang="ts">
   import { get } from "svelte/store";
   import { t, language } from "../../i18n";
-  import { saveSettings } from "../../services/local-state";
   import { activeDownloadCount } from "../../stores/downloads";
   import { games } from "../../stores/games";
   import { playtime } from "../../stores/playtime";
-  import { settings } from "../../stores/settings";
+  import { settings, updateSettings } from "../../stores/settings";
   import { showToast } from "../../stores/toast";
   import {
     activeSection,
@@ -44,7 +43,7 @@
     const sidebarCollapsed = !expanded;
     saveQueue = saveQueue.then(async () => {
       try {
-        settings.set(await saveSettings({ ...get(settings).data, sidebarCollapsed }));
+        await updateSettings({ sidebarCollapsed });
       } catch (reason) {
         showToast(toMessage(reason), "error");
       }

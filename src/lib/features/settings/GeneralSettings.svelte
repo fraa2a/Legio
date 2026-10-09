@@ -7,10 +7,10 @@
   import Toggle from "../../components/ui/Toggle.svelte";
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
   import Button from "../../components/ui/Button.svelte";
-  import { saveSettings, type Settings } from "../../services/local-state";
+  import type { Settings } from "../../services/local-state";
   import { configureSteamScanInterval } from "../../stores/bootstrap";
   import { closeSettings } from "../../stores/navigation";
-  import { defaultSettings, settings, settingsError } from "../../stores/settings";
+  import { defaultSettings, settings, settingsError, updateSettings } from "../../stores/settings";
   import { toMessage } from "../../utils/errors";
   import { checkForAppUpdate, installAppUpdate, updateState } from "../../services/app-updater";
 
@@ -39,8 +39,7 @@
     saved = false;
     settingsError.set(null);
     try {
-      const updated = await saveSettings({ ...$settings.data, steamLibraryPollMinutes: minutes });
-      settings.set(updated);
+      const updated = await updateSettings({ steamLibraryPollMinutes: minutes });
       configureSteamScanInterval(updated.steamLibraryPollMinutes);
       saved = true;
     } catch (error) {
@@ -55,7 +54,7 @@
     saved = false;
     settingsError.set(null);
     try {
-      settings.set(await saveSettings({ ...$settings.data, ...changes }));
+      await updateSettings(changes);
       if (changes.onboardingCompleted === false) closeSettings();
       saved = true;
       return true;

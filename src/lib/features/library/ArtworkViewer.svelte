@@ -2,6 +2,7 @@
   import { t, language } from "../../i18n";
   import type { SteamAssetKind } from "../../services/steam-details";
   import { fade } from "svelte/transition";
+  import { onDestroy } from "svelte";
   import Button from "../../components/ui/Button.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import { fadeDuration } from "../../utils/motion";
@@ -32,10 +33,19 @@
   const position = $derived(index === null || count < 2 ? null : `${index + 1} / ${count}`);
   const slots = $derived(Array.from({ length: count }, (_, slot) => slot));
 
-  let overlay: HTMLElement | undefined = $state();
+  const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  let overlay: HTMLDialogElement | undefined = $state();
 
   $effect(() => {
-    overlay?.focus();
+    if (overlay && !overlay.open) {
+      overlay.showModal();
+      overlay.focus({ preventScroll: true });
+    }
+  });
+
+  onDestroy(() => {
+    overlay?.close();
+    if (opener?.isConnected) opener.focus({ preventScroll: true });
   });
 
   function previous(): void {
@@ -50,6 +60,7 @@
 
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === "Escape") {
+      event.preventDefault();
       onClose();
       return;
     }
@@ -63,13 +74,12 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div
+<dialog
   bind:this={overlay}
-  role="dialog"
-  aria-modal="true"
   aria-label={t("Immagine a schermo intero", $language)}
   tabindex="-1"
-  class="fixed inset-0 z-50 flex flex-col bg-black/90 backdrop-blur-sm focus:outline-none light:bg-zinc-950/95"
+  oncancel={(event) => { event.preventDefault(); onClose(); }}
+  class="fixed inset-0 z-50 m-0 size-full max-h-none max-w-none border-0 p-0 flex flex-col bg-black/90 backdrop-blur-sm focus:outline-none light:bg-zinc-950/95"
 >
   <div class="flex shrink-0 items-center justify-between gap-3 p-4">
     <span class="text-sm text-zinc-300 tabular-nums">{position ?? ""}</span>
@@ -154,4 +164,4 @@
       {/each}
     </div>
   {/if}
-</div>
+</dialog>

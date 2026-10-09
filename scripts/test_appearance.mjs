@@ -28,7 +28,7 @@ const mocks = {
   "src/lib/i18n": locale,
   "src/lib/utils/errors": errors,
   "src/lib/services/theme-presets.json": dataModule("export default " + JSON.stringify(presetData)),
-  "src/lib/stores/settings": dataModule("export const settings = { subscribe: globalThis.themeSettings.subscribe, set: value => globalThis.themeSettings.set({data: value}) };"),
+  "src/lib/stores/settings": dataModule("export const settings = { subscribe: globalThis.themeSettings.subscribe, set: value => globalThis.themeSettings.set({data: value}) }; export const updateSettings = async patch => { let current; settings.subscribe(value => {current = value.data;})(); const saved = await globalThis.themeSave({...current,...patch}); settings.set(saved); return saved; };"),
   "src/lib/stores/appearance": dataModule("export const appearancePreview = globalThis.themePreview;"),
   "src/lib/stores/app-info": dataModule('import { writable } from "' + import.meta.resolve("svelte/store") + '"; export const appInfo = writable({data:{platform:"linux",desktopEnvironment:"hyprland"}});'),
   "src/lib/services/local-state": dataModule("export const saveSettings = value => globalThis.themeSave(value);"),

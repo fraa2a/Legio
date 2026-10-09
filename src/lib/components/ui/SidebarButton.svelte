@@ -38,7 +38,7 @@
   class="flex w-full items-center {active
     ? "text-white light:text-zinc-900"
     : "text-zinc-400 hover:text-white light:text-zinc-500 light:hover:text-zinc-900"}"
-  onclick={onClick}
+  onclick={() => onClick?.()}
 >
   <span
     class="flex h-12 items-center gap-2 overflow-hidden rounded-lg transition-colors duration-200 {pillClass}"
