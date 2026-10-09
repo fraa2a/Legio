@@ -181,3 +181,14 @@ test("fullscreen artwork uses a native modal and restores its opener", async () 
     opener.remove(); target.remove();
   }
 });
+
+
+test("only failed finalizations expose retry while active work stays protected", async () => {
+  const actual = createModuleLoader({ "src/lib/i18n": mocks["src/lib/i18n"] });
+  const service = await import(await actual.load('src/lib/services/downloads.ts'));
+  assert.equal(service.canRetryDownload('finalizing', 'disk full'), true);
+  assert.equal(service.canRetryDownload('finalizing', null), false);
+  assert.equal(service.canRetryDownload('finalizing', ''), false);
+  assert.equal(service.canRetryDownload('installed', 'shortcut warning'), false);
+  assert.equal(service.canRetryDownload('failed', 'network error'), true);
+});

@@ -7,6 +7,13 @@ use std::time::{Duration, Instant};
 const STOP_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) const LAUNCH_TOKEN_ENV: &str = "LEGIO_LAUNCH_TOKEN";
 
+#[cfg(any(windows, test))]
+#[derive(Default)]
+pub(crate) struct NativeProcessHistory {
+    initialized: bool,
+    identities: std::collections::HashMap<u32, i64>,
+}
+
 #[derive(Clone)]
 pub(crate) enum ProcessTarget {
     Steam {
@@ -18,6 +25,7 @@ pub(crate) enum ProcessTarget {
     Runner {
         token: String,
         executable_path: std::path::PathBuf,
+        installation_root: Option<std::path::PathBuf>,
         launcher_pid: Option<u32>,
     },
     #[cfg(windows)]
@@ -25,7 +33,7 @@ pub(crate) enum ProcessTarget {
         game_directory: std::path::PathBuf,
         started_after_ms: i64,
         launcher_pid: Option<u32>,
-        known_pids: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<u32>>>,
+        known_pids: std::sync::Arc<std::sync::Mutex<NativeProcessHistory>>,
     },
 }
 
@@ -162,18 +170,20 @@ fn linux_start_time(pid: u32) -> Result<Option<u64>, String> {
     Ok(std::str::from_utf8(&stat)
         .ok()
         .and_then(|stat| stat.rsplit_once(')'))
-        .and_then(|(_, fields)| fields.split_whitespace().nth(19))
+        .and_then(|(_, fields)| {
+            let state = fields.split_whitespace().next()?;
+            if matches!(state, "Z" | "X") {
+                None
+            } else {
+                fields.split_whitespace().nth(19)
+            }
+        })
         .and_then(|value| value.parse().ok()))
 }
 
 #[cfg(target_os = "linux")]
 fn linux_matches(target: &ProcessTarget, pid: u32) -> Result<bool, String> {
     if pid == std::process::id() {
-        return Ok(false);
-    }
-    if let ProcessTarget::Runner { launcher_pid, .. } = target
-        && Some(pid) == *launcher_pid
-    {
         return Ok(false);
     }
     let process = Path::new("/proc").join(pid.to_string());
@@ -205,13 +215,66 @@ fn linux_matches(target: &ProcessTarget, pid: u32) -> Result<bool, String> {
     match target {
         ProcessTarget::Steam { .. } => Ok(true),
         ProcessTarget::Runner {
-            executable_path, ..
+            executable_path,
+            installation_root,
+            launcher_pid,
+            ..
         } => {
             let name = executable_path
                 .file_name()
                 .and_then(|name| name.to_str())
                 .ok_or_else(|| "Game executable name is invalid".to_owned())?;
-            Ok(process_names_executable(&comm, &command, name))
+            let arguments: Vec<&[u8]> = command
+                .split(|byte| *byte == 0)
+                .filter(|argument| !argument.is_empty())
+                .collect();
+            let direct = process_names_executable(
+                &comm,
+                arguments.first().copied().unwrap_or_default(),
+                name,
+            );
+            let script = arguments.get(1).is_some_and(|argument| {
+                *argument == executable_path.as_os_str().as_encoded_bytes()
+            });
+            if Some(pid) == *launcher_pid {
+                return Ok(direct || script);
+            }
+            if direct || script {
+                return Ok(true);
+            }
+            let interpreter = arguments.first().is_some_and(|argument| {
+                matches!(
+                    argument
+                        .rsplit(|byte| *byte == b'/')
+                        .next()
+                        .unwrap_or_default(),
+                    b"sh" | b"bash" | b"dash" | b"python" | b"python3"
+                )
+            });
+            if interpreter {
+                return Ok(false);
+            }
+            let root = installation_root
+                .as_deref()
+                .or_else(|| executable_path.parent())
+                .ok_or("Game executable has no directory")?;
+            let named_game = arguments
+                .first()
+                .is_some_and(|argument| argument.to_ascii_lowercase().ends_with(b".exe"))
+                || comm.to_ascii_lowercase().ends_with(b".exe");
+            let owned_working_directory = named_game
+                && std::fs::read_link(process.join("cwd")).is_ok_and(|cwd| cwd.starts_with(root));
+            Ok(owned_working_directory
+                || arguments.iter().any(|argument| {
+                    let Ok(argument) = std::str::from_utf8(argument) else {
+                        return false;
+                    };
+                    let path = Path::new(argument);
+                    path.starts_with(root)
+                        && path
+                            .extension()
+                            .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+                }))
         }
     }
 }
@@ -244,7 +307,20 @@ fn is_steam_helper(name: &str) -> bool {
         || name.starts_with("steam-launch")
         || name.starts_with("steam-runtime")
         || name.starts_with("pressure-vessel")
-        || matches!(name, "wineserver" | "bwrap" | "reaper")
+        || matches!(
+            name,
+            "wineserver"
+                | "bwrap"
+                | "reaper"
+                | "wineboot.exe"
+                | "winedevice.exe"
+                | "services.exe"
+                | "explorer.exe"
+                | "rpcss.exe"
+                | "plugplay.exe"
+                | "conhost.exe"
+                | "svchost.exe"
+        )
 }
 
 #[cfg(target_os = "linux")]
@@ -313,7 +389,7 @@ fn windows_native_matching_pids(
     game_directory: &Path,
     started_after_ms: i64,
     launcher_pid: Option<u32>,
-    known_pids: &std::sync::Mutex<std::collections::HashSet<u32>>,
+    known_pids: &std::sync::Mutex<NativeProcessHistory>,
 ) -> Result<Vec<u32>, String> {
     let processes = windows_processes()?;
     let mut known = known_pids
@@ -445,12 +521,22 @@ fn windows_native_pids(
     root: &str,
     started_after_ms: i64,
     launcher_pid: Option<u32>,
-    known: &mut std::collections::HashSet<u32>,
+    known: &mut NativeProcessHistory,
 ) -> Vec<u32> {
     let root = normalize_windows_path(root);
     let prefix = format!("{}\\", root.trim_end_matches('\\'));
-    if let Some(pid) = launcher_pid {
-        known.insert(pid);
+    known.identities.retain(|pid, started| {
+        !processes
+            .iter()
+            .any(|process| process.pid == *pid && process.started_at != *started)
+    });
+    if !known.initialized {
+        known.initialized = true;
+        if let Some(process) = processes.iter().find(|process| {
+            Some(process.pid) == launcher_pid && process.started_at >= started_after_ms
+        }) {
+            known.identities.insert(process.pid, process.started_at);
+        }
     }
     let mut matched = std::collections::HashSet::new();
     loop {
@@ -458,8 +544,11 @@ fn windows_native_pids(
         for process in processes {
             if process.started_at >= started_after_ms
                 && normalize_windows_path(&process.executable).starts_with(&prefix)
-                && (Some(process.pid) == launcher_pid
-                    || known.contains(&process.parent)
+                && (known.identities.get(&process.pid) == Some(&process.started_at)
+                    || known
+                        .identities
+                        .get(&process.parent)
+                        .is_some_and(|started| process.started_at >= *started)
                     || matched.contains(&process.parent))
             {
                 matched.insert(process.pid);
@@ -469,7 +558,12 @@ fn windows_native_pids(
             break;
         }
     }
-    known.extend(&matched);
+    for process in processes
+        .iter()
+        .filter(|process| matched.contains(&process.pid))
+    {
+        known.identities.insert(process.pid, process.started_at);
+    }
     let mut result: Vec<_> = matched.into_iter().collect();
     result.sort_unstable();
     result
@@ -564,7 +658,7 @@ mod tests {
             {"ProcessId": 3, "ParentProcessId": 99, "ExecutablePath": "C:\\Games\\OneMore\\game.exe", "StartedAt": 200},
             {"ProcessId": 4, "ParentProcessId": 99, "ExecutablePath": "C:\\Games\\One\\unrelated.exe", "StartedAt": 101}
         ]));
-        let mut known = std::collections::HashSet::new();
+        let mut known = super::NativeProcessHistory::default();
         assert_eq!(
             super::windows_native_pids(&first, root, 100, Some(2), &mut known),
             vec![2]
@@ -652,6 +746,7 @@ mod tests {
         let target = super::ProcessTarget::Runner {
             token: token.clone(),
             executable_path: executable.clone(),
+            installation_root: None,
             launcher_pid: None,
         };
         let started = Instant::now();
@@ -674,6 +769,68 @@ mod tests {
         helper.kill().unwrap();
         helper.wait().unwrap();
         std::fs::remove_file(executable).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn runner_exec_and_different_executable_handoff_are_tracked() {
+        use std::process::Command;
+        use std::time::{Duration, Instant};
+        let token = uuid::Uuid::new_v4().to_string();
+        let root = std::env::temp_dir().join(format!("legio-handoff-{token}"));
+        std::fs::create_dir(&root).unwrap();
+        for (name, launcher) in [("Launcher.exe", true), ("ActualGame.exe", false)] {
+            let path = root.join(name);
+            let mut child = Command::new("bash")
+                .args([
+                    "-c",
+                    "exec -a \"$1\" sleep 30",
+                    "test",
+                    path.to_str().unwrap(),
+                ])
+                .env(super::LAUNCH_TOKEN_ENV, &token)
+                .spawn()
+                .unwrap();
+            let target = super::ProcessTarget::Runner {
+                token: token.clone(),
+                executable_path: root.join("Launcher.exe"),
+                installation_root: Some(root.clone()),
+                launcher_pid: launcher.then_some(child.id()),
+            };
+            let started = Instant::now();
+            let mut found = false;
+            while started.elapsed() < Duration::from_secs(2) {
+                if super::matching_pids(&target).unwrap().contains(&child.id()) {
+                    found = true;
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            child.kill().unwrap();
+            child.wait().unwrap();
+            assert!(found, "{name} was not tracked");
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reused_windows_parent_pid_does_not_adopt_foreign_processes() {
+        let mut history = super::NativeProcessHistory::default();
+        let initial = test_processes(
+            serde_json::json!([{ "ProcessId": 2, "ParentProcessId": 99, "ExecutablePath": "C:\\Games\\One\\game.exe", "StartedAt": 100 }]),
+        );
+        assert_eq!(
+            super::windows_native_pids(&initial, r"C:\Games\One", 100, Some(2), &mut history),
+            vec![2]
+        );
+        let reused = test_processes(serde_json::json!([
+            { "ProcessId": 2, "ParentProcessId": 99, "ExecutablePath": "C:\\Other\\foreign.exe", "StartedAt": 200 },
+            { "ProcessId": 3, "ParentProcessId": 2, "ExecutablePath": "C:\\Games\\One\\unrelated.exe", "StartedAt": 201 }
+        ]));
+        assert!(
+            super::windows_native_pids(&reused, r"C:\Games\One", 100, Some(2), &mut history)
+                .is_empty()
+        );
     }
 
     #[cfg(target_os = "linux")]

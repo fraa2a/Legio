@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -159,10 +159,25 @@ impl LaunchTarget {
 pub(crate) struct GameLaunchManager {
     entries: Arc<Mutex<HashMap<String, Entry>>>,
     operations: Arc<Mutex<()>>,
+    transfers: Arc<Mutex<HashSet<String>>>,
     changes: tokio::sync::watch::Sender<()>,
     journal: Option<crate::launch_journal::LaunchJournal>,
     #[cfg(target_os = "linux")]
     compatibility_log_root: Option<Result<PathBuf, String>>,
+}
+
+pub(crate) struct TransferReservation {
+    transfers: Arc<Mutex<HashSet<String>>>,
+    game_id: String,
+}
+
+impl Drop for TransferReservation {
+    fn drop(&mut self) {
+        self.transfers
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&self.game_id);
+    }
 }
 
 impl Default for GameLaunchManager {
@@ -170,6 +185,7 @@ impl Default for GameLaunchManager {
         Self {
             entries: Arc::default(),
             operations: Arc::default(),
+            transfers: Arc::default(),
             changes: tokio::sync::watch::channel(()).0,
             journal: None,
             #[cfg(target_os = "linux")]
@@ -209,7 +225,27 @@ impl GameLaunchManager {
             .map_err(|_| "Game operation lock was poisoned".to_owned())
     }
 
+    pub(crate) fn reserve_transfer(&self, game_id: &str) -> Result<TransferReservation, String> {
+        self.require_idle(game_id)?;
+        self.transfers
+            .lock()
+            .map_err(|_| "Transfer reservation lock was poisoned".to_owned())?
+            .insert(game_id.to_owned());
+        Ok(TransferReservation {
+            transfers: self.transfers.clone(),
+            game_id: game_id.to_owned(),
+        })
+    }
+
     pub(crate) fn require_idle(&self, game_id: &str) -> Result<(), String> {
+        if self
+            .transfers
+            .lock()
+            .map_err(|_| "Transfer reservation lock was poisoned".to_owned())?
+            .contains(game_id)
+        {
+            return Err("Wait for the game transfer to finish".to_owned());
+        }
         if self
             .lock()?
             .get(game_id)
@@ -330,7 +366,7 @@ impl GameLaunchManager {
         })
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub(crate) fn launch_native<R: Runtime>(
         &self,
         app: AppHandle<R>,
@@ -349,6 +385,7 @@ impl GameLaunchManager {
             .ok_or_else(|| "This game has no selected executable".to_owned())?;
         let executable = fs::canonicalize(executable)
             .map_err(|error| format!("Could not inspect game executable: {error}"))?;
+        #[cfg(windows)]
         if !executable.is_file()
             || !executable
                 .extension()
@@ -356,13 +393,32 @@ impl GameLaunchManager {
         {
             return Err("Selected file is not a Windows executable".to_owned());
         }
-        let game_directory = executable
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let metadata = fs::metadata(&executable)
+                .map_err(|error| format!("Could not inspect executable: {error}"))?;
+            if !metadata.is_file() || metadata.permissions().mode() & 0o111 == 0 {
+                return Err("Selected native file is not executable".to_owned());
+            }
+        }
+        let parent = executable
             .parent()
             .ok_or_else(|| "Game executable has no parent directory".to_owned())?;
+        let game_directory = game
+            .installation_root
+            .as_deref()
+            .map(fs::canonicalize)
+            .transpose()
+            .map_err(|error| format!("Could not inspect installation root: {error}"))?
+            .unwrap_or_else(|| parent.to_path_buf());
+        if !game_directory.is_dir() || !executable.starts_with(&game_directory) {
+            return Err("Executable is outside the installation root".to_owned());
+        }
         let config = database.native_launch_config(&game_id)?;
         validate_launch_arguments(&config.arguments)?;
         let working_directory =
-            game_working_directory(config.working_directory.as_deref(), game_directory)?;
+            game_working_directory(config.working_directory.as_deref(), parent)?;
         let mut command = Command::new(&executable);
         command
             .args(&config.arguments)
@@ -371,11 +427,23 @@ impl GameLaunchManager {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        #[cfg(windows)]
         let process_target = game_process::ProcessTarget::Native {
             game_directory: game_directory.to_path_buf(),
             started_after_ms: crate::database::now_milliseconds()?,
             launcher_pid: None,
             known_pids: Arc::default(),
+        };
+        #[cfg(target_os = "linux")]
+        let process_target = {
+            let token = uuid::Uuid::new_v4().to_string();
+            command.env(game_process::LAUNCH_TOKEN_ENV, &token);
+            game_process::ProcessTarget::Runner {
+                token,
+                executable_path: executable.clone(),
+                installation_root: Some(game_directory.clone()),
+                launcher_pid: None,
+            }
         };
         let cancel = self.reserve_launch(&game_id, None, process_target.clone(), None)?;
         let manager = self.clone();
@@ -406,7 +474,7 @@ impl GameLaunchManager {
         Ok(())
     }
 
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     pub(crate) fn launch_native<R: Runtime>(
         &self,
         _app: AppHandle<R>,
@@ -436,6 +504,14 @@ impl GameLaunchManager {
 
     #[cfg(target_os = "linux")]
     pub(crate) fn launch_configured(&self, app: AppHandle, game_id: String) -> Result<(), String> {
+        let game = app.state::<DatabaseState>().database()?.game(&game_id)?;
+        if game.executable_path.as_deref().is_some_and(|path| {
+            !Path::new(path)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+        }) {
+            return self.launch_native(app, game_id);
+        }
         let config = app
             .state::<DatabaseState>()
             .database()?
@@ -611,8 +687,21 @@ impl GameLaunchManager {
 
         let token = uuid::Uuid::new_v4().to_string();
         command.env(game_process::LAUNCH_TOKEN_ENV, &token);
+        let installation_root = game
+            .installation_root
+            .as_deref()
+            .map(fs::canonicalize)
+            .transpose()
+            .map_err(|error| format!("Could not inspect installation root: {error}"))?;
+        if installation_root
+            .as_ref()
+            .is_some_and(|root| !root.is_dir() || !executable_path.starts_with(root))
+        {
+            return Err("Executable is outside the installation root".to_owned());
+        }
         let process_target = game_process::ProcessTarget::Runner {
             token,
+            installation_root,
             executable_path,
             launcher_pid: None,
         };
@@ -825,6 +914,15 @@ impl GameLaunchManager {
             && let Some(pid) = child.as_ref().map(Child::id)
         {
             *launcher_pid = Some(pid);
+            if let Err(error) = game_process::matching_pids(&process_target) {
+                let cleanup_error = terminate_child(&mut child).err();
+                self.set_state(
+                    &game_id,
+                    GameStatus::Idle,
+                    Some(append_cleanup_error(error, cleanup_error)),
+                );
+                return;
+            }
             if let Err(error) = self.set_process_target(&game_id, process_target.clone()) {
                 let cleanup_error = terminate_child(&mut child).err();
                 self.set_state(
@@ -1023,7 +1121,17 @@ impl GameLaunchManager {
                 }
             }
         });
-        self.set_state(&game_id, GameStatus::Running, session_error);
+        if !self.set_running(&game_id, session_error) {
+            let cleanup = terminate_child(&mut child).err();
+            let stop_error = game_process::stop(&process_target).err();
+            let session_error = finish_session(&mut session);
+            self.set_state(
+                &game_id,
+                GameStatus::Idle,
+                stop_error.or(cleanup).or(session_error),
+            );
+            return;
+        }
         let mut missing_since = None;
         loop {
             let heartbeat_error = session
@@ -1120,6 +1228,14 @@ impl GameLaunchManager {
         compatibility_options: Option<AppliedCompatibilityOptions>,
         prefix: Option<&Path>,
     ) -> Result<Arc<AtomicBool>, String> {
+        if self
+            .transfers
+            .lock()
+            .map_err(|_| "Transfer reservation lock was poisoned".to_owned())?
+            .contains(game_id)
+        {
+            return Err("Wait for the game transfer to finish".to_owned());
+        }
         let cancel = Arc::new(AtomicBool::new(false));
         let mut entries = self.lock()?;
         if entries.get(game_id).is_some_and(|entry| {
@@ -1221,6 +1337,30 @@ impl GameLaunchManager {
                 log.record_exit_code(code);
             }
         }
+    }
+
+    fn set_running(&self, game_id: &str, error: Option<String>) -> bool {
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let Some(entry) = entries.get_mut(game_id) else {
+            return false;
+        };
+        if entry.cancel.load(Ordering::Acquire) {
+            return false;
+        }
+        entry.status = GameStatus::Running;
+        entry.error = error;
+        #[cfg(target_os = "linux")]
+        if let Some(log) = &entry.compatibility_log {
+            log.record_event("running", entry.error.as_deref());
+        }
+        if let Some(journal) = &self.journal {
+            journal.record(game_id, "running", entry.error.is_some(), None);
+        }
+        self.changes.send_replace(());
+        true
     }
 
     fn set_state(&self, game_id: &str, status: GameStatus, error: Option<String>) {
@@ -1740,6 +1880,39 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn transfer_reserves_only_its_game_and_cancel_wins_running_transition() {
+        let manager = GameLaunchManager::default();
+        let operation = manager.operation().unwrap();
+        let reservation = manager.reserve_transfer("one").unwrap();
+        drop(operation);
+        assert!(manager.operations.try_lock().is_ok());
+        assert!(manager.require_idle("one").is_err());
+        manager.require_idle("two").unwrap();
+        let target = game_process::ProcessTarget::Steam {
+            app_id: 400,
+            install_path: PathBuf::new(),
+        };
+        assert!(
+            manager
+                .reserve_launch("one", Some(400), target.clone(), None)
+                .is_err()
+        );
+        manager
+            .reserve_launch("two", Some(400), target.clone(), None)
+            .unwrap();
+        manager.cancel("two").unwrap();
+        assert!(!manager.set_running("two", None));
+        assert_eq!(manager.list().unwrap()[0].status, GameStatus::Launching);
+        drop(reservation);
+        manager.require_idle("one").unwrap();
+        manager
+            .reserve_launch("one", Some(401), target, None)
+            .unwrap();
+        assert!(manager.set_running("one", None));
+        assert!(manager.cancel("one").is_err());
+    }
+
+    #[test]
     fn wine_and_proton_reuse_the_actual_prefix_without_moving_saves() {
         let root = test_dir("prefix-layout");
         fs::create_dir_all(root.join("pfx/drive_c")).unwrap();
@@ -1800,6 +1973,7 @@ mod tests {
         let target = game_process::ProcessTarget::Runner {
             token: "test".to_owned(),
             executable_path: PathBuf::from("/test/game.exe"),
+            installation_root: None,
             launcher_pid: None,
         };
         manager
@@ -1970,7 +2144,7 @@ mod tests {
             .unwrap()
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     fn native_test_app(database_dir: &Path) -> tauri::App<tauri::test::MockRuntime> {
         let mut context = tauri::test::mock_context(tauri::test::noop_assets());
         context.config_mut().identifier = format!("org.legio.test.{}", uuid::Uuid::new_v4());
@@ -2021,6 +2195,7 @@ mod tests {
         game_process::ProcessTarget::Runner {
             token: token.to_owned(),
             executable_path: fs::canonicalize(executable).unwrap(),
+            installation_root: None,
             launcher_pid: None,
         }
     }
@@ -2082,7 +2257,7 @@ mod tests {
         }
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     fn wait_for_native_status(
         manager: &GameLaunchManager,
         game_id: &str,
@@ -2112,7 +2287,7 @@ mod tests {
         }
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     #[test]
     fn controlled_native_child_waits_for_stop() {
         if std::env::args().any(|arg| arg == "controlled_native_child_waits_for_stop") {
@@ -2120,7 +2295,7 @@ mod tests {
         }
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     #[test]
     fn native_manager_lifecycle_tracks_a_controlled_process() {
         let base = test_dir("native-manager-lifecycle");

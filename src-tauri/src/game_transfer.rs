@@ -23,10 +23,17 @@ pub struct TransferResult {
 fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
     fs::create_dir(destination)
         .map_err(|error| format!("Could not create transfer directory: {error}"))?;
+    copy_contents(source, destination)
+}
+
+fn copy_contents(source: &Path, destination: &Path) -> Result<(), String> {
     for entry in
         fs::read_dir(source).map_err(|error| format!("Could not read source directory: {error}"))?
     {
         let entry = entry.map_err(|error| format!("Could not read source entry: {error}"))?;
+        if entry.file_name() == MARKER {
+            continue;
+        }
         let from = entry.path();
         let to = destination.join(entry.file_name());
         let metadata = fs::symlink_metadata(&from)
@@ -81,8 +88,9 @@ fn transfer(
 ) -> Result<TransferResult, String> {
     crate::startup_recovery::require_ready(app)?;
     let manager = app.state::<GameLaunchManager>();
-    let _operation = manager.operation()?;
-    manager.require_idle(game_id)?;
+    let operation = manager.operation()?;
+    let _reservation = manager.reserve_transfer(game_id)?;
+    drop(operation);
     let database = app.state::<DatabaseState>();
     let game = database.database()?.game(game_id)?;
     if game.steam_install_path.is_some() {
@@ -165,38 +173,7 @@ fn transfer(
         ).map_err(database_error)?;
         Ok(())
     })?;
-    // Keep the source until both publication and the database transaction succeed.
-    use std::io::Write;
-    let mut marker = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(intent.source.join(MARKER))
-        .map_err(|error| format!("Could not reserve transfer source: {error}"))?;
-    marker
-        .write_all(intent.temporary.to_string_lossy().as_bytes())
-        .and_then(|()| marker.sync_all())
-        .map_err(|error| format!("Could not sync transfer source marker: {error}"))?;
-    drop(marker);
-    finalize_install::sync_directory(&intent.source)?;
-    copy_directory(&intent.source, &intent.temporary)?;
-    fs::write(
-        intent.temporary.join(MARKER),
-        intent.temporary.to_string_lossy().as_bytes(),
-    )
-    .map_err(|error| format!("Could not write transfer marker: {error}"))?;
-    fs::File::open(intent.temporary.join(MARKER))
-        .and_then(|file| file.sync_all())
-        .map_err(|error| format!("Could not sync transfer marker: {error}"))?;
-    finalize_install::sync_directory(&intent.temporary)?;
-    database.database()?.with_connection(|connection| {
-        connection
-            .execute(
-                "UPDATE game_transfers SET phase = 'copied' WHERE game_id = ?1",
-                [game_id],
-            )
-            .map_err(database_error)?;
-        Ok(())
-    })?;
+    prepare_transfer(database.database()?, &intent)?;
     commit_transfer(database.database()?, &intent)?;
     let warning = cleanup_transfer(database.database()?, &intent).err();
     Ok(TransferResult {
@@ -348,6 +325,90 @@ fn cleanup_transfer(database: &Database, intent: &TransferIntent) -> Result<(), 
         .map_err(|error| format!("Could not remove transfer marker: {error}"))
 }
 
+fn prepare_transfer(database: &Database, intent: &TransferIntent) -> Result<(), String> {
+    let mut temporary_created = false;
+    let mut source_reserved = false;
+    let result = (|| {
+        fs::create_dir(&intent.temporary)
+            .map_err(|error| format!("Could not reserve transfer directory: {error}"))?;
+        temporary_created = true;
+        // Keep the source until both publication and the database transaction succeed.
+        use std::io::Write;
+        let mut marker = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(intent.source.join(MARKER))
+            .map_err(|error| format!("Could not reserve transfer source: {error}"))?;
+        source_reserved = true;
+        marker
+            .write_all(intent.temporary.to_string_lossy().as_bytes())
+            .and_then(|()| marker.sync_all())
+            .map_err(|error| format!("Could not sync transfer source marker: {error}"))?;
+        drop(marker);
+        finalize_install::sync_directory(&intent.source)?;
+        copy_contents(&intent.source, &intent.temporary)?;
+        fs::write(
+            intent.temporary.join(MARKER),
+            intent.temporary.to_string_lossy().as_bytes(),
+        )
+        .map_err(|error| format!("Could not write transfer marker: {error}"))?;
+        fs::File::open(intent.temporary.join(MARKER))
+            .and_then(|file| file.sync_all())
+            .map_err(|error| format!("Could not sync transfer marker: {error}"))?;
+        finalize_install::sync_directory(&intent.temporary)?;
+        database.with_connection(|connection| {
+            connection
+                .execute(
+                    "UPDATE game_transfers SET phase = 'copied' WHERE game_id = ?1",
+                    [&intent.game_id],
+                )
+                .map_err(database_error)?;
+            Ok(())
+        })?;
+        Ok(())
+    })();
+    if let Err(error) = result {
+        if source_reserved && !owns_directory(&intent.source, intent) {
+            fs::remove_file(intent.source.join(MARKER)).map_err(|cleanup| {
+                format!("{error}; could not release source marker: {cleanup}")
+            })?;
+        }
+        return match rollback_prepared(database, intent, temporary_created) {
+            Ok(()) => Err(error),
+            Err(cleanup) => Err(format!("{error}; could not release transfer: {cleanup}")),
+        };
+    }
+    Ok(())
+}
+
+fn rollback_prepared(
+    database: &Database,
+    intent: &TransferIntent,
+    remove_temporary: bool,
+) -> Result<(), String> {
+    if owns_directory(&intent.source, intent) {
+        fs::remove_file(intent.source.join(MARKER))
+            .map_err(|error| format!("Could not release transfer source: {error}"))?;
+    }
+    if remove_temporary {
+        match fs::remove_dir_all(&intent.temporary) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("Could not clean incomplete transfer: {error}")),
+        }
+    }
+    database.with_connection(|connection| {
+        connection
+            .execute(
+                "DELETE FROM game_transfers WHERE game_id = ?1",
+                [&intent.game_id],
+            )
+            .map_err(database_error)?;
+        Ok(())
+    })?;
+    Ok(())
+}
+
 pub(crate) fn recover(database: &Database) -> Result<(), String> {
     let intents: Vec<TransferIntent> = database.with_connection(|connection| {
         let mut statement = connection.prepare("SELECT game_id, source, destination, temporary, executable_relative, phase FROM game_transfers").map_err(database_error)?;
@@ -359,24 +420,7 @@ pub(crate) fn recover(database: &Database) -> Result<(), String> {
     })?;
     for intent in intents {
         if intent.phase == "prepared" {
-            if owns_directory(&intent.source, &intent) {
-                fs::remove_file(intent.source.join(MARKER))
-                    .map_err(|error| format!("Could not release transfer source: {error}"))?;
-            }
-            match fs::remove_dir_all(&intent.temporary) {
-                Ok(()) => {}
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => return Err(format!("Could not clean incomplete transfer: {error}")),
-            }
-            database.with_connection(|connection| {
-                connection
-                    .execute(
-                        "DELETE FROM game_transfers WHERE game_id = ?1",
-                        [&intent.game_id],
-                    )
-                    .map_err(database_error)?;
-                Ok(())
-            })?;
+            rollback_prepared(database, &intent, true)?;
         } else {
             if intent.phase == "copied" {
                 commit_transfer(database, &intent)?;
@@ -503,6 +547,32 @@ mod tests {
             b"game"
         );
         recover(&database).unwrap();
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn failed_copy_releases_reservation_without_restart() {
+        let (root, database, intent) = fixture("prepared");
+        std::os::unix::fs::symlink("missing", intent.source.join("bad-link")).unwrap();
+        // A new transfer starts without a source marker.
+        fs::remove_file(intent.source.join(MARKER)).unwrap();
+        assert!(prepare_transfer(&database, &intent).is_err());
+        assert!(!intent.temporary.exists());
+        assert!(!intent.source.join(MARKER).exists());
+        let count: i64 = database
+            .with_connection(|connection| {
+                connection
+                    .query_row("SELECT COUNT(*) FROM game_transfers", [], |row| row.get(0))
+                    .map_err(database_error)
+            })
+            .unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(
+            fs::read(intent.source.join(&intent.relative)).unwrap(),
+            b"game"
+        );
         drop(database);
         fs::remove_dir_all(root).unwrap();
     }

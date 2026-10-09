@@ -375,13 +375,20 @@ pub async fn launch_steam_game(
     game_id: String,
     confirm_account_switch: bool,
 ) -> Result<crate::steam_switch::SteamLaunchResult, String> {
-    let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
-    manager.record_launch_request(&game_id, false);
-    let result = manager.launch(app.clone(), game_id.clone(), confirm_account_switch);
-    if result.is_err() {
-        manager.record_launch_request(&game_id, true);
-    }
-    result
+    let manager = app
+        .state::<crate::game_lifecycle::GameLaunchManager>()
+        .inner()
+        .clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        manager.record_launch_request(&game_id, false);
+        let result = manager.launch(app, game_id.clone(), confirm_account_switch);
+        if result.is_err() {
+            manager.record_launch_request(&game_id, true);
+        }
+        result
+    })
+    .await
+    .map_err(|error| format!("Steam launch task failed: {error}"))?
 }
 
 #[tauri::command]
