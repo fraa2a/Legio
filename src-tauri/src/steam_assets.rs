@@ -410,9 +410,16 @@ async fn load_asset(
     let reader = cache.clone();
     let read_key = key.clone();
     let read_url = url.clone();
-    let read = tauri::async_runtime::spawn_blocking(move || reader.read(&read_key, &read_url))
-        .await
-        .map_err(|error| format!("Image cache read task failed: {error}"))?;
+    let fallback_url = hero.as_ref().and_then(|hero| hero.fallback_url.clone());
+    let read = tauri::async_runtime::spawn_blocking(move || {
+        let primary = reader.read(&read_key, &read_url)?;
+        match (primary, fallback_url) {
+            (None, Some(fallback)) => reader.read(&read_key, &fallback),
+            (entry, _) => Ok(entry),
+        }
+    })
+    .await
+    .map_err(|error| format!("Image cache read task failed: {error}"))?;
     let (previous, read_error) = match read {
         Ok(entry) => (entry, None),
         Err(error) => {
@@ -1008,7 +1015,7 @@ mod tests {
             cache.clone(),
             &network,
             "400-hero-display-v1-3840".into(),
-            missing,
+            missing.clone(),
             false,
             Some(HeroSource {
                 width: 3840,
@@ -1027,6 +1034,19 @@ mod tests {
                 .bytes,
             first.bytes
         );
+        let cached = tauri::async_runtime::block_on(load_asset(
+            cache.clone(),
+            &network,
+            "400-hero-display-v1-3840".into(),
+            missing,
+            false,
+            Some(HeroSource {
+                width: 3840,
+                fallback_url: Some(fallback),
+            }),
+        ))
+        .unwrap();
+        assert_eq!(cached.bytes, first.bytes);
         fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
     }
 

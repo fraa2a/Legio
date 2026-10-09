@@ -2,7 +2,7 @@ use std::env;
 #[cfg(target_os = "linux")]
 use std::{fs, path::PathBuf};
 
-pub(crate) fn set_enabled(enabled: bool) -> Result<(), String> {
+pub(crate) fn set_enabled(enabled: bool, development: bool) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         let config = env::var_os("XDG_CONFIG_HOME")
@@ -13,7 +13,11 @@ pub(crate) fn set_enabled(enabled: bool) -> Result<(), String> {
             return Err("User configuration directory is not absolute".to_owned());
         }
         let directory = config.join("autostart");
-        let path = directory.join("legio.desktop");
+        let path = directory.join(if development {
+            "legio-dev.desktop"
+        } else {
+            "legio.desktop"
+        });
         match fs::symlink_metadata(&path) {
             Ok(metadata) => {
                 if !metadata.is_file() || metadata.file_type().is_symlink() {
@@ -98,10 +102,13 @@ pub(crate) fn set_enabled(enabled: bool) -> Result<(), String> {
             let launcher = launcher
                 .to_str()
                 .ok_or_else(|| "Legio executable path is not UTF-8".to_owned())?;
-            key.set_value("Legio", &format!("\"{launcher}\" --minimized"))
-                .map_err(|error| format!("Could not enable system startup: {error}"))
+            key.set_value(
+                if development { "LegioDev" } else { "Legio" },
+                &format!("\"{launcher}\" --minimized"),
+            )
+            .map_err(|error| format!("Could not enable system startup: {error}"))
         } else {
-            match key.delete_value("Legio") {
+            match key.delete_value(if development { "LegioDev" } else { "Legio" }) {
                 Ok(()) => Ok(()),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
                 Err(error) => Err(format!("Could not disable system startup: {error}")),

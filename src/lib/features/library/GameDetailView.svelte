@@ -293,7 +293,7 @@
 {#if storeGame !== null}
   <Dialog open={confirmOpen} title={t("Rilascio non verificato", $language)} onClose={() => (confirmOpen = false)}>
   {#snippet children(dismiss)}
-    <p class="text-sm text-zinc-300 light:text-zinc-700">{t("\n      Il rilascio di ", $language)}{name}{t(" non è stato verificato dallo staff Legio. Un archivio non verificato può contenere\n      programmi dannosi. Procedere con il download e l'installazione?\n    ", $language)}</p>
+    <p class="text-sm text-zinc-300 light:text-zinc-700">{t("\n      Il rilascio di ", $language)}{name}{t(" non è classificato come verificato dalla fonte. Un archivio non verificato può contenere\n      programmi dannosi. Procedere con il download e l'installazione?\n    ", $language)}</p>
     <div class="flex justify-end gap-2">
       <Button label={t("Annulla", $language)} variant="secondary" onClick={dismiss} />
       <Button label={t("Scarica comunque", $language)} variant="danger" disabled={queueing} onClick={() => { confirmOpen = false; if (confirmEntry !== null) void startDownload(confirmEntry.download.url, confirmEntry.release.version, true); }} />

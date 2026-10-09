@@ -455,7 +455,7 @@ fn title_candidates(executable: &Path) -> Vec<String> {
     }
 
     let mut seen = std::collections::HashSet::new();
-    candidates
+    let mut candidates: Vec<String> = candidates
         .into_iter()
         .filter(|name| {
             let normalized = normalize_name(name);
@@ -467,7 +467,18 @@ fn title_candidates(executable: &Path) -> Vec<String> {
                 && seen.insert(normalized)
         })
         .take(3)
-        .collect()
+        .collect();
+    if candidates
+        .first()
+        .is_some_and(|name| name.len() <= 5 && !name.contains(' '))
+        && let Some(index) = candidates
+            .iter()
+            .position(|name| name.len() > 5 && name.contains([' ', '-', '_']))
+    {
+        let title = candidates.remove(index);
+        candidates.insert(0, title);
+    }
+    candidates
 }
 
 fn exact_matches(games: &[CatalogGame], query: &str) -> Vec<SteamIdentityCandidate> {
@@ -627,6 +638,12 @@ mod tests {
         let path = std::env::temp_dir().join(format!("legio-executable-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    #[test]
+    fn abbreviated_executable_prefers_full_directory_title() {
+        let names = title_candidates(Path::new("/Games/Baldurs Gate 3/bin/bg3.exe"));
+        assert_eq!(names.first().map(String::as_str), Some("Baldurs Gate 3"));
     }
 
     #[test]

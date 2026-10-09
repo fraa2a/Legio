@@ -308,6 +308,51 @@ impl CompatibilityLog {
     }
 }
 
+impl Drop for CompatibilityLog {
+    fn drop(&mut self) {
+        let Some(path) = &self.proton_log else {
+            return;
+        };
+        let result = (|| -> io::Result<()> {
+            let mut options = OpenOptions::new();
+            options.read(true).write(true);
+            #[cfg(target_os = "linux")]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.custom_flags(libc::O_NOFOLLOW);
+            }
+            let mut file = match options.open(path) {
+                Ok(file) => file,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+                Err(error) => return Err(error),
+            };
+            if !file.metadata()?.is_file() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "log is not a regular file",
+                ));
+            }
+            let mut bytes = Vec::new();
+            (&mut file)
+                .take(MAX_PROTON_LOG_BYTES)
+                .read_to_end(&mut bytes)?;
+            let mut redactor = StreamRedactor::new(self.state.redactions.clone());
+            let mut sanitized = redactor.push(&bytes, true);
+            if sanitized.len() as u64 > MAX_PROTON_LOG_BYTES {
+                sanitized.truncate(MAX_PROTON_LOG_BYTES as usize);
+                self.state.truncated.store(true, Ordering::Relaxed);
+            }
+            file.seek(SeekFrom::Start(0))?;
+            file.write_all(&sanitized)?;
+            file.set_len(sanitized.len() as u64)?;
+            file.sync_all()
+        })();
+        if let Err(error) = result {
+            self.state.report_error(&error, "Proton redaction");
+        }
+    }
+}
+
 pub(crate) fn directory(log_root: &Path) -> Result<PathBuf, String> {
     resolve_directory(&log_root.join("compatibility"))
 }
@@ -574,6 +619,21 @@ mod tests {
     use super::*;
     use crate::database::{GraphicsRenderer, WaylandMode};
     use std::process::Stdio;
+
+    #[test]
+    fn completed_native_proton_log_redacts_configured_secrets() {
+        let root = std::env::temp_dir().join(format!("legio-redact-{}", Uuid::new_v4()));
+        let mut config = EffectiveCompatibilityConfig::default();
+        config
+            .environment
+            .insert("API_TOKEN".to_owned(), "private-token".to_owned());
+        let logs = test_log(&root, &config);
+        let path = logs.proton_log.as_ref().unwrap().clone();
+        fs::write(&path, b"environment: private-token\n").unwrap();
+        drop(logs);
+        assert_eq!(fs::read(&path).unwrap(), b"environment: [REDACTED]\n");
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn redacts_values_split_across_reads() {
