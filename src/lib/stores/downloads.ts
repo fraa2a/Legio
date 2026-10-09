@@ -1,3 +1,4 @@
+import { games } from "./games";
 import { windowActive } from "./window-activity";
 import { t } from "../i18n";
 import { derived, get, writable } from "svelte/store";
@@ -112,7 +113,7 @@ export async function resumeJob(id: string): Promise<void> {
 
 export async function retryJob(id: string): Promise<void> {
   await retryDownload(id);
-  await downloads.load();
+  await Promise.all([downloads.load(), games.load(), installedFolder.load()]);
 }
 
 export async function cancelJob(id: string): Promise<void> {

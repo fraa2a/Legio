@@ -314,6 +314,9 @@ fn reject_split_rar(source: &mut File, magic: &[u8; 8]) -> Result<(), String> {
             return Err("Multipart RAR archives are unsupported".into());
         }
     } else {
+        if len < 13 {
+            return Err("RAR main header is missing or damaged".into());
+        }
         let mut rest = &header[12..len];
         let _header_size = rar_vint(&mut rest)?;
         if rar_vint(&mut rest)? != 1 {

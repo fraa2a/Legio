@@ -36,7 +36,7 @@ const mocks = {
  export const isActiveDownloadStatus=()=>false;export const isFinishedDownloadStatus=()=>false;
  export const cancelDownload=()=>{};export const pauseDownload=()=>{};export const queueDownload=()=>{};export const removeDownload=()=>{};
  export const removeFinishedDownloads=()=>{};export const reorderDownloads=()=>{};export const resumeDownload=()=>{};export const retryDownload=()=>{};`),
- 'src/lib/stores/games': d('export const reconcileGame=()=>{};export const saveGame=async()=>{};'),
+ 'src/lib/stores/games': d('export const games={load:async()=>{}};export const reconcileGame=()=>{};export const saveGame=async()=>{};'),
  'src/lib/services/manual-import': d(`export const scanGameExecutables=(directory)=>globalThis.frontendRepro.scans.get(directory).promise;
  export const identifyManualGameSteamAppId=()=>{};export const importManualGame=()=>{};export const setGameExecutable=()=>{};`),
  'src/lib/stores/app-info': d(storeImport+'export const appInfo=writable({data:{platform:"linux",trayAvailable:true}});'),

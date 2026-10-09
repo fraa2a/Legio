@@ -1248,8 +1248,8 @@ mod linux {
 #[cfg(target_os = "linux")]
 pub(crate) use linux::quote_exec_argument;
 
-pub(crate) fn create_application_menu(
-    app: &tauri::AppHandle,
+pub(crate) fn create_application_menu<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     game: &crate::database::Game,
 ) -> Result<Option<String>, String> {
     use tauri::Manager;

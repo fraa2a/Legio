@@ -461,7 +461,35 @@ fn finalize(
     id: &str,
     executable: &str,
 ) -> Result<(), String> {
-    let intent = claim(database, data_dir, id, executable)?;
+    let retrying = database.with_connection(|connection| {
+        connection
+            .query_row(
+                "SELECT status = 'finalizing' AND error IS NOT NULL FROM downloads WHERE id = ?1",
+                [id],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(database_error)
+    })?;
+    let intent = if retrying {
+        let intent = load_intent(database, data_dir, id)?;
+        if intent.executable != safe_relative_path(executable)? {
+            return Err(
+                "Finalization retry must use the previously selected executable".to_owned(),
+            );
+        }
+        database.with_connection(|connection| {
+            connection
+                .execute(
+                    "UPDATE downloads SET error = NULL WHERE id = ?1 AND status = 'finalizing'",
+                    [id],
+                )
+                .map_err(database_error)?;
+            Ok(())
+        })?;
+        intent
+    } else {
+        claim(database, data_dir, id, executable)?
+    };
     let result = finish(database, &intent);
     match result {
         Ok(()) => Ok(()),
@@ -470,6 +498,11 @@ fn finalize(
             Err(persist) => Err(format!("{error}; could not save failure: {persist}")),
         },
     }
+}
+
+pub(crate) fn retry(database: &Database, data_dir: &Path, id: &str) -> Result<(), String> {
+    let intent = load_intent(database, data_dir, id)?;
+    finalize(database, data_dir, id, &intent.executable.to_string_lossy())
 }
 
 pub(crate) fn recover(database: &Database, data_dir: &Path) -> Result<(), String> {
@@ -559,6 +592,32 @@ fn recover_cleanup(database: &Database, data_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
+pub(crate) fn create_install_shortcut<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    database: &Database,
+    id: &str,
+) -> Result<(), String> {
+    let game = database.game(id)?;
+    let shortcut_warning = crate::desktop_shortcuts::create_application_menu(app, &game)
+        .unwrap_or_else(|error| {
+            Some(format!(
+                "Could not create application-menu shortcut: {error}"
+            ))
+        });
+    if let Some(warning) = shortcut_warning {
+        database.with_connection(|connection| {
+            connection
+                .execute(
+                    "UPDATE downloads SET error = ?2 WHERE id = ?1",
+                    [id, &warning],
+                )
+                .map_err(database_error)?;
+            Ok(())
+        })?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn finalize_download(
     app: AppHandle,
@@ -566,7 +625,11 @@ pub async fn finalize_download(
     executable_relative: String,
 ) -> Result<(), String> {
     crate::startup_recovery::wait(&app).await?;
+    let queue = app.state::<crate::download_queue::DownloadQueueState>();
+    let _staging = queue.staging.lock().await;
+    let worker_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let app = worker_app;
         let data_dir = app
             .path()
             .app_data_dir()
@@ -575,24 +638,7 @@ pub async fn finalize_download(
         let database = database.database()?;
         let root = database.storage_root(&data_dir)?;
         finalize(database, &root, &id, &executable_relative)?;
-        let game = database.game(&id)?;
-        let shortcut_warning = crate::desktop_shortcuts::create_application_menu(&app, &game)
-            .unwrap_or_else(|error| {
-                Some(format!(
-                    "Could not create application-menu shortcut: {error}"
-                ))
-            });
-        if let Some(warning) = shortcut_warning {
-            database.with_connection(|connection| {
-                connection
-                    .execute(
-                        "UPDATE downloads SET error = ?2 WHERE id = ?1",
-                        [&id, &warning],
-                    )
-                    .map_err(database_error)?;
-                Ok(())
-            })?;
-        }
+        create_install_shortcut(&app, database, &id)?;
         Ok(())
     })
     .await
