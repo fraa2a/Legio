@@ -1392,6 +1392,10 @@ impl GameLaunchManager {
                     error.as_deref(),
                 );
             }
+            #[cfg(windows)]
+            if status == GameStatus::Idle {
+                game_process::release_native_history(&entry.process_target);
+            }
             entry.status = status;
             entry.error = error;
             self.changes.send_replace(());

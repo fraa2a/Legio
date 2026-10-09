@@ -11,7 +11,121 @@ pub(crate) const LAUNCH_TOKEN_ENV: &str = "LEGIO_LAUNCH_TOKEN";
 #[derive(Default)]
 pub(crate) struct NativeProcessHistory {
     initialized: bool,
-    identities: std::collections::HashMap<u32, i64>,
+    identities: std::collections::HashMap<u32, NativeProcessIdentity>,
+}
+
+#[cfg(any(windows, test))]
+struct NativeProcessIdentity {
+    started_at: i64,
+    last_seen_at: i64,
+    valid_until: i64,
+    #[cfg(windows)]
+    reference: Option<NativeProcessReference>,
+}
+
+#[cfg(windows)]
+struct NativeProcessReference(usize);
+
+#[cfg(windows)]
+impl Drop for NativeProcessReference {
+    fn drop(&mut self) {
+        // SAFETY: the owned Windows process handle is not thread-affine and is closed once.
+        unsafe {
+            windows_sys::Win32::Foundation::CloseHandle(self.0 as _);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn process_lifetime(reference: &NativeProcessReference) -> Option<(i64, Option<i64>)> {
+    use windows_sys::Win32::Foundation::FILETIME;
+    let mut created = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let mut exited = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let mut kernel = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let mut user = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    // SAFETY: the reference owns a query-capable handle and all outputs are live FILETIMEs.
+    if unsafe {
+        windows_sys::Win32::System::Threading::GetProcessTimes(
+            reference.0 as _,
+            &mut created,
+            &mut exited,
+            &mut kernel,
+            &mut user,
+        )
+    } == 0
+    {
+        return None;
+    }
+    let ticks =
+        |time: FILETIME| (u64::from(time.dwHighDateTime) << 32) | u64::from(time.dwLowDateTime);
+    let milliseconds = |ticks: u64| {
+        i64::try_from(ticks / 10_000)
+            .ok()
+            .map(|time| time - 11_644_473_600_000)
+    };
+    Some((
+        milliseconds(ticks(created))?,
+        if ticks(exited) == 0 {
+            None
+        } else {
+            Some(milliseconds(ticks(exited))?)
+        },
+    ))
+}
+
+#[cfg(any(windows, test))]
+impl NativeProcessIdentity {
+    fn new(process: &WindowsProcess, observed_at: i64) -> Self {
+        #[cfg(windows)]
+        let reference = {
+            use windows_sys::Win32::System::Threading::{
+                OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+            };
+            // SAFETY: the PID comes from the process snapshot, and only query access is requested.
+            let raw = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, process.pid) };
+            if raw.is_null() {
+                None
+            } else {
+                let reference = NativeProcessReference(raw as usize);
+                process_lifetime(&reference)
+                    .filter(|(created, _)| *created == process.started_at)
+                    .map(|_| reference)
+            }
+        };
+        Self {
+            started_at: process.started_at,
+            last_seen_at: observed_at,
+            valid_until: observed_at,
+            #[cfg(windows)]
+            reference,
+        }
+    }
+
+    fn refresh(&mut self, live: bool, observed_at: i64) {
+        if live {
+            self.last_seen_at = observed_at;
+        }
+        self.valid_until = self.last_seen_at;
+        #[cfg(windows)]
+        if let Some(reference) = &self.reference
+            && let Some((created, exited)) = process_lifetime(reference)
+            && created == self.started_at
+        {
+            self.valid_until = exited.unwrap_or(i64::MAX);
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -59,6 +173,17 @@ pub(crate) fn matching_pids(target: &ProcessTarget) -> Result<Vec<u32>, String> 
                 known_pids,
             ),
         }
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn release_native_history(target: &ProcessTarget) {
+    if let ProcessTarget::Native { known_pids, .. } = target {
+        known_pids
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .identities
+            .clear();
     }
 }
 
@@ -400,6 +525,7 @@ fn windows_native_matching_pids(
         &game_directory.to_string_lossy(),
         started_after_ms,
         launcher_pid,
+        crate::database::now_milliseconds()?,
         &mut known,
     ))
 }
@@ -521,50 +647,79 @@ fn windows_native_pids(
     root: &str,
     started_after_ms: i64,
     launcher_pid: Option<u32>,
+    observed_at: i64,
     known: &mut NativeProcessHistory,
 ) -> Vec<u32> {
     let root = normalize_windows_path(root);
     let prefix = format!("{}\\", root.trim_end_matches('\\'));
-    known.identities.retain(|pid, started| {
+    known.identities.retain(|pid, identity| {
         !processes
             .iter()
-            .any(|process| process.pid == *pid && process.started_at != *started)
+            .any(|process| process.pid == *pid && process.started_at != identity.started_at)
     });
+    for (pid, identity) in &mut known.identities {
+        identity.refresh(
+            processes
+                .iter()
+                .any(|process| process.pid == *pid && process.started_at == identity.started_at),
+            observed_at,
+        );
+    }
     if !known.initialized {
         known.initialized = true;
         if let Some(process) = processes.iter().find(|process| {
             Some(process.pid) == launcher_pid && process.started_at >= started_after_ms
         }) {
-            known.identities.insert(process.pid, process.started_at);
+            let mut identity = NativeProcessIdentity::new(process, observed_at);
+            identity.refresh(true, observed_at);
+            known.identities.insert(process.pid, identity);
         }
     }
-    let mut matched = std::collections::HashSet::new();
+    let mut lineage = std::collections::HashSet::new();
     loop {
-        let before = matched.len();
+        let before = lineage.len();
         for process in processes {
             if process.started_at >= started_after_ms
-                && normalize_windows_path(&process.executable).starts_with(&prefix)
-                && (known.identities.get(&process.pid) == Some(&process.started_at)
+                && (known
+                    .identities
+                    .get(&process.pid)
+                    .is_some_and(|identity| identity.started_at == process.started_at)
                     || known
                         .identities
                         .get(&process.parent)
-                        .is_some_and(|started| process.started_at >= *started)
-                    || matched.contains(&process.parent))
+                        .is_some_and(|identity| {
+                            process.started_at >= identity.started_at
+                                && process.started_at <= identity.valid_until
+                        })
+                    || (lineage.contains(&process.parent)
+                        && processes.iter().any(|parent| {
+                            parent.pid == process.parent && parent.started_at <= process.started_at
+                        })))
             {
-                matched.insert(process.pid);
+                lineage.insert(process.pid);
             }
         }
-        if matched.len() == before {
+        if lineage.len() == before {
             break;
         }
     }
     for process in processes
         .iter()
-        .filter(|process| matched.contains(&process.pid))
+        .filter(|process| lineage.contains(&process.pid))
     {
-        known.identities.insert(process.pid, process.started_at);
+        known
+            .identities
+            .entry(process.pid)
+            .or_insert_with(|| NativeProcessIdentity::new(process, observed_at));
     }
-    let mut result: Vec<_> = matched.into_iter().collect();
+    let mut result: Vec<_> = processes
+        .iter()
+        .filter(|process| {
+            lineage.contains(&process.pid)
+                && normalize_windows_path(&process.executable).starts_with(&prefix)
+        })
+        .map(|process| process.pid)
+        .collect();
     result.sort_unstable();
     result
 }
@@ -660,7 +815,7 @@ mod tests {
         ]));
         let mut known = super::NativeProcessHistory::default();
         assert_eq!(
-            super::windows_native_pids(&first, root, 100, Some(2), &mut known),
+            super::windows_native_pids(&first, root, 100, Some(2), 110, &mut known),
             vec![2]
         );
         let second = test_processes(serde_json::json!([
@@ -669,7 +824,7 @@ mod tests {
             {"ProcessId": 4, "ParentProcessId": 99, "ExecutablePath": "C:\\Games\\One\\unrelated.exe", "StartedAt": 101}
         ]));
         assert_eq!(
-            super::windows_native_pids(&second, root, 100, Some(2), &mut known),
+            super::windows_native_pids(&second, root, 100, Some(2), 110, &mut known),
             vec![5, 6]
         );
         assert_eq!(
@@ -820,7 +975,7 @@ mod tests {
             serde_json::json!([{ "ProcessId": 2, "ParentProcessId": 99, "ExecutablePath": "C:\\Games\\One\\game.exe", "StartedAt": 100 }]),
         );
         assert_eq!(
-            super::windows_native_pids(&initial, r"C:\Games\One", 100, Some(2), &mut history),
+            super::windows_native_pids(&initial, r"C:\Games\One", 100, Some(2), 110, &mut history),
             vec![2]
         );
         let reused = test_processes(serde_json::json!([
@@ -828,8 +983,45 @@ mod tests {
             { "ProcessId": 3, "ParentProcessId": 2, "ExecutablePath": "C:\\Games\\One\\unrelated.exe", "StartedAt": 201 }
         ]));
         assert!(
-            super::windows_native_pids(&reused, r"C:\Games\One", 100, Some(2), &mut history)
+            super::windows_native_pids(&reused, r"C:\Games\One", 100, Some(2), 110, &mut history)
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn absent_windows_ancestor_cannot_adopt_a_later_foreign_child() {
+        let mut history = super::NativeProcessHistory::default();
+        let first = test_processes(
+            serde_json::json!([{ "ProcessId": 2, "ParentProcessId": 99, "ExecutablePath": "C:\\Games\\One\\Launch.exe", "StartedAt": 100 }]),
+        );
+        super::windows_native_pids(&first, r"C:\Games\One", 100, Some(2), 110, &mut history);
+        let later = test_processes(
+            serde_json::json!([{ "ProcessId": 4, "ParentProcessId": 2, "ExecutablePath": "C:\\Games\\One\\foreign.exe", "StartedAt": 900 }]),
+        );
+        assert!(
+            super::windows_native_pids(&later, r"C:\Games\One", 100, Some(2), 110, &mut history)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn external_windows_helper_preserves_verified_descendant_ancestry() {
+        let mut history = super::NativeProcessHistory::default();
+        let first = test_processes(serde_json::json!([
+            { "ProcessId": 2, "ParentProcessId": 99, "ExecutablePath": "C:\\Games\\One\\Launcher\\Launch.exe", "StartedAt": 100 },
+            { "ProcessId": 3, "ParentProcessId": 2, "ExecutablePath": "C:\\Tools\\Helper.exe", "StartedAt": 105 }
+        ]));
+        assert_eq!(
+            super::windows_native_pids(&first, r"C:\Games\One", 100, Some(2), 110, &mut history),
+            vec![2]
+        );
+        let second = test_processes(serde_json::json!([
+            { "ProcessId": 3, "ParentProcessId": 2, "ExecutablePath": "C:\\Tools\\Helper.exe", "StartedAt": 105 },
+            { "ProcessId": 4, "ParentProcessId": 3, "ExecutablePath": "C:\\Games\\One\\Bin\\Game.exe", "StartedAt": 106 }
+        ]));
+        assert_eq!(
+            super::windows_native_pids(&second, r"C:\Games\One", 100, Some(2), 110, &mut history),
+            vec![4]
         );
     }
 
