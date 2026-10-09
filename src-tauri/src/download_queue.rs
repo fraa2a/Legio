@@ -116,7 +116,7 @@ pub struct DownloadQueueState {
     bandwidth_limit: AtomicU64,
     wake: tokio::sync::Notify,
     limit_changed: tokio::sync::Notify,
-    staging: tokio::sync::Mutex<()>,
+    pub(crate) staging: tokio::sync::Mutex<()>,
     defer_extraction: AtomicBool,
     staging_changed: tokio::sync::Notify,
 }
@@ -573,7 +573,20 @@ fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
         match outcome {
             Ok(Ok(_)) => {}
             Ok(Err(error)) => eprintln!("Could not verify and extract download {id}: {error}"),
-            Err(error) => eprintln!("Download staging task failed for {id}: {error}"),
+            Err(error) => {
+                let message = format!("Download staging task failed: {error}");
+                let worker_app = app.clone();
+                let worker_id = id.clone();
+                let persisted = tauri::async_runtime::spawn_blocking(move || {
+                    worker_app.state::<DatabaseState>().database()?.with_connection(|connection| {
+                        connection.execute("UPDATE downloads SET status = 'failed', error = ?2, staged_path = NULL, updated_at = ?3 WHERE id = ?1 AND status = 'staging'", params![worker_id, message, now()?]).map_err(db_error)?;
+                        Ok(())
+                    })
+                }).await;
+                eprintln!(
+                    "Download staging task failed for {id}: {error}; failure persistence: {persisted:?}"
+                );
+            }
         }
     });
 }
@@ -1141,9 +1154,26 @@ pub async fn resume_download(app: AppHandle, id: String) -> Result<(), String> {
 pub async fn retry_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
     crate::startup_recovery::wait(&app).await?;
     let worker_app = app.clone();
+    let queue = app.state::<DownloadQueueState>();
+    let _staging = queue.staging.lock().await;
+    let retry_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let app = retry_app;
+        let database = app.state::<DatabaseState>();
+        let database = database.database()?;
+        if status(database, &id)? == "finalizing" {
+            let data_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(|error| format!("Could not locate app data: {error}"))?;
+            return crate::finalize_install::retry(
+                database,
+                &database.storage_root(&data_dir)?,
+                &id,
+            );
+        }
         change_status(
-            app.state::<DatabaseState>().database()?,
+            database,
             &id,
             &[DownloadStatus::Failed],
             DownloadStatus::Queued,

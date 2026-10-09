@@ -111,7 +111,7 @@
         {#if canResumeDownload(job.status)}
           <Button label={t("Riprendi", $language)} variant="primary" disabled={busy} onClick={onResume} />
         {/if}
-        {#if canRetryDownload(job.status)}
+        {#if canRetryDownload(job.status, job.error)}
           <Button label={t("Riprova", $language)} variant="primary" disabled={busy} onClick={onRetry} />
         {/if}
         {#if canCancelDownload(job.status)}

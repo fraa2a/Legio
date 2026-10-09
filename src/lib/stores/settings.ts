@@ -1,7 +1,8 @@
-import { getSettings, type Settings } from "../services/local-state";
+import { getSettings, saveSettings, type Settings } from "../services/local-state";
 import { defaultAppearance } from "../services/appearance";
-import { writable } from "svelte/store";
+import { get, writable } from "svelte/store";
 import { createResource } from "./resource";
+import { installedFolder } from "./downloads";
 
 export const defaultSettings: Settings = {
   discordPresence: { enabled: true },
@@ -15,3 +16,18 @@ export const defaultSettings: Settings = {
 export const settings = createResource<Settings>(defaultSettings, getSettings);
 
 export const settingsError = writable<string | null>(null);
+
+let saveQueue: Promise<void> = Promise.resolve();
+
+export function updateSettings(changes: Partial<Settings>): Promise<Settings> {
+  const patch = structuredClone(changes);
+  const task = saveQueue.then(async () => {
+    const previous = get(settings).data;
+    const saved = await saveSettings({ ...previous, ...patch });
+    settings.set(saved);
+    if (saved.downloadPath !== previous.downloadPath) await installedFolder.load();
+    return saved;
+  });
+  saveQueue = task.then(() => {}, () => {});
+  return task;
+}

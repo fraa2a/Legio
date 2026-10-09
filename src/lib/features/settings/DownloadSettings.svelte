@@ -10,8 +10,7 @@
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
   import { pickGameDirectory } from "../../services/dialog";
-  import { saveSettings } from "../../services/local-state";
-  import { defaultSettings, settings } from "../../stores/settings";
+  import { defaultSettings, settings, updateSettings as saveChanges } from "../../stores/settings";
   import { toMessage } from "../../utils/errors";
   import {
     bandwidthLimit,
@@ -35,6 +34,7 @@
   const draftMegabytes = $derived(limitDraft ?? savedMegabytes);
   const draftBytes = $derived(Math.round(Number(draftMegabytes) * bytesPerMegabyte));
   const draftChanged = $derived(
+    limitDraft !== null &&
     draftMegabytes.trim().length > 0 &&
       Number.isFinite(Number(draftMegabytes)) &&
       draftBytes !== $bandwidthLimit.data,
@@ -64,7 +64,7 @@
     savingSettings = true;
     settingsError = null;
     try {
-      settings.set(await saveSettings({ ...$settings.data, ...changes }));
+      await saveChanges(changes);
     } catch (error) {
       settingsError = toMessage(error);
     } finally {

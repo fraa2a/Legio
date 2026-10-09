@@ -117,7 +117,7 @@ export async function playGame(game: Game): Promise<void> {
   try {
     if (game.steamInstallPath !== null) {
       const inspection = await inspectSteamGameLaunch(game.id);
-      if (inspection.status === "mismatch") {
+      if (inspection.status === "mismatch" || (inspection.status === "unknown" && inspection.steamRunning)) {
         accountSwitchGame.set(game);
         return;
       }

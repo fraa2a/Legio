@@ -66,8 +66,8 @@ export function canResumeDownload(status: string): boolean {
   return status === "paused" || status === "waiting";
 }
 
-export function canRetryDownload(status: string): boolean {
-  return status === "failed";
+export function canRetryDownload(status: string, error?: string | null): boolean {
+  return status === "failed" || (status === "finalizing" && Boolean(error));
 }
 
 export function canCancelDownload(status: string): boolean {

@@ -7,7 +7,10 @@ pub(crate) fn save(app: &AppHandle, settings: Settings) -> Result<Settings, Stri
     let previous = state.database()?.settings()?;
     let saved = state.database()?.save_settings(settings)?;
     if saved.launch_on_system_start != previous.launch_on_system_start
-        && let Err(error) = crate::startup::set_enabled(saved.launch_on_system_start)
+        && let Err(error) = crate::startup::set_enabled(
+            saved.launch_on_system_start,
+            app.config().identifier.ends_with(".dev"),
+        )
     {
         state.database()?.save_settings(previous.clone())?;
         return Err(error);

@@ -53,9 +53,19 @@
   let baseline = $state<string | null>(null);
   let failedSnapshot: string | null = null;
   let savingTask: Promise<void> | null = null;
+  let disposed = false;
+
+  function compatibilityDraft() {
+    return { overrides: structuredClone($state.snapshot(overrides)), argumentsBefore, argumentsAfter, environmentText, dllOverridesText };
+  }
+
+  function nativeDraft() {
+    return { nativeArguments, nativeWorkingDirectory, nativeEnvironmentText };
+  }
   const compatibilitySnapshot = $derived(JSON.stringify({ overrides, argumentsBefore, argumentsAfter, environmentText, dllOverridesText }));
   const nativeSnapshot = $derived(JSON.stringify({ nativeArguments, nativeWorkingDirectory, nativeEnvironmentText }));
-  const currentSnapshot = $derived($appInfo.data.platform === "linux" ? compatibilitySnapshot : nativeSnapshot);
+  const compatibilityGame = $derived($appInfo.data.platform === "linux" && (game.executablePath === null || /\.exe$/i.test(game.executablePath)));
+  const currentSnapshot = $derived(compatibilityGame ? compatibilitySnapshot : nativeSnapshot);
 
   onMount(() => {
     void load();
@@ -68,9 +78,13 @@
   });
 
   onDestroy(() => {
+    const compatibility = compatibilityGame;
+    const snapshot = JSON.stringify(compatibility ? compatibilityDraft() : nativeDraft());
+    const shouldSave = !loading && loadError === null && baseline !== null;
+    disposed = true;
     void (async () => {
       if (savingTask !== null) await savingTask;
-      if (!loading && loadError === null && baseline !== null && currentSnapshot !== baseline && currentSnapshot !== failedSnapshot) await persist();
+      if (shouldSave && snapshot !== baseline && snapshot !== failedSnapshot) await persist(snapshot, compatibility);
     })();
   });
 
@@ -85,7 +99,7 @@
       return;
     }
     const platform = $appInfo.data.platform;
-    if (platform === "linux") {
+    if (compatibilityGame) {
       const [overrideResult, defaultsResult, runnersResult, onlineFixResult] = await Promise.allSettled([
         getGameCompatibilityOverrides(game.id),
         getCompatibilityDefaults(),
@@ -113,7 +127,7 @@
       }
       if (onlineFixResult.status === "fulfilled") onlineFixDetected = onlineFixResult.value;
       else if (loadError === null) loadError = toMessage(onlineFixResult.reason);
-    } else if (platform === "windows") {
+    } else if (platform === "windows" || platform === "linux") {
       try {
         nativeConfig = await getNativeLaunchConfig(game.id);
         nativeArguments = formatLaunchArguments(nativeConfig.arguments);
@@ -224,19 +238,16 @@
     setOverride("runnerPath", path === inheritedRunner ? null : path);
   }
 
-  function persist(): Promise<void> {
+  function persist(snapshot?: string, compatibility = compatibilityGame): Promise<void> {
     if (savingTask !== null) return savingTask;
-    savingTask = ($appInfo.data.platform === "linux" ? saveCompatibility() : saveNative()).finally(() => { savingTask = null; });
+    savingTask = (compatibility ? saveCompatibility(snapshot) : saveNative(snapshot)).finally(() => { savingTask = null; });
     return savingTask;
   }
 
-  async function saveCompatibility(): Promise<void> {
-    const snapshot = compatibilitySnapshot;
-    const draft = structuredClone($state.snapshot(overrides));
-    const before = argumentsBefore;
-    const after = argumentsAfter;
-    const environment = environmentText;
-    const dll = dllOverridesText;
+  async function saveCompatibility(captured?: string): Promise<void> {
+    const values: ReturnType<typeof compatibilityDraft> = captured === undefined ? compatibilityDraft() : JSON.parse(captured);
+    const snapshot = JSON.stringify(values);
+    const { overrides: draft, argumentsBefore: before, argumentsAfter: after, environmentText: environment, dllOverridesText: dll } = values;
     saving = true;
     saveError = null;
     saved = false;
@@ -252,7 +263,7 @@
         dllOverrides: draft.dllOverrides === null ? null : parseMap(dll, t("Override DLL", $language)),
       });
       baseline = JSON.stringify({ overrides: updated, argumentsBefore: before, argumentsAfter: after, environmentText: environment, dllOverridesText: dll });
-      if (compatibilitySnapshot === snapshot) overrides = updated;
+      if (!disposed && compatibilitySnapshot === snapshot) overrides = updated;
       failedSnapshot = null;
       saved = true;
     } catch (error) {
@@ -273,11 +284,10 @@
     dllOverridesText = "";
   }
 
-  async function saveNative(): Promise<void> {
-    const snapshot = nativeSnapshot;
-    const argumentsText = nativeArguments;
-    const workingDirectory = nativeWorkingDirectory;
-    const environmentText = nativeEnvironmentText;
+  async function saveNative(captured?: string): Promise<void> {
+    const values: ReturnType<typeof nativeDraft> = captured === undefined ? nativeDraft() : JSON.parse(captured);
+    const snapshot = JSON.stringify(values);
+    const { nativeArguments: argumentsText, nativeWorkingDirectory: workingDirectory, nativeEnvironmentText: environmentText } = values;
     saving = true;
     saveError = null;
     saved = false;
@@ -288,7 +298,7 @@
         environment: parseMap(environmentText, t("Variabili ambiente", $language)),
       });
       baseline = JSON.stringify({ nativeArguments: formatLaunchArguments(updated.arguments), nativeWorkingDirectory: updated.workingDirectory ?? "", nativeEnvironmentText: mapToText(updated.environment) });
-      if (nativeSnapshot === snapshot) {
+      if (!disposed && nativeSnapshot === snapshot) {
         nativeConfig = updated;
         nativeArguments = formatLaunchArguments(updated.arguments);
         nativeWorkingDirectory = updated.workingDirectory ?? "";
@@ -310,7 +320,7 @@
     <p class="text-sm text-zinc-400" role="status">{t("Caricamento delle impostazioni di avvio...", $language)}</p>
   {:else if loadError !== null}
     <ErrorBanner message={loadError} onRetry={() => void load()} />
-  {:else if $appInfo.data.platform === "linux" && section === "locations"}
+  {:else if compatibilityGame && section === "locations"}
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Il prefix predefinito è una cartella distinta per questo gioco sotto la radice globale. Avvio con Steam usa lo stesso percorso.", $language)}</p>
     <div class="grid gap-4">
       <div class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
@@ -327,7 +337,7 @@
     </div>
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
     {#if saved}<p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Percorsi salvati.", $language)}</p>{/if}
-  {:else if $appInfo.data.platform === "linux" && section === "compatibility"}
+  {:else if compatibilityGame && section === "compatibility"}
     <Toggle label={t("Avvio con Steam", $language)} checked={overrides.launchViaSteam ?? (game.steamAppId !== null)} onChange={(checked) => setOverride("launchViaSteam", checked)} />
     <p class="text-xs text-zinc-500">{t("Avvia Steam e il gioco con Proton usando il prefix della sezione Posizioni. Runtime e overlay vengono applicati automaticamente quando disponibili.", $language)}</p>
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("\n      Ogni campo eredita il default globale finché il relativo override resta disattivato. Una lista o una mappa vuota cancella il valore ereditato.\n    ", $language)}</p>
@@ -410,7 +420,7 @@
     <div class="flex flex-wrap gap-2">
       <Button label={t("Ripristina default globali", $language)} variant="secondary" disabled={saving} onClick={resetCompatibility} />
     </div>
-  {:else if $appInfo.data.platform === "linux"}
+  {:else if compatibilityGame}
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Aggiungi argomenti di avvio. Racchiudi tra virgolette i valori che contengono spazi.", $language)}</p>
     <div class="grid gap-4 md:grid-cols-2">
       <div class="flex flex-col gap-2">
@@ -424,7 +434,7 @@
     </div>
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
     {#if saved}<p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Argomenti salvati.", $language)}</p>{/if}
-  {:else if $appInfo.data.platform === "windows" && section === "launch"}
+  {:else if !compatibilityGame && section === "launch"}
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Aggiungi argomenti di avvio. Racchiudi tra virgolette i valori che contengono spazi.", $language)}</p>
     <TextField id="native-arguments" label={t("Opzioni di avvio", $language)} value={nativeArguments} placeholder="-windowed -novid" oninput={(value) => (nativeArguments = value)} />
     <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("Variabili ambiente", $language)}
@@ -433,7 +443,7 @@
     </label>
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
     {#if saved}<p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Argomenti salvati.", $language)}</p>{/if}
-  {:else if $appInfo.data.platform === "windows"}
+  {:else if !compatibilityGame}
     {#if section === "locations"}
       <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Imposta la cartella iniziale del processo per questo gioco.", $language)}</p>
       <TextField id="native-working-directory" label={t("Cartella di lavoro", $language)} value={nativeWorkingDirectory} placeholder={t("Cartella dell'eseguibile", $language)} oninput={(value) => (nativeWorkingDirectory = value)} />

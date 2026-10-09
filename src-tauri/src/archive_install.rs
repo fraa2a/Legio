@@ -314,6 +314,9 @@ fn reject_split_rar(source: &mut File, magic: &[u8; 8]) -> Result<(), String> {
             return Err("Multipart RAR archives are unsupported".into());
         }
     } else {
+        if len < 13 {
+            return Err("RAR main header is missing or damaged".into());
+        }
         let mut rest = &header[12..len];
         let _header_size = rar_vint(&mut rest)?;
         if rar_vint(&mut rest)? != 1 {
@@ -390,6 +393,17 @@ mod tests {
             PathBuf::from("Game/data.bin")
         );
         assert_eq!(safe_relative_path("Game/").unwrap(), PathBuf::from("Game"));
+    }
+
+    #[test]
+    fn truncated_rar5_returns_an_error_without_panicking() {
+        for length in 8..12 {
+            let mut bytes = b"Rar!\x1a\x07\x01\x00".to_vec();
+            bytes.resize(length, 0);
+            let (root, _, result) = run_fixture(&bytes, "broken.rar");
+            assert!(result.is_err());
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

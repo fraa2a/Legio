@@ -1,9 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { t, language } from "../../i18n";
-  import { saveSettings } from "../../services/local-state";
   import { getNetworkLogStatus, type NetworkLogStatus } from "../../services/network";
-  import { settings, defaultSettings } from "../../stores/settings";
+  import { settings, defaultSettings, updateSettings } from "../../stores/settings";
   import { toMessage } from "../../utils/errors";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
@@ -33,7 +32,7 @@
     saving = true;
     error = null;
     try {
-      settings.set(await saveSettings({ ...$settings.data, diagnosticsEnabled: enabled }));
+      await updateSettings({ diagnosticsEnabled: enabled });
       await refresh();
     } catch (cause) {
       error = toMessage(cause);

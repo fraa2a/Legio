@@ -3,14 +3,13 @@
   import { onDestroy } from "svelte";
   import { t, language } from "../../i18n";
   import type { Theme } from "../../services/local-state";
-  import { saveSettings } from "../../services/local-state";
   import {
     chooseBackground, cleanupBackgrounds, defaultAppearance, defaultDither, themePresets,
     type Appearance,
   } from "../../services/appearance";
   import { appearancePreview } from "../../stores/appearance";
   import { appInfo } from "../../stores/app-info";
-  import { settings } from "../../stores/settings";
+  import { settings, updateSettings } from "../../stores/settings";
   import { toMessage } from "../../utils/errors";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
@@ -104,8 +103,7 @@
       saving = true;
       error = null;
       try {
-        const saved = await saveSettings({ ...get(settings).data, theme: selectedTheme, appearance: selectedAppearance });
-        settings.set(saved);
+        await updateSettings({ theme: selectedTheme, appearance: selectedAppearance });
         baseline = snapshot;
         failedSnapshot = null;
         if (!disposed && serialized === snapshot) showToast(t("Aspetto salvato.", get(language)), "success");

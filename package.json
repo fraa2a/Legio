@@ -20,7 +20,8 @@
     "test:dialog": "node --conditions=browser --test scripts/test_dialog.mjs",
     "test:feedback": "node --conditions=browser --test scripts/test_feedback.mjs",
     "test:onboarding": "node --test scripts/test_onboarding_news.mjs",
-    "test:sources": "node --test scripts/test_sources.mjs"
+    "test:sources": "node --test scripts/test_sources.mjs",
+    "test:review": "node --conditions=browser --test scripts/test_review_frontend.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.1",

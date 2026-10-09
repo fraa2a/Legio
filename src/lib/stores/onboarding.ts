@@ -1,9 +1,9 @@
 import { get, writable } from "svelte/store";
 import { setLanguage } from "../i18n";
-import { saveSettings, type Settings } from "../services/local-state";
+import type { Settings } from "../services/local-state";
 import { pickGameDirectory } from "../services/dialog";
 import { getCompatibilityDefaults, listCompatibilityRunners, saveCompatibilityDefaults, type CompatibilityDefaults, type CompatibilityRunner } from "../services/game-settings";
-import { settings } from "./settings";
+import { settings, updateSettings } from "./settings";
 import { appearancePreview } from "./appearance";
 import { activeSection } from "./navigation";
 import { appInfo } from "./app-info";
@@ -20,10 +20,12 @@ interface State {
 }
 export const onboarding = writable<State>({ draft: null, compatibility: null, runners: [], diagnostics: [], loading: false, saving: false, error: null });
 let loadId = 0;
+let initialDraft: Settings | null = null;
 
 export async function startOnboarding(): Promise<void> {
   const request = ++loadId;
   const draft = structuredClone(get(settings).data);
+  initialDraft = structuredClone(draft);
   onboarding.set({ draft, compatibility: null, runners: [], diagnostics: [], loading: get(appInfo).data.platform === "linux", saving: false, error: null });
   if (get(appInfo).data.platform !== "linux") return;
   const [defaults, discovery] = await Promise.allSettled([getCompatibilityDefaults(), listCompatibilityRunners()]);
@@ -72,9 +74,10 @@ export async function completeOnboarding(useCurrent = false): Promise<void> {
   onboarding.update((state) => ({ ...state, saving: true, error: null }));
   try {
     if (!useCurrent && state.compatibility) await saveCompatibilityDefaults(state.compatibility);
-    const saved = await saveSettings({ ...(useCurrent ? get(settings).data : state.draft), onboardingCompleted: true });
+    const changes = useCurrent ? {} : Object.fromEntries(Object.entries(state.draft).filter(([key, value]) =>
+      JSON.stringify(value) !== JSON.stringify(initialDraft?.[key as keyof Settings])));
+    const saved = await updateSettings({ ...changes, onboardingCompleted: true });
     activeSection.set(saved.launchInLibrary ? "library" : "home");
-    settings.set(saved);
     setLanguage(saved.language);
     appearancePreview.set(null);
   } catch (error) { onboarding.update((state) => ({ ...state, error: toMessage(error) })); }

@@ -87,19 +87,7 @@ impl Diagnostics {
                     status.last_error = Some(format!("Could not initialize local logs ({:?}). Check directory permissions and free disk space.", error.kind()));
                 }
                 for record in receiver {
-                    let mut status = worker_status.lock().unwrap_or_else(|error| error.into_inner());
-                    status.pending_records -= 1;
-                    if !status.enabled {
-                        continue;
-                    }
-                    let result = append(&directory, &record);
-                    match result {
-                        Ok(()) => status.last_error = None,
-                        Err(error) => {
-                            status.dropped_records += 1;
-                            status.last_error = Some(format!("Could not write local logs ({:?}). Check directory permissions and free disk space.", error.kind()));
-                        }
-                    }
+                    write_pending_record(&worker_status, || append(&directory, &record));
                 }
             });
             if spawn.is_err() {
@@ -162,6 +150,29 @@ impl Diagnostics {
                     });
                 }
             }
+        }
+    }
+}
+
+fn write_pending_record(status: &Mutex<LogStatus>, write: impl FnOnce() -> io::Result<()>) {
+    {
+        let mut status = status.lock().unwrap_or_else(|error| error.into_inner());
+        if !status.enabled {
+            status.pending_records -= 1;
+            return;
+        }
+    }
+    let result = write();
+    let mut status = status.lock().unwrap_or_else(|error| error.into_inner());
+    status.pending_records -= 1;
+    match result {
+        Ok(()) => status.last_error = None,
+        Err(error) => {
+            status.dropped_records += 1;
+            status.last_error = Some(format!(
+                "Could not write local logs ({:?}). Check directory permissions and free disk space.",
+                error.kind()
+            ));
         }
     }
 }
@@ -274,6 +285,46 @@ fn append(directory: &Path, record: &Record) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blocked_writer_does_not_block_producers_or_status() {
+        let (sender, _receiver) = mpsc::sync_channel(1);
+        let diagnostics = Diagnostics {
+            sender,
+            status: Arc::new(Mutex::new(LogStatus {
+                enabled: true,
+                directory: None,
+                last_error: None,
+                dropped_records: 0,
+                pending_records: 1,
+            })),
+        };
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let status = diagnostics.status.clone();
+        let writer = std::thread::spawn(move || {
+            write_pending_record(&status, || {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok(())
+            })
+        });
+        started_rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap();
+        let (done_tx, done_rx) = mpsc::channel();
+        let producer = diagnostics.clone();
+        let producer = std::thread::spawn(move || {
+            drop(producer.request(Operation::HydraSearch));
+            done_tx.send(producer.status().pending_records).unwrap();
+        });
+        let result = done_rx.recv_timeout(std::time::Duration::from_secs(1));
+        release_tx.send(()).unwrap();
+        writer.join().unwrap();
+        producer.join().unwrap();
+        assert_eq!(result.unwrap(), 2);
+        assert_eq!(diagnostics.status().pending_records, 1);
+    }
 
     #[test]
     fn queue_saturation_reports_dropped_record_without_waiting() {

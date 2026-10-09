@@ -699,12 +699,22 @@ mod linux {
                 .as_deref()
                 .ok_or_else(|| "This manual game has no selected executable".to_owned())?;
             let executable = Path::new(executable);
+            #[cfg(target_os = "linux")]
+            let native_executable = {
+                use std::os::unix::fs::PermissionsExt;
+                fs::metadata(executable).is_ok_and(|metadata| {
+                    metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+                })
+            };
+            #[cfg(not(target_os = "linux"))]
+            let native_executable = false;
             if !executable.is_file()
-                || !executable
-                    .extension()
-                    .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+                || (!native_executable
+                    && !executable
+                        .extension()
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("exe")))
             {
-                return Err("Selected file is not an available Windows executable".to_owned());
+                return Err("Selected file is not an available executable".to_owned());
             }
         }
         if game.name.trim().is_empty() {
@@ -1248,8 +1258,8 @@ mod linux {
 #[cfg(target_os = "linux")]
 pub(crate) use linux::quote_exec_argument;
 
-pub(crate) fn create_application_menu(
-    app: &tauri::AppHandle,
+pub(crate) fn create_application_menu<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     game: &crate::database::Game,
 ) -> Result<Option<String>, String> {
     use tauri::Manager;

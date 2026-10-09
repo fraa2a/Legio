@@ -93,7 +93,7 @@ Entries are identified by the tuple `(steamAppId, download.url, release.version)
 
 ### Trust and integrity
 
-`verified` means the release is classified as verified by Legio staff; it is not a safety guarantee. The classification applies to the selected release rather than every release of the game.
+`verified` means the release is classified as verified by the configured source publisher; it is not a safety guarantee. The classification applies to the selected release rather than every release of the game.
 
 An `unverified` release requires explicit confirmation before downloading. If such an entry provides `sha256`, it is accepted as a string but is not validated as a hash and is never compared with the downloaded file.
 

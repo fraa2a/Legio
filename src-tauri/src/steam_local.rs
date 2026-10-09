@@ -724,10 +724,21 @@ fn windows_installation_roots(
 
 #[cfg(windows)]
 pub(crate) fn default_steam_roots() -> Option<Vec<PathBuf>> {
-    let roots = windows_installation_roots(
+    use winreg::{RegKey, enums::HKEY_CURRENT_USER};
+    let registered: Option<String> = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey("Software\\Valve\\Steam")
+        .ok()
+        .and_then(|key| key.get_value("SteamPath").ok());
+    let mut roots: Vec<PathBuf> = registered
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .into_iter()
+        .collect();
+    roots.extend(windows_installation_roots(
         env::var_os("ProgramFiles(x86)"),
         env::var_os("ProgramFiles"),
-    );
+    ));
+    roots.dedup();
     (!roots.is_empty()).then_some(roots)
 }
 

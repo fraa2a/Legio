@@ -36,8 +36,10 @@ const initial: ManualImportState = {
 };
 
 export const manualImport = writable<ManualImportState>(initial);
+let generation = 0;
 
 export function resetManualImport(): void {
+  generation++;
   manualImport.set(initial);
 }
 
@@ -46,33 +48,40 @@ export function setScanGameName(gameName: string): void {
 }
 
 export function chooseCandidate(path: string): void {
-  manualImport.update((state) => ({ ...state, selectedPath: path }));
+  generation++;
+  manualImport.update((state) => ({ ...state, selectedPath: path, status: "ready", error: null }));
 }
 
 export function clearSelection(): void {
+  generation++;
   manualImport.update((state) => ({ ...state, selectedPath: null }));
 }
 
 export async function pickExecutable(startPath?: string | null): Promise<void> {
+  const request = ++generation;
   try {
     const executable = await pickExecutableFile(startPath);
-    if (executable === null) return;
+    if (request !== generation || executable === null) return;
     chooseCandidate(executable);
   } catch (error) {
+    if (request !== generation) return;
     manualImport.update((state) => ({ ...state, error: toMessage(error) }));
   }
 }
 
 export async function rescanDirectory(directory: string): Promise<void> {
+  const request = ++generation;
   const gameName = get(manualImport).gameName;
   manualImport.update((state) => ({
     ...state,
     directory,
+    candidates: [], suggestedPath: null, selectedPath: null,
     status: "loading",
     error: null,
   }));
   try {
     const scan = await scanGameExecutables(directory, gameName.length > 0 ? gameName : null);
+    if (request !== generation) return;
     manualImport.update((state) => ({
       ...state,
       status: scan.candidates.length === 0 ? "empty" : "ready",
@@ -81,6 +90,7 @@ export async function rescanDirectory(directory: string): Promise<void> {
       selectedPath: scan.selectedPath,
     }));
   } catch (error) {
+    if (request !== generation) return;
     manualImport.update((state) => ({
       ...state,
       status: "error",
@@ -93,11 +103,13 @@ export async function rescanDirectory(directory: string): Promise<void> {
 }
 
 export async function browseGameDirectory(startPath?: string | null): Promise<void> {
+  const request = ++generation;
   try {
     const directory = await pickGameDirectory(startPath);
-    if (directory === null) return;
+    if (request !== generation || directory === null) return;
     await rescanDirectory(directory);
   } catch (error) {
+    if (request !== generation) return;
     manualImport.update((state) => ({ ...state, error: toMessage(error) }));
   }
 }

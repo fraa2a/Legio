@@ -32,7 +32,7 @@
     { id: "compatibility", label: t("Compatibilità", $language), icon: "wrench" },
     { id: "danger", label: t("Zona pericolosa", $language), icon: "warning" },
   ] satisfies { id: string; label: string; icon: "settings" | "folder" | "image" | "wrench" | "warning" }[]);
-  const categories = $derived((steamManaged || $appInfo.data.platform !== "linux")
+  const categories = $derived((steamManaged || $appInfo.data.platform !== "linux" || (game.executablePath !== null && !/\.exe$/i.test(game.executablePath)))
     ? allCategories.filter((category) => category.id !== "compatibility")
     : allCategories);
   let active = $state("general");

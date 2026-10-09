@@ -68,6 +68,9 @@ jobs:
       - name: Test onboarding and persistent news
         run: corepack pnpm test:onboarding
 
+      - name: Test review regressions
+        run: corepack pnpm test:review
+
       - name: Test release manifest
         run: python -B -m unittest discover -s scripts
 

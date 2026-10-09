@@ -13,7 +13,7 @@ const mocks = {
   "@tauri-apps/api/core": data("export const invoke = (...args) => globalThis.setupInvoke(...args);"),
   "@tauri-apps/plugin-dialog": data("export const open = () => Promise.resolve(null);"),
   "src/lib/i18n": data("export const language = globalThis.setupLanguage; export const setLanguage = value => language.set(value); export const t = value => value;"),
-  "src/lib/stores/settings": data("export const settings = globalThis.setupSettings;"),
+  "src/lib/stores/settings": data("export const settings = globalThis.setupSettings; export const updateSettings = async patch => { let current; settings.subscribe(value => {current = value.data;})(); const saved = await globalThis.setupInvoke(\"save_settings\", {settings:{...current,...patch}}); settings.set(saved); return saved; };"),
   "src/lib/stores/app-info": data("export const appInfo = globalThis.setupAppInfo;"),
   "src/lib/stores/appearance": data("export const appearancePreview = globalThis.setupPreview;"),
   "src/lib/stores/navigation": data("export const activeSection = globalThis.setupSection;"),

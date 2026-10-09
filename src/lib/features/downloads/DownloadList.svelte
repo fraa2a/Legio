@@ -169,7 +169,7 @@
             onClick={() => onResume(job)}
           />
         {/if}
-        {#if canRetryDownload(job.status)}
+        {#if canRetryDownload(job.status, job.error)}
           <Button
             label={t("Riprova", $language)}
             variant="primary"
