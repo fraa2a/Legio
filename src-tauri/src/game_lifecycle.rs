@@ -1912,6 +1912,7 @@ mod tests {
         assert!(manager.cancel("one").is_err());
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn wine_and_proton_reuse_the_actual_prefix_without_moving_saves() {
         let root = test_dir("prefix-layout");
