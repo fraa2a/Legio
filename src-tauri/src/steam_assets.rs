@@ -766,35 +766,6 @@ mod tests {
         AssetCacheState::new(Ok(directory))
     }
 
-    #[test]
-    fn cache_hits_do_not_run_directory_maintenance() {
-        let cache = cache();
-        cache
-            .write(
-                "400-logo",
-                "https://example.invalid/logo.png",
-                PNG,
-                "image/png",
-            )
-            .unwrap();
-        let orphan = cache.directory().unwrap().join("old.tmp");
-        fs::write(&orphan, b"orphan").unwrap();
-        fs::File::options()
-            .write(true)
-            .open(&orphan)
-            .unwrap()
-            .set_times(
-                fs::FileTimes::new()
-                    .set_modified(SystemTime::now() - ORPHAN_AGE - Duration::from_secs(1)),
-            )
-            .unwrap();
-        assert!(cache.read_cached("400-logo", None).unwrap().is_some());
-        assert!(orphan.exists());
-        cache.maintain().unwrap();
-        assert!(!orphan.exists());
-        fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
-    }
-
     fn server(response: Vec<u8>) -> (String, thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/asset", listener.local_addr().unwrap());
@@ -1291,11 +1262,13 @@ mod tests {
                 "image/png",
             )
             .unwrap();
+        let recent = cache.directory().unwrap().join("recent.tmp");
+        fs::write(&recent, b"recent unfinished").unwrap();
         let orphan = cache.directory().unwrap().join("orphan.tmp");
         fs::write(&orphan, b"unfinished").unwrap();
         assert!(
             cache
-                .read("400-header", "https://steamstatic.com/image.jpg")
+                .read_cached("400-header", None)
                 .unwrap()
                 .is_some()
         );
@@ -1307,13 +1280,15 @@ mod tests {
             .unwrap();
         assert!(
             cache
-                .read("400-header", "https://steamstatic.com/image.jpg")
+                .read_cached("400-header", None)
                 .unwrap()
                 .is_some()
         );
         assert!(orphan.exists());
         cache.maintain().unwrap();
         assert!(!orphan.exists());
+        assert!(recent.exists());
+        assert!(cache.read_cached("400-header", None).unwrap().is_some());
         fs::remove_dir_all(cache.directory().unwrap()).unwrap();
     }
 

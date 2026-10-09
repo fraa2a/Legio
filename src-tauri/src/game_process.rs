@@ -711,30 +711,71 @@ mod tests {
     #[test]
     fn stop_terminates_only_the_game_process_with_matching_app_id() {
         use std::path::Path;
-        use std::process::Command;
+        use std::process::{Child, Command};
         use std::thread;
         use std::time::{Duration, Instant};
 
+        struct ChildGuard(Child);
+
+        impl Drop for ChildGuard {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+
         const TEST_APP_ID: u32 = 4_294_967_294;
-        let mut child = Command::new("sleep")
-            .arg("30")
-            .env("SteamAppId", TEST_APP_ID.to_string())
-            .spawn()
-            .unwrap();
-        let started = Instant::now();
+        const PROTECTED_APP_ID: u32 = 4_294_967_279;
+        let mut child = ChildGuard(
+            Command::new("sleep")
+                .arg("30")
+                .env("SteamAppId", TEST_APP_ID.to_string())
+                .env("SteamGameId", TEST_APP_ID.to_string())
+                .spawn()
+                .unwrap(),
+        );
+        let mut protected = ChildGuard(
+            Command::new("sleep")
+                .arg("30")
+                .env("SteamAppId", PROTECTED_APP_ID.to_string())
+                .env("SteamGameId", PROTECTED_APP_ID.to_string())
+                .spawn()
+                .unwrap(),
+        );
         let target = super::ProcessTarget::Steam {
             app_id: TEST_APP_ID,
             install_path: Path::new("/nonexistent").to_path_buf(),
         };
-        while !super::matching_pids(&target).unwrap().contains(&child.id()) {
-            if started.elapsed() > Duration::from_secs(2) {
-                let _ = child.kill();
-                panic!("test game process was not detected");
+        let protected_target = super::ProcessTarget::Steam {
+            app_id: PROTECTED_APP_ID,
+            install_path: Path::new("/nonexistent").to_path_buf(),
+        };
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let target_pids = super::matching_pids(&target).unwrap();
+            let protected_pids = super::matching_pids(&protected_target).unwrap();
+            if target_pids.contains(&child.0.id()) && protected_pids.contains(&protected.0.id()) {
+                assert!(!target_pids.contains(&protected.0.id()));
+                break;
+            }
+            assert!(Instant::now() < deadline, "test processes were not detected");
+            thread::sleep(Duration::from_millis(20));
+        }
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let result = super::stop(&target);
+        assert!(result.is_ok(), "stop failed: {result:?}");
+        loop {
+            assert!(Instant::now() < deadline, "target did not exit promptly");
+            if let Some(status) = child.0.try_wait().unwrap() {
+                assert!(
+                    !status.success(),
+                    "target exited naturally instead of being stopped"
+                );
+                break;
             }
             thread::sleep(Duration::from_millis(20));
         }
-        let result = super::stop(&target);
-        let _ = child.wait();
-        assert!(result.is_ok(), "stop failed: {result:?}");
+        assert!(protected.0.try_wait().unwrap().is_none());
     }
 }

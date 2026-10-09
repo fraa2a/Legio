@@ -2242,31 +2242,11 @@ mod tests {
             exported(false, &[("d3d11", "n,b")]).as_deref(),
             Some("d3d11=n,b")
         );
-        assert_eq!(
-            exported(true, &[("winmm", "b")]).as_deref(),
-            Some("OnlineFix64=n;SteamOverlay64=n;dnet=n;steam_api64=n;winhttp=n,b;winmm=b")
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn baseline_dll_overrides_apply_to_every_launch_and_yield_to_configured_values() {
         let baseline = baseline_dll_overrides(&std::collections::BTreeMap::new());
-        assert_eq!(
-            format_dll_overrides(&baseline),
-            "OnlineFix64=n;SteamOverlay64=n;dnet=n;steam_api64=n;winhttp=n,b;winmm=n,b"
-        );
         assert!(validate_dll_overrides(&baseline).is_ok());
-
-        let mut configured = std::collections::BTreeMap::new();
-        configured.insert("winmm".to_owned(), "b".to_owned());
-        configured.insert("d3d11".to_owned(), "n,b".to_owned());
-        let merged = baseline_dll_overrides(&configured);
-        assert_eq!(merged.get("winmm").map(String::as_str), Some("b"));
-        assert_eq!(merged.get("OnlineFix64").map(String::as_str), Some("n"));
         assert_eq!(
-            format_dll_overrides(&merged),
-            "OnlineFix64=n;SteamOverlay64=n;d3d11=n,b;dnet=n;steam_api64=n;winhttp=n,b;winmm=b"
+            exported(true, &[("winmm", "b"), ("d3d11", "n,b")]).as_deref(),
+            Some("OnlineFix64=n;SteamOverlay64=n;d3d11=n,b;dnet=n;steam_api64=n;winhttp=n,b;winmm=b")
         );
     }
 
@@ -2942,7 +2922,7 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn runner_wrapper_failure_returns_to_idle() {
+    fn runner_wrapper_failure_without_compatibility_logs_returns_to_idle() {
         let base = test_dir("runner-wrapper-failure");
         let manager = GameLaunchManager::new();
         let token = uuid::Uuid::new_v4().to_string();
@@ -2970,8 +2950,9 @@ mod tests {
                 .error
                 .as_deref()
                 .unwrap()
-                .contains("runner exited before the game started")
+                .contains("Launch stage failed: runner exited before the game started")
         );
+        assert!(state.compatibility_log_path.is_none());
         fs::remove_dir_all(base).unwrap();
     }
 

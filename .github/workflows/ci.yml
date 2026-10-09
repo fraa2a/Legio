@@ -231,7 +231,7 @@ jobs:
         shell: bash
         env:
           LEGIO_WINDOWS_TESTS: "1"
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib finalize_install::tests::finalizes_with_a_candidate_from_the_staged_scan
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib finalize_install::tests::finalizes_and_commits_game_and_download
 
       - name: Test Windows finalization recovery after database reopen
         if: runner.os == 'Windows'

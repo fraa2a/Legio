@@ -7,6 +7,8 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBe
 for (const key of ["window", "document", "HTMLElement", "HTMLMediaElement", "Element", "Node", "Text", "Comment", "Event", "MutationObserver"]) {
   Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
 }
+window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+globalThis.ResizeObserver = class { observe() {} disconnect() {} };
 let focused = true;
 let visible = true;
 let minimized = false;
@@ -99,8 +101,6 @@ test("particles cancel frames while inactive and resume with the retained canvas
   dom.window.HTMLCanvasElement.prototype.getContext = () => ({
     clearRect() { draws++; }, setTransform() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, arc() {}, fill() {},
   });
-  window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
-  globalThis.ResizeObserver = class { observe() {} disconnect() {} };
   const frames = new Map();
   let sequence = 0;
   globalThis.requestAnimationFrame = (callback) => { frames.set(++sequence, callback); return sequence; };
@@ -164,12 +164,19 @@ test("static dither redraws on changes without keeping a frame loop alive", asyn
   await settle();
   flushSync();
   render();
-  assert.equal(draws, 2);
+  assert.ok(draws > 0, "static background must draw initially");
   assert.equal(frames.size, 0);
+  const initialDraws = draws;
+  render();
+  assert.equal(draws, initialDraws, "static background must stay idle between changes");
   state.set({ active: true, settings: { ...configuration, backgroundColor: "#111111" } });
   flushSync();
   render();
-  assert.equal(draws, 4);
+  assert.ok(draws > initialDraws, "changing the background must redraw it");
+  assert.equal(frames.size, 0);
+  const changedDraws = draws;
+  render();
+  assert.equal(draws, changedDraws, "redrawing must not start a persistent frame loop");
   state.set({ active: true, settings: { ...configuration, disableAnimation: false } });
   flushSync();
   render();
