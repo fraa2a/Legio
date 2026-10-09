@@ -24,7 +24,7 @@
 
   const detailsState = $derived(steamAppId === null ? null : ($steamDetails[steamAppId] ?? null));
   const asset = $derived(assetOverride ?? (portrait ? "library_capsule" : "hero_blur"));
-  const fallbackAsset = $derived(portrait ? null : "header");
+  const fallbackAsset = $derived(portrait || asset === "hero_blur" ? null : "header");
   const cachedCover = $derived(steamAppId !== null && peekSteamImage({
     steamAppId,
     asset,
@@ -53,7 +53,7 @@
 >
   <div
     bind:this={tile}
-    class="absolute inset-0 transition-transform duration-300 ease-out group-hover:scale-105"
+    class="legio-artwork-zoom absolute inset-0"
   >
     {#if (visible || cachedCover) && steamAppId !== null}
       <SteamArtwork

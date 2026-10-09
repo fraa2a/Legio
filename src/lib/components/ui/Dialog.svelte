@@ -28,20 +28,25 @@
   const dialogDuration = reducedMotion ? 0 : 180;
   let openFrame = 0;
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
+  let notifyOnClose = false;
 
   $effect(() => {
     if (!dialog) return;
     cancelAnimationFrame(openFrame);
     if (open) {
+      const wasClosing = closeTimer !== undefined;
       if (closeTimer !== undefined) {
         clearTimeout(closeTimer);
         closeTimer = undefined;
       }
-      if (!dialog.open) {
-        dialog.showModal();
-        dialog.focus({ preventScroll: true });
+      if (dialog.open) {
+        if (wasClosing) dialog.dataset.visible = "true";
+        return;
       }
       dialog.dataset.visible = "false";
+      dialog.style.removeProperty("visibility");
+      dialog.showModal();
+      dialog.focus({ preventScroll: true });
       openFrame = requestAnimationFrame(() => {
         openFrame = requestAnimationFrame(() => {
           if (!open || !dialog?.open) return;
@@ -56,11 +61,21 @@
     if (!dialog?.open || closeTimer !== undefined) return;
     cancelAnimationFrame(openFrame);
     dialog.dataset.visible = "false";
-    closeTimer = setTimeout(() => {
-      dialog?.close();
-      closeTimer = undefined;
-      if (notifyParent) onClose();
-    }, dialogDuration);
+    notifyOnClose = notifyParent;
+    if (dialogDuration === 0) {
+      finishClose();
+      return;
+    }
+    closeTimer = setTimeout(finishClose, dialogDuration + 50);
+  }
+
+  function finishClose(): void {
+    if (closeTimer !== undefined) clearTimeout(closeTimer);
+    closeTimer = undefined;
+    if (!dialog?.open) return;
+    dialog.style.visibility = "hidden";
+    dialog.close();
+    if (notifyOnClose) onClose();
   }
 
   onDestroy(() => {
@@ -88,6 +103,11 @@
     close();
   }}
   onkeydown={handleKeydown}
+  ontransitionend={(event) => {
+    if (closeTimer !== undefined && event.target === dialog?.firstElementChild && event.propertyName === "opacity") {
+      finishClose();
+    }
+  }}
   onclick={(event) => {
     if (event.target === dialog) close();
   }}
