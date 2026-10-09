@@ -711,6 +711,7 @@ mod tests {
             games[0].executable_path.as_deref(),
             Some(target.join("bin/game.exe").to_str().unwrap())
         );
+        drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
 
