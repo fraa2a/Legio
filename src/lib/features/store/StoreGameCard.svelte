@@ -67,7 +67,7 @@
     aria-label="{t("Dettagli di ", $language)}{name}{t(" nello Store", $language)}"
     onclick={onOpen}
   >
-    <div class="w-56 shrink-0 overflow-hidden bg-zinc-800 sm:w-72 light:bg-zinc-200">
+    <div class="relative w-56 shrink-0 overflow-hidden bg-zinc-800 sm:w-72 light:bg-zinc-200">
       {#if visible}
         <SteamArtwork
           {steamAppId}
@@ -75,14 +75,14 @@
           version={detailsState?.cachedAt ?? null}
           caption={false}
           alt="{t("Copertina di ", $language)}{name}"
-          class="size-full object-contain"
+          class="absolute inset-0 size-full object-cover"
         >
           {#snippet placeholder()}
-            <span class="flex size-full items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-900 text-3xl font-semibold text-zinc-400 light:from-zinc-300 light:to-zinc-100 light:text-zinc-500">{name.slice(0, 1)}</span>
+            <span class="absolute inset-0 flex size-full items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-900 text-3xl font-semibold text-zinc-400 light:from-zinc-300 light:to-zinc-100 light:text-zinc-500">{name.slice(0, 1)}</span>
           {/snippet}
         </SteamArtwork>
       {:else}
-        <span class="flex size-full items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-900 text-3xl font-semibold text-zinc-400 light:from-zinc-300 light:to-zinc-100 light:text-zinc-500">{name.slice(0, 1)}</span>
+        <span class="absolute inset-0 flex size-full items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-900 text-3xl font-semibold text-zinc-400 light:from-zinc-300 light:to-zinc-100 light:text-zinc-500">{name.slice(0, 1)}</span>
       {/if}
     </div>
     <div class="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-4 gap-y-1 py-3 pr-3 pl-4 sm:pr-4">

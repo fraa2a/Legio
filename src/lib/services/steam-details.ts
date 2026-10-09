@@ -50,6 +50,8 @@ export interface SteamAsset {
   refreshAfter: number;
 }
 
+const pendingAssets = new Map<string, Promise<SteamAsset>>();
+
 export function getSteamAsset(
   steamAppId: number,
   asset: SteamAssetKind,
@@ -57,7 +59,15 @@ export function getSteamAsset(
   full?: boolean,
   refresh = false,
 ): Promise<SteamAsset> {
-  return invoke<ArrayBuffer>("get_steam_asset", { steamAppId, asset, index, full, refresh }).then(decodeImageResponse<SteamAsset>);
+  const adaptive = asset === "hero" || asset === "hero_blur";
+  const key = JSON.stringify([steamAppId, asset, index ?? null, adaptive ? false : full ?? false, refresh, adaptive ? get(artworkDisplayWidth) : null]);
+  const pending = pendingAssets.get(key);
+  if (pending !== undefined) return pending;
+  const request = invoke<ArrayBuffer>("get_steam_asset", { steamAppId, asset, index, full, refresh })
+    .then(decodeImageResponse<SteamAsset>)
+    .finally(() => pendingAssets.delete(key));
+  pendingAssets.set(key, request);
+  return request;
 }
 
 export function prefetchSteamHero(steamAppId: number): Promise<void> {
@@ -81,6 +91,10 @@ export interface SteamImage {
   cacheWarning: string | null;
 }
 
+export interface RetainedSteamImage extends SteamImage {
+  release: () => void;
+}
+
 interface CachedSteamImage extends SteamImage {
   users: number;
   byteLength: number;
@@ -88,6 +102,7 @@ interface CachedSteamImage extends SteamImage {
 
 const imageCache = new Map<string, CachedSteamImage>();
 const pendingImages = new Map<string, Promise<SteamImage>>();
+const fallbackImages = new Map<string, { key: string; request: SteamImageRequest; retryAt: number }>();
 const maxIdleImages = 128;
 const maxIdleBytes = 32 * 1024 * 1024;
 const freshFor = 72 * 60 * 60 * 1000;
@@ -99,12 +114,27 @@ function imageKey(request: SteamImageRequest): string {
   return JSON.stringify([
     request.steamAppId,
     request.asset,
-    request.fallbackAsset,
+    null,
     request.index,
     ["header", "capsule", "screenshot"].includes(request.asset) ? request.version : null,
     ["hero", "hero_blur"].includes(request.asset) ? false : request.full,
     ["hero", "hero_blur"].includes(request.asset) ? request.displayWidth ?? get(artworkDisplayWidth) : null,
   ]);
+}
+
+function requestKey(request: SteamImageRequest): string {
+  return JSON.stringify([imageKey(request), request.fallbackAsset]);
+}
+
+function resolvedImageKey(request: SteamImageRequest): string {
+  const primary = imageKey(request);
+  if (imageCache.has(primary)) return primary;
+  return fallbackImages.get(requestKey(request))?.key ?? primary;
+}
+
+function imageRefreshAt(request: SteamImageRequest, image: CachedSteamImage): number {
+  const fallback = imageCache.has(imageKey(request)) ? undefined : fallbackImages.get(requestKey(request));
+  return fallback?.retryAt ?? image.refreshAt;
 }
 
 function cachedImage(key: string): CachedSteamImage | undefined {
@@ -127,36 +157,57 @@ function pruneImages(protectedKey?: string): void {
     idle--;
     bytes -= image.byteLength;
   }
+  for (const [key, fallback] of fallbackImages) {
+    if (!imageCache.has(fallback.key)) fallbackImages.delete(key);
+  }
 }
 
 export function peekSteamImage(request: SteamImageRequest): SteamImage | undefined {
-  return cachedImage(imageKey(request));
+  return cachedImage(resolvedImageKey(request));
 }
 
-export function retainSteamImage(request: SteamImageRequest): SteamImage | undefined {
-  const image = cachedImage(imageKey(request));
-  if (image !== undefined) {
-    image.users++;
-    if (Date.now() >= image.refreshAt) refreshImage(request, imageKey(request), image);
-  }
-  return image;
-}
-
-export function releaseSteamImage(request: SteamImageRequest): void {
-  const image = imageCache.get(imageKey(request));
-  if (image !== undefined) image.users--;
-  pruneImages();
+export function retainSteamImage(request: SteamImageRequest): RetainedSteamImage | undefined {
+  const key = resolvedImageKey(request);
+  const image = cachedImage(key);
+  if (image === undefined) return undefined;
+  image.users++;
+  if (Date.now() >= imageRefreshAt(request, image)) refreshImage(request, imageKey(request), image);
+  let released = false;
+  return {
+    ...image,
+    refreshAt: imageRefreshAt(request, image),
+    release: () => {
+      if (released) return;
+      released = true;
+      const current = imageCache.get(key);
+      if (current !== undefined) current.users--;
+      pruneImages();
+    },
+  };
 }
 
 export function loadSteamImage(request: SteamImageRequest): Promise<SteamImage> {
   const batch = appRefreshes.get(request.steamAppId);
   if (batch !== undefined) return batch.then(() => loadSteamImage(request));
-  const key = imageKey(request);
+  const key = resolvedImageKey(request);
   const cached = cachedImage(key);
   if (cached !== undefined) {
-    if (Date.now() >= cached.refreshAt) refreshImage(request, key, cached);
+    if (Date.now() >= imageRefreshAt(request, cached)) refreshImage(request, imageKey(request), cached);
     return Promise.resolve(cached);
   }
+  return loadPrimaryImage(request).catch(async (error: unknown) => {
+    if (request.fallbackAsset === null) throw error;
+    const fallback = { ...request, asset: request.fallbackAsset, fallbackAsset: null };
+    const image = await loadPrimaryImage(fallback);
+    fallbackImages.set(requestKey(request), { key: imageKey(fallback), request, retryAt: image.refreshAt });
+    return image;
+  });
+}
+
+function loadPrimaryImage(request: SteamImageRequest): Promise<SteamImage> {
+  const key = imageKey(request);
+  const cached = cachedImage(key);
+  if (cached !== undefined) return Promise.resolve(cached);
   const pending = pendingImages.get(key);
   if (pending !== undefined) return pending;
 
@@ -165,10 +216,7 @@ export function loadSteamImage(request: SteamImageRequest): Promise<SteamImage> 
     request.asset,
     request.index ?? undefined,
     request.full,
-  ).catch((error: unknown) => {
-    if (request.fallbackAsset === null) throw error;
-    return getSteamAsset(request.steamAppId, request.fallbackAsset, request.index ?? undefined, request.full);
-  }).then((result) => {
+  ).then((result) => {
     const image: CachedSteamImage = {
       url: URL.createObjectURL(new Blob([result.bytes], { type: result.contentType })),
       stale: result.stale,
@@ -179,7 +227,7 @@ export function loadSteamImage(request: SteamImageRequest): Promise<SteamImage> 
     };
     imageCache.set(key, image);
     pruneImages(key);
-    if (result.stale) refreshImage(request, key, image);
+    if (result.stale) refreshImage(requestFromKey(key), key, image);
     return image;
   }).finally(() => pendingImages.delete(key));
   pendingImages.set(key, load);
@@ -190,32 +238,51 @@ function refreshImage(request: SteamImageRequest, key: string, previous: CachedS
   if (["hero", "hero_blur"].includes(request.asset) && request.displayWidth !== undefined
     && request.displayWidth !== get(artworkDisplayWidth)) return;
   if (refreshing.has(key) || appRefreshes.has(request.steamAppId)) return;
-  previous.refreshAt = Date.now() + freshFor;
+  const sourceKey = resolvedImageKey(request);
+  const fallback = sourceKey === key ? undefined : fallbackImages.get(requestKey(request));
+  if (fallback !== undefined) fallback.retryAt = Date.now() + freshFor;
+  else previous.refreshAt = Date.now() + freshFor;
+  let resolved = request;
   const task = getSteamAsset(request.steamAppId, request.asset, request.index ?? undefined, request.full, true)
     .catch((error: unknown) => {
       if (request.fallbackAsset === null) throw error;
-      return getSteamAsset(request.steamAppId, request.fallbackAsset, request.index ?? undefined, request.full, true);
+      resolved = { ...request, asset: request.fallbackAsset, fallbackAsset: null };
+      return getSteamAsset(request.steamAppId, resolved.asset, request.index ?? undefined, request.full, true);
     })
     .then((result) => {
-      if (imageCache.get(key) !== previous) return;
+      if (imageCache.get(sourceKey) !== previous) return;
       if (result.stale) {
         previous.cacheWarning = result.cacheWarning;
-        previous.refreshAt = Date.now() + 5 * 60 * 1000;
+        if (fallback !== undefined) fallback.retryAt = Date.now() + 5 * 60 * 1000;
+        else previous.refreshAt = Date.now() + 5 * 60 * 1000;
       } else {
-        const oldUrl = previous.url;
-        previous.url = URL.createObjectURL(new Blob([result.bytes], { type: result.contentType }));
-        previous.byteLength = result.bytes.byteLength;
-        previous.stale = false;
-        previous.refreshAt = result.refreshAfter ?? Date.now() + freshFor;
-        previous.cacheWarning = result.cacheWarning;
-        URL.revokeObjectURL(oldUrl);
+        const resolvedKey = imageKey(resolved);
+        if (resolvedKey === sourceKey) {
+          const oldUrl = previous.url;
+          previous.url = URL.createObjectURL(new Blob([result.bytes], { type: result.contentType }));
+          previous.byteLength = result.bytes.byteLength;
+          previous.stale = false;
+          previous.refreshAt = result.refreshAfter ?? Date.now() + freshFor;
+          previous.cacheWarning = result.cacheWarning;
+          URL.revokeObjectURL(oldUrl);
+        } else if (!imageCache.has(resolvedKey)) {
+          imageCache.set(resolvedKey, {
+            url: URL.createObjectURL(new Blob([result.bytes], { type: result.contentType })),
+            byteLength: result.bytes.byteLength, users: 0, stale: false,
+            refreshAt: result.refreshAfter ?? Date.now() + freshFor, cacheWarning: result.cacheWarning,
+          });
+        }
+        if (resolved !== request) fallbackImages.set(requestKey(request), { key: resolvedKey, request, retryAt: result.refreshAfter ?? Date.now() + freshFor });
+        else fallbackImages.delete(requestKey(request));
       }
       steamImageRevision.update(value => value + 1);
+      pruneImages(imageKey(resolved));
     })
     .catch((error: unknown) => {
-      if (imageCache.get(key) !== previous) return;
+      if (imageCache.get(sourceKey) !== previous) return;
       previous.cacheWarning = error instanceof Error ? error.message : String(error);
-      previous.refreshAt = Date.now() + 5 * 60 * 1000;
+      if (fallback !== undefined) fallback.retryAt = Date.now() + 5 * 60 * 1000;
+      else previous.refreshAt = Date.now() + 5 * 60 * 1000;
       steamImageRevision.update(value => value + 1);
     })
     .finally(() => refreshing.delete(key));
@@ -240,12 +307,26 @@ export function refreshSteamImages(steamAppId: number): Promise<void> {
       if (request.steamAppId === steamAppId && (!["hero", "hero_blur"].includes(request.asset)
         || request.displayWidth === get(artworkDisplayWidth))) requests.set(key, request);
     }
-    const results = await Promise.allSettled([...requests].map(async ([key, request]) => {
+    for (const fallback of fallbackImages.values()) {
+      if (fallback.request.steamAppId === steamAppId && (!["hero", "hero_blur"].includes(fallback.request.asset)
+        || (fallback.request.displayWidth ?? get(artworkDisplayWidth)) === get(artworkDisplayWidth))) {
+        requests.set(imageKey(fallback.request), fallback.request);
+      }
+    }
+    const updated = new Set<string>();
+    const results = await Promise.allSettled([...requests].map(async ([, request]) => {
+      let resolved = request;
       const result = await getSteamAsset(steamAppId, request.asset, request.index ?? undefined, request.full, true).catch((error: unknown) => {
         if (request.fallbackAsset === null) throw error;
-        return getSteamAsset(steamAppId, request.fallbackAsset, request.index ?? undefined, request.full, true);
+        resolved = { ...request, asset: request.fallbackAsset, fallbackAsset: null };
+        return getSteamAsset(steamAppId, resolved.asset, request.index ?? undefined, request.full, true);
       });
+      const key = imageKey(resolved);
+      if (resolved !== request) fallbackImages.set(requestKey(request), { key, request, retryAt: result.refreshAfter ?? Date.now() + freshFor });
+      else fallbackImages.delete(requestKey(request));
       if (result.stale) throw new Error(result.cacheWarning ?? "Could not refresh Steam images");
+      if (updated.has(key)) return;
+      updated.add(key);
       const previous = imageCache.get(key);
       const url = URL.createObjectURL(new Blob([result.bytes], { type: result.contentType }));
       imageCache.set(key, {

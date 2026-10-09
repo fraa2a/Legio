@@ -4,11 +4,11 @@ export const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matc
 
 export const fadeDuration = reducedMotion ? 0 : 110;
 
-export const blurFadeDuration = reducedMotion ? 0 : 210;
+export const pageTransitionDuration = reducedMotion ? 0 : 210;
 
-export function blurFade(_node: HTMLElement, params: { duration?: number } = {}): TransitionConfig {
+export function pageTransition(_node: HTMLElement, params: { duration?: number } = {}): TransitionConfig {
   return {
-    duration: params.duration ?? blurFadeDuration,
-    css: (progress) => `opacity:${progress};filter:blur(${(1 - progress) * 10}px);`,
+    duration: params.duration ?? pageTransitionDuration,
+    css: (progress) => `transform:translateY(${(1 - progress) * 6}px);`,
   };
 }

@@ -6,7 +6,6 @@
     loadSteamImage,
     steamImageRevision,
     peekSteamImage,
-    releaseSteamImage,
     retainSteamImage,
     type SteamAssetKind,
   } from "../../services/steam-details";
@@ -68,7 +67,7 @@
       error = null;
       fromCache = true;
       refreshAt = cached.refreshAt;
-      return () => releaseSteamImage(current);
+      return cached.release;
     }
 
     loadedRequest = null;
@@ -80,13 +79,13 @@
     refreshAt = null;
 
     let cancelled = false;
-    let retained = false;
+    let release: (() => void) | undefined;
     void loadSteamImage(current).then(
       () => {
         if (cancelled) return;
         const image = retainSteamImage(current);
         if (image === undefined) return;
-        retained = true;
+        release = image.release;
         loadedRequest = current;
         url = image.url;
         stale = image.stale;
@@ -100,7 +99,7 @@
 
     return () => {
       cancelled = true;
-      if (retained) releaseSteamImage(current);
+      release?.();
     };
   });
   $effect(() => {

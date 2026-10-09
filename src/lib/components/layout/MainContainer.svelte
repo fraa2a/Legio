@@ -6,7 +6,7 @@
   import LibraryView from "../../features/library/LibraryView.svelte";
   import StoreView from "../../features/store/StoreView.svelte";
   import { activeSection, selectedGameId } from "../../stores/navigation";
-  import { blurFade } from "../../utils/motion";
+  import { pageTransition } from "../../utils/motion";
 
   const gamePrefix = "library:";
 
@@ -26,8 +26,7 @@
     <div
       data-page={target}
       class="absolute inset-0 overflow-y-auto scrollbar-none"
-      in:blurFade={{ duration: mounted ? undefined : 0 }}
-      out:blurFade
+      in:pageTransition={{ duration: mounted ? undefined : 0 }}
     >
       {#if target === "home"}
         <HomeView />
