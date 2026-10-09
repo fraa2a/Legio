@@ -40,14 +40,13 @@
 
 <li bind:this={row} class="tile group relative overflow-hidden rounded-xl bg-zinc-900 light:bg-white">
   <div
-    class="absolute inset-0 will-change-transform bg-gradient-to-br from-zinc-800 to-zinc-950 transition-transform duration-300 ease-out group-hover:scale-105 light:from-zinc-200 light:to-zinc-100"
+    class="legio-artwork-zoom absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-950 light:from-zinc-200 light:to-zinc-100"
     aria-hidden="true"
   >
     {#if visible}
       <SteamArtwork
         {steamAppId}
         asset="hero_blur"
-        fallbackAsset="header"
         version={detailsState?.cachedAt ?? null}
         caption={false}
         alt=""

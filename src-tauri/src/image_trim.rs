@@ -104,8 +104,8 @@ fn transformed_webp(bytes: &[u8], hero: Option<(u32, bool)>) -> Result<Vec<u8>, 
             );
         }
         if blurred {
-            let sigma = rgba.width() as f32 * (3.0 / 1248.0);
-            rgba = image::imageops::blur(&rgba, sigma);
+            let sigma = rgba.width() as f32 * (18.0 / 1248.0);
+            rgba = image::imageops::fast_blur(&rgba, sigma);
         }
     }
     let encoder = webp::Encoder::from_rgba(&rgba, rgba.width(), rgba.height());
@@ -259,7 +259,10 @@ mod tests {
         assert_eq!(sharp.dimensions(), (1920, 620));
         assert_eq!(card.dimensions(), (1248, 403));
         assert!(sharp.get_pixel(959, 310)[0] < 10);
-        assert!(card.get_pixel(623, 201)[0] > 10);
+        assert!(
+            card.get_pixel(611, 201)[0] > 10,
+            "card blur must extend beyond a barely softened edge"
+        );
         assert_eq!(card.get_pixel(623, 201)[3], 255);
     }
 

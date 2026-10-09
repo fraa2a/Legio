@@ -626,7 +626,12 @@ pub async fn get_asset<R: tauri::Runtime>(
     };
     let filename = asset.library_filename(full);
     let suffix = if adaptive_hero {
-        format!("-display-v1-{display_width}")
+        let version = if matches!(asset, AssetKind::HeroBlur) {
+            2
+        } else {
+            1
+        };
+        format!("-display-v{version}-{display_width}")
     } else if full {
         "-full".to_owned()
     } else {
@@ -686,7 +691,7 @@ pub async fn get_asset<R: tauri::Runtime>(
     if matches!(asset, AssetKind::HeroBlur) {
         // The sharp cache is shared with banners; cards persist their own resized blur.
         let hero = Box::pin(get_asset(
-            app,
+            app.clone(),
             network,
             app_id,
             AssetKind::Hero,
@@ -694,20 +699,37 @@ pub async fn get_asset<R: tauri::Runtime>(
             full,
             refresh,
         ))
-        .await?;
-        let bytes = optimized_asset_bytes(hero.bytes, Some((display_width, true))).await?;
-        let stale = hero.stale;
+        .await;
+        let (source, source_name) = match hero {
+            Ok(hero) => (hero, "derived:library_hero"),
+            Err(hero_error) => {
+                let header = Box::pin(get_asset(
+                    app,
+                    network,
+                    app_id,
+                    AssetKind::Header,
+                    None,
+                    false,
+                    refresh,
+                ))
+                .await
+                .map_err(|error| format!("{hero_error} Header fallback: {error}"))?;
+                (header, "derived:header")
+            }
+        };
+        let bytes = optimized_asset_bytes(source.bytes, Some((display_width, true))).await?;
+        let stale = source.stale;
         let (bytes, written) = tauri::async_runtime::spawn_blocking(move || {
             let written = if stale {
                 Ok(())
             } else {
-                state.write(&key, "derived:library_hero", &bytes, "image/webp")
+                state.write(&key, source_name, &bytes, "image/webp")
             };
             (bytes, written)
         })
         .await
         .map_err(|error| format!("Card image cache task failed: {error}"))?;
-        let mut warning = hero.cache_warning;
+        let mut warning = source.cache_warning;
         if let Err(error) = written {
             warning = Some(match warning {
                 Some(existing) => format!("{existing} Card image cache: {error}"),
@@ -718,11 +740,11 @@ pub async fn get_asset<R: tauri::Runtime>(
             bytes,
             content_type: "image/webp",
             stale,
-            refresh_after: hero.refresh_after,
+            refresh_after: source.refresh_after,
             cache_warning: warning,
         };
         if let Some(request) = blur_request.as_mut() {
-            **request = Some(("derived:library_hero".to_owned(), Ok(result.clone())));
+            **request = Some((source_name.to_owned(), Ok(result.clone())));
         }
         return Ok(result);
     }
@@ -1201,6 +1223,14 @@ mod tests {
             crate::diagnostics::Diagnostics::new(Err("test".into())),
         )
         .unwrap();
+        cache
+            .write(
+                "400-hero-blur-display-v1-1920",
+                "derived:library_hero",
+                PNG,
+                "image/png",
+            )
+            .unwrap();
         let metadata_lock = cache.metadata_lock(400).unwrap();
         let _guard = metadata_lock.lock().await;
         let first = get_asset(
@@ -1218,7 +1248,7 @@ mod tests {
         assert_eq!((decoded.width(), decoded.height()), (1248, 403));
         assert_eq!(
             cache
-                .read_cached("400-hero-blur-display-v1-1920", None)
+                .read_cached("400-hero-blur-display-v2-1920", None)
                 .unwrap()
                 .unwrap()
                 .bytes,
@@ -1240,6 +1270,75 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(first.bytes, second.bytes);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn missing_hero_uses_a_blurred_header_without_modifying_the_sharp_header() {
+        let cache = cache();
+        let root = cache.directory().unwrap().parent().unwrap().to_path_buf();
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().identifier = format!("org.legio.test.{}", uuid::Uuid::new_v4());
+        let app = tauri::test::mock_builder()
+            .manage(cache.clone())
+            .build(context)
+            .unwrap();
+        let source =
+            image::DynamicImage::ImageRgba8(image::RgbaImage::from_fn(460, 215, |x, _| {
+                let value = if x < 230 { 0 } else { 255 };
+                image::Rgba([value, value, value, 255])
+            }));
+        let mut png = std::io::Cursor::new(Vec::new());
+        source.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        let sharp = crate::image_trim::webp_asset(png.get_ref()).unwrap();
+        cache
+            .write("400-header", "test", &sharp, "image/webp")
+            .unwrap();
+        let pics = cache.directory().unwrap().join("pics");
+        fs::create_dir_all(&pics).unwrap();
+        fs::write(pics.join("400.json"), b"invalid").unwrap();
+        let locks = cache.pics_locks.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = locks.lock().unwrap();
+            panic!("Force a failed hero lookup without making a network request");
+        })
+        .join();
+        let network = NetworkState::new(
+            "0.1.0",
+            crate::diagnostics::Diagnostics::new(Err("test".into())),
+        )
+        .unwrap();
+        let blurred = get_asset(
+            app.handle().clone(),
+            &network,
+            400,
+            AssetKind::HeroBlur,
+            None,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+        let pixels = image::load_from_memory(&blurred.bytes).unwrap().to_rgba8();
+        assert_eq!(pixels.width(), 299);
+        assert!(pixels.get_pixel(145, 60)[0] > 10);
+        assert_eq!(
+            cache
+                .read_cached("400-header", None)
+                .unwrap()
+                .unwrap()
+                .bytes,
+            sharp
+        );
+        assert_eq!(
+            cache
+                .read_cached("400-hero-blur-display-v2-1920", None)
+                .unwrap()
+                .unwrap()
+                .bytes,
+            blurred.bytes
+        );
+        drop(app);
         fs::remove_dir_all(root).unwrap();
     }
 

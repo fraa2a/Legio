@@ -35,15 +35,17 @@ const { mount, unmount, flushSync } = await import("svelte");
 const { resolveImports } = createModuleLoader({});
 const source = `<script>
   import Dialog from "../src/lib/components/ui/Dialog.svelte";
-  let { onClosed } = $props();
+  let { onClosed, persistent = false } = $props();
   let showing = $state(true);
 </script>
-{#if showing}
-  <Dialog open title="Settings" onClose={() => { showing = false; onClosed(); }}>
+{#if showing || persistent}
+  <Dialog open={showing} title="Settings" onClose={() => { showing = false; onClosed(); }}>
     {#snippet actions(close)}<button onclick={close}>Close</button>{/snippet}
     {#snippet children(dismiss)}<button onclick={dismiss}>Cancel</button>{/snippet}
   </Dialog>
-{/if}`;
+{/if}
+<button onclick={() => showing = true}>Reopen</button>
+<button onclick={() => showing = false}>External close</button>`;
 const compiled = compile(source, { generate: "client" }).js.code;
 const component = (await import(dataModule(await resolveImports(compiled, "scripts/dialog_test_wrapper.svelte")))).default;
 
@@ -61,7 +63,7 @@ for (const label of ["Close", "Cancel"]) test(`${label} keeps the dialog mounted
   assert.equal(dialog.dataset.visible, "false");
   assert.equal(dialog.open, true);
   assert.equal(closed, 0);
-  await new Promise((resolve) => setTimeout(resolve, 220));
+  await new Promise((resolve) => setTimeout(resolve, 260));
   flushSync();
   assert.equal(closed, 1);
   assert.equal(document.querySelector("dialog"), null);
@@ -89,4 +91,59 @@ test("dialog fades its surface and content without isolating the surface backdro
   } finally {
     await unmount(instance);
   }
+});
+
+
+function finishOpacityTransition(content) {
+  const event = new Event("transitionend", { bubbles: true });
+  Object.defineProperty(event, "propertyName", { value: "opacity" });
+  content.dispatchEvent(event);
+  flushSync();
+}
+
+test("closing waits for the content fade and hides the dialog before leaving the top layer", async () => {
+  let closed = 0;
+  const instance = mount(component, { target: document.body, props: { onClosed: () => closed++, persistent: true } });
+  try {
+    flushSync();
+    advanceFrame();
+    advanceFrame();
+    const dialog = document.querySelector("dialog");
+    const content = dialog.firstElementChild;
+    [...dialog.querySelectorAll("button")].find(button => button.textContent === "Close").click();
+    flushSync();
+    finishOpacityTransition(content.querySelector("button"));
+    assert.equal(dialog.open, true, "nested transitions must not finish the dialog exit");
+    assert.equal(closed, 0);
+    finishOpacityTransition(content);
+    assert.equal(dialog.open, false);
+    assert.equal(dialog.style.visibility, "hidden", "the closed dialog must remain hidden if the native top layer paints another frame");
+    assert.equal(closed, 1);
+    advanceFrame();
+    advanceFrame();
+    flushSync();
+    assert.equal(dialog.open, false, "an opening frame must not bring the closed dialog back");
+    assert.equal(dialog.dataset.visible, "false");
+  } finally { await unmount(instance); }
+});
+
+test("reopening during an external close reverses the fade and cancels the pending close", async () => {
+  let closed = 0;
+  const instance = mount(component, { target: document.body, props: { onClosed: () => closed++, persistent: true } });
+  try {
+    flushSync();
+    advanceFrame();
+    advanceFrame();
+    const dialog = document.querySelector("dialog");
+    [...document.querySelectorAll("button")].find(button => button.textContent === "External close").click();
+    flushSync();
+    assert.equal(dialog.dataset.visible, "false");
+    [...document.querySelectorAll("button")].find(button => button.textContent === "Reopen").click();
+    flushSync();
+    assert.equal(dialog.dataset.visible, "true");
+    finishOpacityTransition(dialog.firstElementChild);
+    await new Promise(resolve => setTimeout(resolve, 260));
+    assert.equal(dialog.open, true);
+    assert.equal(closed, 0);
+  } finally { await unmount(instance); }
 });
