@@ -427,28 +427,34 @@ mod tests {
     #[test]
     fn database_failure_rolls_back_both_inserts_and_updates() {
         let fixture = Fixture::new();
+        fixture.install(2, "Original game", "Refreshed");
+        let database = Database::open(&fixture.0).unwrap();
+        assert_eq!(import_scan(&database, fixture.scan()).unwrap().inserted, 1);
+        let original = database.games().unwrap();
+        assert_eq!(original[0].automatic_name.as_deref(), Some("Original game"));
+        assert!(original[0].steam_install_path.is_some());
         fixture.install(1, "New game", "New");
         fixture.install(2, "Refreshed game", "Refreshed");
         fixture.install(3, "Rejected game", "Rejected");
-        let database = Database::open(&fixture.0).unwrap();
-        database
-            .create_game(CreateGameInput {
-                name: "Manual name".to_owned(),
-                steam_app_id: Some(2),
-            })
-            .unwrap();
-        let original = database.games().unwrap();
         database
             .with_connection(|connection| {
                 connection
                     .execute_batch(
                         "CREATE TRIGGER reject_import BEFORE INSERT ON games
-                 WHEN NEW.steam_app_id = 3 BEGIN SELECT RAISE(ABORT, 'rejected import'); END;",
+                 WHEN NEW.steam_app_id = 3 BEGIN
+                   SELECT CASE
+                     WHEN EXISTS (SELECT 1 FROM games WHERE steam_app_id = 1)
+                      AND EXISTS (SELECT 1 FROM games WHERE steam_app_id = 2 AND automatic_name = 'Refreshed game')
+                     THEN RAISE(ABORT, 'rejected import after insert and update')
+                     ELSE RAISE(ABORT, 'required insert and update missing')
+                   END;
+                 END;",
                     )
                     .map_err(database_error)
             })
             .unwrap();
-        assert!(import_scan(&database, fixture.scan()).is_err());
+        let error = import_scan(&database, fixture.scan()).unwrap_err();
+        assert!(error.contains("rejected import after insert and update"));
         assert_eq!(database.games().unwrap(), original);
         drop(database);
         assert_eq!(

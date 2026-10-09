@@ -561,18 +561,27 @@ mod tests {
     }
 
     #[test]
-    fn reset_removes_the_icon_and_repeated_reset_succeeds() {
-        let root = test_dir();
-        let source = root.join("selected.png");
-        fs::write(&source, PNG).unwrap();
-        let store = GameArtworkStore::new(Ok(root.join("app-data")));
-        let game_id = "00000000-0000-0000-0000-000000000001";
-        store.set(game_id, ArtworkKind::Icon, &source).unwrap();
+    fn reset_removes_only_the_selected_artwork_kind_and_is_idempotent() {
+        for (kind, other) in [
+            (ArtworkKind::Icon, ArtworkKind::Banner),
+            (ArtworkKind::Banner, ArtworkKind::Icon),
+        ] {
+            let root = test_dir();
+            let source = root.join("selected.png");
+            fs::write(&source, PNG).unwrap();
+            let store = GameArtworkStore::new(Ok(root.join("app-data")));
+            let game_id = "00000000-0000-0000-0000-000000000001";
+            store.set(game_id, kind, &source).unwrap();
+            store.set(game_id, other, &source).unwrap();
 
-        store.remove(game_id, ArtworkKind::Icon).unwrap();
-        assert!(store.get(game_id, ArtworkKind::Icon).unwrap().is_none());
-        store.remove(game_id, ArtworkKind::Icon).unwrap();
-        fs::remove_dir_all(root).unwrap();
+            store.remove(game_id, kind).unwrap();
+            assert!(store.get(game_id, kind).unwrap().is_none());
+            assert_eq!(store.get(game_id, other).unwrap().unwrap().bytes, PNG);
+            store.remove(game_id, kind).unwrap();
+            assert!(store.get(game_id, kind).unwrap().is_none());
+            assert_eq!(store.get(game_id, other).unwrap().unwrap().bytes, PNG);
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]
@@ -675,21 +684,6 @@ mod tests {
             jpeg_image()
         );
         assert!(reopened.get(game_id, ArtworkKind::Icon).unwrap().is_some());
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn reset_removes_only_the_custom_banner_and_is_idempotent() {
-        let root = test_dir();
-        let source = root.join("banner.png");
-        let game_id = "00000000-0000-0000-0000-000000000001";
-        fs::write(&source, PNG).unwrap();
-        let store = GameArtworkStore::new(Ok(root.join("app-data")));
-        store.set(game_id, ArtworkKind::Banner, &source).unwrap();
-
-        store.remove(game_id, ArtworkKind::Banner).unwrap();
-        assert!(store.get(game_id, ArtworkKind::Banner).unwrap().is_none());
-        store.remove(game_id, ArtworkKind::Banner).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 

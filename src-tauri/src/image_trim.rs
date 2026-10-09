@@ -161,11 +161,10 @@ mod tests {
 
     #[test]
     fn converts_supported_artwork_to_webp_with_alpha() {
-        let source = DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
-            2,
-            2,
-            image::Rgba([20, 40, 60, 120]),
-        ));
+        let mut rgba = RgbaImage::from_pixel(16, 16, image::Rgba([20, 40, 60, 120]));
+        rgba.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
+        rgba.put_pixel(8, 8, image::Rgba([0, 0, 0, 0]));
+        let source = DynamicImage::ImageRgba8(rgba.clone());
         for format in [
             ImageFormat::Png,
             ImageFormat::WebP,
@@ -185,27 +184,12 @@ mod tests {
                 Some(crate::image_format::ImageFormat::Webp)
             );
             let result = image::load_from_memory(&bytes).unwrap();
-            assert_eq!((result.width(), result.height()), (2, 2));
+            assert_eq!(result.dimensions(), rgba.dimensions());
             if format != ImageFormat::Jpeg {
-                assert_eq!(result.to_rgba8().get_pixel(0, 0)[3], 120);
-            }
-        }
-    }
-
-    #[test]
-    fn transparent_icon_pixels_survive_png_ico_and_webp_processing() {
-        let mut rgba = RgbaImage::from_pixel(16, 16, image::Rgba([20, 40, 60, 120]));
-        rgba.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
-        rgba.put_pixel(8, 8, image::Rgba([0, 0, 0, 0]));
-        let source = DynamicImage::ImageRgba8(rgba.clone());
-        for format in [ImageFormat::Png, ImageFormat::Ico, ImageFormat::WebP] {
-            let mut input = Cursor::new(Vec::new());
-            source.write_to(&mut input, format).unwrap();
-            let output = webp_asset(input.get_ref()).unwrap();
-            let decoded = image::load_from_memory(&output).unwrap().to_rgba8();
-            assert_eq!(decoded.dimensions(), rgba.dimensions());
-            for (original, decoded) in rgba.pixels().zip(decoded.pixels()) {
-                assert_eq!(decoded[3], original[3], "{format:?} must preserve alpha");
+                let decoded = result.to_rgba8();
+                for (original, decoded) in rgba.pixels().zip(decoded.pixels()) {
+                    assert_eq!(decoded[3], original[3], "{format:?} must preserve alpha");
+                }
             }
         }
     }

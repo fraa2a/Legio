@@ -689,23 +689,12 @@ mod tests {
     }
 
     #[test]
-    fn finalizes_with_a_candidate_from_the_staged_scan() {
+    fn finalizes_and_commits_game_and_download() {
         let (database, data_dir, id) = fixture();
         let (stage, name) = staged_download_directory(&database, &data_dir, &id).unwrap();
         let scan = manual_import::scan_staged_directory(&stage, Some(&name)).unwrap();
         let executable = scan.selected_relative_path.unwrap();
-
         finalize(&database, &data_dir, &id, &executable).unwrap();
-
-        assert_eq!(state(&database, &id).0, "installed");
-        drop(database);
-        fs::remove_dir_all(data_dir).unwrap();
-    }
-
-    #[test]
-    fn finalizes_and_commits_game_and_download() {
-        let (database, data_dir, id) = fixture();
-        finalize(&database, &data_dir, &id, "bin/game.exe").unwrap();
         let target = data_dir.join("installed").join(&id);
         assert_eq!(fs::read(target.join("bin/game.exe")).unwrap(), b"game");
         assert_eq!(state(&database, &id).0, "installed");
@@ -722,6 +711,7 @@ mod tests {
             games[0].executable_path.as_deref(),
             Some(target.join("bin/game.exe").to_str().unwrap())
         );
+        drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
 

@@ -718,14 +718,38 @@ mod tests {
 
     #[test]
     fn caps_captured_output_and_keeps_draining() {
+        struct CountedReader {
+            source: io::Cursor<Vec<u8>>,
+            consumed: Arc<std::sync::atomic::AtomicUsize>,
+            reached_eof: Arc<AtomicBool>,
+        }
+
+        impl Read for CountedReader {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                let read = self.source.read(buffer)?;
+                self.consumed.fetch_add(read, Ordering::Relaxed);
+                if read == 0 {
+                    self.reached_eof.store(true, Ordering::Relaxed);
+                }
+                Ok(read)
+            }
+        }
+
         let root = std::env::temp_dir().join(format!("legio-compat-cap-{}", Uuid::new_v4()));
         let config = EffectiveCompatibilityConfig::default();
         let logs = test_log(&root, &config);
         let directory = logs.state().directory().to_path_buf();
         let target = File::create(directory.join("bounded.log")).unwrap();
         let state = logs.state();
+        let source_len = MAX_STREAM_BYTES as usize + 3 * 8192;
+        let consumed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let reached_eof = Arc::new(AtomicBool::new(false));
         let reader = spawn_reader(
-            io::Cursor::new(vec![b'x'; MAX_STREAM_BYTES as usize + 1]),
+            CountedReader {
+                source: io::Cursor::new(vec![b'x'; source_len]),
+                consumed: consumed.clone(),
+                reached_eof: reached_eof.clone(),
+            },
             target,
             state.clone(),
             "stdout",
@@ -737,6 +761,9 @@ mod tests {
             MAX_STREAM_BYTES
         );
         assert!(state.truncated());
+        assert_eq!(consumed.load(Ordering::Relaxed), source_len);
+        assert!(reached_eof.load(Ordering::Relaxed));
+        assert!(state.output_error().is_none());
         fs::remove_dir_all(root).unwrap();
     }
 
