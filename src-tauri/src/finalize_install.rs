@@ -757,6 +757,22 @@ mod tests {
     }
 
     #[test]
+    fn failed_finalization_retries_without_restart() {
+        let (database, data_dir, id) = fixture();
+        let target = data_dir.join("installed").join(&id);
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("foreign"), b"keep").unwrap();
+        assert!(finalize(&database, &data_dir, &id, "bin/game.exe").is_err());
+        assert_eq!(fs::read(target.join("foreign")).unwrap(), b"keep");
+        fs::remove_dir_all(&target).unwrap();
+        finalize(&database, &data_dir, &id, "bin/game.exe").unwrap();
+        assert_eq!(state(&database, &id).0, "installed");
+        assert_eq!(fs::read(target.join("bin/game.exe")).unwrap(), b"game");
+        drop(database);
+        fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
     fn refuses_existing_target_and_keeps_evidence() {
         let (database, data_dir, id) = fixture();
         let target = data_dir.join("installed").join(&id);

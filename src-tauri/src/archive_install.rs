@@ -393,6 +393,17 @@ mod tests {
     }
 
     #[test]
+    fn truncated_rar5_returns_an_error_without_panicking() {
+        for length in 8..12 {
+            let mut bytes = b"Rar!\x1a\x07\x01\x00".to_vec();
+            bytes.resize(length, 0);
+            let (root, _, result) = run_fixture(&bytes, "broken.rar");
+            assert!(result.is_err());
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
     fn verified_zip_is_staged() {
         let (root, _, result) = run_fixture(
             include_bytes!("../test-fixtures/archive/safe.zip"),
