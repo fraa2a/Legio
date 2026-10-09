@@ -207,3 +207,27 @@ test("background URL is retained for the same image and revoked when replaced", 
   assert.deepEqual(revoked, ["blob:theme-1", "blob:theme-2"]);
   target.remove();
 });
+
+
+test("closing appearance settings flushes the final draft after a pending save", async () => {
+  settingsStore.set({ data: { theme: "dark", appearance: appearance.defaultAppearance() } });
+  const saved = [];
+  const pending = [];
+  globalThis.themeSave = value => { saved.push(value); return new Promise(resolve => pending.push(() => resolve(value))); };
+  globalThis.themeInvoke = async () => {};
+  const component = (await import(await load("src/lib/features/settings/ThemeSettings.svelte"))).default;
+  const target = document.createElement("div"); document.body.append(target);
+  const instance = mount(component, { target }); await settle();
+  const group = [...target.querySelectorAll("button[aria-expanded]")].find(button => button.textContent.includes("Pannelli e dialoghi"));
+  group.click(); await settle();
+  const slider = target.querySelector("#theme-surfaceOpacity");
+  slider.value = "20"; slider.dispatchEvent(new Event("input", { bubbles: true }));
+  await new Promise(resolve => setTimeout(resolve, 650)); await settle();
+  assert.equal(saved.length, 1);
+  slider.value = "45"; slider.dispatchEvent(new Event("input", { bubbles: true })); await settle();
+  await unmount(instance); target.remove();
+  pending.shift()(); await settle();
+  assert.equal(saved.length, 2, "the final appearance draft must be saved after teardown");
+  assert.equal(saved[1].appearance.surfaceOpacity, 45);
+  pending.shift()(); await settle();
+});

@@ -175,6 +175,11 @@ test("fullscreen artwork uses a native modal and restores its opener", async () 
     assert.equal(dialog.open, true);
     dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
     assert.equal(closed, 1);
+    let parentEscapes = 0;
+    target.addEventListener("keydown", () => parentEscapes++);
+    dialog.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    assert.equal(closed, 2);
+    assert.equal(parentEscapes, 0, "closing artwork must not close its parent dialog");
   } finally {
     await unmount(instance);
     assert.equal(document.activeElement, opener);

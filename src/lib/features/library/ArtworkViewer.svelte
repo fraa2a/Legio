@@ -61,6 +61,7 @@
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === "Escape") {
       event.preventDefault();
+      event.stopPropagation();
       onClose();
       return;
     }
@@ -72,12 +73,11 @@
   }
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
 <dialog
   bind:this={overlay}
   aria-label={t("Immagine a schermo intero", $language)}
   tabindex="-1"
+  onkeydown={handleKeydown}
   oncancel={(event) => { event.preventDefault(); onClose(); }}
   class="fixed inset-0 z-50 m-0 size-full max-h-none max-w-none border-0 p-0 flex flex-col bg-black/90 backdrop-blur-sm focus:outline-none light:bg-zinc-950/95"
 >
