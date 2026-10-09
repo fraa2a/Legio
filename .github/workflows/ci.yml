@@ -50,6 +50,9 @@ jobs:
       - name: Test asynchronous stores and artwork cache
         run: corepack pnpm test:regressions
 
+      - name: Test dropdowns, rendering, and shared artwork cache
+        run: corepack pnpm test:select && corepack pnpm test:visual && corepack pnpm test:artwork-cache
+
       - name: Test source management and deep links
         run: corepack pnpm test:sources
 

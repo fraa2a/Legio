@@ -3,7 +3,7 @@ use std::{
     future::Future,
     io,
     path::{Path, PathBuf},
-    time::{Duration, SystemTime},
+    time::{Duration, Instant, SystemTime},
 };
 
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ const COMMUNITY_ICON_CDN: &str =
 const MAX_METADATA_BYTES: u64 = 16 * 1024;
 const FRESH_FOR: Duration = Duration::from_secs(72 * 60 * 60);
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub(crate) struct PicsAssets(BTreeMap<String, String>);
 
 impl PicsAssets {
@@ -113,7 +113,7 @@ fn valid_asset_path(path: &str, filename: &str) -> bool {
         .is_some_and(|(hash, name)| valid_hash(hash) && name == filename)
 }
 
-async fn read_cache(path: &Path) -> Result<Option<(PicsAssets, bool)>, String> {
+pub(crate) async fn read_cache(path: &Path) -> Result<Option<(PicsAssets, bool)>, String> {
     let metadata = match tokio::fs::symlink_metadata(path).await {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -170,9 +170,14 @@ async fn write_cache(path: &Path, assets: &PicsAssets) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Default)]
+pub(crate) struct Lookup {
+    recent: Option<(Instant, Result<PicsAssets, String>)>,
+}
+
 pub(crate) async fn resolve(
     path: Result<PathBuf, String>,
-    lock: &tokio::sync::Mutex<()>,
+    lock: &tokio::sync::Mutex<Lookup>,
     fetched: impl Future<Output = Result<PicsAssets, String>>,
 ) -> (Option<PicsAssets>, Option<String>) {
     let (path, mut warning) = match path {
@@ -191,8 +196,7 @@ pub(crate) async fn resolve(
         return (cached.map(|(assets, _)| assets), warning);
     }
 
-    // ponytail: serialize CM lookups; fresh cache reads bypass the lock.
-    let _guard = lock.lock().await;
+    let mut lookup = lock.lock().await;
     if let Some(path) = path.as_deref() {
         match read_cache(path).await {
             Ok(Some(entry)) => cached = Some(entry),
@@ -203,7 +207,17 @@ pub(crate) async fn resolve(
     if cached.as_ref().is_some_and(|(_, stale)| !stale) {
         return (cached.map(|(assets, _)| assets), warning);
     }
-    match fetched.await {
+    let result = match lookup.recent.as_ref() {
+        Some((completed, result)) if completed.elapsed() < Duration::from_secs(30) => {
+            result.clone()
+        }
+        _ => {
+            let result = fetched.await;
+            lookup.recent = Some((Instant::now(), result.clone()));
+            result
+        }
+    };
+    match result {
         Ok(assets) => {
             if let Some(path) = path.as_deref()
                 && let Err(error) = write_cache(path, &assets).await
@@ -366,7 +380,7 @@ mod tests {
     #[tokio::test]
     async fn cache_miss_fetches_and_persists_metadata() {
         let path = cache_path();
-        let lock = tokio::sync::Mutex::new(());
+        let lock = tokio::sync::Mutex::new(Lookup::default());
         let (assets, warning) =
             resolve(Ok(path.clone()), &lock, async { Ok(logo_assets(HASH)) }).await;
         let (saved, stale) = read_cache(&path).await.unwrap().unwrap();
@@ -385,7 +399,7 @@ mod tests {
     async fn fresh_metadata_bypasses_network_and_lookup_lock() {
         let path = cache_path();
         write_cache(&path, &logo_assets(HASH)).await.unwrap();
-        let lock = tokio::sync::Mutex::new(());
+        let lock = tokio::sync::Mutex::new(Lookup::default());
         let _guard = lock.lock().await;
         let (assets, warning) = tokio::time::timeout(
             Duration::from_secs(3),
@@ -409,7 +423,7 @@ mod tests {
     async fn expired_metadata_refreshes_and_saves_the_new_hash() {
         let path = cache_path();
         expire_cache(&path).await;
-        let lock = tokio::sync::Mutex::new(());
+        let lock = tokio::sync::Mutex::new(Lookup::default());
         let hash = "b".repeat(40);
         let (assets, warning) =
             resolve(Ok(path.clone()), &lock, async { Ok(logo_assets(&hash)) }).await;
@@ -425,10 +439,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn same_game_queued_lookups_reuse_a_recent_offline_result() {
+        let path = cache_path();
+        let lock = tokio::sync::Mutex::new(Lookup::default());
+        let (_, warning) = resolve(Ok(path.clone()), &lock, async {
+            Err("Steam is offline".into())
+        })
+        .await;
+        assert_eq!(warning.as_deref(), Some("Steam is offline"));
+        let (_, repeated_warning) = resolve(Ok(path), &lock, async {
+            panic!("A queued request must not start another slow Steam connection")
+        })
+        .await;
+        assert_eq!(repeated_warning.as_deref(), Some("Steam is offline"));
+    }
+
+    #[tokio::test]
     async fn expired_metadata_is_preserved_when_steam_is_offline() {
         let path = cache_path();
         expire_cache(&path).await;
-        let lock = tokio::sync::Mutex::new(());
+        let lock = tokio::sync::Mutex::new(Lookup::default());
         let (assets, warning) = resolve(Ok(path.clone()), &lock, async {
             Err("Steam is offline".into())
         })

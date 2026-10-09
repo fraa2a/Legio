@@ -24,7 +24,7 @@
   onMount(() => {
     if (!canvas) return;
     const surface = canvas;
-    const context = surface.getContext("webgl2", { alpha: false, antialias: false });
+    const context = surface.getContext("webgl2", { alpha: false, antialias: false, preserveDrawingBuffer: true });
     if (context === null) {
       console.warn("WebGL2 is unavailable, the dither background was not rendered");
       return;

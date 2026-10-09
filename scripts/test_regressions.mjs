@@ -454,7 +454,7 @@ test("manual artwork refresh renews visible URLs and resets only its Steam App I
   const request = (steamAppId) => ({ steamAppId, asset: "logo", fallbackAsset: null, index: null, version: null, full: false });
   const old = await images.loadSteamImage(request(400));
   const untouched = await images.loadSteamImage(request(401));
-  images.retainSteamImage(request(400));
+  const retained = images.retainSteamImage(request(400));
   const first = images.refreshSteamImages(400);
   assert.equal(images.refreshSteamImages(400), first);
   await first;
@@ -462,5 +462,5 @@ test("manual artwork refresh renews visible URLs and resets only its Steam App I
   assert.equal(images.peekSteamImage(request(401)).url, untouched.url);
   assert.equal(calls.filter(([command]) => command === "reset_steam_artwork_cache").length, 1);
   assert.ok(calls.filter(([command, args]) => command === "get_steam_asset" && args.refresh).every(([, args]) => args.steamAppId === 400));
-  images.releaseSteamImage(request(400));
+  retained.release();
 });

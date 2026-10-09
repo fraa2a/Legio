@@ -74,7 +74,10 @@ fn transformed_webp(bytes: &[u8], hero: Option<(u32, bool)>) -> Result<Vec<u8>, 
     let image = bounded_reader(bytes, format)?
         .decode()
         .map_err(|error| error.to_string())?;
-    if format == ImageFormat::WebP && hero.is_none() {
+    if format == ImageFormat::WebP
+        && (hero.is_none()
+            || hero.is_some_and(|(width, blurred)| !blurred && image.width() <= width))
+    {
         return bounded_output(bytes.to_vec());
     }
     let rgba = image.into_rgba8();
@@ -192,6 +195,17 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn sharp_webp_within_display_width_is_not_encoded_again() {
+        let source = DynamicImage::ImageRgba8(RgbaImage::from_fn(64, 32, |x, y| {
+            image::Rgba([(x * 17 + y * 3) as u8, (x * 3 + y * 19) as u8, 120, 255])
+        }));
+        let mut input = Cursor::new(Vec::new());
+        source.write_to(&mut input, ImageFormat::Png).unwrap();
+        let original = webp_asset(input.get_ref()).unwrap();
+        assert_eq!(hero_webp(&original, 1920, false).unwrap(), original);
     }
 
     #[test]

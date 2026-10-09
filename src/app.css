@@ -84,10 +84,25 @@ html, body, #app { min-height: 100%; }
 :root[data-transparent="true"] .legio-backdrop { background: transparent; }
 .legio-content { background-color: transparent; }
 dialog.legio-dialog {
+  opacity: 1;
+  border-color: transparent;
+  box-shadow: none;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+dialog.legio-dialog[data-visible="true"] {
+  border-color: rgb(255 255 255 / 0.15);
+  box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.4);
+}
+:root[data-theme="light"] dialog.legio-dialog[data-visible="true"] {
+  border-color: rgb(24 24 27 / 0.15);
+}
+dialog.legio-dialog::before,
+dialog.legio-dialog > .legio-dialog-content {
   opacity: 0;
   transition: opacity 180ms ease;
 }
-dialog.legio-dialog[data-visible="true"] {
+dialog.legio-dialog[data-visible="true"]::before,
+dialog.legio-dialog[data-visible="true"] > .legio-dialog-content {
   opacity: 1;
 }
 dialog.legio-dialog::backdrop {

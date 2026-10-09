@@ -93,7 +93,7 @@
   }}
 >
   <div
-    class={flush ? 'relative z-10 flex h-full min-h-0 flex-col' : 'relative z-10 flex flex-col gap-5 p-6'}
+    class={flush ? 'legio-dialog-content relative z-10 flex h-full min-h-0 flex-col' : 'legio-dialog-content relative z-10 flex flex-col gap-5 p-6'}
   >
     <div
       class="flex items-center justify-between gap-4 {flush

@@ -1,8 +1,9 @@
 use std::{
+    collections::BTreeMap,
     fs,
     io::{self, Read, Write},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
     time::{Duration, Instant, SystemTime},
 };
 
@@ -56,7 +57,7 @@ impl AssetKind {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AssetResult {
     #[serde(skip_serializing)]
@@ -89,11 +90,15 @@ struct CacheEntry {
     refresh_after: u64,
 }
 
+type AssetRequest = tokio::sync::Mutex<Option<(String, Result<AssetResult, String>)>>;
+type MetadataLookup = Arc<tokio::sync::Mutex<crate::steam_pics::Lookup>>;
+
 #[derive(Clone)]
 pub struct AssetCacheState {
     directory: Result<PathBuf, String>,
     lock: Arc<Mutex<Maintenance>>,
-    pics_lock: Arc<tokio::sync::Mutex<()>>,
+    pics_locks: Arc<Mutex<BTreeMap<u32, MetadataLookup>>>,
+    asset_locks: Arc<Mutex<BTreeMap<String, Weak<AssetRequest>>>>,
 }
 
 #[derive(Default)]
@@ -111,8 +116,34 @@ impl AssetCacheState {
                     format!("Could not resolve the application cache directory: {error}")
                 }),
             lock: Arc::new(Mutex::new(Maintenance::default())),
-            pics_lock: Arc::new(tokio::sync::Mutex::new(())),
+            pics_locks: Arc::new(Mutex::new(BTreeMap::new())),
+            asset_locks: Arc::new(Mutex::new(BTreeMap::new())),
         }
+    }
+
+    fn metadata_lock(&self, app_id: u32) -> Result<MetadataLookup, String> {
+        let mut locks = self
+            .pics_locks
+            .lock()
+            .map_err(|_| "Steam metadata lock was poisoned")?;
+        if locks.len() >= CACHE_FILES {
+            locks.retain(|_, lock| Arc::strong_count(lock) > 1);
+        }
+        Ok(locks.entry(app_id).or_default().clone())
+    }
+
+    fn asset_lock(&self, key: &str) -> Result<Arc<AssetRequest>, String> {
+        let mut locks = self
+            .asset_locks
+            .lock()
+            .map_err(|_| "Artwork request lock was poisoned")?;
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = locks.get(key).and_then(Weak::upgrade) {
+            return Ok(lock);
+        }
+        let lock = Arc::new(AssetRequest::new(None));
+        locks.insert(key.to_owned(), Arc::downgrade(&lock));
+        Ok(lock)
     }
 
     fn directory(&self) -> Result<&Path, String> {
@@ -403,6 +434,27 @@ async fn load_asset(
     cache: AssetCacheState,
     network: &NetworkState,
     key: String,
+    url: String,
+    refresh: bool,
+    hero: Option<HeroSource>,
+) -> Result<AssetResult, String> {
+    let request_lock = cache.asset_lock(&key)?;
+    let mut request = request_lock.lock().await;
+    if let Some((requested_url, result)) = request.as_ref()
+        && requested_url == &url
+    {
+        return result.clone();
+    }
+    let requested_url = url.clone();
+    let result = load_asset_inner(cache, network, key, url, refresh, hero).await;
+    *request = Some((requested_url, result.clone()));
+    result
+}
+
+async fn load_asset_inner(
+    cache: AssetCacheState,
+    network: &NetworkState,
+    key: String,
     mut url: String,
     refresh: bool,
     hero: Option<HeroSource>,
@@ -500,6 +552,28 @@ async fn load_asset(
     }
 }
 
+async fn load_legacy_preview(
+    cache: AssetCacheState,
+    network: &NetworkState,
+    key: String,
+    url: String,
+    refresh: bool,
+    hero: Option<HeroSource>,
+    metadata_path: Result<PathBuf, String>,
+) -> Result<Option<AssetResult>, String> {
+    let Ok(path) = metadata_path else {
+        return Ok(None);
+    };
+    match crate::steam_pics::read_cache(&path).await {
+        Ok(None) => {}
+        Ok(Some(_)) | Err(_) => return Ok(None),
+    }
+    match load_asset(cache, network, key, url, refresh, hero).await {
+        Ok(asset) => Ok(Some(asset)),
+        Err(_) => Ok(None),
+    }
+}
+
 fn library_url(
     app_id: u32,
     filename: &str,
@@ -573,6 +647,21 @@ pub async fn get_asset<R: tauri::Runtime>(
         Some(index) => format!("{app_id}-{kind}-{index}{suffix}"),
         None => format!("{app_id}-{kind}{suffix}"),
     };
+    let blur_lock = matches!(asset, AssetKind::HeroBlur)
+        .then(|| state.asset_lock(&key))
+        .transpose()?;
+    let (mut blur_request, refresh) = match blur_lock.as_ref() {
+        Some(lock) => match lock.try_lock() {
+            Ok(guard) => (Some(guard), refresh),
+            Err(_) => (Some(lock.lock().await), false),
+        },
+        None => (None, refresh),
+    };
+    if let Some(request) = blur_request.as_ref()
+        && let Some((_, result)) = request.as_ref()
+    {
+        return result.clone();
+    }
     if !refresh {
         let reader = state.clone();
         let read_key = key.clone();
@@ -625,20 +714,53 @@ pub async fn get_asset<R: tauri::Runtime>(
                 None => format!("Card image cache: {error}"),
             });
         }
-        return Ok(AssetResult {
+        let result = AssetResult {
             bytes,
             content_type: "image/webp",
             stale,
             refresh_after: hero.refresh_after,
             cache_warning: warning,
-        });
+        };
+        if let Some(request) = blur_request.as_mut() {
+            **request = Some(("derived:library_hero".to_owned(), Ok(result.clone())));
+        }
+        return Ok(result);
+    }
+    if let Some(filename) = filename
+        && !matches!(asset, AssetKind::ClientIcon)
+    {
+        let path = state
+            .directory()
+            .map(|directory| directory.join("pics").join(format!("{app_id}.json")));
+        let fallback_url = if matches!(asset, AssetKind::Hero) && full {
+            Some(library_url(app_id, "library_hero.jpg", None)?)
+        } else {
+            None
+        };
+        if let Some(result) = load_legacy_preview(
+            state.clone(),
+            network,
+            key.clone(),
+            library_url(app_id, filename, None)?,
+            refresh,
+            adaptive_hero.then_some(HeroSource {
+                width: display_width,
+                fallback_url,
+            }),
+            path,
+        )
+        .await?
+        {
+            return Ok(result);
+        }
     }
     let (selected, metadata_warning, hero_fallback) = if let Some(filename) = filename {
         let path = state
             .directory()
             .map(|directory| directory.join("pics").join(format!("{app_id}.json")));
+        let metadata_lock = state.metadata_lock(app_id)?;
         let (assets, warning) =
-            crate::steam_pics::resolve(path, &state.pics_lock, crate::steam_pics::fetch(app_id))
+            crate::steam_pics::resolve(path, &metadata_lock, crate::steam_pics::fetch(app_id))
                 .await;
         if let Some(warning) = warning.as_deref() {
             eprintln!("Steam asset metadata lookup for {app_id}: {warning}");
@@ -704,7 +826,9 @@ pub(crate) async fn reset(app: tauri::AppHandle, steam_app_id: u32) -> Result<()
         return Err("Invalid Steam App ID".to_owned());
     }
     let state = app.state::<AssetCacheState>().inner().clone();
-    let _metadata = state.pics_lock.lock().await;
+    let metadata_lock = state.metadata_lock(steam_app_id)?;
+    let mut metadata = metadata_lock.lock().await;
+    *metadata = crate::steam_pics::Lookup::default();
     let cache = state.clone();
     tauri::async_runtime::spawn_blocking(move || cache.reset_app(steam_app_id))
         .await
@@ -803,6 +927,254 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unrelated_games_do_not_wait_for_another_games_metadata() {
+        let cache = cache();
+        let directory = cache.directory().unwrap().join("pics");
+        let busy_lock = cache.metadata_lock(400).unwrap();
+        let _busy_game = busy_lock.lock().await;
+        let other_lock = cache.metadata_lock(401).unwrap();
+        let lookup =
+            crate::steam_pics::resolve(Ok(directory.join("401.json")), &other_lock, async {
+                Ok(serde_json::from_str::<crate::steam_pics::PicsAssets>("{}").unwrap())
+            });
+        let result = tokio::time::timeout(Duration::from_millis(100), lookup).await;
+        assert!(
+            result.is_ok(),
+            "An unrelated app must not wait for a busy app lookup"
+        );
+        fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn existing_hashed_metadata_keeps_priority_over_legacy_artwork() {
+        let cache = cache();
+        let path = cache.directory().unwrap().join("pics/400.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{"library_hero.jpg":"94e9d990ddd19610b268faf629865e17dcda0bb8/library_hero.jpg"}"#,
+        )
+        .unwrap();
+        let network = NetworkState::new(
+            "0.1.0",
+            crate::diagnostics::Diagnostics::new(Err("test".into())),
+        )
+        .unwrap();
+        let result = load_legacy_preview(
+            cache.clone(),
+            &network,
+            "400-hero-display-v1-1920".into(),
+            "http://127.0.0.1:1/should-not-load".into(),
+            false,
+            None,
+            Ok(path),
+        )
+        .await
+        .unwrap();
+        assert!(result.is_none());
+        assert!(
+            cache
+                .read_cached("400-hero-display-v1-1920", None)
+                .unwrap()
+                .is_none()
+        );
+        fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn cold_legacy_artwork_is_available_without_a_steam_metadata_connection() {
+        let cache = cache();
+        let path = cache.directory().unwrap().join("pics/400.json");
+        let (url, server) = server(response(PNG));
+        let network = NetworkState::new(
+            "0.1.0",
+            crate::diagnostics::Diagnostics::new(Err("test".into())),
+        )
+        .unwrap();
+        let result = load_legacy_preview(
+            cache.clone(),
+            &network,
+            "400-hero-display-v1-1920".into(),
+            url,
+            false,
+            Some(HeroSource {
+                width: 1920,
+                fallback_url: None,
+            }),
+            Ok(path.clone()),
+        )
+        .await
+        .unwrap();
+        assert!(
+            result.is_some(),
+            "Available CDN artwork must precede a Steam connection"
+        );
+        server.join().unwrap();
+        assert!(image::load_from_memory(&result.unwrap().bytes).is_ok());
+        assert!(!path.exists());
+        fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn different_source_urls_do_not_share_a_failed_download_result() {
+        let cache = cache();
+        let (missing, missing_server) = server(
+            b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+        );
+        let (available, available_server) = server(response(PNG));
+        let network = NetworkState::new(
+            "0.1.0",
+            crate::diagnostics::Diagnostics::new(Err("test".into())),
+        )
+        .unwrap();
+        let (failed, loaded) = tokio::join!(
+            load_asset(
+                cache.clone(),
+                &network,
+                "400-hero".into(),
+                missing,
+                false,
+                None
+            ),
+            load_asset(
+                cache.clone(),
+                &network,
+                "400-hero".into(),
+                available,
+                false,
+                None
+            ),
+        );
+        assert!(failed.is_err());
+        assert!(
+            loaded.is_ok(),
+            "A failed legacy source must not suppress a new hashed source"
+        );
+        missing_server.join().unwrap();
+        available_server.join().unwrap();
+        fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn concurrent_sharp_hero_requests_share_one_download() {
+        let cache = cache();
+        let (url, server) = server(response(PNG));
+        let network = NetworkState::new(
+            "0.1.0",
+            crate::diagnostics::Diagnostics::new(Err("test".into())),
+        )
+        .unwrap();
+        let requests = (0..3)
+            .map(|_| {
+                load_asset(
+                    cache.clone(),
+                    &network,
+                    "400-hero-display-v1-1920".into(),
+                    url.clone(),
+                    false,
+                    Some(HeroSource {
+                        width: 1920,
+                        fallback_url: None,
+                    }),
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut requests = requests.into_iter();
+        let (first, second, third) = tokio::join!(
+            requests.next().unwrap(),
+            requests.next().unwrap(),
+            requests.next().unwrap()
+        );
+        server.join().unwrap();
+        let first = first.unwrap();
+        assert_eq!(second.unwrap().bytes, first.bytes);
+        assert_eq!(third.unwrap().bytes, first.bytes);
+        fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn concurrent_heroes_share_download_even_when_cache_is_unwritable() {
+        let cache = cache();
+        fs::create_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
+        fs::write(cache.directory().unwrap(), b"not a directory").unwrap();
+        let (url, server) = server(response(PNG));
+        let network = NetworkState::new(
+            "0.1.0",
+            crate::diagnostics::Diagnostics::new(Err("test".into())),
+        )
+        .unwrap();
+        let requests = (0..3)
+            .map(|_| {
+                load_asset(
+                    cache.clone(),
+                    &network,
+                    "400-hero-display-v1-1920".into(),
+                    url.clone(),
+                    false,
+                    Some(HeroSource {
+                        width: 1920,
+                        fallback_url: None,
+                    }),
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut requests = requests.into_iter();
+        let (first, second, third) = tokio::join!(
+            requests.next().unwrap(),
+            requests.next().unwrap(),
+            requests.next().unwrap()
+        );
+        server.join().unwrap();
+        let first = first.unwrap();
+        assert_eq!(second.unwrap().bytes, first.bytes);
+        assert_eq!(third.unwrap().bytes, first.bytes);
+        fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn concurrent_hero_refreshes_share_one_download() {
+        let cache = cache();
+        let (url, server) = server(response(PNG));
+        let network = NetworkState::new(
+            "0.1.0",
+            crate::diagnostics::Diagnostics::new(Err("test".into())),
+        )
+        .unwrap();
+        let requests = (0..3)
+            .map(|_| {
+                load_asset(
+                    cache.clone(),
+                    &network,
+                    "400-hero-display-v1-1920".into(),
+                    url.clone(),
+                    true,
+                    Some(HeroSource {
+                        width: 1920,
+                        fallback_url: None,
+                    }),
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut requests = requests.into_iter();
+        let (first, second, third) = tokio::join!(
+            requests.next().unwrap(),
+            requests.next().unwrap(),
+            requests.next().unwrap()
+        );
+        server.join().unwrap();
+        let first = first.unwrap();
+        for result in [second.unwrap(), third.unwrap()] {
+            assert!(
+                !result.stale,
+                "A duplicate refresh must reuse the completed result"
+            );
+            assert!(result.cache_warning.is_none());
+            assert_eq!(result.bytes, first.bytes);
+        }
+        fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
+    }
+
+    #[tokio::test]
     async fn card_blur_is_persisted_and_reused_without_processing_the_sharp_source() {
         let cache = cache();
         let root = cache.directory().unwrap().parent().unwrap().to_path_buf();
@@ -829,7 +1201,8 @@ mod tests {
             crate::diagnostics::Diagnostics::new(Err("test".into())),
         )
         .unwrap();
-        let _guard = cache.pics_lock.lock().await;
+        let metadata_lock = cache.metadata_lock(400).unwrap();
+        let _guard = metadata_lock.lock().await;
         let first = get_asset(
             app.handle().clone(),
             &network,
@@ -907,7 +1280,8 @@ mod tests {
             crate::diagnostics::Diagnostics::new(Err("test".into())),
         )
         .unwrap();
-        let _guard = cache.pics_lock.lock().await;
+        let metadata_lock = cache.metadata_lock(400).unwrap();
+        let _guard = metadata_lock.lock().await;
         for (asset, index, key) in [
             (AssetKind::Hero, None, "400-hero-display-v1-1920"),
             (AssetKind::Header, None, "400-header"),
