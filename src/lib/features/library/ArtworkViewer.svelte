@@ -3,6 +3,7 @@
   import type { SteamAssetKind } from "../../services/steam-details";
   import { fade } from "svelte/transition";
   import { onDestroy } from "svelte";
+  import { on } from "svelte/events";
   import Button from "../../components/ui/Button.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import { fadeDuration } from "../../utils/motion";
@@ -37,10 +38,12 @@
   let overlay: HTMLDialogElement | undefined = $state();
 
   $effect(() => {
-    if (overlay && !overlay.open) {
+    if (!overlay) return;
+    if (!overlay.open) {
       overlay.showModal();
       overlay.focus({ preventScroll: true });
     }
+    return on(overlay, "keydown", handleKeydown);
   });
 
   onDestroy(() => {
@@ -77,7 +80,6 @@
   bind:this={overlay}
   aria-label={t("Immagine a schermo intero", $language)}
   tabindex="-1"
-  onkeydown={handleKeydown}
   oncancel={(event) => { event.preventDefault(); onClose(); }}
   class="fixed inset-0 z-50 m-0 size-full max-h-none max-w-none border-0 p-0 flex flex-col bg-black/90 backdrop-blur-sm focus:outline-none light:bg-zinc-950/95"
 >
