@@ -2246,7 +2246,9 @@ mod tests {
         assert!(validate_dll_overrides(&baseline).is_ok());
         assert_eq!(
             exported(true, &[("winmm", "b"), ("d3d11", "n,b")]).as_deref(),
-            Some("OnlineFix64=n;SteamOverlay64=n;d3d11=n,b;dnet=n;steam_api64=n;winhttp=n,b;winmm=b")
+            Some(
+                "OnlineFix64=n;SteamOverlay64=n;d3d11=n,b;dnet=n;steam_api64=n;winhttp=n,b;winmm=b"
+            )
         );
     }
 

@@ -758,7 +758,10 @@ mod tests {
                 assert!(!target_pids.contains(&protected.0.id()));
                 break;
             }
-            assert!(Instant::now() < deadline, "test processes were not detected");
+            assert!(
+                Instant::now() < deadline,
+                "test processes were not detected"
+            );
             thread::sleep(Duration::from_millis(20));
         }
 

@@ -1266,24 +1266,14 @@ mod tests {
         fs::write(&recent, b"recent unfinished").unwrap();
         let orphan = cache.directory().unwrap().join("orphan.tmp");
         fs::write(&orphan, b"unfinished").unwrap();
-        assert!(
-            cache
-                .read_cached("400-header", None)
-                .unwrap()
-                .is_some()
-        );
+        assert!(cache.read_cached("400-header", None).unwrap().is_some());
         assert!(orphan.exists());
         let old = SystemTime::now() - ORPHAN_AGE - Duration::from_secs(1);
         fs::File::open(&orphan)
             .unwrap()
             .set_times(fs::FileTimes::new().set_modified(old))
             .unwrap();
-        assert!(
-            cache
-                .read_cached("400-header", None)
-                .unwrap()
-                .is_some()
-        );
+        assert!(cache.read_cached("400-header", None).unwrap().is_some());
         assert!(orphan.exists());
         cache.maintain().unwrap();
         assert!(!orphan.exists());
