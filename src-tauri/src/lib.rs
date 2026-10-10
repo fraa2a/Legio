@@ -41,6 +41,8 @@ mod legio_source_cache;
 mod linux_performance;
 mod locale;
 mod manual_import;
+#[cfg(target_os = "linux")]
+mod native_rendering;
 mod network;
 mod news;
 mod online_fix;
@@ -112,6 +114,12 @@ pub fn run() -> tauri::Result<()> {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(move |app| {
+            #[cfg(target_os = "linux")]
+            if appearance::supports_transparency()
+                && let Some(window) = app.get_webview_window("main")
+            {
+                native_rendering::configure(&window)?;
+            }
             let source_links = source_links::SourceLinks::default();
             source_links
                 .enqueue(std::env::args_os().skip(1))

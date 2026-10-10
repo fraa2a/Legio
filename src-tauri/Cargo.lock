@@ -2456,6 +2456,7 @@ dependencies = [
  "base64 0.23.1",
  "chrono",
  "compress-tools",
+ "gtk",
  "image",
  "libc",
  "reqwest 0.13.5",
