@@ -34,7 +34,10 @@ export function onWindowResized(listener: () => void): Promise<() => void> {
   return appWindow.onResized(listener);
 }
 
-export function onWindowActivity(listener: (active: boolean) => void): () => void {
+export function onWindowActivity(
+  listener: (active: boolean) => void,
+  { requireFocus = true }: { requireFocus?: boolean } = {},
+): () => void {
   let disposed = false;
   let revision = 0;
   const unlisten: (() => void)[] = [];
@@ -48,7 +51,7 @@ export function onWindowActivity(listener: (active: boolean) => void): () => voi
       listener(false);
       return;
     }
-    void Promise.all([appWindow.isFocused(), appWindow.isVisible(), appWindow.isMinimized()])
+    void Promise.all([requireFocus ? appWindow.isFocused() : Promise.resolve(true), appWindow.isVisible(), appWindow.isMinimized()])
       .then(([focused, visible, minimized]) => {
         if (!disposed && requested === revision) listener(focused && visible && !minimized && !document.hidden);
       }).catch((error: unknown) => {
@@ -59,16 +62,17 @@ export function onWindowActivity(listener: (active: boolean) => void): () => voi
       });
   };
   for (const subscription of [
-    appWindow.onFocusChanged(({ payload }) => payload ? refresh() : inactive()),
+    appWindow.onFocusChanged(({ payload }) => payload || !requireFocus ? refresh() : inactive()),
     appWindow.onResized(refresh),
     appWindow.listen("legio:window-hidden", inactive),
   ]) {
     void subscription.then((stop) => disposed ? stop() : unlisten.push(stop))
       .catch((error: unknown) => console.warn("Could not observe window activity", error));
   }
+  const blurred = requireFocus ? inactive : refresh;
   inactiveListeners.add(inactive);
   document.addEventListener("visibilitychange", refresh);
-  window.addEventListener("blur", inactive);
+  window.addEventListener("blur", blurred);
   window.addEventListener("focus", refresh);
   refresh();
   return () => {
@@ -77,7 +81,7 @@ export function onWindowActivity(listener: (active: boolean) => void): () => voi
     inactiveListeners.delete(inactive);
     for (const stop of unlisten) stop();
     document.removeEventListener("visibilitychange", refresh);
-    window.removeEventListener("blur", inactive);
+    window.removeEventListener("blur", blurred);
     window.removeEventListener("focus", refresh);
   };
 }

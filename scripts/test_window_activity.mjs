@@ -14,6 +14,7 @@ let visible = true;
 let minimized = false;
 let focusChanged;
 let resized;
+let hiddenChanged;
 let removed = 0;
 globalThis.activityWindow = {
   isFocused: async () => focused,
@@ -21,7 +22,7 @@ globalThis.activityWindow = {
   isMinimized: async () => minimized,
   onFocusChanged: async (listener) => { focusChanged = listener; return () => removed++; },
   onResized: async (listener) => { resized = listener; return () => removed++; },
-  listen: async () => () => removed++,
+  listen: async (_event, listener) => { hiddenChanged = listener; return () => removed++; },
   hide: async () => { visible = false; },
   minimize: async () => { minimized = true; },
 };
@@ -63,6 +64,62 @@ test("native focus, minimization and tray visibility suspend and restore activit
   assert.equal(values.at(-1), false, "a late query cannot undo a newer blur");
   stop();
   assert.equal(removed, 3);
+});
+
+test("visible rendering stays active across focus loss and suspends only when hidden or minimized", async () => {
+  focused = true;
+  visible = true;
+  minimized = false;
+  const { windowVisible } = await import(await load("src/lib/stores/window-activity.ts"));
+  const values = [];
+  const stop = media.observeMediaPlayback((listener) => windowVisible.subscribe((value) => {
+    values.push(value);
+    listener(value);
+  }));
+  await settle();
+  assert.equal(document.documentElement.dataset.motionPaused, "false");
+  values.length = 0;
+  for (let repeat = 0; repeat < 3; repeat++) {
+    focused = false;
+    focusChanged({ payload: false });
+    window.dispatchEvent(new Event("blur"));
+    await settle();
+    assert.equal(document.documentElement.dataset.motionPaused, "false");
+    focused = true;
+    focusChanged({ payload: true });
+    window.dispatchEvent(new Event("focus"));
+    await settle();
+  }
+  assert.ok(values.every(Boolean), "focus changes must never pause the visible renderer");
+  await activity.minimizeWindow();
+  assert.equal(document.documentElement.dataset.motionPaused, "true");
+  minimized = false;
+  resized();
+  await settle();
+  assert.equal(document.documentElement.dataset.motionPaused, "false");
+  visible = false;
+  hiddenChanged();
+  assert.equal(document.documentElement.dataset.motionPaused, "true");
+  visible = true;
+  focused = false;
+  focusChanged({ payload: false });
+  await settle();
+  assert.equal(document.documentElement.dataset.motionPaused, "false", "visible restoration does not require focus");
+  focusChanged({ payload: true });
+  await activity.hideWindow();
+  await settle();
+  assert.equal(document.documentElement.dataset.motionPaused, "true", "a late visibility query cannot undo hiding");
+  visible = true;
+  Object.defineProperty(document, "hidden", { configurable: true, value: true });
+  document.dispatchEvent(new Event("visibilitychange"));
+  await settle();
+  assert.equal(document.documentElement.dataset.motionPaused, "true");
+  Object.defineProperty(document, "hidden", { configurable: true, value: false });
+  document.dispatchEvent(new Event("visibilitychange"));
+  await settle();
+  assert.equal(document.documentElement.dataset.motionPaused, "false");
+  stop();
+  assert.equal(document.documentElement.dataset.motionPaused, undefined);
 });
 
 test("only previously playing media resumes and autoplay while inactive is paused", async () => {

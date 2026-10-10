@@ -17,12 +17,12 @@
   import { closeSettings, settingsOpen } from "./lib/stores/navigation";
   import { settings } from "./lib/stores/settings";
   import { checkForAppUpdate, installAppUpdate, updateState } from "./lib/services/app-updater";
-  import { windowActive } from "./lib/stores/window-activity";
+  import { windowVisible } from "./lib/stores/window-activity";
   import { hasRunningGame } from "./lib/stores/launch";
   import { observeMediaPlayback } from "./lib/services/media-playback";
   import { startArtworkDisplayTracking } from "./lib/services/artwork-display";
 
-  const mediaActive = derived([windowActive, hasRunningGame], ([$active, $running]) => $active && !$running);
+  const mediaActive = derived([windowVisible, hasRunningGame], ([$visible, $running]) => $visible && !$running);
   const appearance = $derived($appearancePreview?.appearance ?? $settings.data.appearance);
   const theme = $derived($appearancePreview?.theme ?? $settings.data.theme);
   let prefersDark = $state(window.matchMedia("(prefers-color-scheme: dark)").matches);
