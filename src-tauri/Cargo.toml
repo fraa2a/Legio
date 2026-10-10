@@ -39,6 +39,7 @@ tauri = { version = "2", features = ["test"] }
 tokio = { version = "1", features = ["test-util"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
