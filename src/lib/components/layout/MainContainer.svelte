@@ -7,6 +7,7 @@
   import StoreView from "../../features/store/StoreView.svelte";
   import { activeSection, selectedGameId } from "../../stores/navigation";
   import { pageTransition, reducedMotion } from "../../utils/motion";
+  import { logApplicationEvent } from "../../services/application-log";
 
   const gamePrefix = "library:";
 
@@ -24,12 +25,21 @@
     transition?.skipTransition();
   });
 
+  function pageName(value: string): string {
+    return value.startsWith(gamePrefix) ? "game_details" : value;
+  }
+
+  $effect(() => {
+    logApplicationEvent("info", "navigation", `Displayed: ${pageName(displayedTarget)}`);
+  });
+
   $effect(() => {
     const next = target;
     if (next === untrack(() => displayedTarget)) {
       transition?.skipTransition();
       return;
     }
+    logApplicationEvent("info", "navigation", `Requested: ${pageName(next)}; transition: ${nativeTransitions && !reducedMotion ? "native" : "fade"}`);
     transition?.skipTransition();
     if (!nativeTransitions || reducedMotion || !mounted) {
       displayedTarget = next;

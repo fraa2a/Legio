@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./invoke";
 
 import type { Appearance } from "./appearance";
 
@@ -21,6 +21,7 @@ export interface Settings {
   downloadNotifications: boolean;
   verifyVerifiedDownloads: boolean;
   diagnosticsEnabled: boolean;
+  applicationLoggingEnabled: boolean;
   deferExtractionWhilePlaying: boolean;
 }
 

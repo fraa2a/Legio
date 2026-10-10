@@ -19,6 +19,8 @@ pub(crate) fn save(app: &AppHandle, settings: Settings) -> Result<Settings, Stri
         .set_defer_extraction(saved.defer_extraction_while_playing);
     app.state::<crate::diagnostics::Diagnostics>()
         .set_enabled(saved.diagnostics_enabled);
+    app.state::<crate::application_log::ApplicationLog>()
+        .set_enabled(saved.application_logging_enabled);
     let data_dir = app
         .path()
         .app_data_dir()

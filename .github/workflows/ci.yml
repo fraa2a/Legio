@@ -47,6 +47,9 @@ jobs:
       - name: Test Home calendar and recent games
         run: corepack pnpm test:home
 
+      - name: Test application logging and independent diagnostic toggles
+        run: corepack pnpm test:logging
+
       - name: Test asynchronous stores and artwork cache
         run: corepack pnpm test:regressions
 
@@ -213,6 +216,11 @@ jobs:
         env:
           LEGIO_WINDOWS_TESTS: "1"
         run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib app_profile::tests::'
+
+      - name: Test Windows application logging
+        if: runner.os == 'Windows'
+        shell: bash
+        run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib application_log::tests::'
 
       - name: Test Windows Steam discovery
         if: runner.os == 'Windows'

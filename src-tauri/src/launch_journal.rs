@@ -53,7 +53,7 @@ impl LaunchJournal {
             .map_err(|error| format!("Could not write game launch journal: {error}"))
         })();
         if let Err(error) = result {
-            eprintln!("{error}");
+            crate::application_log::failure("write_launch_journal", error);
         }
     }
 }

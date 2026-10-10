@@ -56,6 +56,8 @@ commands.allow = [
   "set_game_executable",
   "get_network_status",
   "get_network_log_status",
+  "get_application_log_status",
+  "report_application_event",
   "get_legio_source",
   "add_download_source",
   "remove_download_source",

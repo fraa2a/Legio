@@ -2,7 +2,7 @@ import { get } from "svelte/store";
 import { artworkDisplayWidth } from "../stores/artwork-display";
 import { onWindowResized } from "./window";
 import { windowActive } from "../stores/window-activity";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./invoke";
 
 export function getArtworkDisplayWidth(): Promise<number> {
   return invoke<number>("get_artwork_display_width");

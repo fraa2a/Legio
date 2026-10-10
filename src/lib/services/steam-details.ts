@@ -1,6 +1,6 @@
 import { get, writable } from "svelte/store";
 import { language } from "../i18n";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./invoke";
 import { decodeImageResponse } from "./image-response";
 import { artworkDisplayWidth } from "../stores/artwork-display";
 

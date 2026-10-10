@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./invoke";
 
 export type CatalogSort = "relevance" | "name_asc" | "name_desc";
 export type CatalogAvailability = "all" | "available" | "verified";

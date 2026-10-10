@@ -200,7 +200,34 @@ pub fn save_game_compatibility_overrides(
 
 #[tauri::command]
 pub fn list_games(state: State<'_, DatabaseState>) -> Result<Vec<Game>, String> {
-    state.database()?.games()
+    let result = state.database().and_then(database::Database::games);
+    if let Err(error) = &result {
+        crate::application_log::failure("library_load", error);
+    }
+    result
+}
+
+#[tauri::command]
+pub fn get_application_log_status(
+    state: State<'_, crate::application_log::ApplicationLog>,
+) -> crate::application_log::LogStatus {
+    state.status()
+}
+
+#[tauri::command]
+pub async fn report_application_event(
+    state: State<'_, crate::application_log::ApplicationLog>,
+    level: crate::application_log::Level,
+    event: crate::application_log::RendererEvent,
+    message: Option<String>,
+    stack: Option<String>,
+) -> Result<(), String> {
+    let log = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        log.report(level, event, message.as_deref(), stack.as_deref())
+    })
+    .await
+    .map_err(|_| "Application log report task failed".to_owned())?
 }
 
 #[tauri::command]

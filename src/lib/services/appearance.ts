@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./invoke";
 import { open } from "@tauri-apps/plugin-dialog";
 import { t } from "../i18n";
 import presets from "./theme-presets.json";

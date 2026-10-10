@@ -521,9 +521,10 @@ pub(crate) fn recover(database: &Database, data_dir: &Path) -> Result<(), String
             load_intent(database, data_dir, &id).and_then(|intent| finish(database, &intent));
         if let Err(error) = result {
             match record_error(database, &id, &error) {
-                Ok(()) => eprintln!("Could not recover installation {id}: {error}"),
-                Err(persist) => eprintln!(
-                    "Could not recover installation {id}: {error}; could not save failure: {persist}"
+                Ok(()) => crate::application_log::failure("recover_installation", error),
+                Err(persist) => crate::application_log::failure(
+                    "recover_installation",
+                    format!("{error}; could not save failure: {persist}"),
                 ),
             }
         }
@@ -586,7 +587,7 @@ fn recover_cleanup(database: &Database, data_dir: &Path) -> Result<(), String> {
         let stage = data_dir.join("downloads").join(format!("{id}.stage"));
         if let Err(error) = cleanup_stage(database, &id, &stage) {
             save_cleanup_error(database, &id, &error)?;
-            eprintln!("Could not clean staged files for installed game {id}: {error}");
+            crate::application_log::failure("clean_staged_files", error);
         }
     }
     Ok(())

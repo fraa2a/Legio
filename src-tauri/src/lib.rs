@@ -9,6 +9,7 @@ use tauri::{
 
 mod app_profile;
 mod appearance;
+mod application_log;
 pub mod archive_install;
 mod artwork_display;
 mod catalog;
@@ -72,11 +73,29 @@ mod steam_switch;
 mod steam_vdf;
 
 pub fn run() -> tauri::Result<()> {
-    let shortcut_game_id = desktop_shortcuts::requested_game_id(std::env::args_os().skip(1))
-        .map_err(std::io::Error::other)?;
-
     let mut context = tauri::generate_context!();
     app_profile::configure(context.config_mut(), tauri::is_dev());
+    let log = application_log::initialize(context.config());
+    log.record("info", "startup", None, None, true);
+    let result = run_application(context, log.clone());
+    if let Err(error) = &result {
+        log.record(
+            "error",
+            "startup_failure",
+            Some(&error.to_string()),
+            None,
+            true,
+        );
+    }
+    result
+}
+
+fn run_application(
+    mut context: tauri::Context<tauri::Wry>,
+    log: application_log::ApplicationLog,
+) -> tauri::Result<()> {
+    let shortcut_game_id = desktop_shortcuts::requested_game_id(std::env::args_os().skip(1))
+        .map_err(std::io::Error::other)?;
     if let Some(window) = context
         .config_mut()
         .app
@@ -88,12 +107,13 @@ pub fn run() -> tauri::Result<()> {
     }
 
     tauri::Builder::default()
+        .manage(log)
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             let handle = app.clone();
             if let Err(error) = app.run_on_main_thread(move || {
                 show_main_window(&handle);
                 if let Err(error) = source_links::forward(&handle, &args) {
-                    eprintln!("Could not forward source link: {error}");
+                    application_log::failure("forward_source_link", error);
                 }
                 match desktop_shortcuts::requested_game_id(
                     args.into_iter().skip(1).map(std::ffi::OsString::from),
@@ -102,10 +122,10 @@ pub fn run() -> tauri::Result<()> {
                         launch_shortcut(&handle, id);
                     }
                     Ok(None) => {}
-                    Err(error) => eprintln!("Invalid forwarded shortcut: {error}"),
+                    Err(error) => application_log::failure("forward_shortcut", error),
                 }
             }) {
-                eprintln!("Could not forward second-instance request: {error}");
+                application_log::failure("forward_instance", error);
             }
         }))
         .plugin(tauri_plugin_deep_link::init())
@@ -128,7 +148,7 @@ pub fn run() -> tauri::Result<()> {
                 && !cfg!(debug_assertions)
                 && let Err(error) = source_links::register(app.handle())
             {
-                eprintln!("Could not register Legio source links: {error}");
+                application_log::failure("register_source_links", &error);
                 source_links
                     .registration_failed(error)
                     .map_err(std::io::Error::other)?;
@@ -139,6 +159,8 @@ pub fn run() -> tauri::Result<()> {
                 .database()?
                 .settings()
                 .map_err(std::io::Error::other)?;
+            app.state::<application_log::ApplicationLog>()
+                .set_enabled(initial_settings.application_logging_enabled);
             let bandwidth_limit = database
                 .database()
                 .and_then(database::Database::download_bandwidth_limit)
@@ -181,10 +203,10 @@ pub fn run() -> tauri::Result<()> {
                         Ok(states) => {
                             if let Err(error) = events_app.emit("legio:game-launch-states", states)
                             {
-                                eprintln!("Could not publish game activity: {error}");
+                                application_log::failure("publish_game_activity", error);
                             }
                         }
-                        Err(error) => eprintln!("Could not read game activity: {error}"),
+                        Err(error) => application_log::failure("read_game_activity", error),
                     }
                 }
             })));
@@ -200,7 +222,7 @@ pub fn run() -> tauri::Result<()> {
             let maintenance = assets.clone();
             tauri::async_runtime::spawn_blocking(move || {
                 if let Err(error) = maintenance.maintain() {
-                    eprintln!("Image cache maintenance failed: {error}");
+                    application_log::failure("image_cache_maintenance", error);
                 }
             });
             app.manage(assets);
@@ -260,7 +282,7 @@ pub fn run() -> tauri::Result<()> {
                 })
                 .build(app);
             if let Err(error) = &tray_result {
-                eprintln!("Could not create system tray icon: {error}");
+                application_log::failure("create_tray", error);
             }
             app.manage(TrayAvailable(tray_result.is_ok()));
             if std::env::args_os().any(|argument| argument == "--minimized") {
@@ -283,6 +305,13 @@ pub fn run() -> tauri::Result<()> {
             if let Some(game_id) = shortcut_game_id {
                 launch_shortcut(app.handle(), game_id);
             }
+            app.state::<application_log::ApplicationLog>().record(
+                "info",
+                "startup_ready",
+                None,
+                None,
+                true,
+            );
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -299,7 +328,7 @@ pub fn run() -> tauri::Result<()> {
                         .hide()
                         .and_then(|()| window.emit("legio:window-hidden", ()))
                     {
-                        eprintln!("Could not hide main window: {error}");
+                        application_log::failure("hide_window", error);
                     }
                 } else {
                     api.prevent_close();
@@ -362,6 +391,8 @@ pub fn run() -> tauri::Result<()> {
             commands::set_game_executable,
             commands::get_network_status,
             commands::get_network_log_status,
+            commands::get_application_log_status,
+            commands::report_application_event,
             commands::get_legio_source,
             commands::add_download_source,
             commands::remove_download_source,
@@ -395,6 +426,8 @@ pub fn run() -> tauri::Result<()> {
         .build(context)?
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<application_log::ApplicationLog>()
+                    .record("info", "shutdown", None, None, true);
                 app.state::<discord_presence::PresenceService>().shutdown();
                 app.state::<LaunchEvents>().0.abort();
             }
@@ -406,7 +439,7 @@ fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main")
         && let Err(error) = window.show().and_then(|()| window.set_focus())
     {
-        eprintln!("Could not show main window: {error}");
+        application_log::failure("show_window", error);
     }
 }
 
@@ -424,13 +457,13 @@ fn launch_shortcut(app: &tauri::AppHandle, game_id: String) {
             Err(error) => Err(error),
         };
         if let Err(error) = result {
-            eprintln!("Could not launch game from shortcut: {error}");
+            application_log::failure("launch_shortcut", &error);
             match app.state::<StartupLaunch>().error.lock() {
                 Ok(mut saved) => *saved = Some(error.clone()),
-                Err(lock_error) => eprintln!("Could not save shortcut failure: {lock_error}"),
+                Err(lock_error) => application_log::failure("save_shortcut_failure", lock_error),
             }
             if let Err(event_error) = app.emit("legio:shortcut-launch-failed", error) {
-                eprintln!("Could not publish shortcut failure: {event_error}");
+                application_log::failure("publish_shortcut_failure", event_error);
             }
         }
     });

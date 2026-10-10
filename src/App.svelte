@@ -21,6 +21,7 @@
   import { hasRunningGame } from "./lib/stores/launch";
   import { observeMediaPlayback } from "./lib/services/media-playback";
   import { startArtworkDisplayTracking } from "./lib/services/artwork-display";
+  import { applicationErrorStack, describeApplicationError, logApplicationEvent } from "./lib/services/application-log";
 
   const mediaActive = derived([windowVisible, hasRunningGame], ([$visible, $running]) => $visible && !$running);
   const appearance = $derived($appearancePreview?.appearance ?? $settings.data.appearance);
@@ -40,7 +41,12 @@
   onMount(() => {
     const stopArtworkDisplays = startArtworkDisplayTracking();
     const stopMedia = observeMediaPlayback(mediaActive.subscribe);
-    void hydrateApp().catch((reason) => console.error(reason));
+    void hydrateApp().then(() => {
+      logApplicationEvent("info", "renderer_ready", "Application resources loaded");
+    }).catch(reason => {
+      logApplicationEvent("error", "bootstrap_error", describeApplicationError(reason), applicationErrorStack(reason));
+      console.error("Application resource initialization failed", reason);
+    });
     if (import.meta.env.PROD) void checkForAppUpdate();
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
