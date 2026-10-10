@@ -25,7 +25,7 @@ function prefetch(): void {
     active++;
     void prefetchSteamHero(appId).catch((error: unknown) => {
       requested.set(appId, Date.now() + 30000);
-      console.warn(`Could not cache recent hero for Steam App ID ${appId}`, error);
+      console.warn("Could not cache recent hero artwork", error);
     }).finally(() => { active--; prefetch(); });
   }
 }

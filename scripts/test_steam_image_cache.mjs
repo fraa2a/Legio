@@ -7,6 +7,8 @@ const { load } = createModuleLoader({
   "src/lib/i18n": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const language = writable("en");`),
 });
 const images = await import(await load("src/lib/services/steam-details.ts"));
+const logging = await import(await load("src/lib/services/application-log.ts"));
+logging.setApplicationLoggingEnabled(false);
 const request = (steamAppId, asset, fallbackAsset = null) => ({ steamAppId, asset, fallbackAsset, index: null, version: null, full: false });
 const packet = () => artworkPacket({ bytes: [1, 2], contentType: "image/png", stale: false, cacheWarning: null, refreshAfter: Date.now() + 60_000 });
 

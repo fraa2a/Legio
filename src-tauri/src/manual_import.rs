@@ -373,7 +373,7 @@ async fn detect_steam_identity(
     let mut remote_attempted = false;
     let mut remote_error = None;
     for name in names {
-        let cached = match catalog::search_catalog(app.clone(), name.clone(), None).await {
+        let cached = match catalog::search_catalog(app.clone(), name.clone(), None, None).await {
             Ok(result) => result,
             Err(error) => {
                 return SteamIdentificationPreview {
@@ -386,7 +386,9 @@ async fn detect_steam_identity(
         let mut candidates = exact_matches(&cached.games, &name);
         if candidates.is_empty() && !remote_attempted {
             remote_attempted = true;
-            match catalog::refresh_catalog(app.clone(), network, name.clone(), None, None).await {
+            match catalog::refresh_catalog(app.clone(), network, name.clone(), None, None, None)
+                .await
+            {
                 Ok(result) => candidates = exact_matches(&result.games, &name),
                 Err(error) => remote_error = Some(error.message),
             }

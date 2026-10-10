@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./invoke";
 
 export function launchConfiguredGameWithRunner(gameId: string): Promise<void> {
   return invoke<void>("launch_configured_game_with_runner", { gameId });

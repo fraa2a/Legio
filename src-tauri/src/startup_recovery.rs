@@ -86,7 +86,7 @@ pub(crate) fn start(app: AppHandle) {
         .and_then(|result| result)
         .and_then(|()| crate::download_queue::start(app.clone()));
         if let Err(error) = &result {
-            eprintln!("Startup recovery failed: {error}");
+            crate::application_log::failure("startup_recovery", error);
         }
         app.state::<StartupRecovery>().finish(result);
     });

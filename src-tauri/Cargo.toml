@@ -1,6 +1,6 @@
 [package]
 name = "legio"
-version = "0.1.5"
+version = "0.2.0"
 description = "A desktop game launcher for Windows and Linux"
 edition = "2024"
 rust-version = "1.98.1"
@@ -16,8 +16,10 @@ tauri-build = { version = "2", features = [] }
 base64 = "0.23"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 compress-tools = "0.16"
+dirs = "7"
 image = { version = "0.25", default-features = false, features = ["ico", "png", "jpeg", "webp"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+regex = "1"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
@@ -44,5 +46,7 @@ libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 compress-tools = { version = "0.16", features = ["static"] }
+webview2-com = "=0.39.1"
+windows = { version = "=0.62.2", default-features = false }
 winreg = "0.56.0"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_Globalization", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading"] }

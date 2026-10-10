@@ -318,7 +318,7 @@ impl AssetCacheState {
         };
         if let Err(error) = fs::rename(&temporary, destination) {
             if let Err(cleanup) = fs::remove_file(&temporary) {
-                eprintln!("Could not remove a temporary image cache file: {cleanup}");
+                crate::application_log::failure("remove_temporary_image_cache", cleanup);
             }
             return Err(format!("Could not save a cached image: {error}"));
         }
@@ -475,7 +475,7 @@ async fn load_asset_inner(
     let (previous, read_error) = match read {
         Ok(entry) => (entry, None),
         Err(error) => {
-            eprintln!("Steam image cache read failed: {error}");
+            crate::application_log::failure("read_image_cache", &error);
             (None, Some(error))
         }
     };
@@ -685,7 +685,7 @@ pub async fn get_asset<R: tauri::Runtime>(
                 });
             }
             Ok(None) => {}
-            Err(error) => eprintln!("Steam image cache read failed: {error}"),
+            Err(error) => crate::application_log::failure("read_image_cache", error),
         }
     }
     if matches!(asset, AssetKind::HeroBlur) {
@@ -785,7 +785,7 @@ pub async fn get_asset<R: tauri::Runtime>(
             crate::steam_pics::resolve(path, &metadata_lock, crate::steam_pics::fetch(app_id))
                 .await;
         if let Some(warning) = warning.as_deref() {
-            eprintln!("Steam asset metadata lookup for {app_id}: {warning}");
+            crate::application_log::failure("asset_metadata_lookup", warning);
         }
         let fallback = if matches!(asset, AssetKind::Hero) && full {
             Some(library_url(app_id, "library_hero.jpg", assets.as_ref())?)

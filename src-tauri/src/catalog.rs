@@ -36,6 +36,31 @@ pub enum SourceAvailability {
     Unverified,
 }
 
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CatalogSort {
+    #[default]
+    Relevance,
+    NameAsc,
+    NameDesc,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CatalogAvailability {
+    #[default]
+    All,
+    Available,
+    Verified,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CatalogOptions {
+    pub sort: CatalogSort,
+    pub availability: CatalogAvailability,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogSearch {
@@ -328,25 +353,14 @@ fn store(
     }).map_err(CatalogError::database)
 }
 
-fn search_with_limit(
+fn search_with_options(
     database: &Database,
     query: &str,
     current_time: i64,
     limit: u32,
+    options: CatalogOptions,
 ) -> Result<CatalogSearch, CatalogError> {
-    let patterns: Vec<_> = query
-        .split_whitespace()
-        .map(|word| {
-            format!(
-                "%{}%",
-                word.to_lowercase()
-                    .replace('\\', "\\\\")
-                    .replace('%', "\\%")
-                    .replace('_', "\\_")
-            )
-        })
-        .collect();
-    let (last_refresh, rows) = database
+    let (last_refresh, mut rows) = database
         .with_connection(|connection| {
             let last_refresh: Option<i64> = connection
                 .query_row(
@@ -356,21 +370,11 @@ fn search_with_limit(
                 )
                 .optional()
                 .map_err(sql_error)?;
-            let filter = if patterns.is_empty() {
-                String::new()
-            } else {
-                let clauses = (1..=patterns.len())
-                    .map(|index| format!("search_name LIKE ?{index} ESCAPE '\\'"))
-                    .collect::<Vec<_>>()
-                    .join(" OR ");
-                format!(" WHERE {clauses}")
-            };
-            let sql = format!(
-                "SELECT steam_app_id, name, search_name, fetched_at FROM catalog_games{filter}"
-            );
-            let mut statement = connection.prepare(&sql).map_err(sql_error)?;
+            let mut statement = connection
+                .prepare("SELECT steam_app_id, name, search_name, fetched_at FROM catalog_games")
+                .map_err(sql_error)?;
             let rows = statement
-                .query_map(rusqlite::params_from_iter(patterns.iter()), |row| {
+                .query_map([], |row| {
                     Ok((
                         row.get::<_, u32>(0)?,
                         row.get::<_, String>(1)?,
@@ -384,11 +388,73 @@ fn search_with_limit(
             Ok((last_refresh, rows))
         })
         .map_err(CatalogError::database)?;
+    let source = legio_source_cache::cached(database).map_err(CatalogError::database)?;
+    if let Some(source) = &source {
+        let mut known: HashSet<_> = rows.iter().map(|row| row.0).collect();
+        for entry in source
+            .manifest
+            .verified
+            .iter()
+            .chain(&source.manifest.unverified)
+        {
+            if known.insert(entry.steam_app_id) {
+                rows.push((
+                    entry.steam_app_id,
+                    entry.name.clone(),
+                    entry.name.to_lowercase(),
+                    source.fetched_at,
+                ));
+            }
+        }
+    }
     let normalized_query = query.to_lowercase();
     let query_words: Vec<_> = normalized_query.split_whitespace().collect();
+    let verified: HashSet<_> = source
+        .iter()
+        .flat_map(|source| {
+            source
+                .manifest
+                .verified
+                .iter()
+                .map(|entry| entry.steam_app_id)
+        })
+        .collect();
+    let unverified: HashSet<_> = source
+        .iter()
+        .flat_map(|source| {
+            source
+                .manifest
+                .unverified
+                .iter()
+                .map(|entry| entry.steam_app_id)
+        })
+        .collect();
     let mut ranked = Vec::new();
     let mut oldest = None;
     for (steam_app_id, name, search_name, fetched_at) in rows {
+        if !query_words.is_empty() && !query_words.iter().any(|word| search_name.contains(word)) {
+            continue;
+        }
+        let availability = if source.is_none() {
+            SourceAvailability::Unknown
+        } else if verified.contains(&steam_app_id) {
+            SourceAvailability::Verified
+        } else if unverified.contains(&steam_app_id) {
+            SourceAvailability::Unverified
+        } else {
+            SourceAvailability::Unavailable
+        };
+        let included = match options.availability {
+            CatalogAvailability::All => true,
+            CatalogAvailability::Available => matches!(
+                availability,
+                SourceAvailability::Verified | SourceAvailability::Unverified
+            ),
+            CatalogAvailability::Verified => availability == SourceAvailability::Verified,
+        };
+        if !included {
+            continue;
+        }
         if let Some(rank) = rank_normalized(&search_name, &normalized_query, &query_words) {
             oldest = Some(oldest.map_or(fetched_at, |value: i64| value.min(fetched_at)));
             ranked.push((
@@ -398,7 +464,7 @@ fn search_with_limit(
                 CatalogGame {
                     steam_app_id,
                     name,
-                    availability: SourceAvailability::Unknown,
+                    availability,
                 },
             ));
         }
@@ -406,27 +472,49 @@ fn search_with_limit(
     let total = ranked.len() as u32;
     let cached_at = oldest.or(last_refresh);
     ranked.sort_unstable_by(|left, right| {
-        left.0
-            .cmp(&right.0)
-            .then_with(|| left.1.cmp(&right.1))
-            .then_with(|| left.2.cmp(&right.2))
+        let order = match options.sort {
+            CatalogSort::Relevance => left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)),
+            CatalogSort::NameAsc => left.1.cmp(&right.1),
+            CatalogSort::NameDesc => right.1.cmp(&left.1),
+        };
+        order.then_with(|| left.2.cmp(&right.2))
     });
     let games = ranked
         .into_iter()
         .take(limit as usize)
         .map(|entry| entry.3)
         .collect();
-    Ok(CatalogSearch {
-        games,
-        total,
-        next_offset: None,
-        cached_at,
-        stale: cached_at.is_none_or(|time| {
-            time > current_time || current_time.saturating_sub(time) >= STALE_SECONDS
-        }),
-        source_cached_at: None,
-        source_stale: true,
-    })
+    Ok(merge_source(
+        CatalogSearch {
+            games,
+            total,
+            next_offset: None,
+            cached_at,
+            stale: cached_at.is_none_or(|time| {
+                time > current_time || current_time.saturating_sub(time) >= STALE_SECONDS
+            }),
+            source_cached_at: None,
+            source_stale: true,
+        },
+        source,
+        current_time,
+    ))
+}
+
+#[cfg(test)]
+fn search_with_limit(
+    database: &Database,
+    query: &str,
+    current_time: i64,
+    limit: u32,
+) -> Result<CatalogSearch, CatalogError> {
+    search_with_options(
+        database,
+        query,
+        current_time,
+        limit,
+        CatalogOptions::default(),
+    )
 }
 
 #[cfg(test)]
@@ -476,16 +564,21 @@ pub async fn search_catalog<R: Runtime>(
     app: tauri::AppHandle<R>,
     value: String,
     limit: Option<u32>,
+    options: Option<CatalogOptions>,
 ) -> Result<CatalogSearch, CatalogError> {
     let query = query(&value)?.to_owned();
-    let limit = limit.unwrap_or(LOCAL_LIMIT).clamp(1, CACHE_LIMIT);
+    let limit = limit.unwrap_or(LOCAL_LIMIT).max(1);
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatabaseState>();
         let database = state.database().map_err(CatalogError::database)?;
         let current_time = now()?;
-        let result = search_with_limit(database, &query, current_time, limit)?;
-        let source = legio_source_cache::cached(database).map_err(CatalogError::database)?;
-        Ok(merge_source(result, source, current_time))
+        search_with_options(
+            database,
+            &query,
+            current_time,
+            limit,
+            options.unwrap_or_default(),
+        )
     })
     .await
     .map_err(|error| CatalogError::new(CatalogErrorKind::Internal, error.to_string()))?
@@ -497,6 +590,7 @@ pub async fn refresh_catalog(
     value: String,
     skip: Option<usize>,
     limit: Option<u32>,
+    options: Option<CatalogOptions>,
 ) -> Result<CatalogSearch, CatalogError> {
     let query = query(&value)?.to_owned();
     let skip = skip.unwrap_or(0);
@@ -506,7 +600,7 @@ pub async fn refresh_catalog(
             "Catalog page is outside the cache limit.",
         ));
     }
-    let limit = limit.unwrap_or(LOCAL_LIMIT).clamp(1, CACHE_LIMIT);
+    let limit = limit.unwrap_or(LOCAL_LIMIT).max(1);
     let body = serde_json::to_vec(&HydraRequest {
         title: &query,
         take: REMOTE_LIMIT,
@@ -520,7 +614,8 @@ pub async fn refresh_catalog(
         let database = state.database().map_err(CatalogError::database)?;
         let now = now()?;
         store(database, &query, &page, now)?;
-        let mut result = search_with_limit(database, &query, now, limit)?;
+        let mut result =
+            search_with_options(database, &query, now, limit, options.unwrap_or_default())?;
         let next = skip.saturating_add(page.fetched_count);
         if page.fetched_count > 0
             && next < page.remote_count as usize
@@ -528,8 +623,7 @@ pub async fn refresh_catalog(
         {
             result.next_offset = Some(next);
         }
-        let source = legio_source_cache::cached(database).map_err(CatalogError::database)?;
-        Ok(merge_source(result, source, now))
+        Ok(result)
     })
     .await
     .map_err(|error| CatalogError::new(CatalogErrorKind::Internal, error.to_string()))?
@@ -547,6 +641,228 @@ mod tests {
             .manage(DatabaseState::new(Ok(directory.to_path_buf())))
             .build(context)
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn searches_source_only_titles_without_a_catalog_refresh() {
+        let directory =
+            std::env::temp_dir().join(format!("legio-catalog-test-{}", uuid::Uuid::new_v4()));
+        let app = test_app(&directory);
+        let state = app.state::<DatabaseState>();
+        let database = state.database().unwrap();
+        let manifest = serde_json::json!({
+            "schemaVersion": 1, "generatedAt": "2026-10-10T00:00:00Z",
+            "verified": [{
+                "steamAppId": 700, "name": "Source Exclusive",
+                "release": { "version": "1", "publishedAt": "2026-10-10T00:00:00Z" },
+                "download": { "url": "https://example.invalid/a.zip", "sizeBytes": 1,
+                    "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" }
+            }], "unverified": []
+        });
+        database.with_connection(|connection| {
+            connection.execute(
+                "INSERT INTO download_sources (id, url, manifest, fetched_at) VALUES ('source', 'https://example.invalid/store.json', ?1, 100)",
+                [serde_json::to_vec(&manifest).unwrap()],
+            ).map_err(sql_error)?;
+            Ok(())
+        }).unwrap();
+        let result = search_catalog(app.handle().clone(), "source".into(), Some(1), None)
+            .await
+            .unwrap();
+        assert_eq!(result.total, 1);
+        assert_eq!(
+            result.games,
+            vec![CatalogGame {
+                steam_app_id: 700,
+                name: "Source Exclusive".into(),
+                availability: SourceAvailability::Verified,
+            }]
+        );
+        drop(app);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn filters_and_sorts_before_limiting_results() {
+        let directory =
+            std::env::temp_dir().join(format!("legio-catalog-test-{}", uuid::Uuid::new_v4()));
+        let app = test_app(&directory);
+        let state = app.state::<DatabaseState>();
+        let database = state.database().unwrap();
+        let names = ["Game Alpha", "Game beta", "Game Zulu", "Game", "Other Game"];
+        store(
+            database,
+            "fixture",
+            &CatalogPage {
+                games: names
+                    .iter()
+                    .enumerate()
+                    .map(|(index, name)| CatalogGame {
+                        steam_app_id: 400 + index as u32,
+                        name: (*name).into(),
+                        availability: SourceAvailability::Unknown,
+                    })
+                    .collect(),
+                remote_count: 5,
+                fetched_count: 5,
+            },
+            100,
+        )
+        .unwrap();
+        let entry = |steam_app_id, name| {
+            serde_json::json!({
+                "steamAppId": steam_app_id, "name": name,
+                "release": { "version": "1", "publishedAt": "2026-10-10T00:00:00Z" },
+                "download": { "url": format!("https://example.invalid/{steam_app_id}.zip"), "sizeBytes": 1,
+                    "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" }
+            })
+        };
+        let mut alternate = entry(402, "Game Zulu");
+        alternate["download"]["url"] =
+            serde_json::json!("https://example.invalid/402-alternate.zip");
+        let manifest = serde_json::json!({
+            "schemaVersion": 1, "generatedAt": "2026-10-10T00:00:00Z",
+            "verified": [entry(402, "Different source name"), entry(405, "Game Omega")],
+            "unverified": [entry(401, "Game beta"), alternate]
+        });
+        database.with_connection(|connection| {
+            connection.execute("INSERT INTO download_sources (id, url, manifest, fetched_at) VALUES ('source', 'https://example.invalid/store.json', ?1, 100)", [serde_json::to_vec(&manifest).unwrap()]).map_err(sql_error)?;
+            Ok(())
+        }).unwrap();
+        for (sort, availability, expected, total) in [
+            ("relevance", "all", vec![403, 400], 6),
+            ("name_asc", "all", vec![403, 400], 6),
+            ("name_desc", "all", vec![404, 402], 6),
+            ("name_asc", "available", vec![401, 405], 3),
+            ("name_desc", "verified", vec![402, 405], 2),
+            ("relevance", "verified", vec![405, 402], 2),
+        ] {
+            let options = serde_json::from_value(
+                serde_json::json!({ "sort": sort, "availability": availability }),
+            )
+            .unwrap();
+            let result =
+                search_catalog(app.handle().clone(), "game".into(), Some(2), Some(options))
+                    .await
+                    .unwrap();
+            assert_eq!(
+                result
+                    .games
+                    .iter()
+                    .map(|game| game.steam_app_id)
+                    .collect::<Vec<_>>(),
+                expected,
+                "{sort}, {availability}"
+            );
+            assert_eq!(result.total, total, "{sort}, {availability}");
+            if let Some(game) = result.games.iter().find(|game| game.steam_app_id == 402) {
+                assert_eq!(game.name, "Game Zulu");
+                assert_eq!(game.availability, SourceAvailability::Verified);
+            }
+        }
+        let result = search_catalog(
+            app.handle().clone(),
+            "".into(),
+            Some(1),
+            Some(CatalogOptions {
+                sort: CatalogSort::NameDesc,
+                availability: CatalogAvailability::All,
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.games[0].steam_app_id, 404);
+        let alias = search_catalog(app.handle().clone(), "different".into(), None, None)
+            .await
+            .unwrap();
+        assert!(
+            alias.games.is_empty(),
+            "source aliases must not replace a known catalog title"
+        );
+        drop(app);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn available_filter_without_sources_excludes_unknown_games() {
+        let directory =
+            std::env::temp_dir().join(format!("legio-catalog-test-{}", uuid::Uuid::new_v4()));
+        let app = test_app(&directory);
+        let state = app.state::<DatabaseState>();
+        store(
+            state.database().unwrap(),
+            "fixture",
+            &CatalogPage {
+                games: vec![CatalogGame {
+                    steam_app_id: 400,
+                    name: "Game".into(),
+                    availability: SourceAvailability::Unknown,
+                }],
+                remote_count: 1,
+                fetched_count: 1,
+            },
+            100,
+        )
+        .unwrap();
+        let result = search_catalog(
+            app.handle().clone(),
+            "game".into(),
+            None,
+            Some(CatalogOptions {
+                sort: CatalogSort::Relevance,
+                availability: CatalogAvailability::Available,
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.total, 0);
+        assert!(result.games.is_empty());
+        drop(app);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn source_titles_remain_reachable_beyond_the_remote_cache_limit() {
+        let directory =
+            std::env::temp_dir().join(format!("legio-catalog-test-{}", uuid::Uuid::new_v4()));
+        let app = test_app(&directory);
+        let state = app.state::<DatabaseState>();
+        let database = state.database().unwrap();
+        store(
+            database,
+            "fixture",
+            &CatalogPage {
+                games: (1..=CACHE_LIMIT)
+                    .map(|steam_app_id| CatalogGame {
+                        steam_app_id,
+                        name: format!("Game {steam_app_id:05}"),
+                        availability: SourceAvailability::Unknown,
+                    })
+                    .collect(),
+                remote_count: CACHE_LIMIT,
+                fetched_count: CACHE_LIMIT as usize,
+            },
+            100,
+        )
+        .unwrap();
+        let manifest = serde_json::json!({
+            "schemaVersion": 1, "generatedAt": "2026-10-10T00:00:00Z", "verified": [],
+            "unverified": [{ "steamAppId": 30000, "name": "ZZZ Source",
+                "release": { "version": "1", "publishedAt": "2026-10-10T00:00:00Z" },
+                "download": { "url": "https://example.invalid/source.zip", "sizeBytes": 1 } }]
+        });
+        database.with_connection(|connection| {
+            connection.execute("INSERT INTO download_sources (id, url, manifest, fetched_at) VALUES ('source', 'https://example.invalid/store.json', ?1, 100)", [serde_json::to_vec(&manifest).unwrap()]).map_err(sql_error)?;
+            Ok(())
+        }).unwrap();
+        let result = search_catalog(app.handle().clone(), "".into(), Some(CACHE_LIMIT + 1), None)
+            .await
+            .unwrap();
+        assert_eq!(result.total, CACHE_LIMIT + 1);
+        assert_eq!(result.games.len(), (CACHE_LIMIT + 1) as usize);
+        assert_eq!(result.games.last().unwrap().steam_app_id, 30000);
+        drop(app);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -758,7 +1074,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = search_catalog(app.handle().clone(), "risk rain".into(), None)
+        let result = search_catalog(app.handle().clone(), "risk rain".into(), None, None)
             .await
             .unwrap();
         assert_eq!(result.games, page.games);

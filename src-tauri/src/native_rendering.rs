@@ -41,7 +41,7 @@ unsafe extern "C" fn expand_damage(
         )
     };
     if let Err(error) = full_damage(&damage, window.width(), window.height()) {
-        eprintln!("Could not expand transparent window damage: {error}");
+        crate::application_log::failure("expand_window_damage", error);
     }
 }
 

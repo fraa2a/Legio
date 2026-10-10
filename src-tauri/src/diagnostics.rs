@@ -63,6 +63,7 @@ pub struct Diagnostics {
 }
 
 impl Diagnostics {
+    #[cfg(test)]
     pub fn new(directory: Result<PathBuf, String>) -> Self {
         Self::with_enabled(directory, true)
     }
@@ -285,6 +286,17 @@ fn append(directory: &Path, record: &Record) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disabled_network_logging_does_not_create_files_or_queue_records() {
+        let directory = std::env::temp_dir().join(format!("legio-logs-{}", uuid::Uuid::new_v4()));
+        let diagnostics = Diagnostics::with_enabled(Ok(directory.clone()), false);
+        drop(diagnostics.request(Operation::SteamConnectivity));
+        let status = diagnostics.status();
+        assert!(!status.enabled);
+        assert_eq!(status.pending_records, 0);
+        assert!(!directory.exists());
+    }
 
     #[test]
     fn blocked_writer_does_not_block_producers_or_status() {

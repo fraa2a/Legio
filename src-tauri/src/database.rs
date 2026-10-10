@@ -220,8 +220,10 @@ pub struct Settings {
     pub download_notifications: bool,
     #[serde(default = "default_true")]
     pub verify_verified_downloads: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub diagnostics_enabled: bool,
+    #[serde(default)]
+    pub application_logging_enabled: bool,
     #[serde(default)]
     pub defer_extraction_while_playing: bool,
 }
@@ -262,7 +264,8 @@ impl Default for Settings {
             sidebar_collapsed: true,
             download_notifications: true,
             verify_verified_downloads: true,
-            diagnostics_enabled: true,
+            diagnostics_enabled: false,
+            application_logging_enabled: false,
             defer_extraction_while_playing: false,
         }
     }
@@ -1466,7 +1469,7 @@ fn migrate(connection: &Connection) -> Result<(), String> {
                         ).map_err(database_error)?;
                     }
                 }
-                Err(error) => eprintln!("Could not classify existing download sources: {error}"),
+                Err(error) => crate::application_log::failure("classify_download_sources", error),
             }
         }
         transaction
@@ -1935,6 +1938,38 @@ pub(crate) fn database_error(error: rusqlite::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn logging_requires_explicit_opt_in_for_fresh_and_legacy_settings() {
+        for settings in [
+            Settings::default(),
+            serde_json::from_str(r#"{"theme":"system"}"#).unwrap(),
+        ] {
+            let settings = serde_json::to_value(settings).unwrap();
+            assert_eq!(settings["diagnosticsEnabled"], false);
+            assert_eq!(settings["applicationLoggingEnabled"], false);
+        }
+    }
+
+    #[test]
+    fn application_and_network_logging_preferences_persist_independently() {
+        let directory = temporary_directory();
+        for (application, network) in [(true, false), (false, true), (false, false)] {
+            let database = Database::open(&directory).unwrap();
+            let mut settings = serde_json::to_value(database.settings().unwrap()).unwrap();
+            settings["applicationLoggingEnabled"] = application.into();
+            settings["diagnosticsEnabled"] = network.into();
+            database
+                .save_settings(serde_json::from_value(settings).unwrap())
+                .unwrap();
+            drop(database);
+            let reopened = Database::open(&directory).unwrap();
+            let settings = serde_json::to_value(reopened.settings().unwrap()).unwrap();
+            assert_eq!(settings["applicationLoggingEnabled"], application);
+            assert_eq!(settings["diagnosticsEnabled"], network);
+        }
+        fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn new_install_requires_onboarding_and_existing_preferences_skip_it() {

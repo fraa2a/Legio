@@ -137,7 +137,7 @@ pub(crate) async fn read_cache(path: &Path) -> Result<Option<(PicsAssets, bool)>
         Ok(assets) => assets,
         Err(error) => {
             if let Err(cleanup) = tokio::fs::remove_file(path).await {
-                eprintln!("Could not remove an unreadable Steam PICS cache: {cleanup}");
+                crate::application_log::failure("remove_unreadable_metadata_cache", cleanup);
             }
             return Err(format!("Invalid Steam PICS cache: {error}"));
         }
@@ -163,7 +163,7 @@ async fn write_cache(path: &Path, assets: &PicsAssets) -> Result<(), String> {
         .map_err(|error| format!("Could not write Steam PICS cache: {error}"))?;
     if let Err(error) = tokio::fs::rename(&temporary, path).await {
         if let Err(cleanup) = tokio::fs::remove_file(&temporary).await {
-            eprintln!("Could not remove temporary Steam PICS cache: {cleanup}");
+            crate::application_log::failure("remove_temporary_metadata_cache", cleanup);
         }
         return Err(format!("Could not save Steam PICS cache: {error}"));
     }
@@ -280,8 +280,8 @@ pub(crate) async fn fetch(app_id: u32) -> Result<PicsAssets, String> {
     if client.is_logged_in() {
         match tokio::time::timeout(Duration::from_secs(3), client.log_off()).await {
             Ok(Ok(())) => {}
-            Ok(Err(error)) => eprintln!("Steam anonymous logout failed: {error}"),
-            Err(_) => eprintln!("Steam anonymous logout timed out."),
+            Ok(Err(error)) => crate::application_log::failure("steam_anonymous_logout", error),
+            Err(_) => crate::application_log::failure("steam_anonymous_logout", "Timed out"),
         }
     }
     result

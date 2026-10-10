@@ -74,6 +74,7 @@ test("navigation removes previous page content before the new page enters", asyn
     mocks[`src/lib/features/${feature}/${view}.svelte`] = emptyView;
   }
   const { load } = createModuleLoader(mocks);
+  (await import(await load("src/lib/services/application-log.ts"))).setApplicationLoggingEnabled(false);
   const navigation = await import(await load("src/lib/stores/navigation.ts"));
   const MainContainer = (await import(await load("src/lib/components/layout/MainContainer.svelte"))).default;
   const target = document.createElement("div");
@@ -125,6 +126,7 @@ test("native page fades snapshot the outgoing page and update to the latest navi
     mocks[`src/lib/features/${feature}/${view}.svelte`] = emptyView;
   }
   const { load } = createModuleLoader(mocks);
+  (await import(await load("src/lib/services/application-log.ts"))).setApplicationLoggingEnabled(false);
   const navigation = await import(await load("src/lib/stores/navigation.ts"));
   navigation.selectedGameId.set(null);
   navigation.activeSection.set("home");
