@@ -1,16 +1,11 @@
+use gtk::glib::translate::{ToGlibPtr, from_glib_borrow};
 use gtk::prelude::*;
 
 pub(crate) fn configure(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     window.with_webview(|platform| {
         let view = platform.inner();
-        view.connect_draw(|view, context| {
-            if let Err(error) =
-                prepare_frame(context, view.allocated_width(), view.allocated_height())
-            {
-                eprintln!("Could not prepare transparent window frame: {error}");
-            }
-            gtk::glib::Propagation::Proceed
-        });
+        install_damage_handler(&view);
+        view.connect_realize(install_damage_handler);
         view.connect_focus_in_event(|view, _| {
             view.queue_draw();
             gtk::glib::Propagation::Proceed
@@ -22,39 +17,62 @@ pub(crate) fn configure(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     })
 }
 
-fn prepare_frame(
-    context: &gtk::cairo::Context,
+fn install_damage_handler(view: &impl IsA<gtk::Widget>) {
+    if let Some(window) = view.window() {
+        // SAFETY: GTK owns the live window; the static callback retains no borrowed state.
+        unsafe {
+            gtk::gdk::ffi::gdk_window_set_invalidate_handler(
+                window.to_glib_none().0,
+                Some(expand_damage),
+            );
+        }
+    }
+}
+
+unsafe extern "C" fn expand_damage(
+    window: *mut gtk::gdk::ffi::GdkWindow,
+    damage: *mut gtk::cairo::ffi::cairo_region_t,
+) {
+    // SAFETY: GDK supplies a live window and mutable damage region for this callback.
+    let (window, damage) = unsafe {
+        (
+            from_glib_borrow::<_, gtk::gdk::Window>(window),
+            gtk::cairo::Region::from_raw_none(damage),
+        )
+    };
+    if let Err(error) = full_damage(&damage, window.width(), window.height()) {
+        eprintln!("Could not expand transparent window damage: {error}");
+    }
+}
+
+fn full_damage(
+    damage: &gtk::cairo::Region,
     width: i32,
     height: i32,
 ) -> Result<(), gtk::cairo::Error> {
-    context.reset_clip();
-    context.new_path();
-    context.rectangle(0.0, 0.0, f64::from(width), f64::from(height));
-    context.clip();
-    // GTK clears only its damage region; the expanded clip must start transparent too.
-    let operator = context.operator();
-    context.set_operator(gtk::cairo::Operator::Clear);
-    let result = context.paint();
-    context.set_operator(operator);
-    result
+    // Expand before GDK prepares both its Cairo and GL paint regions.
+    damage.union_rectangle(&gtk::cairo::RectangleInt::new(0, 0, width, height))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gtk::cairo::{Context, Format, ImageSurface, Operator};
+    use gtk::cairo::{Context, Format, ImageSurface, Operator, RectangleInt, Region};
 
     fn draw_frame(surface: &mut ImageSurface, partial_damage: bool) -> Vec<u8> {
+        let damage = Region::create_rectangle(&RectangleInt::new(
+            0,
+            0,
+            if partial_damage { 2 } else { 12 },
+            if partial_damage { 2 } else { 12 },
+        ));
+        full_damage(&damage, 12, 12).expect("expand damage");
         let context = Context::new(&*surface).expect("image context");
-        if partial_damage {
-            context.rectangle(0.0, 0.0, 2.0, 2.0);
-            context.clip();
-            context.set_operator(Operator::Clear);
-            context.paint().expect("clear GTK damage region");
-            context.set_operator(Operator::Over);
-        }
-        prepare_frame(&context, 12, 12).expect("prepare frame");
-        assert_eq!(context.operator(), Operator::Over);
+        context.add_region(&damage);
+        context.clip();
+        context.set_operator(Operator::Clear);
+        context.paint().expect("clear GTK damage region");
+        context.set_operator(Operator::Over);
         context.set_source_rgba(0.15, 0.15, 0.15, 0.4);
         context.paint().expect("draw translucent background");
         context.set_source_rgba(1.0, 1.0, 1.0, 0.6);
@@ -75,30 +93,15 @@ mod tests {
     }
 
     #[test]
-    fn full_clear_stays_within_the_translated_webview_allocation() {
-        let mut surface = ImageSurface::create(Format::ARgb32, 16, 16).expect("image surface");
-        let context = Context::new(&surface).expect("image context");
-        context.set_source_rgb(0.0, 1.0, 0.0);
-        context.paint().expect("draw surrounding widgets");
-        context.translate(4.0, 4.0);
-        context.rectangle(0.0, 0.0, 2.0, 2.0);
-        context.clip();
-        prepare_frame(&context, 8, 8).expect("prepare frame");
-        drop(context);
-        surface.flush();
-        let stride = usize::try_from(surface.stride()).expect("positive stride");
-        let data = surface.data().expect("frame pixels");
-        let surrounding = data[..4].to_vec();
-        for y in 0..16 {
-            for x in 0..16 {
-                let offset = y * stride + x * 4;
-                let expected: &[u8] = if (4..12).contains(&x) && (4..12).contains(&y) {
-                    &[0, 0, 0, 0]
-                } else {
-                    &surrounding
-                };
-                assert_eq!(&data[offset..offset + 4], expected);
-            }
-        }
+    fn damage_tracks_the_current_window_size_and_preserves_existing_regions() {
+        let damage = Region::create_rectangle(&RectangleInt::new(20, 20, 2, 2));
+        full_damage(&damage, 8, 8).expect("initial allocation");
+        assert!(damage.contains_point(7, 7));
+        assert!(!damage.contains_point(10, 10));
+        assert!(damage.contains_point(21, 21));
+        full_damage(&damage, 16, 16).expect("resized allocation");
+        assert!(damage.contains_point(15, 15));
+        assert!(damage.contains_point(21, 21));
+        assert!(!damage.contains_point(18, 18));
     }
 }
