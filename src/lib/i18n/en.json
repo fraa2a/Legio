@@ -629,6 +629,6 @@
   "Ogni gioco manuale salva launch.json, launch.log, stdout.log, stderr.log e runner-exit-code.txt nella propria cartella. Il debug aggiunge i dettagli di Proton o Wine.": "Each manual game saves launch.json, launch.log, stdout.log, stderr.log and runner-exit-code.txt in its own folder. Debug logging adds Proton or Wine details.",
   "Salva log applicativi": "Save application logs",
   "Ripristina log applicativi": "Reset application logging",
-  "Registra avvio, navigazione, errori e panic in app.jsonl. Per diagnosticare un crash, attiva i log e riavvia Legio prima di riprodurlo.": "Records startup, navigation, errors and panics in app.jsonl. To diagnose a crash, enable logs and restart Legio before reproducing it.",
+  "Registra avvio, navigazione, errori e panic in app.txt. Per diagnosticare un crash, attiva i log e riavvia Legio prima di riprodurlo.": "Records startup, navigation, errors and panics in app.txt. To diagnose a crash, enable logs and restart Legio before reproducing it.",
   "Entrambi i log sono disattivati di default. I file vengono ruotati per limitare lo spazio occupato; disattivarli interrompe la registrazione di nuovi eventi.": "Both logs are off by default. Files are rotated to limit disk usage; disabling logging stops recording new events."
 }

@@ -1,10 +1,19 @@
 use std::io::Cursor;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use image::{ImageFormat, ImageReader, Limits, RgbaImage};
 
 const MAX_PIXELS: u64 = 8_000_000;
 const MAX_DIMENSION: u32 = 8192;
 const MAX_OUTPUT: usize = 2 * 1024 * 1024;
+static NEXT_OPERATION: AtomicU64 = AtomicU64::new(1);
+
+fn checkpoint(operation: u64, stage: &'static str, details: impl std::fmt::Display) {
+    crate::application_log::checkpoint(
+        "artwork_processing",
+        format!("operation={operation}; stage={stage}; {details}"),
+    );
+}
 
 fn bounded_reader(bytes: &[u8], format: ImageFormat) -> Result<ImageReader<Cursor<&[u8]>>, String> {
     let (width, height) = ImageReader::with_format(Cursor::new(bytes), format)
@@ -52,10 +61,17 @@ fn format(bytes: &[u8]) -> Result<ImageFormat, String> {
 }
 
 pub(crate) fn validate_image(bytes: &[u8]) -> Result<(), String> {
+    let operation = NEXT_OPERATION.fetch_add(1, Ordering::Relaxed);
+    checkpoint(
+        operation,
+        "decode_start",
+        format!("validation; bytes={}", bytes.len()),
+    );
     bounded_reader(bytes, format(bytes)?)?
         .decode()
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    checkpoint(operation, "decode_complete", "validation");
+    Ok(())
 }
 
 pub(crate) fn webp_asset(bytes: &[u8]) -> Result<Vec<u8>, String> {
@@ -70,15 +86,32 @@ pub(crate) fn hero_webp(bytes: &[u8], max_width: u32, blurred: bool) -> Result<V
 }
 
 fn transformed_webp(bytes: &[u8], hero: Option<(u32, bool)>) -> Result<Vec<u8>, String> {
+    let operation = NEXT_OPERATION.fetch_add(1, Ordering::Relaxed);
     let format = format(bytes)?;
+    checkpoint(
+        operation,
+        "decode_start",
+        format!("bytes={}; format={format:?}; hero={hero:?}", bytes.len()),
+    );
     let image = bounded_reader(bytes, format)?
         .decode()
         .map_err(|error| error.to_string())?;
+    checkpoint(
+        operation,
+        "decode_complete",
+        format!("dimensions={}x{}", image.width(), image.height()),
+    );
     if format == ImageFormat::WebP
         && (hero.is_none()
             || hero.is_some_and(|(width, blurred)| !blurred && image.width() <= width))
     {
-        return bounded_output(bytes.to_vec());
+        let output = bounded_output(bytes.to_vec())?;
+        checkpoint(
+            operation,
+            "complete",
+            format!("passthrough; bytes={}", output.len()),
+        );
+        return Ok(output);
     }
     let rgba = image.into_rgba8();
     let mut rgba = if format == ImageFormat::Png && hero.is_none() {
@@ -96,18 +129,39 @@ fn transformed_webp(bytes: &[u8], hero: Option<(u32, bool)>) -> Result<Vec<u8>, 
         let height =
             (u64::from(rgba.height()) * u64::from(width) / u64::from(rgba.width())).max(1) as u32;
         if width != rgba.width() {
+            checkpoint(
+                operation,
+                "resize_start",
+                format!("dimensions={width}x{height}"),
+            );
             rgba = image::imageops::resize(
                 &rgba,
                 width,
                 height,
                 image::imageops::FilterType::Lanczos3,
             );
+            checkpoint(
+                operation,
+                "resize_complete",
+                format!("dimensions={}x{}", rgba.width(), rgba.height()),
+            );
         }
         if blurred {
             let sigma = rgba.width() as f32 * (18.0 / 1248.0);
+            checkpoint(operation, "blur_start", format!("sigma={sigma}"));
             rgba = image::imageops::fast_blur(&rgba, sigma);
+            checkpoint(
+                operation,
+                "blur_complete",
+                format!("dimensions={}x{}", rgba.width(), rgba.height()),
+            );
         }
     }
+    checkpoint(
+        operation,
+        "encode_start",
+        format!("dimensions={}x{}", rgba.width(), rgba.height()),
+    );
     let encoder = webp::Encoder::from_rgba(&rgba, rgba.width(), rgba.height());
     let mut config = webp::WebPConfig::new().map_err(|_| "Could not initialize WebP encoder.")?;
     config.quality = 85.0;
@@ -117,7 +171,14 @@ fn transformed_webp(bytes: &[u8], hero: Option<(u32, bool)>) -> Result<Vec<u8>, 
         .encode_advanced(&config)
         .map_err(|error| format!("Could not encode artwork as WebP: {error:?}"))?
         .to_vec();
-    bounded_output(output)
+    checkpoint(
+        operation,
+        "encode_complete",
+        format!("bytes={}", output.len()),
+    );
+    let output = bounded_output(output)?;
+    checkpoint(operation, "complete", format!("bytes={}", output.len()));
+    Ok(output)
 }
 
 fn bounded_output(bytes: Vec<u8>) -> Result<Vec<u8>, String> {

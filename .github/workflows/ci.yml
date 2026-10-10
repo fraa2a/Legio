@@ -224,6 +224,20 @@ jobs:
           LEGIO_WINDOWS_TESTS: "1"
         run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib application_log::tests::'
 
+      - name: Test Windows artwork conversion and blur
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          LEGIO_WINDOWS_TESTS: "1"
+        run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib image_trim::tests::'
+
+      - name: Test Windows WebView diagnostics
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          LEGIO_WINDOWS_TESTS: "1"
+        run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib webview_diagnostics::tests::'
+
       - name: Test Windows Steam discovery
         if: runner.os == 'Windows'
         shell: bash

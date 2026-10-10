@@ -14,6 +14,7 @@
   import { toMessage } from "../../utils/errors";
   import { fadeDuration } from "../../utils/motion";
   import { artworkDisplayWidth } from "../../stores/artwork-display";
+  import { logApplicationEvent } from "../../services/application-log";
 
   let {
     steamAppId,
@@ -53,7 +54,20 @@
   let fromCache = $state(false);
   let refreshAt = $state<number | null>(null);
   let loadedRequest = $state.raw<typeof request | null>(null);
-  const displayedUrl = $derived(loadedRequest === request ? url : cached?.url ?? null);
+  let failedUrl = $state<string | null>(null);
+  const candidateUrl = $derived(loadedRequest === request ? url : cached?.url ?? null);
+  const displayedUrl = $derived(candidateUrl === failedUrl ? null : candidateUrl);
+
+  function imageFailed(event: Event): void {
+    failedUrl = (event.currentTarget as HTMLImageElement).src;
+    error = "Artwork display failed";
+    logApplicationEvent("warn", "console", `Artwork display failed; asset: ${asset}`);
+  }
+
+  function imageLoaded(event: Event): void {
+    const image = event.currentTarget as HTMLImageElement;
+    logApplicationEvent("info", "console", `Artwork displayed; asset: ${asset}; dimensions: ${image.naturalWidth}x${image.naturalHeight}`);
+  }
 
   $effect(() => {
     void $steamImageRevision;
@@ -111,10 +125,10 @@
 </script>
 
 {#if displayedUrl !== null}
-  <img draggable="false" src={displayedUrl} {alt} class={className} in:fade={{ duration: cached !== undefined || fromCache ? 0 : fadeDuration }} />
+  <img draggable="false" src={displayedUrl} {alt} class={className} onerror={imageFailed} onload={imageLoaded} in:fade={{ duration: cached !== undefined || fromCache ? 0 : fadeDuration }} />
 {:else if placeholder !== undefined}
   {@render placeholder()}
-{:else if error !== null}
+{:else if error !== null || (candidateUrl !== null && candidateUrl === failedUrl)}
   <div class="flex items-center justify-center rounded-lg text-xs text-zinc-500 {className}">
     <span aria-hidden="true">{alt.trim().charAt(0).toUpperCase() || "?"}</span>
   </div>

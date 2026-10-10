@@ -13,6 +13,110 @@ const { get } = await import("svelte/store");
 const settle = () => new Promise(resolve => setImmediate(resolve));
 let sequence = 0;
 
+test("native navigation waits for the saved checkpoint and ignores superseded requests", async () => {
+  const emptyView = dataModule("export default () => {};");
+  const mocks = { "src/lib/utils/motion": dataModule("export const reducedMotion = false; export const pageTransition = () => ({duration:0});") };
+  for (const [feature, view] of [["home", "HomeView"], ["library", "LibraryView"], ["library", "GameDetailView"], ["store", "StoreView"], ["downloads", "DownloadsView"]]) {
+    mocks[`src/lib/features/${feature}/${view}.svelte`] = emptyView;
+  }
+  const { loader, logger } = await fixture(mocks);
+  logger.setApplicationLoggingEnabled(true);
+  const acknowledgements = [];
+  const messages = [];
+  globalThis.applicationLogInvoke = (command, args) => {
+    messages.push(args.message);
+    if (args.message.startsWith("Snapshot starting:")) return new Promise(resolve => acknowledgements.push({ message: args.message, resolve }));
+    return Promise.resolve();
+  };
+  const previousStart = document.startViewTransition;
+  const transitions = [];
+  document.startViewTransition = update => {
+    const transition = { update, ready: Promise.resolve(), finished: new Promise(() => {}), skipTransition() {} };
+    transitions.push(transition);
+    return transition;
+  };
+  const navigation = await import(await loader.load("src/lib/stores/navigation.ts"));
+  navigation.activeSection.set("home"); navigation.selectedGameId.set(null);
+  const component = (await import(await loader.load("src/lib/components/layout/MainContainer.svelte"))).default;
+  const target = document.createElement("div"); document.body.append(target);
+  const instance = mount(component, { target });
+  try {
+    flushSync();
+    navigation.activeSection.set("library"); flushSync();
+    assert.equal(transitions.length, 0, "the crash-prone snapshot must wait for native persistence");
+    assert.equal(acknowledgements.length, 1);
+    navigation.activeSection.set("store"); flushSync();
+    acknowledgements[0].resolve(); await settle(); flushSync();
+    assert.equal(transitions.length, 0, "a superseded checkpoint cannot start an old snapshot");
+    acknowledgements[1].resolve(); await settle(); flushSync();
+    assert.equal(transitions.length, 1);
+    await transitions[0].update();
+    assert.equal(target.querySelector("[data-page]").dataset.page, "store");
+    navigation.activeSection.set("library"); flushSync();
+    acknowledgements[2].resolve(); await settle(); flushSync();
+    const obsoleteUpdate = transitions[1].update();
+    navigation.activeSection.set("home"); flushSync();
+    await obsoleteUpdate;
+    assert.equal(target.querySelector("[data-page]").dataset.page, "store");
+    assert.ok(!messages.includes("DOM update completed: library"), "a cancelled callback must not report an update that never happened");
+  } finally { await unmount(instance); target.remove(); document.startViewTransition = previousStart; }
+});
+
+test("navigation checkpoints wait for persistence and tolerate a failed logging transport", async () => {
+  const { logger } = await fixture();
+  logger.setApplicationLoggingEnabled(false);
+  assert.equal(logger.logNavigationCheckpoint("Snapshot starting: library"), undefined);
+  logger.setApplicationLoggingEnabled(true);
+  let acknowledge;
+  globalThis.applicationLogInvoke = () => new Promise(resolve => { acknowledge = resolve; });
+  let finished = false;
+  const pending = logger.logNavigationCheckpoint("Snapshot starting: library").then(() => { finished = true; });
+  await settle();
+  assert.equal(finished, false);
+  acknowledge();
+  await pending;
+  assert.equal(finished, true);
+  globalThis.applicationLogInvoke = async () => { throw new Error("Unavailable"); };
+  const warn = console.warn;
+  console.warn = () => {};
+  const stop = logger.installApplicationLogging();
+  try { await logger.logNavigationCheckpoint("Snapshot starting: store"); }
+  finally { stop(); console.warn = warn; }
+});
+
+test("Steam image display failures log safe asset context and keep a stable fallback", async () => {
+  const storeImport = `import { writable } from "${import.meta.resolve("svelte/store")}";`;
+  const { records, loader, logger } = await fixture({
+    "src/lib/i18n": dataModule(storeImport + 'export const language = writable("it"); export const t = value => value;'),
+    "src/lib/stores/window-activity": dataModule(storeImport + 'export const windowActive = writable(true);'),
+    "src/lib/utils/motion": dataModule("export const fadeDuration = 0;"),
+  });
+  globalThis.applicationLogInvoke = async (command, args) => {
+    if (command === "report_application_event") { records.push(args); return; }
+    assert.equal(command, "get_steam_asset");
+    return artworkPacket({ bytes: [1], contentType: "image/webp" });
+  };
+  logger.setApplicationLoggingEnabled(true);
+  const component = (await import(await loader.load("src/lib/features/library/SteamArtwork.svelte"))).default;
+  const target = document.createElement("div"); document.body.append(target);
+  const instance = mount(component, { target, props: { steamAppId: 917623, asset: "hero_blur", alt: "PRIVATE_GAME_NAME" } });
+  try {
+    for (let index = 0; index < 8; index++) { await settle(); flushSync(); }
+    target.querySelector("img").dispatchEvent(new Event("error"));
+    await settle(); flushSync();
+    assert.equal(target.querySelector("img"), null);
+    assert.equal(target.querySelector('[role="status"]'), null, "a rejected image must leave the loading state");
+    const images = await import(await loader.load("src/lib/services/steam-details.ts"));
+    images.steamImageRevision.update(value => value + 1);
+    await settle(); flushSync();
+    assert.equal(target.querySelector("img"), null, "an unrelated cache revision must not retry the same rejected URL");
+    assert.ok(records.some(record => record.message === "Artwork display failed; asset: hero_blur"));
+    assert.ok(!JSON.stringify(records).includes("PRIVATE_GAME_NAME"));
+    assert.ok(!JSON.stringify(records).includes("917623"));
+    assert.ok(!JSON.stringify(records).includes("blob:"));
+  } finally { await unmount(instance); target.remove(); }
+});
+
 async function fixture(extraMocks = {}) {
   const records = [];
   globalThis.applicationLogInvoke = async (command, args) => {

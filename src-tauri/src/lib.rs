@@ -71,6 +71,8 @@ mod steam_pics;
 mod steam_process;
 mod steam_switch;
 mod steam_vdf;
+#[cfg(any(windows, test))]
+mod webview_diagnostics;
 
 pub fn run() -> tauri::Result<()> {
     let mut context = tauri::generate_context!();
@@ -161,6 +163,15 @@ fn run_application(
                 .map_err(std::io::Error::other)?;
             app.state::<application_log::ApplicationLog>()
                 .set_enabled(initial_settings.application_logging_enabled);
+            #[cfg(windows)]
+            if let Some(window) = app.get_webview_window("main") {
+                webview_diagnostics::install(
+                    &window,
+                    app.state::<application_log::ApplicationLog>()
+                        .inner()
+                        .clone(),
+                );
+            }
             let bandwidth_limit = database
                 .database()
                 .and_then(database::Database::download_bandwidth_limit)

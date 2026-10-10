@@ -7,7 +7,7 @@
   import StoreView from "../../features/store/StoreView.svelte";
   import { activeSection, selectedGameId } from "../../stores/navigation";
   import { pageTransition, reducedMotion } from "../../utils/motion";
-  import { logApplicationEvent } from "../../services/application-log";
+  import { logApplicationEvent, logNavigationCheckpoint } from "../../services/application-log";
 
   const gamePrefix = "library:";
 
@@ -17,11 +17,13 @@
 
   let displayedTarget = $state(untrack(() => target));
   let transition: ViewTransition | undefined;
+  let navigationRequest = 0;
   const nativeTransitions = typeof document.startViewTransition === "function";
 
   onMount(() => void (mounted = true));
   onDestroy(() => {
     mounted = false;
+    navigationRequest++;
     transition?.skipTransition();
   });
 
@@ -33,32 +35,45 @@
     logApplicationEvent("info", "navigation", `Displayed: ${pageName(displayedTarget)}`);
   });
 
-  $effect(() => {
-    const next = target;
-    if (next === untrack(() => displayedTarget)) {
-      transition?.skipTransition();
-      return;
-    }
-    logApplicationEvent("info", "navigation", `Requested: ${pageName(next)}; transition: ${nativeTransitions && !reducedMotion ? "native" : "fade"}`);
-    transition?.skipTransition();
-    if (!nativeTransitions || reducedMotion || !mounted) {
-      displayedTarget = next;
-      return;
-    }
-    const current = document.startViewTransition(() => {
+  function startNativeTransition(next: string, request: number): void {
+    if (!mounted || target !== next || navigationRequest !== request) return;
+    const current = document.startViewTransition(async () => {
+      const before = logNavigationCheckpoint(`DOM update starting: ${pageName(next)}`);
+      if (before !== undefined) await before;
+      if (!mounted || target !== next || navigationRequest !== request) return;
       flushSync(() => {
-        if (mounted && target === next) displayedTarget = next;
+        displayedTarget = next;
       });
+      const after = logNavigationCheckpoint(`DOM update completed: ${pageName(next)}`);
+      if (after !== undefined) await after;
     });
     transition = current;
-    void current.ready.catch((error: unknown) => {
+    void current.ready.then(() => {
+      logApplicationEvent("info", "navigation", `Snapshot ready: ${pageName(next)}`);
+    }).catch((error: unknown) => {
       if (!(error instanceof DOMException && error.name === "AbortError")) {
         console.warn("Page transition snapshot failed", error);
       }
     });
     void current.finished.then(() => {
+      logApplicationEvent("info", "navigation", `Transition finished: ${pageName(next)}`);
       if (transition === current) transition = undefined;
     }).catch((error: unknown) => console.warn("Page transition failed", error));
+  }
+
+  $effect(() => {
+    const next = target;
+    const request = ++navigationRequest;
+    transition?.skipTransition();
+    if (next === untrack(() => displayedTarget)) return;
+    logApplicationEvent("info", "navigation", `Requested: ${pageName(next)}; transition: ${nativeTransitions && !reducedMotion ? "native" : "fade"}`);
+    if (!nativeTransitions || reducedMotion || !mounted) {
+      displayedTarget = next;
+      return;
+    }
+    const checkpoint = logNavigationCheckpoint(`Snapshot starting: ${pageName(next)}`);
+    if (checkpoint === undefined) startNativeTransition(next, request);
+    else void checkpoint.then(() => startNativeTransition(next, request));
   });
 
 

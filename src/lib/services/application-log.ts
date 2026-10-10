@@ -40,6 +40,14 @@ export function applicationErrorStack(error: unknown): string | null {
 }
 
 export function logApplicationEvent(level: ApplicationLogLevel, event: ApplicationLogEvent, message = "", stack: string | null = null): void {
+  void reportApplicationEvent(level, event, message, stack);
+}
+
+export function logNavigationCheckpoint(message: string): Promise<void> | undefined {
+  return reportApplicationEvent("info", "navigation", message, null);
+}
+
+function reportApplicationEvent(level: ApplicationLogLevel, event: ApplicationLogEvent, message: string, stack: string | null): Promise<void> | undefined {
   if (enabled === false) return;
   const now = Date.now();
   if (now - windowStart >= 60_000) {
@@ -49,7 +57,7 @@ export function logApplicationEvent(level: ApplicationLogLevel, event: Applicati
   const bucket = event === "renderer_error" || event === "unhandled_rejection" || event === "bootstrap_error" ? 1 : 0;
   if (recordCount[bucket] >= 50) return;
   recordCount[bucket]++;
-  void invoke("report_application_event", {
+  return invoke<void>("report_application_event", {
     level, event, message: bounded(message, 1024), stack: stack === null ? null : bounded(stack, 4096),
   }).catch(() => {
     if (warned) return;
