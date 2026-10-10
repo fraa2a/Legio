@@ -220,6 +220,8 @@ jobs:
       - name: Test Windows application logging
         if: runner.os == 'Windows'
         shell: bash
+        env:
+          LEGIO_WINDOWS_TESTS: "1"
         run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib application_log::tests::'
 
       - name: Test Windows Steam discovery
