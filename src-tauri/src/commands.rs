@@ -724,8 +724,9 @@ pub async fn search_catalog(
     app: AppHandle,
     query: String,
     limit: Option<u32>,
+    options: Option<crate::catalog::CatalogOptions>,
 ) -> Result<crate::catalog::CatalogSearch, crate::catalog::CatalogError> {
-    crate::catalog::search_catalog(app, query, limit).await
+    crate::catalog::search_catalog(app, query, limit, options).await
 }
 
 #[tauri::command]
@@ -735,8 +736,9 @@ pub async fn refresh_catalog(
     query: String,
     skip: Option<usize>,
     limit: Option<u32>,
+    options: Option<crate::catalog::CatalogOptions>,
 ) -> Result<crate::catalog::CatalogSearch, crate::catalog::CatalogError> {
-    crate::catalog::refresh_catalog(app, state.inner(), query, skip, limit).await
+    crate::catalog::refresh_catalog(app, state.inner(), query, skip, limit, options).await
 }
 
 #[tauri::command]

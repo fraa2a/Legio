@@ -1,6 +1,6 @@
 [package]
 name = "legio"
-version = "0.1.5"
+version = "0.2.0"
 description = "A desktop game launcher for Windows and Linux"
 edition = "2024"
 rust-version = "1.98.1"

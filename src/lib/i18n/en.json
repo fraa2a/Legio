@@ -1,4 +1,13 @@
 {
+  "Ordina per": "Sort by",
+  "Più affine": "Most relevant",
+  "Alfabetico crescente (A-Z)": "Alphabetical ascending (A-Z)",
+  "Alfabetico decrescente (Z-A)": "Alphabetical descending (Z-A)",
+  "Disponibilità": "Availability",
+  "Tutti": "All",
+  "Solo disponibili": "Available only",
+  "Solo verified": "Verified only",
+  "Nessun gioco corrisponde ai filtri selezionati.": "No games match the selected filters.",
   "Gioco aggiunto. Avviso sull'icona: {0}": "Game added. Icon warning: {0}",
   "Avanzate": "Advanced",
   "Log e diagnostica": "Logs and diagnostics",

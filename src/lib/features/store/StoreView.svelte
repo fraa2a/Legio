@@ -1,10 +1,11 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
-  import { SvelteMap } from "svelte/reactivity";
   import Badge from "../../components/ui/Badge.svelte";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
+  import SelectField from "../../components/ui/SelectField.svelte";
+  import type { CatalogSort, CatalogAvailability } from "../../services/catalog";
   import { catalog, loadMoreCatalog, runCatalogSearch } from "../../stores/catalog";
   import { storeQuery } from "../../stores/library-ui";
   import { openStoreGame, selectedStoreGame } from "../../stores/navigation";
@@ -20,30 +21,23 @@
     status: SourceStatus;
   }
 
-  const collator = new Intl.Collator(undefined, { sensitivity: "base" });
-
   const manifest = $derived($source.data.manifest);
   const trimmed = $derived($storeQuery.trim());
+  let sort = $state<CatalogSort>("relevance");
+  let availability = $state<CatalogAvailability>("all");
+  const options = $derived({ sort, availability });
   let visibleCount = $state(20);
 
   // Each title appears once; its releases are selected on the detail page.
-  const entries = $derived.by((): StoreEntry[] => {
-    if (trimmed.length === 0) {
-      const sourceEntries = manifest === null ? [] : [...manifest.verified, ...manifest.unverified];
-      const names = new SvelteMap($catalog.results.map((entry) => [entry.steamAppId, entry.name]));
-      for (const entry of sourceEntries) names.set(entry.steamAppId, entry.name);
-      return [...names].map(([steamAppId, name]) => ({ steamAppId, name, status: sourceStatusFor(manifest, steamAppId) }))
-        .sort((left, right) => collator.compare(left.name, right.name));
-    }
-    return $catalog.results
+  const entries: StoreEntry[] = $derived($catalog.results
       .map((result) => ({
         steamAppId: result.steamAppId,
         name: result.name,
         status: sourceStatusFor(manifest, result.steamAppId),
-      }));
-  });
+      })));
 
   const emptyMessage = $derived.by(() => {
+    if (availability !== "all") return t("Nessun gioco corrisponde ai filtri selezionati.", $language);
     if (trimmed.length === 0) {
       return t("Nessun gioco nella cache locale. Cerca un titolo o aggiungi una sorgente nelle impostazioni.", $language);
     }
@@ -51,15 +45,17 @@
   });
 
   const listStatus = $derived.by((): LoadStatus => {
-    if ($catalog.status !== "ready" && trimmed.length > 0) return $catalog.status;
+    if ($catalog.status !== "ready" && entries.length === 0) return $catalog.status;
     return entries.length > 0 ? "ready" : "empty";
   });
 
-  $effect(() => { void $storeQuery; visibleCount = 20; });
+  $effect(() => { void $storeQuery; void options; void manifest; visibleCount = 20; });
 
   $effect(() => {
     const value = $storeQuery;
-    const timer = setTimeout(() => void runCatalogSearch(value), 300);
+    const selection = options;
+    void manifest;
+    const timer = setTimeout(() => void runCatalogSearch(value, selection), 300);
     return () => clearTimeout(timer);
   });
 </script>
@@ -78,6 +74,31 @@
 
     {#if $source.data.warning}<p class="text-xs text-amber-300 light:text-amber-800">{$source.data.warning}</p>{/if}
 
+    {#if $catalog.error && $catalog.status !== "error"}
+      <ErrorBanner message={$catalog.error}
+        onRetry={() => void runCatalogSearch($storeQuery, options, true)}
+        retryLabel={t("Riprova", $language)} />
+    {/if}
+
+    <div class="flex flex-wrap gap-3">
+      <SelectField id="store-sort" label={t("Ordina per", $language)} value={sort}
+        class="min-w-48 flex-1 sm:max-w-64"
+        options={[
+          { value: "relevance", label: t("Più affine", $language) },
+          { value: "name_asc", label: t("Alfabetico crescente (A-Z)", $language) },
+          { value: "name_desc", label: t("Alfabetico decrescente (Z-A)", $language) },
+        ]}
+        onChange={(value) => { sort = value as CatalogSort; }} />
+      <SelectField id="store-availability" label={t("Disponibilità", $language)} value={availability}
+        class="min-w-48 flex-1 sm:max-w-64"
+        options={[
+          { value: "all", label: t("Tutti", $language) },
+          { value: "available", label: t("Solo disponibili", $language) },
+          { value: "verified", label: t("Solo verified", $language) },
+        ]}
+        onChange={(value) => { availability = value as CatalogAvailability; }} />
+    </div>
+
     {#if trimmed.length > 0 && $catalog.results.length > 0}
       <div class="flex flex-wrap items-center gap-3 text-xs text-zinc-500">
         {#if $catalog.refreshing}
@@ -95,7 +116,7 @@
       loadingMessage={t("Ricerca in corso...", $language)}
       {emptyMessage}
       error={$catalog.error}
-      onRetry={() => void runCatalogSearch($storeQuery)}
+      onRetry={() => void runCatalogSearch($storeQuery, options, true)}
     />
 
     {#if entries.length > 0}
