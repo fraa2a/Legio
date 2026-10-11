@@ -77,6 +77,11 @@ struct Lease {
 pub struct WorkHandle {
     lease: Arc<Lease>,
 }
+impl WorkHandle {
+    pub fn is_cancelled(&self) -> bool {
+        self.lease.cancelled.load(Ordering::Acquire)
+    }
+}
 pub struct ConversionPermit {
     inner: Arc<Inner>,
     stage: WorkStage,

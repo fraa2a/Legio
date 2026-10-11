@@ -815,20 +815,43 @@ pub async fn get_steam_asset(
     asset: crate::steam_assets::AssetKind,
     index: Option<usize>,
     full: Option<bool>,
-    refresh: Option<bool>,
-) -> Result<tauri::ipc::Response, String> {
-    // Keep the inline command future small while Tauri schedules it on the UI thread.
-    Box::pin(crate::steam_assets::get_asset(
+    policy: crate::steam_assets::AssetPolicy,
+    screenshot_identity: Option<String>,
+    request_id: String,
+    origin: crate::artwork_scheduler::WorkOrigin,
+    publication: crate::artwork_publication::PublicationMode,
+) -> Result<tauri::ipc::Response, crate::artwork_scheduler::WorkError> {
+    Box::pin(crate::steam_assets::get_asset_for_request(
         app,
         state.inner(),
-        steam_app_id,
-        asset,
-        index,
-        full.unwrap_or(false),
-        refresh.unwrap_or(false),
+        crate::steam_assets::AssetRequest {
+            app_id: steam_app_id,
+            asset,
+            index,
+            full: full.unwrap_or(false),
+            policy,
+            screenshot_identity,
+        },
+        crate::steam_assets::AssetDemand {
+            request_id,
+            origin,
+            publication,
+        },
     ))
     .await?
     .into_response()
+    .map_err(crate::artwork_scheduler::WorkError::Failed)
+}
+#[tauri::command]
+pub async fn finish_steam_asset_update(
+    state: State<'_, crate::steam_assets::AssetCacheState>,
+    token: String,
+    outcome: crate::artwork_publication::PublicationOutcome,
+) -> Result<crate::artwork_publication::PublicationResult, String> {
+    let cache = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || cache.finish(&token, outcome))
+        .await
+        .map_err(|error| format!("Artwork publication task failed: {error}"))?
 }
 #[tauri::command]
 pub fn is_aur_package() -> bool {
@@ -910,9 +933,40 @@ mod tests {
                 crate::steam_assets::AssetKind::HeroBlur,
                 None,
                 None,
+                crate::steam_assets::AssetPolicy::CacheOrFetch,
                 None,
+                "future-size".into(),
+                crate::artwork_scheduler::WorkOrigin::Visible,
+                crate::artwork_publication::PublicationMode::Display,
             )
         });
+        let publication = future_size(|state| {
+            finish_steam_asset_update(
+                state,
+                "future-size".into(),
+                crate::artwork_publication::PublicationOutcome::Displayed,
+            )
+        });
+        let metadata = future_size(|(app, network, scheduler)| {
+            get_steam_details(
+                app,
+                network,
+                scheduler,
+                730,
+                crate::steam_details::DetailsPolicy::CacheOrFetch,
+                crate::locale::LanguagePreference::English,
+                "future-size".into(),
+                crate::artwork_scheduler::WorkOrigin::Visible,
+            )
+        });
+        assert!(
+            publication <= 4096,
+            "Artwork publication future occupies {publication} bytes"
+        );
+        assert!(
+            metadata <= 4096,
+            "Artwork metadata future occupies {metadata} bytes"
+        );
         let prefetch = future_size(|(app, state)| prefetch_steam_hero(app, state, 730));
         assert!(
             asset <= 4096,

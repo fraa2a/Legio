@@ -12,6 +12,7 @@ mod appearance;
 mod application_log;
 pub mod archive_install;
 mod artwork_display;
+mod artwork_publication;
 mod artwork_scheduler;
 mod catalog;
 mod commands;
@@ -237,8 +238,8 @@ fn run_application(
                     application_log::failure("image_cache_maintenance", error);
                 }
             });
+            app.manage(assets.scheduler.clone());
             app.manage(assets);
-            app.manage(artwork_scheduler::ArtworkScheduler::default());
             app.manage(steam_details::DetailsFetchState::default());
             app.manage(game_artwork::GameArtworkStore::new(
                 app.path().app_data_dir().map_err(|error| error.to_string()),
@@ -432,6 +433,7 @@ fn run_application(
             commands::refresh_catalog,
             commands::get_steam_details,
             commands::get_steam_asset,
+            commands::finish_steam_asset_update,
             commands::set_artwork_game,
             commands::cancel_artwork_request,
             commands::get_artwork_display_width,
