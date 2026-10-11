@@ -1,44 +1,9 @@
 import { get, writable } from "svelte/store";
-import { language } from "../i18n";
 import { invoke } from "./invoke";
 import { decodeImageResponse } from "./image-response";
 import { artworkDisplayWidth } from "../stores/artwork-display";
 
-export interface SteamDetails {
-  steamAppId: number;
-  name: string;
-  appType: string;
-  shortDescription: string | null;
-  detailedDescription: string | null;
-  systemRequirements?: { minimum: string | null; recommended: string | null } | null;
-  developers: string[];
-  publishers: string[];
-  genres: string[];
-  platforms: { windows: boolean; mac: boolean; linux: boolean } | null;
-  releaseDate: { comingSoon: boolean; date: string } | null;
-  assets: {
-    header: string | null;
-    capsule: string | null;
-    background: string | null;
-    screenshots: { thumbnail: string | null; full: string | null }[];
-  };
-}
-
-export interface SteamDetailsResult {
-  details: SteamDetails | null;
-  cachedAt: number | null;
-  stale: boolean;
-}
-
-export interface SteamDetailsError {
-  kind: "invalid_app_id" | "unavailable" | "invalid_response" | "timeout" | "network" | "http" | "too_large" | "database" | "internal";
-  message: string;
-  status: number | null;
-}
-
-export function getSteamDetails(steamAppId: number, refresh: boolean): Promise<SteamDetailsResult> {
-  return invoke<SteamDetailsResult>("get_steam_details", { steamAppId, refresh, language: get(language) });
-}
+export { getSteamDetails, type SteamDetails, type SteamDetailsResult, type SteamDetailsError } from "./steam-metadata";
 
 export type SteamAssetKind = "header" | "capsule" | "screenshot" | "hero" | "logo" | "library_capsule" | "library_header" | "hero_blur" | "client_icon";
 

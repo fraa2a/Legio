@@ -54,7 +54,7 @@ jobs:
         run: corepack pnpm test:regressions
 
       - name: Test dropdowns, rendering, and shared artwork cache
-        run: corepack pnpm test:select && corepack pnpm test:visual && corepack pnpm test:artwork-cache && corepack pnpm test:artwork-work
+        run: corepack pnpm test:select && corepack pnpm test:visual && corepack pnpm test:artwork-cache && corepack pnpm test:artwork-work && corepack pnpm test:details-cache
 
       - name: Test source management and deep links
         run: corepack pnpm test:sources

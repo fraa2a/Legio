@@ -15,7 +15,7 @@ use crate::{
 
 const CACHE_LIMIT: u32 = 128;
 const MAX_DETAILS_BYTES: usize = 512 * 1024;
-const STALE_SECONDS: i64 = 24 * 60 * 60;
+const STALE_SECONDS: i64 = 3 * 24 * 60 * 60;
 const MAX_SCREENSHOTS: usize = 8;
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -84,6 +84,7 @@ pub struct DetailsResult {
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DetailsErrorKind {
+    Cancelled,
     InvalidAppId,
     Unavailable,
     InvalidResponse,
@@ -461,10 +462,6 @@ pub(crate) fn cached_details(
     Ok(cached_localized(database, app_id, time, alternate)?.details)
 }
 
-fn needs_fetch(previous: &DetailsResult, refresh: bool) -> bool {
-    refresh || previous.details.is_none() || previous.stale
-}
-
 async fn blocking<T, F>(task: F) -> Result<T, DetailsError>
 where
     F: FnOnce() -> Result<T, DetailsError> + Send + 'static,
@@ -475,6 +472,198 @@ where
         .map_err(|error| DetailsError::new(DetailsErrorKind::Internal, error.to_string()))?
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DetailsPolicy {
+    CacheOrFetch,
+    RefreshIfExpired,
+    ForceRefresh,
+}
+#[derive(Default)]
+pub struct DetailsFetchState {
+    locks: std::sync::Mutex<HashMap<(u32, String), std::sync::Weak<tokio::sync::Mutex<()>>>>,
+    failures: std::sync::Mutex<HashMap<(u32, String), tokio::time::Instant>>,
+}
+impl DetailsFetchState {
+    fn lock(&self, key: &(u32, String)) -> Result<Arc<tokio::sync::Mutex<()>>, DetailsError> {
+        let mut locks = self.locks.lock().map_err(|_| {
+            DetailsError::new(DetailsErrorKind::Internal, "Metadata scheduler unavailable")
+        })?;
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = locks.get(key).and_then(std::sync::Weak::upgrade) {
+            return Ok(lock);
+        }
+        let lock = Arc::new(tokio::sync::Mutex::new(()));
+        locks.insert(key.clone(), Arc::downgrade(&lock));
+        Ok(lock)
+    }
+}
+fn should_fetch(previous: &DetailsResult, policy: DetailsPolicy) -> bool {
+    previous.details.is_none()
+        || policy == DetailsPolicy::ForceRefresh
+        || (policy == DetailsPolicy::RefreshIfExpired && previous.stale)
+}
+async fn details_with_fetch<F, Fetch, Clock>(
+    database: Arc<Database>,
+    state: &DetailsFetchState,
+    scheduler: &crate::artwork_scheduler::ArtworkScheduler,
+    work: &crate::artwork_scheduler::WorkHandle,
+    app_id: u32,
+    policy: DetailsPolicy,
+    language: crate::locale::LanguagePreference,
+    mut fetch: Fetch,
+    clock: Clock,
+) -> Result<DetailsResult, DetailsError>
+where
+    F: std::future::Future<Output = Result<Vec<u8>, String>>,
+    Fetch: FnMut() -> F,
+    Clock: Fn() -> Result<i64, DetailsError>,
+{
+    let time = clock()?;
+    let read = |database: Arc<Database>| async move {
+        blocking(
+            move || match cached_localized(&database, app_id, time, language) {
+                Err(error)
+                    if error.message.starts_with("Invalid cached Steam details:")
+                        || error.message.starts_with("Cached Steam App ID") =>
+                {
+                    Ok(DetailsResult {
+                        details: None,
+                        cached_at: None,
+                        stale: false,
+                    })
+                }
+                result => result,
+            },
+        )
+        .await
+    };
+    let previous = read(database.clone()).await?;
+    if !should_fetch(&previous, policy) {
+        return Ok(previous);
+    }
+    let key = (app_id, language.code().to_owned());
+    let lock = state.lock(&key)?;
+    let waiting = lock.try_lock().is_err();
+    let _guard = lock.lock().await;
+    let previous = read(database.clone()).await?;
+    if !should_fetch(&previous, policy)
+        || (waiting && previous.details.is_some() && !previous.stale)
+    {
+        return Ok(previous);
+    }
+    if policy != DetailsPolicy::ForceRefresh && previous.details.is_some() {
+        let failures = state.failures.lock().map_err(|_| {
+            DetailsError::new(
+                DetailsErrorKind::Internal,
+                "Metadata retry state unavailable",
+            )
+        })?;
+        if failures
+            .get(&key)
+            .is_some_and(|retry| *retry > tokio::time::Instant::now())
+        {
+            return Ok(previous);
+        }
+    }
+    let fetched = async {
+        let bytes = scheduler
+            .run_network(work, &mut fetch)
+            .await
+            .map_err(|error| match error {
+                crate::artwork_scheduler::WorkError::Cancelled => {
+                    DetailsError::new(DetailsErrorKind::Cancelled, "Artwork request cancelled")
+                }
+                crate::artwork_scheduler::WorkError::Failed(message) => {
+                    DetailsError::new(DetailsErrorKind::Network, message)
+                }
+            })?;
+        let fetched_at = clock()?;
+        blocking(move || {
+            let details = decode(&bytes, app_id)?;
+            store_localized(&database, &details, fetched_at, language)?;
+            Ok(DetailsResult {
+                details: Some(details),
+                cached_at: Some(fetched_at),
+                stale: false,
+            })
+        })
+        .await
+    }
+    .await;
+    let mut failures = state.failures.lock().map_err(|_| {
+        DetailsError::new(
+            DetailsErrorKind::Internal,
+            "Metadata retry state unavailable",
+        )
+    })?;
+    failures.retain(|_, retry| *retry > tokio::time::Instant::now());
+    match fetched {
+        Ok(result) => {
+            failures.remove(&key);
+            Ok(result)
+        }
+        Err(error) if error.kind == DetailsErrorKind::Cancelled => Err(error),
+        Err(error) => {
+            if failures.len() >= CACHE_LIMIT as usize {
+                failures.clear();
+            }
+            failures.insert(
+                key,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(300),
+            );
+            crate::application_log::failure("artwork_metadata_refresh", &error.message);
+            if policy != DetailsPolicy::ForceRefresh && previous.details.is_some() {
+                Ok(previous)
+            } else {
+                Err(error)
+            }
+        }
+    }
+}
+
+pub async fn get_details_localized_with_policy<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    network: &NetworkState,
+    app_id: u32,
+    policy: DetailsPolicy,
+    language: crate::locale::LanguagePreference,
+    work: &crate::artwork_scheduler::WorkHandle,
+) -> Result<DetailsResult, DetailsError> {
+    validate_app_id(app_id)?;
+    let database = blocking({
+        let app = app.clone();
+        move || {
+            app.state::<DatabaseState>()
+                .shared_database()
+                .map_err(DetailsError::database)
+        }
+    })
+    .await?;
+    details_with_fetch(
+        database,
+        app.state::<DetailsFetchState>().inner(),
+        app.state::<crate::artwork_scheduler::ArtworkScheduler>()
+            .inner(),
+        work,
+        app_id,
+        policy,
+        language,
+        || async {
+            network
+                .steam_details(app_id, language)
+                .await
+                .map_err(|error| {
+                    let error = DetailsError::from(error);
+                    error.message
+                })
+        },
+        now,
+    )
+    .await
+}
+
+#[cfg(test)]
 pub async fn get_details_localized<R: Runtime>(
     app: tauri::AppHandle<R>,
     network: &NetworkState,
@@ -482,47 +671,203 @@ pub async fn get_details_localized<R: Runtime>(
     refresh: bool,
     language: crate::locale::LanguagePreference,
 ) -> Result<DetailsResult, DetailsError> {
-    validate_app_id(app_id)?;
-    let (database, time) = blocking({
-        let app = app.clone();
-        move || -> Result<(Arc<Database>, i64), DetailsError> {
-            let state = app.state::<DatabaseState>();
-            let database = state.shared_database().map_err(DetailsError::database)?;
-            Ok((database, now()?))
-        }
-    })
-    .await?;
-    let previous = blocking({
-        let database = database.clone();
-        move || cached_localized(&database, app_id, time, language)
-    })
-    .await?;
-    if !needs_fetch(&previous, refresh) {
-        return Ok(previous);
-    }
-    let bytes = match network.steam_details(app_id, language).await {
-        Ok(bytes) => bytes,
-        // Stale metadata is preferable to an empty panel during an implicit
-        // refresh. An explicit refresh still reports its failure.
-        Err(_error) if !refresh && previous.details.is_some() => return Ok(previous),
-        Err(error) => return Err(error.into()),
-    };
-    let details = blocking(move || {
-        let details = decode(&bytes, app_id)?;
-        store_localized(&database, &details, time, language)?;
-        Ok::<_, DetailsError>(details)
-    })
-    .await?;
-    Ok(DetailsResult {
-        details: Some(details),
-        cached_at: Some(time),
-        stale: false,
-    })
+    let scheduler = app.state::<crate::artwork_scheduler::ArtworkScheduler>();
+    let work = scheduler
+        .begin(
+            uuid::Uuid::new_v4().to_string(),
+            app_id,
+            crate::artwork_scheduler::WorkOrigin::Visible,
+        )
+        .map_err(|error| DetailsError::new(DetailsErrorKind::Internal, error.to_string()))?;
+    get_details_localized_with_policy(
+        app.clone(),
+        network,
+        app_id,
+        if refresh {
+            DetailsPolicy::ForceRefresh
+        } else {
+            DetailsPolicy::CacheOrFetch
+        },
+        language,
+        &work,
+    )
+    .await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn policy_fixture(
+        policy: DetailsPolicy,
+        time: i64,
+        fail: bool,
+        state: &DetailsFetchState,
+        database: Arc<Database>,
+        calls: &std::sync::atomic::AtomicUsize,
+    ) -> Result<DetailsResult, DetailsError> {
+        let scheduler = crate::artwork_scheduler::ArtworkScheduler::default();
+        let work = scheduler
+            .begin(
+                uuid::Uuid::new_v4().to_string(),
+                400,
+                crate::artwork_scheduler::WorkOrigin::Visible,
+            )
+            .unwrap();
+        details_with_fetch(
+            database,
+            state,
+            &scheduler,
+            &work,
+            400,
+            policy,
+            crate::locale::LanguagePreference::English,
+            || async {
+                calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if fail {
+                    Err("offline".to_owned())
+                } else {
+                    Ok(fixture(400))
+                }
+            },
+            || Ok(time),
+        )
+        .await
+    }
+    fn policy_database() -> (std::path::PathBuf, Arc<Database>) {
+        let path = directory();
+        let database = Arc::new(Database::open(&path).unwrap());
+        let mut details = decode(&fixture(400), 400).unwrap();
+        details.detailed_description = Some("Cached text".into());
+        details.system_requirements = Some(SystemRequirements {
+            minimum: Some("Cached requirements".into()),
+            recommended: None,
+        });
+        store(&database, &details, 100).unwrap();
+        (path, database)
+    }
+    #[tokio::test]
+    async fn stale_list_metadata_returns_without_fetch() {
+        let (path, database) = policy_database();
+        let state = DetailsFetchState::default();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        for _ in 0..3 {
+            let result = policy_fixture(
+                DetailsPolicy::CacheOrFetch,
+                400_000,
+                false,
+                &state,
+                database.clone(),
+                &calls,
+            )
+            .await
+            .unwrap();
+            assert_eq!(result.cached_at, Some(100));
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        drop(database);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[tokio::test]
+    async fn page_open_refreshes_at_three_day_boundary() {
+        let (path, database) = policy_database();
+        let state = DetailsFetchState::default();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        policy_fixture(
+            DetailsPolicy::RefreshIfExpired,
+            259_299,
+            false,
+            &state,
+            database.clone(),
+            &calls,
+        )
+        .await
+        .unwrap();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        let result = policy_fixture(
+            DetailsPolicy::RefreshIfExpired,
+            259_300,
+            false,
+            &state,
+            database.clone(),
+            &calls,
+        )
+        .await
+        .unwrap();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(result.cached_at, Some(259_300));
+        drop(database);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[tokio::test]
+    async fn failed_refresh_preserves_previous_and_does_not_advance_age() {
+        let (path, database) = policy_database();
+        let state = DetailsFetchState::default();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        for _ in 0..2 {
+            let result = policy_fixture(
+                DetailsPolicy::RefreshIfExpired,
+                400_000,
+                true,
+                &state,
+                database.clone(),
+                &calls,
+            )
+            .await
+            .unwrap();
+            assert_eq!(result.cached_at, Some(100));
+            assert_eq!(
+                result.details.unwrap().detailed_description.as_deref(),
+                Some("Cached text")
+            );
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(
+            policy_fixture(
+                DetailsPolicy::ForceRefresh,
+                400_000,
+                true,
+                &state,
+                database.clone(),
+                &calls
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+        drop(database);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[tokio::test]
+    async fn future_timestamp_revalidates_only_on_open() {
+        let (path, database) = policy_database();
+        let state = DetailsFetchState::default();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        policy_fixture(
+            DetailsPolicy::CacheOrFetch,
+            99,
+            false,
+            &state,
+            database.clone(),
+            &calls,
+        )
+        .await
+        .unwrap();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        policy_fixture(
+            DetailsPolicy::RefreshIfExpired,
+            99,
+            false,
+            &state,
+            database.clone(),
+            &calls,
+        )
+        .await
+        .unwrap();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        drop(database);
+        std::fs::remove_dir_all(path).unwrap();
+    }
 
     fn fixture(app_id: u32) -> Vec<u8> {
         serde_json::to_vec(&serde_json::json!({app_id.to_string(): {"success":true,"data":{
@@ -548,6 +893,8 @@ mod tests {
         context.config_mut().identifier = format!("org.legio.test.{}", uuid::Uuid::new_v4());
         tauri::test::mock_builder()
             .manage(DatabaseState::new(Ok(directory.to_path_buf())))
+            .manage(crate::artwork_scheduler::ArtworkScheduler::default())
+            .manage(DetailsFetchState::default())
             .build(context)
             .unwrap()
     }
@@ -620,10 +967,10 @@ mod tests {
             cached_at: None,
             stale: false,
         };
-        assert!(!needs_fetch(&fresh, false));
-        assert!(needs_fetch(&fresh, true));
-        assert!(needs_fetch(&stale, false));
-        assert!(needs_fetch(&missing, false));
+        assert!(!should_fetch(&fresh, DetailsPolicy::CacheOrFetch));
+        assert!(should_fetch(&fresh, DetailsPolicy::ForceRefresh));
+        assert!(should_fetch(&stale, DetailsPolicy::RefreshIfExpired));
+        assert!(should_fetch(&missing, DetailsPolicy::CacheOrFetch));
     }
 
     #[test]

@@ -5,7 +5,7 @@ export async function invoke<T>(command: string, args?: InvokeArgs, options?: In
   try {
     return await nativeInvoke<T>(command, args, options);
   } catch (error) {
-    logApplicationEvent("error", "command_error", `${command}: ${describeApplicationError(error)}`, applicationErrorStack(error));
+    if (!(error !== null && typeof error === "object" && "kind" in error && error.kind === "cancelled")) logApplicationEvent("error", "command_error", `${command}: ${describeApplicationError(error)}`, applicationErrorStack(error));
     throw error;
   }
 }

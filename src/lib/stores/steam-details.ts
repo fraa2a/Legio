@@ -4,8 +4,10 @@ import {
   getSteamDetails,
   type SteamDetails,
   type SteamDetailsResult,
-} from "../services/steam-details";
+} from "../services/steam-metadata";
 import { toMessage } from "../utils/errors";
+import { createArtworkWork, isArtworkCancelled, type ArtworkWork } from "../services/artwork-work";
+import type { DetailsPolicy } from "../services/steam-metadata";
 import type { LoadStatus } from "./resource";
 
 export interface SteamDetailsState {
@@ -41,18 +43,22 @@ function patch(steamAppId: number, values: Partial<SteamDetailsState>): void {
 
 export function loadSteamDetails(
   steamAppId: number,
-  refresh: boolean,
+  policy: DetailsPolicy | boolean,
+  suppliedWork?: ArtworkWork,
 ): Promise<SteamDetailsResult> {
-  if (!refresh) {
+  const actualPolicy = typeof policy === "boolean" ? (policy ? "force_refresh" : "cache_or_fetch") : policy;
+  if (actualPolicy !== "force_refresh") {
     const pending = inflight.get(steamAppId);
     if (pending !== undefined) return pending;
   }
   const generation = (generations.get(steamAppId) ?? 0) + 1;
   generations.set(steamAppId, generation);
+  const work = suppliedWork ?? createArtworkWork(steamAppId, "visible");
   const request = (async () => {
-    patch(steamAppId, { status: "loading", error: null });
+    const previous = get(steamDetails)[steamAppId];
+    patch(steamAppId, { status: previous?.details ? "ready" : "loading", error: null });
     try {
-      const result = await getSteamDetails(steamAppId, refresh);
+      const result = await getSteamDetails(steamAppId, actualPolicy, work);
       if (generations.get(steamAppId) === generation) patch(steamAppId, {
         status: result.details === null ? "empty" : "ready",
         details: result.details,
@@ -62,12 +68,13 @@ export function loadSteamDetails(
       });
       return result;
     } catch (error) {
-      if (generations.get(steamAppId) === generation) {
+      if (generations.get(steamAppId) === generation && !isArtworkCancelled(error)) {
         const previous = get(steamDetails)[steamAppId];
         patch(steamAppId, { status: previous?.details ? "ready" : "error", stale: true, error: toMessage(error) });
       }
       throw error;
     } finally {
+      if (!suppliedWork) work.release();
       if (generations.get(steamAppId) === generation) inflight.delete(steamAppId);
     }
   })();
@@ -79,5 +86,10 @@ export function ensureSteamDetails(steamAppId: number): void {
   const existing = get(steamDetails)[steamAppId];
   // A failed attempt must not pin the title to an empty panel for the session.
   if (existing !== undefined && existing.status !== "error") return;
-  void loadSteamDetails(steamAppId, false).catch(() => undefined);
+  void loadSteamDetails(steamAppId, "cache_or_fetch").catch(() => undefined);
+}
+
+export async function refreshSteamDetailsOnOpen(steamAppId: number, work: ArtworkWork): Promise<void> {
+  if (!get(steamDetails)[steamAppId]?.details) await loadSteamDetails(steamAppId, "cache_or_fetch", work);
+  await loadSteamDetails(steamAppId, "refresh_if_expired", work);
 }

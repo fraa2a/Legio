@@ -772,17 +772,28 @@ pub async fn refresh_catalog(
 pub async fn get_steam_details(
     app: AppHandle,
     state: State<'_, NetworkState>,
+    scheduler: State<'_, crate::artwork_scheduler::ArtworkScheduler>,
     steam_app_id: u32,
-    refresh: bool,
+    policy: crate::steam_details::DetailsPolicy,
     language: crate::locale::LanguagePreference,
+    request_id: String,
+    origin: crate::artwork_scheduler::WorkOrigin,
 ) -> Result<crate::steam_details::DetailsResult, crate::steam_details::DetailsError> {
-    crate::steam_details::get_details_localized(
+    let work = scheduler
+        .begin(request_id, steam_app_id, origin)
+        .map_err(|error| crate::steam_details::DetailsError {
+            kind: crate::steam_details::DetailsErrorKind::Cancelled,
+            message: error.to_string(),
+            status: None,
+        })?;
+    Box::pin(crate::steam_details::get_details_localized_with_policy(
         app,
         state.inner(),
         steam_app_id,
-        refresh,
+        policy,
         language.resolve(),
-    )
+        &work,
+    ))
     .await
 }
 

@@ -27,7 +27,8 @@
     "test:select": "node --conditions=browser --test scripts/test_select.mjs",
     "test:artwork-cache": "node --conditions=browser --test scripts/test_steam_image_cache.mjs",
     "test:visual": "node --conditions=browser --test scripts/test_visual_rendering.mjs",
-    "test:artwork-work": "node --conditions=browser --test scripts/test_artwork_work.mjs"
+    "test:artwork-work": "node --conditions=browser --test scripts/test_artwork_work.mjs",
+    "test:details-cache": "node --conditions=browser --test scripts/test_steam_details_cache.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.1",

@@ -239,6 +239,7 @@ fn run_application(
             });
             app.manage(assets);
             app.manage(artwork_scheduler::ArtworkScheduler::default());
+            app.manage(steam_details::DetailsFetchState::default());
             app.manage(game_artwork::GameArtworkStore::new(
                 app.path().app_data_dir().map_err(|error| error.to_string()),
             ));

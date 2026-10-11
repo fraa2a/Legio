@@ -11,3 +11,7 @@ export function createArtworkWork(_appId: number, origin: ArtworkWork["origin"])
     void invoke("cancel_artwork_request", { requestId }).catch(() => logApplicationEvent("warn", "command_error", "Artwork cancellation unavailable"));
   } };
 }
+
+export function isArtworkCancelled(error: unknown): boolean {
+  return error !== null && typeof error === "object" && "kind" in error && error.kind === "cancelled";
+}

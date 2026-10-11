@@ -53,7 +53,7 @@ test("Steam refresh survives older success and failure without losing cached dat
   globalThis.legioDetailsMock = () => { const request = deferred(); pending.push(request); return request.promise; };
   const service = dataModule("export const getSteamDetails = (...args) => globalThis.legioDetailsMock(...args);");
   const { steamDetails, loadSteamDetails } = await loadModule("../src/lib/stores/steam-details.ts", {
-    "../services/steam-details": service, "../utils/errors": errors,
+    "../services/steam-metadata": service, "../services/artwork-work": dataModule("export const isArtworkCancelled = () => false; export const createArtworkWork = () => ({ requestId: 'test', origin: 'visible', release() {} });"), "../utils/errors": errors,
   });
   const old = loadSteamDetails(42, false);
   const fresh = loadSteamDetails(42, true);
