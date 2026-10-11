@@ -26,7 +26,7 @@
     "test:review": "node --conditions=browser --test scripts/test_review_frontend.mjs",
     "test:select": "node --conditions=browser --test scripts/test_select.mjs",
     "test:artwork-cache": "node --conditions=browser --test scripts/test_steam_image_cache.mjs",
-    "test:visual": "node --conditions=browser --test scripts/test_visual_rendering.mjs",
+    "test:visual": "node --conditions=browser --test scripts/test_visual_rendering.mjs scripts/test_dither_renderer.mjs",
     "test:artwork-work": "node --conditions=browser --test scripts/test_artwork_work.mjs",
     "test:details-cache": "node --conditions=browser --test scripts/test_steam_details_cache.mjs"
   },

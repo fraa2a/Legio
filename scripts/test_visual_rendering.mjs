@@ -36,6 +36,8 @@ test("frozen dither requests a persistent drawing buffer without a continuous fr
     return new Proxy({}, { get: (_, name) => {
       if (name === "drawArrays") return () => { draws++; };
       if (name === "getExtension") return () => null;
+      if (name === "isContextLost") return () => false;
+      if (name === "checkFramebufferStatus") return () => 1;
       if (String(name).toUpperCase() === name) return 1;
       return () => true;
     } });
