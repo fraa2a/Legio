@@ -351,6 +351,14 @@ impl DatabaseState {
     }
 }
 
+#[cfg(test)]
+pub(crate) fn close_test_database(state: &DatabaseState) {
+    let database = state.shared_database().unwrap();
+    let mut connection = database.connection.lock().unwrap();
+    let opened = std::mem::replace(&mut *connection, Connection::open_in_memory().unwrap());
+    opened.close().unwrap();
+}
+
 pub struct Database {
     connection: Mutex<Connection>,
     pub(crate) source_cache: Mutex<Option<crate::legio_source_cache::CachedSource>>,

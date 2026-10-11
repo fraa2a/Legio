@@ -1178,6 +1178,7 @@ mod tests {
         assert_eq!(result.details, Some(details));
         assert_eq!(result.cached_at, Some(fetched_at));
         assert!(!result.stale);
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         std::fs::remove_dir_all(path).unwrap();
     }

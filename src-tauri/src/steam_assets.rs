@@ -2026,6 +2026,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(image.bytes, PNG);
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         fs::remove_dir_all(root).unwrap();
     }
@@ -2120,6 +2121,7 @@ mod tests {
             assert!(image.cache_warning.is_none());
         }
         assert!(!cache.directory().unwrap().join("pics").exists());
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         fs::remove_dir_all(root).unwrap();
     }
