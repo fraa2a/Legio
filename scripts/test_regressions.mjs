@@ -57,9 +57,10 @@ test("Steam refresh survives older success and failure without losing cached dat
   });
   const old = loadSteamDetails(42, false);
   const fresh = loadSteamDetails(42, true);
-  assert.equal(loadSteamDetails(42, false), fresh);
+  const joined = loadSteamDetails(42, false);
+  assert.equal(pending.length, 2, "another consumer shares the current native request");
   pending[1].resolve({ details: { name: "NEW" }, cachedAt: 2, stale: false });
-  await fresh;
+  await Promise.all([fresh, joined]);
   pending[0].resolve({ details: { name: "OLD" }, cachedAt: 1, stale: true });
   await old;
   assert.equal(get(steamDetails)[42].details.name, "NEW");

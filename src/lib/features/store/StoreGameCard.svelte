@@ -33,7 +33,7 @@
 
   $effect(() => {
     void $language;
-    if (visible) ensureSteamDetails(steamAppId);
+    if (visible) return ensureSteamDetails(steamAppId);
   });
 </script>
 

@@ -43,7 +43,7 @@
 
   $effect(() => {
     void $language;
-    if (visible && steamAppId !== null) ensureSteamDetails(steamAppId);
+    if (visible && steamAppId !== null) return ensureSteamDetails(steamAppId);
   });
 </script>
 

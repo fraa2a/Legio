@@ -64,3 +64,23 @@ test("reopening a game does not reuse cancelled metadata work", async () => {
     assert.equal(get(store.steamDetails)[999].details.name, "NEW");
   } finally { newWork.release(); }
 });
+
+test("visible metadata demand cancels only when its last consumer leaves", async () => {
+  const store = await import(await load("src/lib/stores/steam-details.ts"));
+  let finish; let requestId; const cancelled = [];
+  globalThis.detailsInvoke = (command, args) => {
+    if (command === "cancel_artwork_request") { cancelled.push(args.requestId); return Promise.resolve(); }
+    if (command === "get_steam_details") { requestId = args.requestId; return new Promise(resolve => { finish = resolve; }); }
+  };
+  const releaseA = store.ensureSteamDetails(818);
+  const releaseB = store.ensureSteamDetails(818);
+  assert.equal(typeof releaseA, "function", "visible metadata must provide lifetime cleanup");
+  releaseA();
+  assert.ok(!cancelled.includes(requestId), "one remaining consumer still needs this request");
+  releaseB();
+  assert.ok(cancelled.includes(requestId), "the final offscreen consumer must cancel native demand");
+  finish({ details: { name: "OBSOLETE" }, cachedAt: 1, stale: false });
+  for (let i=0;i<20;i++) await Promise.resolve();
+  assert.equal(get(store.steamDetails)[818].details, null, "abandoned result must not publish");
+  assert.equal(get(store.steamDetails)[818].status, "idle", "returning row can retry");
+});

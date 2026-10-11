@@ -13,7 +13,7 @@ const { mount, unmount, flushSync } = await import("svelte");
 const { writable } = await import("svelte/store");
 const mocks = {
   "src/lib/stores/window-activity": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const windowActive = writable(true);`),
-  "@tauri-apps/api/core": dataModule('export const invoke = (...args) => args[0] === "cancel_artwork_request" ? Promise.resolve() : globalThis.artworkInvoke(...args);'),
+  "@tauri-apps/api/core": dataModule('export const invoke = (...args) => args[0] === "cancel_artwork_request" ? (globalThis.cancelledMetadata?.push(args[1].requestId), Promise.resolve()) : globalThis.artworkInvoke(...args);'),
   "src/lib/i18n": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const language = writable("en"); export const t = value => value;`),
   "src/lib/utils/motion": dataModule("export const fadeDuration = 0;"),
 };
@@ -268,5 +268,31 @@ test("library renders repeated Steam diagnostics and stays usable after refresh"
   } finally {
     if (component) await unmount(component);
     target.remove();
+  }
+});
+
+test("Store row releases metadata demand as soon as it leaves view", async () => {
+  globalThis.cancelledMetadata = [];
+  requests.length = 0;
+  globalThis.artworkInvoke = (command, args) => {
+    requests.push([command, args]);
+    if (command === "get_steam_details") return new Promise(resolve => { detailsResolve = resolve; });
+    if (command === "get_steam_asset") return Promise.resolve(artworkPacket({ bytes: [1], contentType: "image/png", stale: false, cacheWarning: null }));
+    return Promise.resolve();
+  };
+  let intersect;
+  globalThis.IntersectionObserver = class { constructor(callback) { intersect = callback; } observe() {} disconnect() {} };
+  const { default: StoreGameCard } = await import(await moduleUrl("src/lib/features/store/StoreGameCard.svelte"));
+  const target = document.createElement("ul"); document.body.append(target);
+  const component = mount(StoreGameCard, { target, props: { steamAppId: 824, name: "Portal", status: { availability: "unavailable", entry: null }, onOpen() {} } });
+  try {
+    await settle(); intersect([{ isIntersecting: true }]); await settle();
+    const metadata = requests.find(([command, args]) => command === "get_steam_details" && args.steamAppId === 824);
+    assert.ok(metadata, "visible row starts metadata");
+    intersect([{ isIntersecting: false }]); await settle();
+    assert.ok(globalThis.cancelledMetadata.includes(metadata[1].requestId), "offscreen row must release native metadata demand");
+    detailsResolve({ details: null, cachedAt: null, stale: false }); await settle();
+  } finally {
+    await unmount(component); target.remove(); delete globalThis.IntersectionObserver; delete globalThis.cancelledMetadata;
   }
 });

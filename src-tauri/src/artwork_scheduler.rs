@@ -50,6 +50,7 @@ struct State {
     selected: Option<u32>,
     next: u64,
     requests: HashMap<String, Weak<Lease>>,
+    cancelled: HashMap<String, Instant>,
     network: StageState,
     conversion: StageState,
 }
@@ -204,6 +205,10 @@ impl ArtworkScheduler {
             .state
             .lock()
             .map_err(|_| WorkError::Failed("Artwork scheduler unavailable".into()))?;
+        state.cancelled.retain(|_, at| at.elapsed().as_secs() < 300);
+        if state.cancelled.contains_key(&request_id) {
+            return Err(WorkError::Cancelled);
+        }
         if let Some(lease) = state.requests.get(&request_id).and_then(Weak::upgrade) {
             drop(state);
             if lease.app_id != app_id || lease.origin != origin {
@@ -247,16 +252,33 @@ impl ArtworkScheduler {
         Ok(())
     }
     pub fn cancel(&self, request_id: &str) -> Result<(), WorkError> {
-        let state = self
+        if request_id.is_empty() || request_id.len() > 128 {
+            return Err(WorkError::Failed("Invalid artwork request".into()));
+        }
+        let mut state = self
             .inner
             .state
             .lock()
             .map_err(|_| WorkError::Failed("Artwork scheduler unavailable".into()))?;
+        state.cancelled.retain(|_, at| at.elapsed().as_secs() < 300);
+        if state.cancelled.len() >= 1024
+            && !state.cancelled.contains_key(request_id)
+            && let Some(oldest) = state
+                .cancelled
+                .iter()
+                .min_by_key(|(_, at)| **at)
+                .map(|(id, _)| id.clone())
+        {
+            state.cancelled.remove(&oldest);
+        }
+        state
+            .cancelled
+            .insert(request_id.to_owned(), Instant::now());
         let lease = state.requests.get(request_id).and_then(Weak::upgrade);
-        drop(state);
         if let Some(lease) = lease {
             lease.cancelled.store(true, Ordering::Release);
         }
+        drop(state);
         self.inner.changed.notify_waiters();
         Ok(())
     }
@@ -489,6 +511,18 @@ mod tests {
                 .all(|value| value.contains("request_id=internal") && !value.contains("mixed-"))
         );
     }
+    #[tokio::test]
+    async fn cancellation_before_registration_never_admits_work() {
+        let scheduler = ArtworkScheduler::default();
+        scheduler.cancel("late-request").unwrap();
+        assert!(matches!(
+            scheduler.begin("late-request".into(), 400, WorkOrigin::Visible),
+            Err(WorkError::Cancelled)
+        ));
+        let state = scheduler.inner.state.lock().unwrap();
+        assert!(state.network.active.is_empty() && state.conversion.active.is_empty());
+    }
+
     #[tokio::test]
     async fn ordinary_network_leaves_urgent_capacity() {
         let scheduler = ArtworkScheduler::default();

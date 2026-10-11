@@ -9,7 +9,7 @@ const MAX_OUTPUT: usize = 2 * 1024 * 1024;
 static NEXT_OPERATION: AtomicU64 = AtomicU64::new(1);
 
 fn checkpoint(operation: u64, stage: &'static str, details: impl std::fmt::Display) {
-    crate::application_log::checkpoint(
+    crate::application_log::artwork_checkpoint(
         "artwork_processing",
         format!("operation={operation}; stage={stage}; {details}"),
     );

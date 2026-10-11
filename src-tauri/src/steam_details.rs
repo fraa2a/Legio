@@ -440,6 +440,25 @@ fn cached(
     )
 }
 
+fn recover_cached(
+    result: Result<DetailsResult, DetailsError>,
+) -> Result<DetailsResult, DetailsError> {
+    match result {
+        Err(error)
+            if error.message.starts_with("Invalid cached Steam details:")
+                || error.message.starts_with("Cached Steam App ID") =>
+        {
+            crate::application_log::failure("read_steam_metadata_cache", &error.message);
+            Ok(DetailsResult {
+                details: None,
+                cached_at: None,
+                stale: false,
+            })
+        }
+        result => result,
+    }
+}
+
 pub(crate) fn cached_details(
     database: &Database,
     app_id: u32,
@@ -450,7 +469,7 @@ pub(crate) fn cached_details(
         .map_err(DetailsError::database)?
         .language;
     let time = now()?;
-    let details = cached_localized(database, app_id, time, language)?.details;
+    let details = recover_cached(cached_localized(database, app_id, time, language))?.details;
     if details.is_some() {
         return Ok(details);
     }
@@ -459,7 +478,7 @@ pub(crate) fn cached_details(
     } else {
         crate::locale::LanguagePreference::Italian
     };
-    Ok(cached_localized(database, app_id, time, alternate)?.details)
+    Ok(recover_cached(cached_localized(database, app_id, time, alternate))?.details)
 }
 
 async fn blocking<T, F>(task: F) -> Result<T, DetailsError>
@@ -524,22 +543,7 @@ where
 {
     let time = clock()?;
     let read = |database: Arc<Database>| async move {
-        blocking(
-            move || match cached_localized(&database, app_id, time, language) {
-                Err(error)
-                    if error.message.starts_with("Invalid cached Steam details:")
-                        || error.message.starts_with("Cached Steam App ID") =>
-                {
-                    Ok(DetailsResult {
-                        details: None,
-                        cached_at: None,
-                        stale: false,
-                    })
-                }
-                result => result,
-            },
-        )
-        .await
+        blocking(move || recover_cached(cached_localized(&database, app_id, time, language))).await
     };
     let previous = read(database.clone()).await?;
     if !should_fetch(&previous, policy) {
@@ -696,6 +700,19 @@ pub async fn get_details_localized<R: Runtime>(
         &work,
     )
     .await
+}
+
+#[cfg(test)]
+pub(crate) fn hold_metadata_for_test(
+    state: &DetailsFetchState,
+    app_id: u32,
+) -> Arc<tokio::sync::Mutex<()>> {
+    state
+        .lock(&(
+            app_id,
+            crate::locale::LanguagePreference::English.code().to_owned(),
+        ))
+        .unwrap()
 }
 
 #[cfg(test)]
@@ -1091,6 +1108,42 @@ mod tests {
         assert!(cached(&database, 400, 100 + STALE_SECONDS).unwrap().stale);
         assert!(cached(&database, 400, 99).unwrap().stale);
         assert!(cached(&database, 401, 100).unwrap().details.is_none());
+        drop(database);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn corrupt_metadata_is_a_miss_for_missing_artwork_and_is_repaired() {
+        let (path, database) = policy_database();
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute("UPDATE steam_details_cache SET details = 'broken'", [])
+                    .map_err(|error| error.to_string())
+            })
+            .unwrap();
+        assert!(cached_details(&database, 400).unwrap().is_none());
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let result = policy_fixture(
+            DetailsPolicy::CacheOrFetch,
+            1000,
+            false,
+            &DetailsFetchState::default(),
+            database.clone(),
+            &calls,
+        )
+        .await
+        .unwrap();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(result.details.unwrap().assets.header.is_some());
+        assert!(
+            cached_details(&database, 400)
+                .unwrap()
+                .unwrap()
+                .assets
+                .header
+                .is_some()
+        );
         drop(database);
         std::fs::remove_dir_all(path).unwrap();
     }

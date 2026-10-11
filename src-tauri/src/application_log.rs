@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex, OnceLock, TryLockError,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -40,6 +40,12 @@ pub(crate) struct ApplicationLog {
     state: Arc<Mutex<State>>,
     session: Arc<str>,
     enabled: Arc<AtomicBool>,
+    artwork_queue: Arc<OnceLock<std::sync::mpsc::SyncSender<QueuedArtwork>>>,
+    queue_dropped: Arc<AtomicU64>,
+}
+struct QueuedArtwork {
+    event: &'static str,
+    message: String,
 }
 
 struct Record<'a> {
@@ -130,6 +136,8 @@ impl ApplicationLog {
                 critical_reports: 0,
             })),
             enabled: Arc::new(AtomicBool::new(false)),
+            artwork_queue: Arc::new(OnceLock::new()),
+            queue_dropped: Arc::new(AtomicU64::new(0)),
             session: uuid::Uuid::new_v4().to_string().into(),
         };
         log.set_enabled(enabled);
@@ -137,11 +145,48 @@ impl ApplicationLog {
     }
 
     pub(crate) fn status(&self) -> LogStatus {
-        self.state
+        let mut status = self
+            .state
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .status
-            .clone()
+            .clone();
+        status.dropped_records = status
+            .dropped_records
+            .saturating_add(self.queue_dropped.load(Ordering::Relaxed));
+        status
+    }
+
+    fn queue_artwork(&self, event: &'static str, message: String) {
+        if !self.enabled.load(Ordering::Acquire) {
+            return;
+        }
+        let sender = self.artwork_queue.get_or_init(|| {
+            let (sender, receiver) = std::sync::mpsc::sync_channel::<QueuedArtwork>(64);
+            let state = Arc::downgrade(&self.state);
+            let session = self.session.clone();
+            std::thread::spawn(move || {
+                while let Ok(report) = receiver.recv() {
+                    let Some(state) = state.upgrade() else {
+                        break;
+                    };
+                    let mut state = state.lock().unwrap_or_else(|error| error.into_inner());
+                    Self::write(
+                        &session,
+                        &mut state,
+                        "info",
+                        report.event,
+                        Some(&report.message),
+                        None,
+                        false,
+                    );
+                }
+            });
+            sender
+        });
+        if sender.try_send(QueuedArtwork { event, message }).is_err() {
+            self.queue_dropped.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     pub(crate) fn set_enabled(&self, enabled: bool) {
@@ -191,7 +236,8 @@ impl ApplicationLog {
             return Err("Application log report rate limit reached".to_owned());
         }
         *reports += 1;
-        self.write(
+        Self::write(
+            &self.session,
             &mut state,
             level.as_str(),
             event.as_str(),
@@ -211,7 +257,15 @@ impl ApplicationLog {
         durable: bool,
     ) {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-        self.write(&mut state, level, event, message, stack, durable);
+        Self::write(
+            &self.session,
+            &mut state,
+            level,
+            event,
+            message,
+            stack,
+            durable,
+        );
     }
 
     fn record_panic(&self, info: &std::panic::PanicHookInfo<'_>) {
@@ -239,7 +293,8 @@ impl ApplicationLog {
                 format!("{filename}:{}:{}", location.line(), location.column())
             })
             .unwrap_or_default();
-        self.write(
+        Self::write(
+            &self.session,
             &mut state,
             "error",
             "panic",
@@ -253,7 +308,7 @@ impl ApplicationLog {
     }
 
     fn write(
-        &self,
+        session: &str,
         state: &mut State,
         level: &str,
         event: &str,
@@ -274,7 +329,7 @@ impl ApplicationLog {
                 .unwrap_or_default()
                 .as_millis(),
             category: "application",
-            session: &self.session,
+            session,
             version: env!("CARGO_PKG_VERSION"),
             platform: std::env::consts::OS,
             level,
@@ -522,21 +577,15 @@ pub(crate) fn failure(context: &'static str, error: impl std::fmt::Display) {
 }
 
 pub(crate) fn artwork_summary(message: String) {
+    artwork_checkpoint("artwork", message);
+}
+
+pub(crate) fn artwork_checkpoint(event: &'static str, message: impl std::fmt::Display) {
     if let Some(log) = APPLICATION_LOG
         .get()
         .filter(|log| log.enabled.load(Ordering::Acquire))
     {
-        let log = log.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            // Reporting failures are exposed through the existing diagnostics status.
-            let _ = log.report(Level::Info, RendererEvent::Artwork, Some(&message), None);
-        });
-    }
-}
-
-pub(crate) fn checkpoint(event: &'static str, message: impl std::fmt::Display) {
-    if let Some(log) = APPLICATION_LOG.get() {
-        log.record("info", event, Some(&message.to_string()), None, true);
+        log.queue_artwork(event, message.to_string());
     }
 }
 
@@ -544,6 +593,11 @@ pub(crate) fn checkpoint(event: &'static str, message: impl std::fmt::Display) {
 mod tests {
     use super::*;
     use std::fs;
+    fn checkpoint(event: &'static str, message: impl std::fmt::Display) {
+        if let Some(log) = APPLICATION_LOG.get() {
+            log.record("info", event, Some(&message.to_string()), None, true);
+        }
+    }
 
     fn directory() -> PathBuf {
         std::env::temp_dir().join(format!("legio-app-log-{}", uuid::Uuid::new_v4()))
@@ -1014,8 +1068,68 @@ mod tests {
             .unwrap();
         let transformed = crate::image_trim::hero_webp(input.get_ref(), 16, true).unwrap();
         crate::image_response::encode(Vec::new(), transformed).unwrap();
+        if log.enabled.load(Ordering::Acquire) {
+            for _ in 0..200 {
+                if fs::read_to_string(directory.join("logs/app.txt"))
+                    .is_ok_and(|text| text.contains("stage=payload_ready"))
+                {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
         log.set_enabled(false);
         checkpoint("disabled_checkpoint", "must not persist");
+    }
+
+    #[test]
+    fn blocked_log_sink_does_not_block_native_conversion_or_ipc() {
+        let Some(directory) = std::env::var_os("LEGIO_BLOCKED_LOG_TEST_DIRECTORY") else {
+            return;
+        };
+        let log = initialize_at(None, Some(PathBuf::from(directory)));
+        log.set_enabled(true);
+        let guard = log.state.lock().unwrap();
+        let (send, receive) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let image = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+                16,
+                16,
+                image::Rgba([64, 128, 192, 255]),
+            ));
+            let mut png = std::io::Cursor::new(Vec::new());
+            image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+            let bytes = crate::image_trim::hero_webp(png.get_ref(), 8, true).unwrap();
+            crate::image_response::encode(Vec::new(), bytes).unwrap();
+            send.send(()).unwrap();
+        });
+        let completed = receive.recv_timeout(Duration::from_secs(2)).is_ok();
+        drop(guard);
+        worker.join().unwrap();
+        assert!(
+            completed,
+            "native conversion and publication waited for the log sink"
+        );
+    }
+
+    #[test]
+    fn native_conversion_logging_remains_nonblocking_in_subprocess() {
+        let directory = directory();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "application_log::tests::blocked_log_sink_does_not_block_native_conversion_or_ipc",
+                "--nocapture",
+            ])
+            .env("LEGIO_BLOCKED_LOG_TEST_DIRECTORY", &directory)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

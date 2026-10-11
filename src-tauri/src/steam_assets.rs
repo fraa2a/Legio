@@ -865,6 +865,28 @@ fn cached_result(entry: CacheEntry) -> AssetResult {
         replacement_token: None,
     }
 }
+fn selected_url_with_identity(
+    details: &SteamDetails,
+    asset: AssetKind,
+    index: Option<usize>,
+    full: bool,
+    identity: Option<&str>,
+) -> Result<String, String> {
+    if matches!(asset, AssetKind::Screenshot)
+        && let Some(identity) = identity
+    {
+        let parsed = reqwest::Url::parse(identity)
+            .map_err(|_| "Screenshot identity is invalid".to_owned())?;
+        if identity.len() > 2048
+            || identity.chars().any(char::is_control)
+            || !is_steam_asset_url(&parsed)
+        {
+            return Err("Screenshot identity is invalid".to_owned());
+        }
+        return Ok(identity.to_owned());
+    }
+    selected_url(details, asset, index, full)
+}
 pub async fn get_asset_for_request<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     network: &NetworkState,
@@ -891,13 +913,24 @@ pub async fn get_asset_for_request<R: tauri::Runtime>(
         let app = app.clone();
         let app_id = request.app_id;
         let index = request.index;
+        let requested_identity = request.screenshot_identity.clone();
         let identity = tauri::async_runtime::spawn_blocking(move || {
             let state = app.state::<DatabaseState>();
             let database = state.database()?;
             let details = cached_details(database, app_id)
                 .map_err(|error| error.message)?
                 .ok_or("No cached Steam details are available for this App ID")?;
-            selected_url(&details, AssetKind::Screenshot, index, full)
+            if let Some(identity) = requested_identity {
+                if !(0..details.assets.screenshots.len()).any(|candidate| {
+                    selected_url(&details, AssetKind::Screenshot, Some(candidate), full)
+                        .is_ok_and(|url| url == identity)
+                }) {
+                    return Err("Screenshot identity no longer matches cached metadata".to_owned());
+                }
+                Ok(identity)
+            } else {
+                selected_url(&details, AssetKind::Screenshot, index, full)
+            }
         })
         .await
         .map_err(|error| WorkError::Failed(error.to_string()))?
@@ -1273,7 +1306,7 @@ async fn get_asset_core<R: tauri::Runtime>(
             .details
             .ok_or("Steam artwork metadata is unavailable")?,
         };
-        let url = selected_url(&details, asset, index, full);
+        let url = selected_url_with_identity(&details, asset, index, full, screenshot_identity);
         (url, None, None)
     };
     let loaded = match selected {
@@ -1928,6 +1961,76 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn missing_header_waits_for_corrupt_metadata_recovery() {
+        let cache = cache();
+        let root = cache.directory().unwrap().parent().unwrap().to_path_buf();
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().identifier = format!("org.legio.test.{}", uuid::Uuid::new_v4());
+        let app = tauri::test::mock_builder()
+            .manage(DatabaseState::new(Ok(root.join("data"))))
+            .manage(cache.scheduler.clone())
+            .manage(crate::steam_details::DetailsFetchState::default())
+            .manage(cache.clone())
+            .build(context)
+            .unwrap();
+        let database = app.state::<DatabaseState>();
+        database.database().unwrap().with_connection(|connection| connection.execute("INSERT INTO steam_details_cache (steam_app_id,details,fetched_at) VALUES (400,'broken',0)", []).map_err(|error| error.to_string())).unwrap();
+        let details_state = app.state::<crate::steam_details::DetailsFetchState>();
+        let lock = crate::steam_details::hold_metadata_for_test(&details_state, 400);
+        let guard = lock.lock().await;
+        let network = NetworkState::new(
+            "0.2.0",
+            crate::diagnostics::Diagnostics::new(Err("test".into())),
+        )
+        .unwrap();
+        let loading = get_asset(
+            app.handle().clone(),
+            &network,
+            400,
+            AssetKind::Header,
+            None,
+            false,
+            false,
+        );
+        tokio::pin!(loading);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(150), &mut loading)
+                .await
+                .is_err(),
+            "corrupt metadata must reach the existing recovery lock instead of failing the artwork"
+        );
+        let url = "https://cdn.steamstatic.com/400/header.jpg";
+        let repaired = serde_json::json!({"steamAppId":400,"name":"Portal","appType":"game","developers":[],"publishers":[],"genres":[],"detailedDescription":"Ready","systemRequirements":{},"assets":{"header":url,"capsule":null,"background":null,"screenshots":[]}}).to_string();
+        database
+            .database()
+            .unwrap()
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE steam_details_cache SET details=?1,fetched_at=?2",
+                        rusqlite::params![
+                            repaired,
+                            SystemTime::now()
+                                .duration_since(SystemTime::UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs() as i64
+                        ],
+                    )
+                    .map_err(|error| error.to_string())
+            })
+            .unwrap();
+        cache.write("400-header", url, PNG, "image/png").unwrap();
+        drop(guard);
+        let image = tokio::time::timeout(Duration::from_secs(3), loading)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(image.bytes, PNG);
+        drop(app);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn cached_artwork_bypasses_locked_metadata_lookup() {
         let cache = cache();
         let root = cache.directory().unwrap().parent().unwrap();
@@ -2245,6 +2348,27 @@ mod tests {
         assert!(selected_url(&details, AssetKind::Header, None, false).is_err());
         assert!(selected_url(&details, AssetKind::Screenshot, Some(0), false).is_err());
         assert!(selected_url(&details, AssetKind::Capsule, Some(0), false).is_err());
+    }
+
+    #[test]
+    fn screenshot_download_keeps_validated_identity_after_metadata_reordering() {
+        let mut details: SteamDetails = serde_json::from_value(serde_json::json!({
+            "steamAppId":400,"name":"Portal","appType":"game","developers":[],"publishers":[],"genres":[],
+            "assets":{"header":null,"capsule":null,"background":null,"screenshots":[
+                {"thumbnail":"https://cdn.steamstatic.com/400/a.jpg"},
+                {"thumbnail":"https://cdn.steamstatic.com/400/b.jpg"}]}
+        })).unwrap();
+        let validated = selected_url(&details, AssetKind::Screenshot, Some(0), false).unwrap();
+        details.assets.screenshots.swap(0, 1);
+        let selected = selected_url_with_identity(
+            &details,
+            AssetKind::Screenshot,
+            Some(0),
+            false,
+            Some(&validated),
+        )
+        .unwrap();
+        assert_eq!(selected, validated);
     }
 
     #[test]
