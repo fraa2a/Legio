@@ -806,7 +806,8 @@ pub async fn get_steam_asset(
     full: Option<bool>,
     refresh: Option<bool>,
 ) -> Result<tauri::ipc::Response, String> {
-    crate::steam_assets::get_asset(
+    // Keep the inline command future small while Tauri schedules it on the UI thread.
+    Box::pin(crate::steam_assets::get_asset(
         app,
         state.inner(),
         steam_app_id,
@@ -814,7 +815,7 @@ pub async fn get_steam_asset(
         index,
         full.unwrap_or(false),
         refresh.unwrap_or(false),
-    )
+    ))
     .await?
     .into_response()
 }
@@ -842,7 +843,7 @@ pub async fn prefetch_steam_hero(
     state: State<'_, NetworkState>,
     steam_app_id: u32,
 ) -> Result<(), String> {
-    crate::steam_assets::get_asset(
+    Box::pin(crate::steam_assets::get_asset(
         app,
         state.inner(),
         steam_app_id,
@@ -850,7 +851,7 @@ pub async fn prefetch_steam_hero(
         None,
         false,
         false,
-    )
+    ))
     .await
     .map(|_| ())
 }
@@ -877,4 +878,38 @@ pub fn take_source_links(
     state: State<'_, crate::source_links::SourceLinks>,
 ) -> Result<crate::source_links::PendingLinks, String> {
     state.take()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn future_size<A, F: std::future::Future>(_: impl FnOnce(A) -> F) -> usize {
+        std::mem::size_of::<F>()
+    }
+
+    #[test]
+    fn artwork_command_futures_fit_the_windows_ui_stack_budget() {
+        // Tauri moves command futures through several frames on the 1 MiB UI stack.
+        let asset = future_size(|(app, state)| {
+            get_steam_asset(
+                app,
+                state,
+                730,
+                crate::steam_assets::AssetKind::HeroBlur,
+                None,
+                None,
+                None,
+            )
+        });
+        let prefetch = future_size(|(app, state)| prefetch_steam_hero(app, state, 730));
+        assert!(
+            asset <= 4096,
+            "Artwork command future occupies {asset} bytes"
+        );
+        assert!(
+            prefetch <= 4096,
+            "Artwork prefetch future occupies {prefetch} bytes"
+        );
+    }
 }
