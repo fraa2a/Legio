@@ -1,6 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() -> tauri::Result<()> {
+    if let Some(result) =
+        legio_lib::taxlauncher_import::run_cli(&std::env::args_os().collect::<Vec<_>>())
+    {
+        if let Err(error) = result {
+            eprintln!("TaxLauncher migration failed: {error}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
     #[cfg(target_os = "linux")]
     {
         let hyprland = std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some()

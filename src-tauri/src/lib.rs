@@ -57,6 +57,7 @@ mod settings;
 mod source_links;
 mod startup;
 mod startup_recovery;
+pub mod taxlauncher_import;
 
 struct TrayAvailable(bool);
 struct LaunchEvents(tauri::async_runtime::JoinHandle<()>);
