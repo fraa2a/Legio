@@ -2281,7 +2281,9 @@ mod tests {
         cache.write("400-header", &url, PNG, "image/png").unwrap();
         let path = cache.directory().unwrap().join("400-header.asset");
         let old = SystemTime::now() - FRESH_FOR - Duration::from_secs(1);
-        fs::File::open(&path)
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
             .unwrap()
             .set_times(fs::FileTimes::new().set_modified(old))
             .unwrap();
@@ -2314,7 +2316,9 @@ mod tests {
         cache.write("400-header", &url, PNG, "image/png").unwrap();
         let path = cache.directory().unwrap().join("400-header.asset");
         let old = SystemTime::now() - FRESH_FOR - Duration::from_secs(1);
-        fs::File::open(&path)
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
             .unwrap()
             .set_times(fs::FileTimes::new().set_modified(old))
             .unwrap();
@@ -2448,7 +2452,9 @@ mod tests {
             .to_path_buf()));
         let path = cache.directory().unwrap().join("400-header.asset");
         for (hours, stale) in [(119, false), (121, true)] {
-            fs::File::open(&path)
+            fs::OpenOptions::new()
+                .write(true)
+                .open(&path)
                 .unwrap()
                 .set_times(
                     fs::FileTimes::new()
@@ -2498,7 +2504,9 @@ mod tests {
         assert!(cache.read_cached("400-header", None).unwrap().is_some());
         assert!(orphan.exists());
         let old = SystemTime::now() - ORPHAN_AGE - Duration::from_secs(1);
-        fs::File::open(&orphan)
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&orphan)
             .unwrap()
             .set_times(fs::FileTimes::new().set_modified(old))
             .unwrap();
