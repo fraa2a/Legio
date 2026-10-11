@@ -104,7 +104,7 @@ dialog.legio-dialog {
   opacity: 1;
   border-color: transparent;
   box-shadow: none;
-  transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease, -webkit-backdrop-filter 180ms ease, backdrop-filter 180ms ease;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
 }
 dialog.legio-dialog[data-visible="true"] {
   border-color: rgb(255 255 255 / 0.15);
@@ -116,7 +116,6 @@ dialog.legio-dialog[data-visible="true"] {
 dialog.legio-dialog > .legio-dialog-content {
   opacity: 0;
   transition: opacity 180ms ease;
-  will-change: opacity;
 }
 dialog.legio-dialog[data-visible="true"] > .legio-dialog-content {
   opacity: 1;
@@ -124,7 +123,6 @@ dialog.legio-dialog[data-visible="true"] > .legio-dialog-content {
 dialog.legio-dialog::backdrop {
   opacity: 0;
   transition: opacity 180ms ease;
-  will-change: opacity;
 }
 dialog.legio-dialog[data-visible="true"]::backdrop { opacity: 1; }
 .legio-toast {
@@ -142,7 +140,11 @@ dialog.legio-dialog[data-visible="true"]::backdrop { opacity: 1; }
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
-dialog.legio-dialog[data-visible="true"] {
+dialog.legio-dialog > .legio-dialog-surface {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
   background-color: color-mix(in srgb, var(--legio-surface) calc(var(--legio-dialog-opacity) * 100%), transparent);
   -webkit-backdrop-filter: var(--legio-dialog-blur);
   backdrop-filter: var(--legio-dialog-blur);

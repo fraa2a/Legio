@@ -104,7 +104,7 @@
   }}
   onkeydown={handleKeydown}
   ontransitionend={(event) => {
-    if (closeTimer !== undefined && event.target === dialog?.firstElementChild && event.propertyName === "opacity") {
+    if (closeTimer !== undefined && event.target === dialog?.querySelector(".legio-dialog-content") && event.propertyName === "opacity") {
       finishClose();
     }
   }}
@@ -112,6 +112,7 @@
     if (event.target === dialog) close();
   }}
 >
+  <div class="legio-dialog-surface" aria-hidden="true"></div>
   <div
     class={flush ? 'legio-dialog-content relative z-10 flex h-full min-h-0 flex-col' : 'legio-dialog-content relative z-10 flex flex-col gap-5 p-6'}
   >
