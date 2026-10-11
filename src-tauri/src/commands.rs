@@ -913,3 +913,18 @@ mod tests {
         );
     }
 }
+
+#[tauri::command]
+pub fn set_artwork_game(
+    state: State<'_, crate::artwork_scheduler::ArtworkScheduler>,
+    steam_app_id: Option<u32>,
+) -> Result<(), crate::artwork_scheduler::WorkError> {
+    state.select_game(steam_app_id)
+}
+#[tauri::command]
+pub fn cancel_artwork_request(
+    state: State<'_, crate::artwork_scheduler::ArtworkScheduler>,
+    request_id: String,
+) -> Result<(), crate::artwork_scheduler::WorkError> {
+    state.cancel(&request_id)
+}

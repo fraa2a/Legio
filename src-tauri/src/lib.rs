@@ -12,6 +12,7 @@ mod appearance;
 mod application_log;
 pub mod archive_install;
 mod artwork_display;
+mod artwork_scheduler;
 mod catalog;
 mod commands;
 #[cfg(target_os = "linux")]
@@ -237,6 +238,7 @@ fn run_application(
                 }
             });
             app.manage(assets);
+            app.manage(artwork_scheduler::ArtworkScheduler::default());
             app.manage(game_artwork::GameArtworkStore::new(
                 app.path().app_data_dir().map_err(|error| error.to_string()),
             ));
@@ -429,6 +431,8 @@ fn run_application(
             commands::refresh_catalog,
             commands::get_steam_details,
             commands::get_steam_asset,
+            commands::set_artwork_game,
+            commands::cancel_artwork_request,
             commands::get_artwork_display_width,
             commands::reset_steam_artwork_cache,
             commands::prefetch_steam_hero,
