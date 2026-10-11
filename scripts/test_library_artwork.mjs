@@ -13,7 +13,7 @@ const { mount, unmount, flushSync } = await import("svelte");
 const { writable } = await import("svelte/store");
 const mocks = {
   "src/lib/stores/window-activity": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const windowActive = writable(true);`),
-  "@tauri-apps/api/core": dataModule("export const invoke = (...args) => globalThis.artworkInvoke(...args);"),
+  "@tauri-apps/api/core": dataModule('export const invoke = (...args) => args[0] === "cancel_artwork_request" ? Promise.resolve() : globalThis.artworkInvoke(...args);'),
   "src/lib/i18n": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const language = writable("en"); export const t = value => value;`),
   "src/lib/utils/motion": dataModule("export const fadeDuration = 0;"),
 };
@@ -99,7 +99,7 @@ test("stale artwork stays visible during refresh and is replaced when ready", as
   let completeRefresh;
   globalThis.artworkInvoke = (command, args) => {
     calls.push(args);
-    if (args.refresh) return new Promise(resolve => { completeRefresh = resolve; });
+    if (args.policy === "refresh_if_expired") return new Promise(resolve => { completeRefresh = resolve; });
     return Promise.resolve(artworkPacket({ bytes: [1], contentType: "image/webp", stale: true, cacheWarning: null, refreshAfter: 0 }));
   };
   const target = document.createElement("div");
@@ -107,12 +107,15 @@ test("stale artwork stays visible during refresh and is replaced when ready", as
   try {
     await settle();
     const oldUrl = target.querySelector("img").src;
+    const images = await import(await moduleUrl("src/lib/services/steam-details.ts"));
+    const opening = images.refreshSteamImagesOnOpen(501, { requestId: "open-501", origin: "visible", release() {} });
+    await settle();
     assert.equal(calls.length, 2);
-    assert.equal(calls[1].refresh, true);
+    assert.equal(calls[1].policy, "refresh_if_expired");
     await settle();
     assert.equal(target.querySelector("img").src, oldUrl);
-    completeRefresh(artworkPacket({ bytes: [2], contentType: "image/webp", stale: false, cacheWarning: null, refreshAfter: Date.now() + 72 * 3600000 }));
-    await settle();
+    completeRefresh(artworkPacket({ bytes: [2], contentType: "image/webp", stale: false, cacheWarning: null, refreshAfter: Date.now() + 120 * 3600000 }));
+    await opening; await settle();
     assert.notEqual(target.querySelector("img").src, oldUrl);
     assert.equal(calls.length, 2);
   } finally { await unmount(component); }
@@ -120,7 +123,7 @@ test("stale artwork stays visible during refresh and is replaced when ready", as
 
 test("failed background refresh preserves the cached cover", async () => {
   const { default: SteamArtwork } = await import(await moduleUrl("src/lib/features/library/SteamArtwork.svelte"));
-  globalThis.artworkInvoke = (command, args) => args.refresh
+  globalThis.artworkInvoke = (command, args) => args.policy === "refresh_if_expired"
     ? Promise.reject(new Error("offline"))
     : Promise.resolve(artworkPacket({ bytes: [1], contentType: "image/webp", stale: true, cacheWarning: null }));
   const target = document.createElement("div");
@@ -128,7 +131,9 @@ test("failed background refresh preserves the cached cover", async () => {
   try {
     await settle();
     assert.match(target.querySelector("img").src, /^blob:/);
-    assert.match(target.textContent, /offline/);
+    const images = await import(await moduleUrl("src/lib/services/steam-details.ts"));
+    await assert.rejects(images.refreshSteamImagesOnOpen(502, { requestId: "open-502", origin: "visible", release() {} }));
+    await settle(); assert.match(target.textContent, /offline/);
   } finally { await unmount(component); }
 });
 

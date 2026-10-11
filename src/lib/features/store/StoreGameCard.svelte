@@ -28,8 +28,7 @@
   const summary = $derived(steamSummaryLine(detailsState?.details?.shortDescription ?? null));
 
   $effect(() => {
-    if (visible) return;
-    return observeVisibility(row, () => (visible = true));
+    return observeVisibility(row, (value = true) => (visible = value), false);
   });
 
   $effect(() => {

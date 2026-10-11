@@ -4,7 +4,7 @@ import { artworkPacket, createModuleLoader, dataModule } from "./test_module_loa
 
 const { load } = createModuleLoader({
   "@tauri-apps/api/core": dataModule("export const invoke = (...args) => globalThis.cacheInvoke(...args);"),
-  "src/lib/i18n": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const language = writable("en");`),
+  "src/lib/i18n": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const language = writable("en"); export const t = s => s;`),
 });
 const images = await import(await load("src/lib/services/steam-details.ts"));
 const logging = await import(await load("src/lib/services/application-log.ts"));
@@ -26,6 +26,7 @@ test("identical assets share an in-flight download and object URL across fallbac
 test("a fallback reuses the header cache without substituting it for a caller requiring a hero", async () => {
   const calls = [];
   globalThis.cacheInvoke = (_command, args) => {
+    if (_command === "cancel_artwork_request") return Promise.resolve();
     calls.push(args.asset);
     return args.asset === "hero" ? Promise.reject(new Error("missing hero")) : Promise.resolve(packet());
   };
@@ -41,7 +42,8 @@ test("a fallback reuses the header cache without substituting it for a caller re
 test("manual refresh retries the original asset after a fallback was displayed", async () => {
   let missing = true;
   globalThis.cacheInvoke = (command, args) => {
-    if (command === "reset_steam_artwork_cache") { missing = false; return Promise.resolve(); }
+    if (command === "cancel_artwork_request") return Promise.resolve();
+    if (args.policy === "force_refresh") missing = false;
     if (args.asset === "hero" && missing) return Promise.reject(new Error("missing hero"));
     return Promise.resolve(packet());
   };
@@ -56,7 +58,7 @@ test("manual refresh retries the original asset after a fallback was displayed",
 
 test("manual refresh keeps a missing hero fallback in the shared header cache", async () => {
   globalThis.cacheInvoke = (command, args) => {
-    if (command === "reset_steam_artwork_cache") return Promise.resolve();
+    if (command === "cancel_artwork_request") return Promise.resolve();
     return args.asset === "hero" ? Promise.reject(new Error("missing hero")) : Promise.resolve(packet());
   };
   const heroRequest = request(906, "hero", "header");
@@ -81,7 +83,7 @@ test("manual refresh does not put current-monitor bytes in an old fallback profi
   const { artworkDisplayWidth } = await import(await load("src/lib/stores/artwork-display.ts"));
   const calls = [];
   globalThis.cacheInvoke = (command, args) => {
-    if (command === "reset_steam_artwork_cache") return Promise.resolve();
+    if (command === "cancel_artwork_request") return Promise.resolve();
     calls.push(args.asset);
     return args.asset === "hero" ? Promise.reject(new Error("missing hero")) : Promise.resolve(packet());
   };
@@ -94,10 +96,11 @@ test("manual refresh does not put current-monitor bytes in an old fallback profi
   } finally { artworkDisplayWidth.set(1920); }
 });
 
-test("an expired fallback retries the original asset and publishes its recovered image", async () => {
+test("page opening with an expired fallback retries the original asset and publishes its recovered image", async () => {
   let missing = true;
   const calls = [];
   globalThis.cacheInvoke = (_command, args) => {
+    if (_command === "cancel_artwork_request") return Promise.resolve();
     calls.push(args.asset);
     if (args.asset === "hero" && missing) return Promise.reject(new Error("missing hero"));
     return Promise.resolve(packet());
@@ -108,10 +111,9 @@ test("an expired fallback retries the original asset and publishes its recovered
   const now = Date.now;
   Date.now = () => now() + 61_000;
   try {
-    await images.loadSteamImage(heroRequest);
-    for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve));
+    await images.refreshSteamImagesOnOpen(909, { requestId: "open-909", origin: "visible", release() {} });
     assert.ok(images.peekSteamImage(request(909, "hero")));
-    assert.deepEqual(calls, ["hero", "header", "hero"]);
+    assert.deepEqual(calls, ["hero", "header", "header", "hero"]);
   } finally { Date.now = now; }
 });
 
@@ -142,6 +144,7 @@ test("refreshing a shared header cannot postpone another consumer's primary reco
   const calls = [];
   const now = Date.now;
   globalThis.cacheInvoke = (_command, args) => {
+    if (_command === "cancel_artwork_request") return Promise.resolve();
     calls.push(args.asset);
     if (args.asset === "hero" && missing) return Promise.reject(new Error("missing hero"));
     return Promise.resolve(packet());
@@ -151,28 +154,108 @@ test("refreshing a shared header cannot postpone another consumer's primary reco
   missing = false;
   Date.now = () => now() + 61_000;
   try {
-    await Promise.all([images.loadSteamImage(request(911, "header")), images.loadSteamImage(heroRequest)]);
-    for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve));
+    await images.refreshSteamImagesOnOpen(911, { requestId: "open-911", origin: "visible", release() {} });
     assert.ok(images.peekSteamImage(request(911, "hero")));
     assert.ok(calls.slice(2).includes("hero"));
   } finally { Date.now = now; }
 });
 
-test("retained fallback reports its retry deadline after a failed refresh", async () => {
+test("failed page-open refresh preserves the fallback successful-fetch age", async () => {
   let offline = false;
   const now = Date.now;
   globalThis.cacheInvoke = (_command, args) => args.asset === "hero" || offline
     ? Promise.reject(new Error("offline")) : Promise.resolve(packet());
   const heroRequest = request(912, "hero", "header");
   await images.loadSteamImage(heroRequest);
+  const previousAge = images.peekSteamImage(heroRequest).refreshAt;
   const expired = now() + 61_000;
   Date.now = () => expired;
   offline = true;
   try {
-    await images.loadSteamImage(heroRequest);
-    for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve));
+    await assert.rejects(images.refreshSteamImagesOnOpen(912, { requestId: "open-912", origin: "visible", release() {} }));
     const retained = images.retainSteamImage(heroRequest);
-    try { assert.equal(retained.refreshAt, expired + 300_000); }
+    try { assert.equal(retained.refreshAt, previousAge); }
     finally { retained.release(); }
   } finally { Date.now = now; }
+});
+
+const settle = () => new Promise(resolve => setImmediate(resolve));
+const stagedPacket = token => artworkPacket({ bytes: [1, 2], contentType: "image/webp", stale: false, cacheWarning: null, refreshAfter: Date.now() + 432_000_000, replacementToken: token });
+test("cached_image_survives_pending_refresh", async () => {
+  const imageRequest = request(930, "hero"); const calls = []; let complete;
+  globalThis.cacheInvoke = (command, args) => {
+    calls.push(command);
+    if (command === "get_steam_asset" && args.policy === "force_refresh") return new Promise(resolve => { complete = resolve; });
+    return Promise.resolve(packet());
+  };
+  const old = await images.loadSteamImage(imageRequest);
+  const refresh = images.refreshSteamImages(930); await settle();
+  assert.equal(images.peekSteamImage(imageRequest).url, old.url);
+  assert.ok(!calls.includes("reset_steam_artwork_cache"));
+  complete(packet()); await refresh;
+});
+test("replacement_waits_for_display_decode", async () => {
+  const imageRequest = request(931, "hero"); const old = await images.loadSteamImage(imageRequest);
+  let decode; const acknowledgements = [];
+  globalThis.Image = class { decode() { return new Promise(resolve => { decode = resolve; }); } };
+  globalThis.cacheInvoke = async (command, args) => {
+    if (command === "get_steam_asset") return stagedPacket("candidate-931");
+    if (command === "finish_steam_asset_update") { acknowledgements.push(args); return { cacheWarning: null }; }
+  };
+  try {
+    const refresh = images.refreshSteamImages(931); await settle();
+    assert.equal(images.peekSteamImage(imageRequest).url, old.url);
+    assert.equal(acknowledgements.length, 0);
+    decode(); await refresh;
+    assert.notEqual(images.peekSteamImage(imageRequest).url, old.url);
+    assert.deepEqual(acknowledgements, [{ token: "candidate-931", outcome: "displayed" }]);
+  } finally { delete globalThis.Image; }
+});
+test("releasing_old_generation_does_not_revoke_another_consumer", async () => {
+  globalThis.cacheInvoke = async command => command === "finish_steam_asset_update" ? { cacheWarning: null } : packet();
+  const imageRequest = request(932, "header"); const old = await images.loadSteamImage(imageRequest);
+  const a = images.retainSteamImage(imageRequest); const b = images.retainSteamImage(imageRequest);
+  const revoked = []; const original = URL.revokeObjectURL; URL.revokeObjectURL = url => { revoked.push(url); original(url); };
+  try {
+    await images.refreshSteamImages(932); a.release(); assert.ok(!revoked.includes(old.url));
+    b.release(); assert.ok(revoked.includes(old.url));
+  } finally { URL.revokeObjectURL = original; }
+});
+test("details_timestamp_change_preserves_artwork_identity", async () => {
+  let calls = 0; globalThis.cacheInvoke = async command => { if (command === "get_steam_asset") { calls++; return packet(); } };
+  const first = await images.loadSteamImage({ ...request(933, "header"), version: 1 });
+  const second = await images.loadSteamImage({ ...request(933, "header"), version: 2 });
+  assert.equal(first.url, second.url); assert.equal(calls, 1);
+  const screenshot = { ...request(934, "screenshot"), index: 0, screenshotIdentity: "https://cdn.steamstatic.com/a.jpg" };
+  await images.loadSteamImage(screenshot); await images.loadSteamImage({ ...screenshot, screenshotIdentity: "https://cdn.steamstatic.com/b.jpg" }); assert.equal(calls, 3);
+});
+test("consumerless_request_cancels_native_work", async () => {
+  const calls = []; let complete;
+  globalThis.cacheInvoke = (command, args) => { calls.push([command, args]); if (command === "get_steam_asset") return new Promise(resolve => { complete = resolve; }); return Promise.resolve({ cacheWarning: null }); };
+  const a = images.acquireSteamImage(request(935, "hero"), "visible"); const b = images.acquireSteamImage(request(935, "hero"), "visible");
+  a.release(); assert.equal(calls.filter(([cmd]) => cmd === "cancel_artwork_request").length, 0);
+  b.release(); assert.equal(calls.filter(([cmd]) => cmd === "cancel_artwork_request").length, 1);
+  complete(stagedPacket("abandoned-935")); await Promise.allSettled([a.promise, b.promise]);
+  assert.ok(calls.some(([cmd, args]) => cmd === "finish_steam_asset_update" && args.outcome === "abandoned"));
+});
+test("rejected replacement retains the decoded previous image", async () => {
+  globalThis.cacheInvoke = async () => packet(); const imageRequest = request(936, "hero"); const old = await images.loadSteamImage(imageRequest);
+  const outcomes = []; globalThis.Image = class { async decode() { throw new Error("decode failed"); } };
+  globalThis.cacheInvoke = async (command, args) => { if (command === "get_steam_asset") return stagedPacket("rejected-936"); if (command === "finish_steam_asset_update") { outcomes.push(args.outcome); return { cacheWarning: null }; } };
+  try { await assert.rejects(images.refreshSteamImages(936)); assert.equal(images.peekSteamImage(imageRequest).url, old.url); assert.deepEqual(outcomes, ["rejected"]); } finally { delete globalThis.Image; }
+});
+test("an opened game checks assets that finish their initial cached read later", async () => {
+  const policies = []; let update; const controller = new AbortController();
+  globalThis.cacheInvoke = async (command, args) => {
+    if (command !== "get_steam_asset") return { cacheWarning: null };
+    policies.push(args.policy);
+    if (args.policy === "refresh_if_expired") return new Promise(resolve => { update = resolve; });
+    return artworkPacket({ bytes: [1, 2], contentType: "image/png", stale: true, cacheWarning: null, refreshAfter: 0 });
+  };
+  await images.refreshSteamImagesOnOpen(941, { requestId: "open-941", origin: "visible", signal: controller.signal, release() {} });
+  const consumer = images.acquireSteamImage(request(941, "hero"), "visible");
+  const old = await consumer.promise; await settle();
+  assert.deepEqual(policies, ["cache_or_fetch", "refresh_if_expired"]);
+  assert.equal(images.peekSteamImage(request(941, "hero")).url, old.url);
+  update(packet()); await settle(); consumer.release(); controller.abort();
 });

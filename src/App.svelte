@@ -4,6 +4,7 @@
   import { appearancePreview } from "./lib/stores/appearance";
   import { appInfo } from "./lib/stores/app-info";
   import AppBackground from "./lib/components/layout/AppBackground.svelte";
+  import { startArtworkSelectionTracking } from "./lib/services/artwork-work";
   import { onMount } from "svelte";
   import { derived } from "svelte/store";
   import Sidebar from "./lib/components/layout/Sidebar.svelte";
@@ -39,6 +40,7 @@
   });
 
   onMount(() => {
+    const stopArtworkSelection = startArtworkSelectionTracking();
     const stopArtworkDisplays = startArtworkDisplayTracking();
     const stopMedia = observeMediaPlayback(mediaActive.subscribe);
     void hydrateApp().then(() => {
@@ -57,6 +59,7 @@
     media.addEventListener("change", updateSystemTheme);
 
     return () => {
+      stopArtworkSelection();
       stopArtworkDisplays();
       stopMedia();
       media.removeEventListener("change", updateSystemTheme);

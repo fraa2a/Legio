@@ -16,6 +16,7 @@
     index = null,
     count = 1,
     version = null,
+    screenshotIdentity = undefined,
     alt = "",
     onSelect,
     onClose,
@@ -26,6 +27,7 @@
     index?: number | null;
     count?: number;
     version?: number | null;
+    screenshotIdentity?: string;
     alt?: string;
     onSelect?: (index: number) => void;
     onClose: () => void;
@@ -111,6 +113,8 @@
             {fallbackAsset}
             {index}
             {version}
+            {screenshotIdentity}
+            origin="visible"
             full={asset === "screenshot"}
             {alt}
             caption={false}
@@ -158,6 +162,8 @@
             {asset}
             index={slot}
             {version}
+            {screenshotIdentity}
+            origin="visible"
             alt=""
             caption={false}
             class="size-full object-cover"

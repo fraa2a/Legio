@@ -38,8 +38,7 @@
   let visible = $state(false);
 
   $effect(() => {
-    if (visible) return;
-    return observeVisibility(tile, () => (visible = true));
+    return observeVisibility(tile, (value = true) => (visible = value), false);
   });
 
   $effect(() => {

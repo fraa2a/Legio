@@ -30,7 +30,7 @@ test("localized_refresh_does_not_invalidate_artwork", async () => {
   const { artworkPacket } = await import("./test_module_loader.mjs");
   const request = { steamAppId: 56, asset: "hero", fallbackAsset: null, index: null, full: false, version: 1 };
   const calls = [];
-  globalThis.detailsInvoke = async (cmd, args) => {
+  globalThis.detailsInvoke = async cmd => {
     calls.push(cmd);
     if (cmd === "get_steam_asset") return artworkPacket({ bytes: [1, 2], contentType: "image/png", stale: false, cacheWarning: null, refreshAfter: Date.now()+60_000 });
     if (cmd === "get_steam_details") return { details: { name: "NEW" }, cachedAt: 2, stale: false };

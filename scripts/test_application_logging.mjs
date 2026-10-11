@@ -93,6 +93,7 @@ test("Steam image display failures log safe asset context and keep a stable fall
   });
   globalThis.applicationLogInvoke = async (command, args) => {
     if (command === "report_application_event") { records.push(args); return; }
+    if (command === "cancel_artwork_request") return;
     assert.equal(command, "get_steam_asset");
     return artworkPacket({ bytes: [1], contentType: "image/webp" });
   };
@@ -347,4 +348,32 @@ test("navigation records library checkpoints without disclosing a selected game 
     assert.ok(records.some(record => record.event === "navigation" && record.message.includes("game_details")));
     assert.ok(!JSON.stringify(records).includes("PRIVATE_GAME_IDENTIFIER"));
   } finally { await unmount(instance); target.remove(); }
+});
+
+test("publishing one cover does not cancel another mounted cover's pending demand", async () => {
+  const storeImport = `import { writable } from "${import.meta.resolve("svelte/store")}";`;
+  const { loader, logger } = await fixture({
+    "src/lib/i18n": dataModule(storeImport + 'export const language = writable("en"); export const t = value => value;'),
+    "src/lib/utils/motion": dataModule("export const fadeDuration = 0;"),
+  });
+  logger.setApplicationLoggingEnabled(false);
+  const waiting = new Map(); const cancelled = [];
+  globalThis.applicationLogInvoke = (command, args) => {
+    if (command === "get_steam_asset") return new Promise(resolve => waiting.set(args.steamAppId, { resolve, requestId: args.requestId }));
+    if (command === "cancel_artwork_request") cancelled.push(args.requestId);
+    return Promise.resolve();
+  };
+  const component = (await import(await loader.load("src/lib/features/library/SteamArtwork.svelte"))).default;
+  const a = document.createElement("div"); const b = document.createElement("div"); document.body.append(a, b);
+  const first = mount(component, { target: a, props: { steamAppId: 950, asset: "hero" } });
+  const second = mount(component, { target: b, props: { steamAppId: 951, asset: "hero" } });
+  try {
+    await settle(); flushSync(); const other = waiting.get(951);
+    waiting.get(950).resolve(artworkPacket({ bytes: [1], contentType: "image/png", stale: false, refreshAfter: Date.now() + 60_000 }));
+    for (let i=0; i<5; i++) { await settle(); flushSync(); }
+    assert.ok(!cancelled.includes(other.requestId));
+    other.resolve(artworkPacket({ bytes: [2], contentType: "image/png", stale: false, refreshAfter: Date.now() + 60_000 }));
+    for (let i=0; i<5; i++) { await settle(); flushSync(); }
+    assert.ok(b.querySelector("img"));
+  } finally { await unmount(first); await unmount(second); a.remove(); b.remove(); }
 });
