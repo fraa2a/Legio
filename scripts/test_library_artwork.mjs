@@ -18,6 +18,8 @@ const mocks = {
   "src/lib/utils/motion": dataModule("export const fadeDuration = 0;"),
 };
 const { load: moduleUrl, resolveImports } = createModuleLoader(mocks);
+const logger = await import(await moduleUrl("src/lib/services/application-log.ts"));
+logger.setApplicationLoggingEnabled(false);
 const requests = [];
 let detailsResolve;
 globalThis.artworkInvoke = (command, args) => {

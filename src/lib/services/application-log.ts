@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export type ApplicationLogLevel = "info" | "warn" | "error";
-export type ApplicationLogEvent = "renderer_start" | "renderer_ready" | "renderer_error" | "unhandled_rejection" | "console" | "navigation" | "command_error" | "bootstrap_error";
+export type ApplicationLogEvent = "renderer_start" | "renderer_ready" | "renderer_error" | "unhandled_rejection" | "console" | "navigation" | "command_error" | "bootstrap_error" | "artwork";
 
 export interface ApplicationLogStatus {
   enabled: boolean;

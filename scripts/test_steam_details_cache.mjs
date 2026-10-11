@@ -46,3 +46,21 @@ test("cancelled metadata work does not replace the current state with an error",
   await assert.rejects(store.loadSteamDetails(57, "cache_or_fetch"));
   assert.equal(get(store.steamDetails)[57].error, null);
 });
+
+test("reopening a game does not reuse cancelled metadata work", async () => {
+  const store = await import(await load("src/lib/stores/steam-details.ts"));
+  const { createArtworkWork } = await import(await load("src/lib/services/artwork-work.ts"));
+  const waiting = [];
+  globalThis.detailsInvoke = (command) => command === "get_steam_details" ? new Promise(resolve => waiting.push(resolve)) : Promise.resolve();
+  const oldWork = createArtworkWork(999, "visible");
+  const old = store.loadSteamDetails(999, "refresh_if_expired", oldWork);
+  oldWork.release();
+  const newWork = createArtworkWork(999, "visible");
+  const fresh = store.loadSteamDetails(999, "refresh_if_expired", newWork);
+  try {
+    assert.equal(waiting.length, 2, "a reopened game needs its own live metadata request");
+    waiting[1]({ details: { name: "NEW" }, cachedAt: 2, stale: false }); await fresh;
+    waiting[0]({ details: { name: "OLD" }, cachedAt: 1, stale: true }); await old;
+    assert.equal(get(store.steamDetails)[999].details.name, "NEW");
+  } finally { newWork.release(); }
+});

@@ -769,6 +769,7 @@ pub async fn refresh_catalog(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn get_steam_details(
     app: AppHandle,
     state: State<'_, NetworkState>,
@@ -786,6 +787,7 @@ pub async fn get_steam_details(
             message: error.to_string(),
             status: None,
         })?;
+    work.mark_metadata();
     Box::pin(crate::steam_details::get_details_localized_with_policy(
         app,
         state.inner(),
@@ -808,6 +810,7 @@ pub fn get_artwork_display_width(app: AppHandle) -> u32 {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn get_steam_asset(
     app: AppHandle,
     state: State<'_, NetworkState>,

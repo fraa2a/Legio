@@ -2,7 +2,10 @@ use std::{
     fs::{self, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, OnceLock, TryLockError},
+    sync::{
+        Arc, Mutex, OnceLock, TryLockError,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -36,6 +39,7 @@ struct State {
 pub(crate) struct ApplicationLog {
     state: Arc<Mutex<State>>,
     session: Arc<str>,
+    enabled: Arc<AtomicBool>,
 }
 
 struct Record<'a> {
@@ -79,6 +83,7 @@ pub(crate) enum RendererEvent {
     Navigation,
     CommandError,
     BootstrapError,
+    Artwork,
 }
 
 impl RendererEvent {
@@ -99,6 +104,7 @@ impl RendererEvent {
             Self::Navigation => "navigation",
             Self::CommandError => "command_error",
             Self::BootstrapError => "bootstrap_error",
+            Self::Artwork => "artwork",
         }
     }
 }
@@ -123,6 +129,7 @@ impl ApplicationLog {
                 reports: 0,
                 critical_reports: 0,
             })),
+            enabled: Arc::new(AtomicBool::new(false)),
             session: uuid::Uuid::new_v4().to_string().into(),
         };
         log.set_enabled(enabled);
@@ -141,6 +148,7 @@ impl ApplicationLog {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         let changed = state.status.enabled != enabled;
         state.status.enabled = enabled;
+        self.enabled.store(enabled, Ordering::Release);
         if changed && enabled {
             state.report_window = Instant::now();
             state.reports = 0;
@@ -513,6 +521,19 @@ pub(crate) fn failure(context: &'static str, error: impl std::fmt::Display) {
     }
 }
 
+pub(crate) fn artwork_summary(message: String) {
+    if let Some(log) = APPLICATION_LOG
+        .get()
+        .filter(|log| log.enabled.load(Ordering::Acquire))
+    {
+        let log = log.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            // Reporting failures are exposed through the existing diagnostics status.
+            let _ = log.report(Level::Info, RendererEvent::Artwork, Some(&message), None);
+        });
+    }
+}
+
 pub(crate) fn checkpoint(event: &'static str, message: impl std::fmt::Display) {
     if let Some(log) = APPLICATION_LOG.get() {
         log.record("info", event, Some(&message.to_string()), None, true);
@@ -526,6 +547,26 @@ mod tests {
 
     fn directory() -> PathBuf {
         std::env::temp_dir().join(format!("legio-app-log-{}", uuid::Uuid::new_v4()))
+    }
+
+    #[test]
+    fn artwork_reports_are_opt_in_bounded_and_readable() {
+        let directory = directory();
+        let log = ApplicationLog::new(directory.clone(), false);
+        let event: RendererEvent = serde_json::from_str("\"artwork\"").unwrap();
+        let message = "resource=image queue_wait_ms=10 metadata_ms=20 transfer_ms=30 conversion_ms=40 outcome=completed";
+        log.report(Level::Info, event, Some(message), None).unwrap();
+        assert!(!directory.join("app.txt").exists());
+        log.set_enabled(true);
+        log.report(Level::Info, event, Some(message), None).unwrap();
+        let text = fs::read_to_string(directory.join("app.txt")).unwrap();
+        assert!(text.contains("INFO artwork") && text.contains("queue_wait_ms=10"));
+        for _ in 1..REPORTS_PER_MINUTE {
+            log.report(Level::Info, event, Some(message), None).unwrap();
+        }
+        assert!(log.report(Level::Info, event, Some(message), None).is_err());
+        assert_eq!(log.status().dropped_records, 1);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

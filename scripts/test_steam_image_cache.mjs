@@ -259,3 +259,55 @@ test("an opened game checks assets that finish their initial cached read later",
   assert.equal(images.peekSteamImage(request(941, "hero")).url, old.url);
   update(packet()); await settle(); consumer.release(); controller.abort();
 });
+
+test("artwork phase logging is opt-in and cannot delay image publication", async () => {
+  const records = [];
+  globalThis.cacheInvoke = (command, args) => {
+    if (command === "report_application_event") { records.push(args); return new Promise(() => {}); }
+    return Promise.resolve(packet());
+  };
+  logging.setApplicationLoggingEnabled(false);
+  await images.loadSteamImage(request(996, "hero"));
+  assert.equal(records.length, 0);
+  logging.setApplicationLoggingEnabled(true);
+  try {
+    const image = await images.loadSteamImage(request(997, "hero"));
+    assert.ok(image.url); assert.equal(records.length, 1);
+    assert.equal(records[0].event, "artwork");
+    assert.match(records[0].message, /publication_ms=/);
+    assert.ok(!records[0].message.includes("blob:") && !records[0].message.includes("https:") && !records[0].message.includes("997"));
+  } finally { logging.setApplicationLoggingEnabled(false); }
+});
+
+test("reopening a game replaces cancelled refresh demand", async () => {
+  const { createArtworkWork } = await import(await load("src/lib/services/artwork-work.ts"));
+  const waiting = [];
+  globalThis.cacheInvoke = (command, args) => {
+    if (command !== "get_steam_asset") return Promise.resolve();
+    return args.policy === "cache_or_fetch" ? Promise.resolve(packet()) : new Promise(resolve => waiting.push(resolve));
+  };
+  await images.loadSteamImage(request(998, "hero"));
+  const oldWork = createArtworkWork(998, "visible"); const old = images.refreshSteamImagesOnOpen(998, oldWork);
+  oldWork.release();
+  const work = createArtworkWork(998, "visible"); const current = images.refreshSteamImagesOnOpen(998, work);
+  try {
+    for (let i=0;i<10;i++) await Promise.resolve();
+    assert.equal(waiting.length, 2, "a new opening must not inherit abandoned refresh work");
+    waiting[1](packet()); await current;
+    waiting[0](packet()); await old;
+  } finally { work.release(); }
+});
+
+test("explicit refresh waits for an opening check then performs a force fetch", async () => {
+  const policies = []; let finish;
+  globalThis.cacheInvoke = (command, args) => {
+    if (command !== "get_steam_asset") return Promise.resolve();
+    policies.push(args.policy);
+    return args.policy === "refresh_if_expired" ? new Promise(resolve => { finish = resolve; }) : Promise.resolve(packet());
+  };
+  await images.loadSteamImage(request(995, "hero"));
+  const opening = images.refreshSteamImagesOnOpen(995, { requestId: "open-force", origin: "visible", release() {} });
+  const explicit = images.refreshSteamImages(995);
+  finish(packet()); await Promise.all([opening, explicit]);
+  assert.deepEqual(policies, ["cache_or_fetch", "refresh_if_expired", "force_refresh"]);
+});

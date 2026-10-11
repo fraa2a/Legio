@@ -15,7 +15,7 @@ const localeUrl = dataModule(localeCode);
 async function loadModule(path, imports = {}) {
   const source = await readFile(new URL(path, import.meta.url), "utf8");
   let code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
-  for (const [specifier, url] of Object.entries({ "svelte/store": import.meta.resolve("svelte/store"), "../i18n": localeUrl, ...imports })) {
+  for (const [specifier, url] of Object.entries({ "svelte/store": import.meta.resolve("svelte/store"), "../i18n": localeUrl, "./application-log": dataModule("export const logApplicationEvent = () => {};"), ...imports })) {
     code = code.replaceAll(`from "${specifier}"`, `from "${url}"`);
   }
   return import(dataModule(code));
@@ -115,9 +115,10 @@ test("language selection preserves regional formatting and interpolates translat
   assert.equal(t("  Chiudi  ", "en"), "  Close  ");
 });
 
-test("Steam image cache shares library artwork across details versions and retains versions for details assets", async () => {
+test("Steam image cache preserves artwork identity across metadata timestamps and separates monitor profiles", async () => {
   let requests = 0;
-  globalThis.legioInvokeMock = () => {
+  globalThis.legioInvokeMock = command => {
+    if (command !== "get_steam_asset") return Promise.resolve();
     requests++;
     return Promise.resolve(artworkPacket({ bytes: [1], contentType: "image/png", stale: false, cacheWarning: null, refreshAfter: Date.now() + 60_000 }));
   };
@@ -131,20 +132,20 @@ test("Steam image cache shares library artwork across details versions and retai
   assert.equal(oldImage.url, newImage.url);
   const firstHeader = await loadSteamImage({ ...request, asset: "header" });
   const secondHeader = await loadSteamImage({ ...request, asset: "header", version: 2 });
-  assert.equal(requests, 3);
-  assert.notEqual(firstHeader.url, secondHeader.url);
+  assert.equal(requests, 2);
+  assert.equal(firstHeader.url, secondHeader.url);
   const hdRequest = { ...request, displayWidth: 1920 };
   const hd = await loadSteamImage(hdRequest);
   const full = await loadSteamImage({ ...hdRequest, full: true });
   assert.equal(hd.url, full.url, "viewer and banner share the selected monitor profile");
-  assert.equal(requests, 3);
+  assert.equal(requests, 2);
   const qhd = await loadSteamImage({ ...request, displayWidth: 2560 });
-  assert.equal(requests, 4);
+  assert.equal(requests, 3);
   assert.notEqual(hd.url, qhd.url);
   assert.equal((await loadSteamImage(hdRequest)).url, hd.url, "returning to a monitor profile reuses its cache");
   const unchangedHeader = await loadSteamImage({ ...request, asset: "header", displayWidth: 2560 });
   assert.equal(unchangedHeader.url, firstHeader.url);
-  assert.equal(requests, 4, "monitor resolution only separates hero variants");
+  assert.equal(requests, 3, "monitor resolution only separates hero variants");
   URL.revokeObjectURL(qhd.url);
   URL.revokeObjectURL(oldImage.url);
   URL.revokeObjectURL(newImage.url);
@@ -441,12 +442,13 @@ test("download UI polling stops while inactive and catches completed work on res
   }
 });
 
-test("manual artwork refresh renews visible URLs and resets only its Steam App ID", async () => {
+test("manual artwork refresh renews its visible URLs while retaining other games", async () => {
   const calls = [];
   let revision = 0;
   globalThis.legioRefreshArtwork = async (command, args) => {
     calls.push([command, args]);
-    if (command === "reset_steam_artwork_cache") { revision++; return; }
+    if (command !== "get_steam_asset") return;
+    if (args.policy === "force_refresh") revision++;
     return artworkPacket({ bytes: [revision + 1], contentType: "image/png", stale: false, cacheWarning: null, refreshAfter: Date.now() + 100000 });
   };
   const { load } = createModuleLoader({ "@tauri-apps/api/core": dataModule("export const invoke = (...args) => globalThis.legioRefreshArtwork(...args);"), "src/lib/i18n": localeUrl });
@@ -460,7 +462,7 @@ test("manual artwork refresh renews visible URLs and resets only its Steam App I
   await first;
   assert.notEqual(images.peekSteamImage(request(400)).url, old.url);
   assert.equal(images.peekSteamImage(request(401)).url, untouched.url);
-  assert.equal(calls.filter(([command]) => command === "reset_steam_artwork_cache").length, 1);
-  assert.ok(calls.filter(([command, args]) => command === "get_steam_asset" && args.refresh).every(([, args]) => args.steamAppId === 400));
+  assert.equal(calls.filter(([command]) => command === "reset_steam_artwork_cache").length, 0);
+  assert.ok(calls.filter(([command, args]) => command === "get_steam_asset" && args.policy === "force_refresh").every(([, args]) => args.steamAppId === 400));
   retained.release();
 });

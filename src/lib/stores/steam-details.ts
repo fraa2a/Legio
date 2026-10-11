@@ -29,7 +29,7 @@ const idle: SteamDetailsState = {
 export const steamDetails = writable<Record<number, SteamDetailsState>>({});
 
 const generations = new Map<number, number>();
-const inflight = new Map<number, Promise<SteamDetailsResult>>();
+const inflight = new Map<number, { promise: Promise<SteamDetailsResult>; work: ArtworkWork }>();
 
 language.subscribe(() => {
   for (const [id, generation] of generations) generations.set(id, generation + 1);
@@ -49,7 +49,7 @@ export function loadSteamDetails(
   const actualPolicy = typeof policy === "boolean" ? (policy ? "force_refresh" : "cache_or_fetch") : policy;
   if (actualPolicy !== "force_refresh") {
     const pending = inflight.get(steamAppId);
-    if (pending !== undefined) return pending;
+    if (pending !== undefined && !pending.work.signal?.aborted) return pending.promise;
   }
   const generation = (generations.get(steamAppId) ?? 0) + 1;
   generations.set(steamAppId, generation);
@@ -78,7 +78,7 @@ export function loadSteamDetails(
       if (generations.get(steamAppId) === generation) inflight.delete(steamAppId);
     }
   })();
-  inflight.set(steamAppId, request);
+  inflight.set(steamAppId, { promise: request, work });
   return request;
 }
 

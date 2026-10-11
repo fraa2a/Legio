@@ -231,6 +231,16 @@ jobs:
           LEGIO_WINDOWS_TESTS: "1"
         run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib image_trim::tests::'
 
+      - name: Test Windows artwork scheduling, metadata and cache publication
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          LEGIO_WINDOWS_TESTS: "1"
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib artwork_
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib steam_details::tests::
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib steam_assets::tests::
+
       - name: Test release artwork command stack usage on Windows
         if: runner.os == 'Windows'
         shell: bash

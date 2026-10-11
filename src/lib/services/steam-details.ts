@@ -3,6 +3,7 @@ import { invoke } from "./invoke";
 import { decodeImageResponse } from "./image-response";
 import { artworkDisplayWidth } from "../stores/artwork-display";
 import { createArtworkWork, isArtworkCancelled, type ArtworkWork } from "./artwork-work";
+import { logApplicationEvent } from "./application-log";
 import { toMessage } from "../utils/errors";
 
 export { getSteamDetails, type SteamDetails, type SteamDetailsResult, type SteamDetailsError } from "./steam-metadata";
@@ -20,14 +21,14 @@ export interface SteamImageRequest {
 export interface SteamImage { refreshAt: number; url: string; stale: boolean; cacheWarning: string | null }
 export interface RetainedSteamImage extends SteamImage { release(): void }
 interface Generation extends SteamImage { users: number; byteLength: number; retired: boolean }
-interface ImageTask { work: ArtworkWork; users: number; promise: Promise<Generation> }
+interface ImageTask { work: ArtworkWork; policy: AssetPolicy; users: number; promise: Promise<Generation> }
 const imageCache = new Map<string, Generation>();
 const requestsByKey = new Map<string, SteamImageRequest>();
 const openRefreshes = new Map<number, { work: ArtworkWork; checked: Set<string> }>();
 const pendingImages = new Map<string, ImageTask>();
 const pendingAssets = new Map<string, Promise<SteamAsset>>();
 const fallbackImages = new Map<string, { key: string; request: SteamImageRequest }>();
-const appRefreshes = new Map<number, Promise<void>>();
+const appRefreshes = new Map<number, { promise: Promise<void>; policy: AssetPolicy; work?: ArtworkWork }>();
 const freshFor = 5 * 24 * 60 * 60 * 1000;
 const maxIdleImages = 128;
 const maxIdleBytes = 32 * 1024 * 1024;
@@ -78,10 +79,13 @@ async function finish(result: SteamAsset, outcome: PublicationOutcome): Promise<
   catch (error) { return toMessage(error); }
 }
 function beginImageTask(request: SteamImageRequest, origin: ArtworkWork["origin"], policy: AssetPolicy): ImageTask {
-  const key = imageKey(request); requestsByKey.set(key, request); const existing = pendingImages.get(key); if (existing) return existing;
+  const key = imageKey(request); requestsByKey.set(key, request); const existing = pendingImages.get(key); if (existing && !existing.work.signal?.aborted) return existing;
   const work = createArtworkWork(request.steamAppId, origin);
-  const task: ImageTask = { work, users: 0, promise: Promise.resolve(undefined as never) };
+  let publicationStarted: number | undefined;
+  let outcome = "completed";
+  const task: ImageTask = { work, policy, users: 0, promise: Promise.resolve(undefined as never) };
   task.promise = requestSteamAsset(request, policy, work, "display").then(async result => {
+    publicationStarted = performance.now();
     const previous = imageCache.get(key);
     if (previous && policy === "refresh_if_expired" && !result.replacementToken && !result.stale && result.refreshAfter === previous.refreshAt) return previous;
     if (task.users === 0) { await finish(result, "abandoned"); throw { kind: "cancelled", message: "Artwork request cancelled" }; }
@@ -97,10 +101,14 @@ function beginImageTask(request: SteamImageRequest, origin: ArtworkWork["origin"
     imageCache.set(key, image); if (previous) retire(previous);
     pruneImages(key); steamImageRevision.update(value => value + 1); return image;
   }).catch(error => {
+    outcome = isArtworkCancelled(error) ? "cancelled" : "failed";
     const previous = imageCache.get(key);
     if (previous && !isArtworkCancelled(error)) { previous.cacheWarning = toMessage(error); steamImageRevision.update(value => value + 1); }
     throw error;
-  }).finally(() => { if (pendingImages.get(key) === task) pendingImages.delete(key); work.release(); });
+  }).finally(() => {
+    const elapsed = publicationStarted === undefined ? 0 : Math.round(performance.now() - publicationStarted);
+    logApplicationEvent("info", "artwork", `request_id=${work.requestId} resource=${request.asset} publication_ms=${elapsed} outcome=${outcome}`);
+    if (pendingImages.get(key) === task) pendingImages.delete(key); work.release(); });
   pendingImages.set(key, task); return task;
 }
 function acquirePrimary(request: SteamImageRequest, origin: ArtworkWork["origin"], policy: AssetPolicy): { image?: Generation; promise: Promise<Generation>; release(): void } {
@@ -149,6 +157,11 @@ function requestFromKey(key: string): SteamImageRequest {
   return { steamAppId, asset, fallbackAsset, index, screenshotIdentity: screenshotIdentity ?? undefined, version: null, full, displayWidth: displayWidth ?? undefined };
 }
 async function refreshRequest(request: SteamImageRequest, policy: AssetPolicy, work?: ArtworkWork): Promise<void> {
+  const pending = pendingImages.get(imageKey(request));
+  if (pending && !pending.work.signal?.aborted && pending.policy !== policy) {
+    await pending.promise.then(() => undefined, () => undefined);
+    if (work?.signal?.aborted) throw { kind: "cancelled", message: "Artwork request cancelled" };
+  }
   const origin = request.asset === "hero_blur" ? "decorative" : request.asset === "screenshot" ? "prefetch" : "visible";
   const primary = acquirePrimary(request, origin, policy); let fallback: ReturnType<typeof acquirePrimary> | undefined;
   const cancel = () => { primary.release(); fallback?.release(); };
@@ -163,7 +176,12 @@ async function refreshRequest(request: SteamImageRequest, policy: AssetPolicy, w
   } finally { work?.signal?.removeEventListener("abort", cancel); cancel(); }
 }
 function refreshImages(steamAppId: number, policy: AssetPolicy, work?: ArtworkWork): Promise<void> {
-  const existing = appRefreshes.get(steamAppId); if (existing) return existing;
+  const existing = appRefreshes.get(steamAppId);
+  if (existing && !existing.work?.signal?.aborted) {
+    if (existing.policy === policy || policy !== "force_refresh") return existing.promise;
+    const retry = () => refreshImages(steamAppId, policy, work);
+    return existing.promise.then(retry, retry);
+  }
   const requests = new Map<string, SteamImageRequest>();
   for (const key of imageCache.keys()) { const request = requestFromKey(key);
     if (request.steamAppId === steamAppId && (!["hero", "hero_blur"].includes(request.asset) || request.displayWidth === undefined || request.displayWidth === get(artworkDisplayWidth))) requests.set(key, request);
@@ -175,8 +193,8 @@ function refreshImages(steamAppId: number, policy: AssetPolicy, work?: ArtworkWo
   const task = Promise.allSettled(ordered.map(request => refreshRequest(request, policy, work))).then(results => {
     const failure = results.find(result => result.status === "rejected" && !isArtworkCancelled(result.reason));
     if (failure?.status === "rejected") throw failure.reason;
-  }).finally(() => { if (appRefreshes.get(steamAppId) === task) appRefreshes.delete(steamAppId); });
-  appRefreshes.set(steamAppId, task); return task;
+  }).finally(() => { if (appRefreshes.get(steamAppId)?.promise === task) appRefreshes.delete(steamAppId); });
+  appRefreshes.set(steamAppId, { promise: task, policy, work }); return task;
 }
 function rank(asset: SteamAssetKind): number { return asset === "hero" || asset === "header" ? 0 : asset === "logo" ? 1 : asset === "hero_blur" ? 3 : 2; }
 export function refreshSteamImages(steamAppId: number): Promise<void> { return refreshImages(steamAppId, "force_refresh"); }

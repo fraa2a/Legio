@@ -479,9 +479,11 @@ pub enum DetailsPolicy {
     RefreshIfExpired,
     ForceRefresh,
 }
+type MetadataLocks = HashMap<(u32, String), std::sync::Weak<tokio::sync::Mutex<()>>>;
+
 #[derive(Default)]
 pub struct DetailsFetchState {
-    locks: std::sync::Mutex<HashMap<(u32, String), std::sync::Weak<tokio::sync::Mutex<()>>>>,
+    locks: std::sync::Mutex<MetadataLocks>,
     failures: std::sync::Mutex<HashMap<(u32, String), tokio::time::Instant>>,
 }
 impl DetailsFetchState {
@@ -503,6 +505,7 @@ fn should_fetch(previous: &DetailsResult, policy: DetailsPolicy) -> bool {
         || policy == DetailsPolicy::ForceRefresh
         || (policy == DetailsPolicy::RefreshIfExpired && previous.stale)
 }
+#[allow(clippy::too_many_arguments)]
 async fn details_with_fetch<F, Fetch, Clock>(
     database: Arc<Database>,
     state: &DetailsFetchState,
@@ -567,17 +570,18 @@ where
         }
     }
     let fetched = async {
-        let bytes = scheduler
-            .run_network(work, &mut fetch)
-            .await
-            .map_err(|error| match error {
-                crate::artwork_scheduler::WorkError::Cancelled => {
-                    DetailsError::new(DetailsErrorKind::Cancelled, "Artwork request cancelled")
-                }
-                crate::artwork_scheduler::WorkError::Failed(message) => {
-                    DetailsError::new(DetailsErrorKind::Network, message)
-                }
-            })?;
+        let bytes =
+            scheduler
+                .run_metadata(work, &mut fetch)
+                .await
+                .map_err(|error| match error {
+                    crate::artwork_scheduler::WorkError::Cancelled => {
+                        DetailsError::new(DetailsErrorKind::Cancelled, "Artwork request cancelled")
+                    }
+                    crate::artwork_scheduler::WorkError::Failed(message) => {
+                        DetailsError::new(DetailsErrorKind::Network, message)
+                    }
+                })?;
         let fetched_at = clock()?;
         blocking(move || {
             let details = decode(&bytes, app_id)?;

@@ -197,6 +197,8 @@ test("static dither redraws on changes without keeping a frame loop alive", asyn
   dom.window.HTMLCanvasElement.prototype.getContext = () => new Proxy({}, { get: (_, name) => {
     if (name === "drawArrays") return () => draws++;
     if (name === "getExtension") return () => null;
+    if (name === "isContextLost") return () => false;
+    if (name === "checkFramebufferStatus") return () => 1;
     if (String(name).toUpperCase() === name) return 1;
     return () => true;
   } });

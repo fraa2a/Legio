@@ -700,6 +700,7 @@ async fn load_asset_inner(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn load_legacy_preview(
     cache: AssetCacheState,
     network: &NetworkState,
@@ -988,7 +989,10 @@ pub async fn get_asset_for_request<R: tauri::Runtime>(
     if work.handle.is_cancelled() {
         return Err(WorkError::Cancelled);
     }
-    let failed = result.as_ref().map_or(true, |result| result.stale);
+    let failed = !result.as_ref().is_ok_and(|result| !result.stale);
+    if failed {
+        work.handle.mark_failed();
+    }
     let mut failures = cache
         .failures
         .lock()
@@ -1050,6 +1054,7 @@ pub async fn get_asset<R: tauri::Runtime>(
     .map_err(|error| error.to_string())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn get_asset_core<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     network: &NetworkState,
@@ -1222,7 +1227,7 @@ async fn get_asset_core<R: tauri::Runtime>(
         let metadata_lock = state.metadata_lock(app_id)?;
         let (assets, warning) = crate::steam_pics::resolve(path, &metadata_lock, async {
             work.scheduler
-                .run_network(&work.handle, || crate::steam_pics::fetch(app_id))
+                .run_metadata(&work.handle, || crate::steam_pics::fetch(app_id))
                 .await
                 .map_err(|error| error.to_string())
         })
@@ -1959,6 +1964,31 @@ mod tests {
             crate::diagnostics::Diagnostics::new(Err("test".into())),
         )
         .unwrap();
+        cache.scheduler.select_game(Some(400)).unwrap();
+        let capacity_work = cache
+            .scheduler
+            .begin("saturated-cache-test".into(), 400, WorkOrigin::Visible)
+            .unwrap();
+        let mut network_capacity = Vec::new();
+        for _ in 0..5 {
+            network_capacity.push(
+                cache
+                    .scheduler
+                    .acquire_for_test(&capacity_work, crate::artwork_scheduler::WorkStage::Network)
+                    .await
+                    .unwrap(),
+            );
+        }
+        let mut conversion_capacity = Vec::new();
+        for _ in 0..2 {
+            conversion_capacity.push(
+                cache
+                    .scheduler
+                    .acquire_conversion(&capacity_work)
+                    .await
+                    .unwrap(),
+            );
+        }
         let metadata_lock = cache.metadata_lock(400).unwrap();
         let _guard = metadata_lock.lock().await;
         for (asset, index, key) in [

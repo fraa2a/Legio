@@ -4,8 +4,9 @@ use std::{
     future::Future,
     sync::{
         Arc, Mutex, Weak,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
+    time::Instant,
 };
 use tokio::sync::Notify;
 
@@ -72,12 +73,56 @@ struct Lease {
     app_id: u32,
     origin: WorkOrigin,
     cancelled: AtomicBool,
+    metadata: AtomicBool,
+    failed: AtomicBool,
+    used: AtomicBool,
+    timings: Timings,
+}
+#[derive(Default)]
+struct Timings {
+    queue: AtomicU64,
+    metadata: AtomicU64,
+    transfer: AtomicU64,
+    conversion: AtomicU64,
+}
+impl Lease {
+    fn summary(&self) -> String {
+        let request_id = uuid::Uuid::parse_str(&self.request_id)
+            .map_or_else(|_| "internal".to_owned(), |id| id.to_string());
+        let outcome = if self.cancelled.load(Ordering::Relaxed) {
+            "cancelled"
+        } else if self.failed.load(Ordering::Relaxed) {
+            "failed"
+        } else if self.used.load(Ordering::Relaxed) {
+            "completed"
+        } else {
+            "cached"
+        };
+        format!(
+            "request_id={request_id} resource={} queue_wait_ms={} metadata_ms={} transfer_ms={} conversion_ms={} outcome={outcome}",
+            if self.metadata.load(Ordering::Relaxed) {
+                "metadata"
+            } else {
+                "image"
+            },
+            self.timings.queue.load(Ordering::Relaxed),
+            self.timings.metadata.load(Ordering::Relaxed),
+            self.timings.transfer.load(Ordering::Relaxed),
+            self.timings.conversion.load(Ordering::Relaxed)
+        )
+    }
 }
 #[derive(Clone)]
 pub struct WorkHandle {
     lease: Arc<Lease>,
 }
 impl WorkHandle {
+    pub fn mark_metadata(&self) {
+        self.lease.metadata.store(true, Ordering::Relaxed);
+    }
+    pub fn mark_failed(&self) {
+        self.lease.failed.store(true, Ordering::Relaxed);
+    }
     pub fn is_cancelled(&self) -> bool {
         self.lease.cancelled.load(Ordering::Acquire)
     }
@@ -87,9 +132,13 @@ pub struct ConversionPermit {
     stage: WorkStage,
     id: u64,
     admitted: bool,
+    lease: Arc<Lease>,
+    started: Option<Instant>,
+    metadata: bool,
 }
 impl Drop for Lease {
     fn drop(&mut self) {
+        crate::application_log::artwork_summary(self.summary());
         if let Some(inner) = self.scheduler.upgrade() {
             if let Ok(mut state) = inner.state.lock() {
                 state.requests.remove(&self.request_id);
@@ -100,6 +149,17 @@ impl Drop for Lease {
 }
 impl Drop for ConversionPermit {
     fn drop(&mut self) {
+        if let Some(started) = self.started {
+            let timing = match self.stage {
+                WorkStage::Conversion => &self.lease.timings.conversion,
+                WorkStage::Network if self.metadata => &self.lease.timings.metadata,
+                WorkStage::Network => &self.lease.timings.transfer,
+            };
+            timing.fetch_add(
+                started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                Ordering::Relaxed,
+            );
+        }
         if let Ok(mut state) = self.inner.state.lock() {
             let stage = stage_mut(&mut state, self.stage);
             if self.admitted {
@@ -162,6 +222,10 @@ impl ArtworkScheduler {
             app_id,
             origin,
             cancelled: AtomicBool::new(false),
+            metadata: AtomicBool::new(false),
+            failed: AtomicBool::new(false),
+            used: AtomicBool::new(false),
+            timings: Timings::default(),
         });
         state.requests.insert(request_id, Arc::downgrade(&lease));
         Ok(WorkHandle { lease })
@@ -201,6 +265,7 @@ impl ArtworkScheduler {
         work: &WorkHandle,
         stage: WorkStage,
     ) -> Result<ConversionPermit, WorkError> {
+        let queued_at = Instant::now();
         let id = {
             let mut state = self
                 .inner
@@ -220,6 +285,9 @@ impl ArtworkScheduler {
             stage,
             id,
             admitted: false,
+            lease: work.lease.clone(),
+            started: None,
+            metadata: false,
         };
         loop {
             let notified = self.inner.changed.notified();
@@ -272,11 +340,25 @@ impl ArtworkScheduler {
             };
             if admitted {
                 permit.admitted = true;
+                permit.started = Some(Instant::now());
+                work.lease.used.store(true, Ordering::Relaxed);
+                work.lease.timings.queue.fetch_add(
+                    queued_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                    Ordering::Relaxed,
+                );
                 self.inner.changed.notify_waiters();
                 return Ok(permit);
             }
             notified.await;
         }
+    }
+    #[cfg(test)]
+    pub(crate) async fn acquire_for_test(
+        &self,
+        work: &WorkHandle,
+        stage: WorkStage,
+    ) -> Result<ConversionPermit, WorkError> {
+        self.acquire(work, stage).await
     }
     pub async fn acquire_conversion(
         &self,
@@ -287,10 +369,26 @@ impl ArtworkScheduler {
     pub async fn run_network<T, F: Future<Output = Result<T, String>>>(
         &self,
         work: &WorkHandle,
+        operation: impl FnMut() -> F,
+    ) -> Result<T, WorkError> {
+        self.run_network_phase(work, operation, false).await
+    }
+    pub async fn run_metadata<T, F: Future<Output = Result<T, String>>>(
+        &self,
+        work: &WorkHandle,
+        operation: impl FnMut() -> F,
+    ) -> Result<T, WorkError> {
+        self.run_network_phase(work, operation, true).await
+    }
+    async fn run_network_phase<T, F: Future<Output = Result<T, String>>>(
+        &self,
+        work: &WorkHandle,
         mut operation: impl FnMut() -> F,
+        metadata: bool,
     ) -> Result<T, WorkError> {
         loop {
-            let permit = self.acquire(work, WorkStage::Network).await?;
+            let mut permit = self.acquire(work, WorkStage::Network).await?;
+            permit.metadata = metadata;
             let future = operation();
             tokio::pin!(future);
             loop {
@@ -312,7 +410,7 @@ impl ArtworkScheduler {
                 if preempted {
                     break;
                 }
-                tokio::select! { result = &mut future => return result.map_err(WorkError::Failed), _ = &mut notified => {} }
+                tokio::select! { result = &mut future => { if result.is_err() { work.mark_failed(); } return result.map_err(WorkError::Failed); }, _ = &mut notified => {} }
             }
             drop(permit);
         }
@@ -331,6 +429,65 @@ mod tests {
     }
     fn work(s: &ArtworkScheduler, id: &str, app: u32) -> WorkHandle {
         s.begin(id.into(), app, WorkOrigin::Visible).unwrap()
+    }
+    #[tokio::test]
+    async fn mixed_metadata_pics_and_cdn_share_limits_and_phase_timings() {
+        let scheduler = ArtworkScheduler::default();
+        scheduler.select_game(Some(400)).unwrap();
+        let gate = Arc::new(tokio::sync::Semaphore::new(0));
+        let started = Arc::new(AtomicUsize::new(0));
+        let mut tasks = Vec::new();
+        for i in 0..12 {
+            let scheduler = scheduler.clone();
+            let gate = gate.clone();
+            let started = started.clone();
+            let work = work(&scheduler, &format!("mixed-{i}"), 400);
+            tasks.push(tokio::spawn(async move {
+                let operation = || async {
+                    started.fetch_add(1, Ordering::SeqCst);
+                    gate.acquire().await.unwrap().forget();
+                    Ok(())
+                };
+                if i % 3 == 2 {
+                    scheduler.run_network(&work, operation).await.unwrap();
+                } else {
+                    scheduler.run_metadata(&work, operation).await.unwrap();
+                }
+                work.lease.summary()
+            }));
+        }
+        flush().await;
+        assert_eq!(started.load(Ordering::SeqCst), 5);
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert_eq!(
+            scheduler.inner.state.lock().unwrap().network.active.len(),
+            5
+        );
+        gate.add_permits(12);
+        let mut summaries = Vec::new();
+        for task in tasks {
+            summaries.push(task.await.unwrap());
+        }
+        assert!(
+            summaries
+                .iter()
+                .any(|value| !value.contains("metadata_ms=0 "))
+        );
+        assert!(
+            summaries
+                .iter()
+                .any(|value| !value.contains("transfer_ms=0 "))
+        );
+        assert!(
+            summaries
+                .iter()
+                .any(|value| !value.contains("queue_wait_ms=0 "))
+        );
+        assert!(
+            summaries
+                .iter()
+                .all(|value| value.contains("request_id=internal") && !value.contains("mixed-"))
+        );
     }
     #[tokio::test]
     async fn ordinary_network_leaves_urgent_capacity() {

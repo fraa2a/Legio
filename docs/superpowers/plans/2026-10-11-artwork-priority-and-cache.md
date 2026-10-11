@@ -98,4 +98,4 @@ Modify `steam_details.rs`, `steam_assets.rs`, `steam_pics.rs`, and the frontend 
 
 Coverage: scheduler/selection/cancellation -> Task 1; metadata policy/localization -> Task 2; persistent generation safety/PICS/codec/cache limits -> Task 3; presentation lifetime/refresh triggers -> Task 4; opt-in timing, integration and Windows performance -> Task 5. All five Review Focus items have named tests in their owning tasks. Native and frontend error contracts must be converted at service/command boundaries, without exposing raw serialized objects as UI messages.
 
-This plan and the rendering plan await user review and an execution-method choice. Recommend native execution because the task interfaces are tightly coupled, followed by an independent whole-branch review. Subagent-driven execution remains available with a fresh implementer/reviewer gate per task.
+The user approved both plans and inline execution with one independent whole-branch review. Recommend native execution because the task interfaces are tightly coupled, followed by an independent whole-branch review. Subagent-driven execution remains available with a fresh implementer/reviewer gate per task.
