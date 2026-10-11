@@ -13,28 +13,14 @@ const { get } = await import("svelte/store");
 const settle = () => new Promise(resolve => setImmediate(resolve));
 let sequence = 0;
 
-test("native navigation waits for the saved checkpoint and ignores superseded requests", async () => {
+test("navigation does not wait for logging and ignores superseded requests", async () => {
   const emptyView = dataModule("export default () => {};");
-  const mocks = { "src/lib/utils/motion": dataModule("export const reducedMotion = false; export const pageTransition = () => ({duration:0});") };
-  for (const [feature, view] of [["home", "HomeView"], ["library", "LibraryView"], ["library", "GameDetailView"], ["store", "StoreView"], ["downloads", "DownloadsView"]]) {
-    mocks[`src/lib/features/${feature}/${view}.svelte`] = emptyView;
-  }
+  const mocks = { "src/lib/utils/motion": dataModule("export const reducedMotion = false; export const pageTransitionDuration = 210;") };
+  for (const [feature, view] of [["home", "HomeView"], ["library", "LibraryView"], ["library", "GameDetailView"], ["store", "StoreView"], ["downloads", "DownloadsView"]]) mocks[`src/lib/features/${feature}/${view}.svelte`] = emptyView;
   const { loader, logger } = await fixture(mocks);
   logger.setApplicationLoggingEnabled(true);
-  const acknowledgements = [];
   const messages = [];
-  globalThis.applicationLogInvoke = (command, args) => {
-    messages.push(args.message);
-    if (args.message.startsWith("Snapshot starting:")) return new Promise(resolve => acknowledgements.push({ message: args.message, resolve }));
-    return Promise.resolve();
-  };
-  const previousStart = document.startViewTransition;
-  const transitions = [];
-  document.startViewTransition = update => {
-    const transition = { update, ready: Promise.resolve(), finished: new Promise(() => {}), skipTransition() {} };
-    transitions.push(transition);
-    return transition;
-  };
+  globalThis.applicationLogInvoke = (_command, args) => { messages.push(args.message); return new Promise(() => {}); };
   const navigation = await import(await loader.load("src/lib/stores/navigation.ts"));
   navigation.activeSection.set("home"); navigation.selectedGameId.set(null);
   const component = (await import(await loader.load("src/lib/components/layout/MainContainer.svelte"))).default;
@@ -43,23 +29,12 @@ test("native navigation waits for the saved checkpoint and ignores superseded re
   try {
     flushSync();
     navigation.activeSection.set("library"); flushSync();
-    assert.equal(transitions.length, 0, "the crash-prone snapshot must wait for native persistence");
-    assert.equal(acknowledgements.length, 1);
     navigation.activeSection.set("store"); flushSync();
-    acknowledgements[0].resolve(); await settle(); flushSync();
-    assert.equal(transitions.length, 0, "a superseded checkpoint cannot start an old snapshot");
-    acknowledgements[1].resolve(); await settle(); flushSync();
-    assert.equal(transitions.length, 1);
-    await transitions[0].update();
+    await settle(); flushSync();
     assert.equal(target.querySelector("[data-page]").dataset.page, "store");
-    navigation.activeSection.set("library"); flushSync();
-    acknowledgements[2].resolve(); await settle(); flushSync();
-    const obsoleteUpdate = transitions[1].update();
-    navigation.activeSection.set("home"); flushSync();
-    await obsoleteUpdate;
-    assert.equal(target.querySelector("[data-page]").dataset.page, "store");
-    assert.ok(!messages.includes("DOM update completed: library"), "a cancelled callback must not report an update that never happened");
-  } finally { await unmount(instance); target.remove(); document.startViewTransition = previousStart; }
+    assert.ok(!messages.includes("DOM update completed: library"));
+    assert.ok(messages.includes("DOM update completed: store"));
+  } finally { await unmount(instance); target.remove(); }
 });
 
 test("navigation checkpoints wait for persistence and tolerate a failed logging transport", async () => {
@@ -324,7 +299,7 @@ test("navigation records library checkpoints without disclosing a selected game 
   logger.setApplicationLoggingEnabled(true);
   const mocks = {
     "@tauri-apps/api/core": dataModule(`export const invoke = (...args) => globalThis.applicationLogInvoke(...args); // navigation ${++sequence}`),
-    "src/lib/utils/motion": dataModule("export const reducedMotion = true; export const pageTransition = () => ({ duration: 0 });"),
+    "src/lib/utils/motion": dataModule("export const reducedMotion = true; export const pageTransitionDuration = 0;"),
   };
   const emptyView = dataModule("export default () => {};");
   for (const [feature, view] of [["home", "HomeView"], ["library", "LibraryView"], ["library", "GameDetailView"], ["store", "StoreView"], ["downloads", "DownloadsView"]]) {

@@ -6,8 +6,10 @@
   import LibraryView from "../../features/library/LibraryView.svelte";
   import StoreView from "../../features/store/StoreView.svelte";
   import { activeSection, selectedGameId } from "../../stores/navigation";
-  import { pageTransition, reducedMotion } from "../../utils/motion";
-  import { logApplicationEvent, logNavigationCheckpoint } from "../../services/application-log";
+  import { pageTransitionDuration, reducedMotion } from "../../utils/motion";
+  import { logApplicationEvent } from "../../services/application-log";
+
+  import { animateForeground, type ForegroundAnimation } from "../../utils/foreground-transition";
 
   const gamePrefix = "library:";
 
@@ -16,15 +18,15 @@
   const target = $derived($selectedGameId === null ? $activeSection : `${gamePrefix}${$selectedGameId}`);
 
   let displayedTarget = $state(untrack(() => target));
-  let transition: ViewTransition | undefined;
+  let page: HTMLDivElement | undefined = $state();
+  let transition: ForegroundAnimation | undefined;
   let navigationRequest = 0;
-  const nativeTransitions = typeof document.startViewTransition === "function";
 
   onMount(() => void (mounted = true));
   onDestroy(() => {
     mounted = false;
     navigationRequest++;
-    transition?.skipTransition();
+    transition?.cancel();
   });
 
   function pageName(value: string): string {
@@ -35,45 +37,37 @@
     logApplicationEvent("info", "navigation", `Displayed: ${pageName(displayedTarget)}`);
   });
 
-  function startNativeTransition(next: string, request: number): void {
+  async function transitionTo(next: string, request: number): Promise<void> {
+    const duration = reducedMotion ? 0 : pageTransitionDuration / 2;
+    const previous = page;
+    const outgoing = previous ? animateForeground(previous, "out", duration) : undefined;
+    transition = outgoing;
+    await outgoing?.finished;
     if (!mounted || target !== next || navigationRequest !== request) return;
-    const current = document.startViewTransition(async () => {
-      const before = logNavigationCheckpoint(`DOM update starting: ${pageName(next)}`);
-      if (before !== undefined) await before;
-      if (!mounted || target !== next || navigationRequest !== request) return;
-      flushSync(() => {
-        displayedTarget = next;
-      });
-      const after = logNavigationCheckpoint(`DOM update completed: ${pageName(next)}`);
-      if (after !== undefined) await after;
-    });
-    transition = current;
-    void current.ready.then(() => {
-      logApplicationEvent("info", "navigation", `Snapshot ready: ${pageName(next)}`);
-    }).catch((error: unknown) => {
-      if (!(error instanceof DOMException && error.name === "AbortError")) {
-        console.warn("Page transition snapshot failed", error);
-      }
-    });
-    void current.finished.then(() => {
-      logApplicationEvent("info", "navigation", `Transition finished: ${pageName(next)}`);
-      if (transition === current) transition = undefined;
-    }).catch((error: unknown) => console.warn("Page transition failed", error));
+    logApplicationEvent("info", "navigation", `DOM update starting: ${pageName(next)}`);
+    flushSync(() => { displayedTarget = next; });
+    outgoing?.cancel();
+    logApplicationEvent("info", "navigation", `DOM update completed: ${pageName(next)}`);
+    const incoming = page ? animateForeground(page, "in", duration) : undefined;
+    transition = incoming;
+    await incoming?.finished;
+    if (!mounted || target !== next || navigationRequest !== request) return;
+    incoming?.cancel();
+    if (transition === incoming) transition = undefined;
+    logApplicationEvent("info", "navigation", `Transition finished: ${pageName(next)}`);
   }
 
   $effect(() => {
     const next = target;
     const request = ++navigationRequest;
-    transition?.skipTransition();
+    transition?.cancel();
     if (next === untrack(() => displayedTarget)) return;
-    logApplicationEvent("info", "navigation", `Requested: ${pageName(next)}; transition: ${nativeTransitions && !reducedMotion ? "native" : "fade"}`);
-    if (!nativeTransitions || reducedMotion || !mounted) {
+    logApplicationEvent("info", "navigation", `Requested: ${pageName(next)}; transition: foreground`);
+    if (!mounted || reducedMotion) {
       displayedTarget = next;
       return;
     }
-    const checkpoint = logNavigationCheckpoint(`Snapshot starting: ${pageName(next)}`);
-    if (checkpoint === undefined) startNativeTransition(next, request);
-    else void checkpoint.then(() => startNativeTransition(next, request));
+    untrack(() => { void transitionTo(next, request); });
   });
 
 
@@ -84,9 +78,9 @@
 >
   {#key displayedTarget}
     <div
+      bind:this={page}
       data-page={displayedTarget}
       class="absolute inset-0 overflow-y-auto scrollbar-none"
-      in:pageTransition={{ duration: mounted && !nativeTransitions ? undefined : 0 }}
     >
       {#if displayedTarget === "home"}
         <HomeView />

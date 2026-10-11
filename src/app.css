@@ -88,18 +88,6 @@ html, body, #app { min-height: 100%; }
   transition: transform 300ms ease-out;
 }
 .group:hover > .legio-artwork-zoom { transform: translateZ(0) scale(1.05); }
-::view-transition-group(root) { animation: none; }
-::view-transition-image-pair(root) { isolation: isolate; }
-::view-transition-old(root) {
-  animation: legio-page-out 210ms linear both;
-  mix-blend-mode: plus-lighter;
-}
-::view-transition-new(root) {
-  animation: legio-page-in 210ms linear both;
-  mix-blend-mode: plus-lighter;
-}
-@keyframes legio-page-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes legio-page-out { from { opacity: 1; } to { opacity: 0; } }
 dialog.legio-dialog {
   opacity: 1;
   border-color: transparent;
