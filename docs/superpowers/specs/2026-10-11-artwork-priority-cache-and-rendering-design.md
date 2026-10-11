@@ -2,7 +2,7 @@
 
 Date: 2026-10-11
 
-Status: Conversational design approved; this written specification awaits user review.
+Status: Written specification approved by the user on 2026-10-11; implementation plans await review and execution-method selection.
 
 Baseline: `feat/store-filters-release-0.2.0` at `733b0a5`, draft PR #183.
 
