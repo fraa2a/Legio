@@ -59,6 +59,7 @@ mod startup;
 mod startup_recovery;
 #[cfg(target_os = "linux")]
 mod webkit_features;
+mod window_scale;
 
 struct TrayAvailable(bool);
 struct LaunchEvents(tauri::async_runtime::JoinHandle<()>);
@@ -161,6 +162,9 @@ fn run_application(
                 .map_err(std::io::Error::other)?;
             app.state::<application_log::ApplicationLog>()
                 .set_enabled(initial_settings.application_logging_enabled);
+            if let Some(window) = app.get_webview_window("main") {
+                window_scale::install(&window)?;
+            }
             #[cfg(target_os = "linux")]
             if let Some(window) = app.get_webview_window("main") {
                 native_rendering::configure(
