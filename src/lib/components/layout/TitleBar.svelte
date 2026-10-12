@@ -104,7 +104,7 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div class="my-1.5 grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2" data-tauri-drag-region>
+<div class="my-1.5 grid shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2" data-tauri-drag-region>
   <div class="col-start-1 flex items-center">
     {#if libraryList}
       <div class="legio-glass flex h-11 items-center rounded-xl bg-zinc-900 p-1 light:bg-zinc-50">
@@ -142,7 +142,7 @@
     {/if}
   </div>
   {#if searchList}
-    <div class="legio-glass col-start-2 flex h-11 w-[min(32rem,calc(100vw-24rem))] min-w-0 items-center gap-2 rounded-xl bg-zinc-900 px-3 light:bg-zinc-50">
+    <div class="legio-glass col-start-2 flex h-11 w-full min-w-0 max-w-lg justify-self-center items-center gap-2 rounded-xl bg-zinc-900 px-3 light:bg-zinc-50">
       <Icon name="search" size="h-4 w-4 shrink-0 text-zinc-500" />
       <input
         bind:this={searchInput}
@@ -166,7 +166,7 @@
       {/if}
     </div>
   {:else}
-    <div class="legio-glass col-start-2 flex h-11 items-center rounded-xl bg-zinc-900 px-4 light:bg-zinc-50">
+    <div class="legio-glass col-start-2 flex h-11 min-w-0 max-w-full items-center justify-self-center rounded-xl bg-zinc-900 px-4 light:bg-zinc-50">
       <h1
         bind:this={heading}
         data-page-heading
