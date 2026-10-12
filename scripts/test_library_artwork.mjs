@@ -21,10 +21,8 @@ const { load: moduleUrl, resolveImports } = createModuleLoader(mocks);
 const logger = await import(await moduleUrl("src/lib/services/application-log.ts"));
 logger.setApplicationLoggingEnabled(false);
 const requests = [];
-let detailsResolve;
 globalThis.artworkInvoke = (command, args) => {
   requests.push([command, args]);
-  if (command === "get_steam_details") return new Promise((resolve) => { detailsResolve = resolve; });
   assert.equal(command, "get_steam_asset");
   return Promise.resolve(artworkPacket({ bytes: [1], contentType: "image/png", stale: false, cacheWarning: null }));
 };
@@ -33,7 +31,7 @@ const settle = async () => {
 };
 
 // Each App ID starts with empty details and image caches.
-test("visible library cover loads while details are pending and remains after an empty response", async () => {
+test("visible library cover loads without requesting textual metadata", async () => {
   requests.length = 0;
   let intersect;
   globalThis.IntersectionObserver = class {
@@ -51,10 +49,10 @@ test("visible library cover loads while details are pending and remains after an
     assert.equal(requests.length, 0, "offscreen covers must remain lazy");
     intersect([{ isIntersecting: true }]);
     await settle();
-    assert.ok(requests.some(([command]) => command === "get_steam_details"));
+    assert.equal(requests.filter(([command]) => command === "get_steam_details").length, 0);
     assert.ok(requests.some(([command, args]) => command === "get_steam_asset" && args.steamAppId === 400 && args.asset === "hero_blur"));
     assert.match(target.querySelector("img")?.src ?? "", /^blob:/);
-    detailsResolve({ details: null, cachedAt: null, stale: false });
+    assert.equal(requests.find(([command]) => command === "get_steam_asset")[1].origin, "visible");
     await settle();
     assert.match(target.querySelector("img")?.src ?? "", /^blob:/);
   } finally {
@@ -272,6 +270,7 @@ test("library renders repeated Steam diagnostics and stays usable after refresh"
 });
 
 test("Store row releases metadata demand as soon as it leaves view", async () => {
+  let detailsResolve;
   globalThis.cancelledMetadata = [];
   requests.length = 0;
   globalThis.artworkInvoke = (command, args) => {
@@ -295,4 +294,68 @@ test("Store row releases metadata demand as soon as it leaves view", async () =>
   } finally {
     await unmount(component); target.remove(); delete globalThis.IntersectionObserver; delete globalThis.cancelledMetadata;
   }
+});
+
+
+test("offscreen library cards do not request branding logos", async () => {
+  const { default: GameCard } = await import(await moduleUrl("src/lib/features/library/GameCard.svelte"));
+  const calls = [];
+  globalThis.IntersectionObserver = class { constructor(callback) { this.callback = callback; } observe() {} disconnect() {} };
+  globalThis.artworkInvoke = (command, args) => { calls.push([command, args]); return Promise.resolve(artworkPacket({ bytes: [1], contentType: "image/png", stale: false, cacheWarning: null })); };
+  const target = document.createElement("div");
+  const component = mount(GameCard, { target, props: { game: { id: "offscreen-logo", name: "Hidden game", steamAppId: 7900 }, launch: undefined, onOpen() {} } });
+  try { await settle(); assert.equal(calls.filter(([command]) => command === "get_steam_asset").length, 0); }
+  finally { await unmount(component); delete globalThis.IntersectionObserver; }
+});
+
+test("outgoing page preserves its cached image after demand stops", async () => {
+  globalThis.pageArtworkActive = writable(true);
+  const calls = [];
+  globalThis.artworkInvoke = (command, args) => {
+    calls.push([command, args]);
+    return Promise.resolve(artworkPacket({ bytes: [1], contentType: "image/png", stale: false, cacheWarning: null }));
+  };
+  const source = `<script>import ArtworkScope from "./src/lib/components/ui/ArtworkScope.svelte"; import SteamArtwork from "./src/lib/features/library/SteamArtwork.svelte"; const active = globalThis.pageArtworkActive;</script><ArtworkScope active={$active}><SteamArtwork steamAppId={7901} asset="header" caption={false}/></ArtworkScope>`;
+  const url = dataModule(await resolveImports(compile(source, { generate: "client" }).js.code, "fixture.svelte"));
+  const target = document.createElement("div");
+  const component = mount((await import(url)).default, { target });
+  try {
+    await settle(); const before = target.querySelector("img").src;
+    globalThis.pageArtworkActive.set(false); await settle();
+    assert.equal(target.querySelector("img").src, before);
+    assert.equal(calls.filter(([command]) => command === "get_steam_asset").length, 1);
+  } finally { await unmount(component); }
+});
+
+
+test("outgoing page cancels a pending image before unmount", async () => {
+  globalThis.pageArtworkActive = writable(true);
+  globalThis.cancelledMetadata = [];
+  let complete;
+  globalThis.artworkInvoke = () => new Promise(resolve => { complete = resolve; });
+  const source = `<script>import ArtworkScope from "./src/lib/components/ui/ArtworkScope.svelte"; import SteamArtwork from "./src/lib/features/library/SteamArtwork.svelte"; const active = globalThis.pageArtworkActive;</script><ArtworkScope active={$active}><SteamArtwork steamAppId={7902} asset="header" caption={false}/></ArtworkScope>`;
+  const url = dataModule(await resolveImports(compile(source, { generate: "client" }).js.code, "pending-fixture.svelte"));
+  const component = mount((await import(url)).default, { target: document.createElement("div") });
+  try {
+    await settle(); assert.equal(typeof complete, "function");
+    globalThis.pageArtworkActive.set(false); await settle();
+    assert.equal(globalThis.cancelledMetadata.length, 1);
+  } finally {
+    complete(artworkPacket({ bytes: [1], contentType: "image/png", stale: false, cacheWarning: null }));
+    await settle(); await unmount(component); delete globalThis.cancelledMetadata;
+  }
+});
+
+
+test("sidebar continues observing after its icon becomes visible", async () => {
+  let intersect; let disconnects = 0;
+  globalThis.IntersectionObserver = class { constructor(callback) { intersect = callback; } observe() {} disconnect() { disconnects++; } };
+  const { default: Item } = await import(await moduleUrl("src/lib/components/layout/SidebarGameItem.svelte"));
+  const component = mount(Item, { target: document.createElement("ul"), props: { game: { id: "observer", name: "Manual", steamAppId: null }, expanded: false } });
+  try {
+    await settle(); const initial = disconnects;
+    intersect([{ isIntersecting: true }]); await settle();
+    assert.equal(disconnects, initial, "Visibility changes must not disconnect the viewport observer");
+    intersect([{ isIntersecting: false }]); await settle();
+  } finally { await unmount(component); delete globalThis.IntersectionObserver; }
 });

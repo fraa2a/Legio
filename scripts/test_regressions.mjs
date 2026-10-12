@@ -299,60 +299,6 @@ test("native launch events invalidate stale reads and reduce polling during game
   }
 });
 
-test("recent hero prefetch pauses during games and retries failures without exceeding two workers", async () => {
-  const games = writable({ data: Array.from({ length: 10 }, (_, index) => ({ steamAppId: index + 1 })) });
-  const playtime = writable({ data: [] });
-  const active = writable(false);
-  const pending = writable(false);
-  const requests = [];
-  globalThis.legioHeroPrefetch = { games, playtime, active, pending, request: (appId) => {
-    const response = deferred();
-    requests.push({ appId, ...response });
-    return response.promise;
-  } };
-  const { load } = createModuleLoader({
-    "src/lib/stores/games": dataModule("export const games = globalThis.legioHeroPrefetch.games;"),
-    "src/lib/stores/playtime": dataModule("export const playtime = globalThis.legioHeroPrefetch.playtime;"),
-    "src/lib/stores/launch": dataModule("export const hasPendingLaunch = globalThis.legioHeroPrefetch.pending;"),
-    "src/lib/stores/window-activity": dataModule("export const windowActive = globalThis.legioHeroPrefetch.active;"),
-    "src/lib/services/steam-details": dataModule("export const prefetchSteamHero = appId => globalThis.legioHeroPrefetch.request(appId);"),
-    "src/lib/features/home/home-model": dataModule("export const recentGames = games => games.map(game => ({ game }));"),
-  });
-  const settle = () => new Promise((resolve) => setImmediate(resolve));
-  const originalWarn = console.warn;
-  const originalNow = Date.now;
-  let now = 100000;
-  console.warn = () => {};
-  Date.now = () => now;
-  try {
-    const module = await import(await load("src/lib/stores/library-artwork.ts"));
-    module.startLibraryHeroCaching();
-    assert.equal(requests.length, 0);
-    active.set(true);
-    assert.deepEqual(requests.map(({ appId }) => appId), [1, 2]);
-    pending.set(true);
-    requests[0].reject(new Error("temporary failure"));
-    requests[1].resolve();
-    await settle();
-    assert.equal(requests.length, 2, "a game prevents more work when in-flight requests finish");
-    active.set(false);
-    pending.set(false);
-    assert.equal(requests.length, 2);
-    now += 30001;
-    active.set(true);
-    assert.deepEqual(requests.slice(2).map(({ appId }) => appId), [1, 3]);
-    active.set(false);
-    for (const request of requests.slice(2)) request.resolve();
-    await settle();
-    assert.equal(requests.length, 4);
-  } finally {
-    active.set(false);
-    console.warn = originalWarn;
-    Date.now = originalNow;
-    delete globalThis.legioHeroPrefetch;
-  }
-});
-
 test("hydration waits for startup recovery before loading games and displays failures without a shortcut", async () => {
   const ready = deferred();
   const calls = [];
@@ -371,7 +317,6 @@ test("hydration waits for startup recovery before loading games and displays fai
     "src/lib/stores/settings": fromGlobal("settings"),
     "src/lib/stores/games": fromGlobal("games"),
     "src/lib/stores/playtime": fromGlobal("playtime"),
-    "src/lib/stores/library-artwork": dataModule("export const startLibraryHeroCaching = () => {};"),
     "src/lib/stores/downloads": dataModule(["downloads", "bandwidthLimit", "installedFolder"].map((name) => `export const ${name} = globalThis.legioBootstrap.${name};`).join("\n") + "export const startDownloadProgressPolling = () => {};"),
     "src/lib/stores/source-links": dataModule("export const startSourceLinks = async () => {};"),
     "src/lib/stores/source": dataModule("export const source = globalThis.legioBootstrap.source; export const refreshSource = async () => {};"),

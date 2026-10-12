@@ -178,6 +178,7 @@ pub(crate) struct Lookup {
 pub(crate) async fn resolve(
     path: Result<PathBuf, String>,
     lock: &tokio::sync::Mutex<Lookup>,
+    refresh_expired: bool,
     fetched: impl Future<Output = Result<PicsAssets, String>>,
 ) -> (Option<PicsAssets>, Option<String>) {
     let (path, mut warning) = match path {
@@ -192,7 +193,10 @@ pub(crate) async fn resolve(
     } else {
         None
     };
-    if cached.as_ref().is_some_and(|(_, stale)| !stale) {
+    if cached
+        .as_ref()
+        .is_some_and(|(_, stale)| !refresh_expired || !stale)
+    {
         return (cached.map(|(assets, _)| assets), warning);
     }
 
@@ -204,7 +208,10 @@ pub(crate) async fn resolve(
             Err(error) => warning = Some(error),
         }
     }
-    if cached.as_ref().is_some_and(|(_, stale)| !stale) {
+    if cached
+        .as_ref()
+        .is_some_and(|(_, stale)| !refresh_expired || !stale)
+    {
         return (cached.map(|(assets, _)| assets), warning);
     }
     let result = match lookup.recent.as_ref() {
@@ -213,7 +220,14 @@ pub(crate) async fn resolve(
         }
         _ => {
             let result = fetched.await;
-            lookup.recent = Some((Instant::now(), result.clone()));
+            lookup.recent = if result
+                .as_ref()
+                .is_err_and(|error| error == "Artwork request cancelled")
+            {
+                None
+            } else {
+                Some((Instant::now(), result.clone()))
+            };
             result
         }
     };
@@ -381,8 +395,10 @@ mod tests {
     async fn cache_miss_fetches_and_persists_metadata() {
         let path = cache_path();
         let lock = tokio::sync::Mutex::new(Lookup::default());
-        let (assets, warning) =
-            resolve(Ok(path.clone()), &lock, async { Ok(logo_assets(HASH)) }).await;
+        let (assets, warning) = resolve(Ok(path.clone()), &lock, true, async {
+            Ok(logo_assets(HASH))
+        })
+        .await;
         let (saved, stale) = read_cache(&path).await.unwrap().unwrap();
         assert_eq!(
             saved.url(4656000, "logo.png"),
@@ -403,7 +419,7 @@ mod tests {
         let _guard = lock.lock().await;
         let (assets, warning) = tokio::time::timeout(
             Duration::from_secs(3),
-            resolve(Ok(path.clone()), &lock, async {
+            resolve(Ok(path.clone()), &lock, true, async {
                 panic!("Fresh metadata must not connect to Steam")
             }),
         )
@@ -420,13 +436,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn expired_metadata_for_library_bypasses_network_and_lookup_lock() {
+        let path = cache_path();
+        expire_cache(&path).await;
+        let lock = tokio::sync::Mutex::new(Lookup::default());
+        let guard = lock.lock().await;
+        let result = tokio::time::timeout(
+            Duration::from_millis(100),
+            resolve(Ok(path.clone()), &lock, false, async {
+                panic!("Library artwork must reuse expired metadata")
+            }),
+        )
+        .await;
+        drop(guard);
+        let (assets, warning) =
+            result.expect("Library cache lookup must not wait for a refresh lock");
+        assert_eq!(
+            assets.unwrap().url(4656000, "logo.png"),
+            Some(format!("{CDN}/4656000/{HASH}/logo.png"))
+        );
+        assert!(warning.is_none());
+        tokio::fs::remove_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
     async fn expired_metadata_refreshes_and_saves_the_new_hash() {
         let path = cache_path();
         expire_cache(&path).await;
         let lock = tokio::sync::Mutex::new(Lookup::default());
         let hash = "b".repeat(40);
-        let (assets, warning) =
-            resolve(Ok(path.clone()), &lock, async { Ok(logo_assets(&hash)) }).await;
+        let (assets, warning) = resolve(Ok(path.clone()), &lock, true, async {
+            Ok(logo_assets(&hash))
+        })
+        .await;
         let expected = logo_assets(&hash).url(4656000, "logo.png");
         assert_eq!(assets.unwrap().url(4656000, "logo.png"), expected);
         let (saved, stale) = read_cache(&path).await.unwrap().unwrap();
@@ -442,12 +486,12 @@ mod tests {
     async fn same_game_queued_lookups_reuse_a_recent_offline_result() {
         let path = cache_path();
         let lock = tokio::sync::Mutex::new(Lookup::default());
-        let (_, warning) = resolve(Ok(path.clone()), &lock, async {
+        let (_, warning) = resolve(Ok(path.clone()), &lock, true, async {
             Err("Steam is offline".into())
         })
         .await;
         assert_eq!(warning.as_deref(), Some("Steam is offline"));
-        let (_, repeated_warning) = resolve(Ok(path), &lock, async {
+        let (_, repeated_warning) = resolve(Ok(path), &lock, true, async {
             panic!("A queued request must not start another slow Steam connection")
         })
         .await;
@@ -459,7 +503,7 @@ mod tests {
         let path = cache_path();
         expire_cache(&path).await;
         let lock = tokio::sync::Mutex::new(Lookup::default());
-        let (assets, warning) = resolve(Ok(path.clone()), &lock, async {
+        let (assets, warning) = resolve(Ok(path.clone()), &lock, true, async {
             Err("Steam is offline".into())
         })
         .await;
@@ -469,6 +513,29 @@ mod tests {
         );
         assert_eq!(warning.as_deref(), Some("Steam is offline"));
         assert!(read_cache(&path).await.unwrap().unwrap().1);
+        tokio::fs::remove_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelled_lookup_does_not_poison_the_next_visible_request() {
+        let path = cache_path();
+        let lock = tokio::sync::Mutex::new(Lookup::default());
+        let (_, warning) = resolve(Ok(path.clone()), &lock, true, async {
+            Err("Artwork request cancelled".into())
+        })
+        .await;
+        assert_eq!(warning.as_deref(), Some("Artwork request cancelled"));
+        let (assets, warning) = resolve(Ok(path.clone()), &lock, true, async {
+            Ok(logo_assets(HASH))
+        })
+        .await;
+        assert!(
+            assets.is_some(),
+            "Cancellation must not be reused as a cached metadata failure"
+        );
+        assert!(warning.is_none());
         tokio::fs::remove_dir_all(path.parent().unwrap())
             .await
             .unwrap();

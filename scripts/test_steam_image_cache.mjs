@@ -311,3 +311,19 @@ test("explicit refresh waits for an opening check then performs a force fetch", 
   finish(packet()); await Promise.all([opening, explicit]);
   assert.deepEqual(policies, ["cache_or_fetch", "refresh_if_expired", "force_refresh"]);
 });
+
+
+test("opening details never refreshes permanent Library card artwork or icons", async () => {
+  const calls = [];
+  globalThis.cacheInvoke = (command, args) => {
+    if (command === "cancel_artwork_request") return Promise.resolve();
+    calls.push(args);
+    return Promise.resolve(packet());
+  };
+  for (const asset of ["hero_blur", "client_icon", "library_capsule", "library_header", "logo"]) await images.loadSteamImage(request(7991, asset));
+  calls.length = 0;
+  await images.refreshSteamImagesOnOpen(7991, { requestId: "opening-permanent", origin: "visible", release() {} });
+  assert.equal(calls.length, 0);
+  await images.refreshSteamImages(7991);
+  assert.equal(calls.filter(args => args.policy === "force_refresh").length, 5);
+});

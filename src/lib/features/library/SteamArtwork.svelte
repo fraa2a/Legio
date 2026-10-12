@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { artworkDemand } from "../../utils/artwork-demand";
   import { t, language } from "../../i18n";
   import type { Snippet } from "svelte";
   import { fade } from "svelte/transition";
@@ -43,6 +44,7 @@
     placeholder?: Snippet;
   } = $props();
 
+  const demand = artworkDemand();
   const request = $derived({ steamAppId, asset, fallbackAsset, index, version: null, full, screenshotIdentity, displayWidth: $artworkDisplayWidth });
   const cached = $derived.by(() => {
     void $steamImageRevision;
@@ -69,6 +71,7 @@
   }
 
   $effect(() => {
+    if (!demand()) return;
     const current = request;
     const consumer = acquireSteamImage(current, origin ?? (asset === "hero_blur" ? "decorative" : asset === "screenshot" ? "prefetch" : "visible"));
     let cancelled = false;

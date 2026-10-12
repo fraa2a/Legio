@@ -1,5 +1,6 @@
 <script lang="ts">
   import { flushSync, onDestroy, onMount, untrack } from "svelte";
+  import ArtworkScope from "../ui/ArtworkScope.svelte";
   import DownloadsView from "../../features/downloads/DownloadsView.svelte";
   import HomeView from "../../features/home/HomeView.svelte";
   import GameDetailView from "../../features/library/GameDetailView.svelte";
@@ -77,22 +78,24 @@
   class="legio-content relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl scrollbar-none"
 >
   {#key displayedTarget}
-    <div
-      bind:this={page}
-      data-page={displayedTarget}
-      class="absolute inset-0 overflow-y-auto scrollbar-none"
-    >
-      {#if displayedTarget === "home"}
-        <HomeView />
-      {:else if displayedTarget === "library"}
-        <LibraryView />
-      {:else if displayedTarget.startsWith(gamePrefix)}
-        <GameDetailView gameId={displayedTarget.slice(gamePrefix.length)} />
-      {:else if displayedTarget === "store"}
-        <StoreView />
-      {:else}
-        <DownloadsView />
-      {/if}
-    </div>
+    <ArtworkScope active={displayedTarget === target}>
+      <div
+        bind:this={page}
+        data-page={displayedTarget}
+        class="absolute inset-0 overflow-y-auto scrollbar-none"
+      >
+        {#if displayedTarget === "home"}
+          <HomeView />
+        {:else if displayedTarget === "library"}
+          <LibraryView />
+        {:else if displayedTarget.startsWith(gamePrefix)}
+          <GameDetailView gameId={displayedTarget.slice(gamePrefix.length)} />
+        {:else if displayedTarget === "store"}
+          <StoreView />
+        {:else}
+          <DownloadsView />
+        {/if}
+      </div>
+    </ArtworkScope>
   {/key}
 </main>

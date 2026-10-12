@@ -72,7 +72,6 @@ export function getSteamAsset(steamAppId: number, asset: SteamAssetKind, index?:
   const task = requestSteamAsset(request, refresh ? "force_refresh" : "cache_or_fetch", work, "native_only").finally(() => { work.release(); pendingAssets.delete(key); });
   pendingAssets.set(key, task); return task;
 }
-export function prefetchSteamHero(steamAppId: number): Promise<void> { return invoke("prefetch_steam_hero", { steamAppId }); }
 async function finish(result: SteamAsset, outcome: PublicationOutcome): Promise<string | null> {
   if (!result.replacementToken) return result.cacheWarning;
   try { const publication = await invoke<{ cacheWarning: string | null }>("finish_steam_asset_update", { token: result.replacementToken, outcome }); return publication.cacheWarning ?? result.cacheWarning; }
@@ -156,7 +155,11 @@ function requestFromKey(key: string): SteamImageRequest {
   const [steamAppId, asset, fallbackAsset, index, screenshotIdentity, full, displayWidth] = JSON.parse(key);
   return { steamAppId, asset, fallbackAsset, index, screenshotIdentity: screenshotIdentity ?? undefined, version: null, full, displayWidth: displayWidth ?? undefined };
 }
+function permanentArtwork(asset: SteamAssetKind): boolean {
+  return ["hero_blur", "client_icon", "library_capsule", "library_header", "logo"].includes(asset);
+}
 async function refreshRequest(request: SteamImageRequest, policy: AssetPolicy, work?: ArtworkWork): Promise<void> {
+  if (policy === "refresh_if_expired" && permanentArtwork(request.asset)) return;
   const pending = pendingImages.get(imageKey(request));
   if (pending && !pending.work.signal?.aborted && pending.policy !== policy) {
     await pending.promise.then(() => undefined, () => undefined);

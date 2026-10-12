@@ -11,7 +11,7 @@ use crate::{
     artwork_publication::{
         ArtworkPublication, PublicationMode, PublicationOutcome, PublicationResult,
     },
-    artwork_scheduler::{ArtworkScheduler, WorkError, WorkHandle, WorkOrigin},
+    artwork_scheduler::{ArtworkScheduler, ConversionPermit, WorkError, WorkHandle, WorkOrigin},
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -98,8 +98,63 @@ struct CacheEntry {
     refresh_after: u64,
 }
 
-type AssetFetch = tokio::sync::Mutex<Option<(String, Result<AssetResult, String>)>>;
-type MetadataLookup = Arc<tokio::sync::Mutex<crate::steam_pics::Lookup>>;
+#[derive(Default)]
+struct AssetFetch {
+    result: tokio::sync::Mutex<Option<(String, Result<AssetResult, String>)>>,
+    owner: Mutex<Option<WorkHandle>>,
+}
+impl AssetFetch {
+    fn register(&self, work: &WorkHandle) -> Result<(), String> {
+        let mut owner = self
+            .owner
+            .lock()
+            .map_err(|_| "Artwork owner lock was poisoned")?;
+        if let Some(owner) = owner.as_ref() {
+            owner.promote_from(work);
+        } else {
+            *owner = Some(work.clone());
+        }
+        Ok(())
+    }
+    fn set_owner(&self, work: &WorkHandle) -> Result<(), String> {
+        let mut owner = self
+            .owner
+            .lock()
+            .map_err(|_| "Artwork owner lock was poisoned")?;
+        if let Some(previous) = owner.as_ref() {
+            work.promote_from(previous);
+        }
+        *owner = Some(work.clone());
+        Ok(())
+    }
+}
+#[derive(Default)]
+struct MetadataFetch {
+    lookup: tokio::sync::Mutex<crate::steam_pics::Lookup>,
+    owner: Mutex<Option<WorkHandle>>,
+}
+impl std::ops::Deref for MetadataFetch {
+    type Target = tokio::sync::Mutex<crate::steam_pics::Lookup>;
+    fn deref(&self) -> &Self::Target {
+        &self.lookup
+    }
+}
+type MetadataLookup = Arc<MetadataFetch>;
+struct MetadataOwnerGuard {
+    lock: MetadataLookup,
+    work: WorkHandle,
+}
+impl Drop for MetadataOwnerGuard {
+    fn drop(&mut self) {
+        if let Ok(mut owner) = self.lock.owner.lock()
+            && owner
+                .as_ref()
+                .is_some_and(|owner| owner.same_request(&self.work))
+        {
+            *owner = None;
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct AssetCacheState {
@@ -146,6 +201,52 @@ impl AssetCacheState {
         Ok(locks.entry(app_id).or_default().clone())
     }
 
+    async fn resolve_metadata(
+        &self,
+        app_id: u32,
+        work: &AssetWork,
+        fetched: impl std::future::Future<Output = Result<crate::steam_pics::PicsAssets, String>>,
+    ) -> Result<(Option<crate::steam_pics::PicsAssets>, Option<String>), String> {
+        let lock = self.metadata_lock(app_id)?;
+        {
+            let mut owner = lock
+                .owner
+                .lock()
+                .map_err(|_| "Metadata owner lock was poisoned")?;
+            if let Some(owner) = owner.as_ref() {
+                owner.promote_from(&work.handle);
+            } else {
+                *owner = Some(work.handle.clone());
+            }
+        }
+        let _owner_guard = MetadataOwnerGuard {
+            lock: lock.clone(),
+            work: work.handle.clone(),
+        };
+        let path = self
+            .directory()
+            .map(|directory| directory.join("pics").join(format!("{app_id}.json")));
+        Ok(crate::steam_pics::resolve(
+            path,
+            &lock,
+            work.policy != AssetPolicy::CacheOrFetch,
+            async {
+                {
+                    let mut owner = lock
+                        .owner
+                        .lock()
+                        .map_err(|_| "Metadata owner lock was poisoned")?;
+                    if let Some(previous) = owner.as_ref() {
+                        work.handle.promote_from(previous);
+                    }
+                    *owner = Some(work.handle.clone());
+                }
+                fetched.await
+            },
+        )
+        .await)
+    }
+
     fn asset_lock(&self, key: &str) -> Result<Arc<AssetFetch>, String> {
         let mut locks = self
             .asset_locks
@@ -155,7 +256,7 @@ impl AssetCacheState {
         if let Some(lock) = locks.get(key).and_then(Weak::upgrade) {
             return Ok(lock);
         }
-        let lock = Arc::new(AssetFetch::new(None));
+        let lock = Arc::new(AssetFetch::default());
         locks.insert(key.to_owned(), Arc::downgrade(&lock));
         Ok(lock)
     }
@@ -266,17 +367,19 @@ impl AssetCacheState {
         if format.content_type() != header.content_type {
             return Err("A cached image has mismatched content type.".to_owned());
         }
-        let stale = artwork_expired(
-            metadata
-                .modified()
-                .ok()
-                .and_then(|modified| SystemTime::now().duration_since(modified).ok()),
-        ) || header.transform_version != 2;
+        let permanent = permanent_asset(key);
+        let stale = !permanent
+            && (artwork_expired(
+                metadata
+                    .modified()
+                    .ok()
+                    .and_then(|modified| SystemTime::now().duration_since(modified).ok()),
+            ) || header.transform_version != 2);
         Ok(Some(CacheEntry {
             bytes,
             content_type: format.content_type(),
             stale,
-            refresh_after: if stale {
+            refresh_after: if stale || permanent {
                 0
             } else {
                 metadata
@@ -458,6 +561,14 @@ fn prune_protected(
             .extension()
             .is_some_and(|extension| extension == "asset")
         {
+            if entry
+                .path()
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .is_some_and(permanent_asset)
+            {
+                continue;
+            }
             files.push((entry.metadata()?.modified()?, entry.path()));
         }
     }
@@ -472,6 +583,16 @@ fn prune_protected(
         fs::remove_file(path)?;
     }
     Ok(retained)
+}
+
+fn permanent_asset(key: &str) -> bool {
+    key.split_once('-').is_some_and(|(_, kind)| {
+        kind.starts_with("hero-blur-")
+            || kind == "clienticon-alpha"
+            || matches!(kind, "logo" | "logo-full")
+            || kind.starts_with("library_capsule")
+            || kind.starts_with("library_header")
+    })
 }
 
 fn selected_url(
@@ -561,12 +682,14 @@ async fn load_asset_scheduled(
     work: &AssetWork,
 ) -> Result<AssetResult, String> {
     let request_lock = cache.asset_lock(&key)?;
-    let mut request = request_lock.lock().await;
+    request_lock.register(&work.handle)?;
+    let mut request = request_lock.result.lock().await;
     if let Some((requested_url, result)) = request.as_ref()
         && requested_url == &url
     {
         return result.clone();
     }
+    request_lock.set_owner(&work.handle)?;
     let requested_url = url.clone();
     let result = load_asset_inner(cache, network, key, url, refresh, hero, work).await;
     if result
@@ -621,7 +744,7 @@ async fn load_asset_inner(
     let primary_url = url.clone();
     let fetched = work
         .scheduler
-        .run_network(&work.handle, || async {
+        .run_image(&work.handle, || async {
             match network.steam_asset(&primary_url).await {
                 Err(crate::network::NetworkError::Http { status: 404 }) => {
                     match hero.as_ref().and_then(|hero| hero.fallback_url.as_ref()) {
@@ -638,10 +761,14 @@ async fn load_asset_inner(
         })
         .await;
     let fetched = match fetched {
-        Ok((bytes, fallback)) => {
+        Ok(((bytes, fallback), permit)) => {
             if let Some(fallback) = fallback {
                 url = fallback;
             }
+            *work
+                .image_permit
+                .lock()
+                .map_err(|_| "Artwork pipeline lock was poisoned")? = Some(permit);
             Ok(bytes)
         }
         Err(error) => Err(error.to_string()),
@@ -655,6 +782,12 @@ async fn load_asset_inner(
         Ok(bytes) => optimized_asset_bytes(bytes, hero.map(|hero| (hero.width, false)), work).await,
         Err(error) => Err(error),
     };
+    if fetched.is_err() {
+        work.image_permit
+            .lock()
+            .map_err(|_| "Artwork pipeline lock was poisoned")?
+            .take();
+    }
     match fetched {
         Ok(bytes) => {
             let content_type = "image/webp";
@@ -779,6 +912,7 @@ struct AssetWork {
     scheduler: ArtworkScheduler,
     handle: WorkHandle,
     publication: PublicationMode,
+    image_permit: Arc<Mutex<Option<ConversionPermit>>>,
 }
 impl AssetWork {
     fn new(
@@ -791,6 +925,7 @@ impl AssetWork {
             scheduler: scheduler.clone(),
             handle: scheduler.begin(demand.request_id, app_id, demand.origin)?,
             publication: demand.publication,
+            image_permit: Arc::default(),
         })
     }
     fn native_only(&self) -> Self {
@@ -799,6 +934,7 @@ impl AssetWork {
             scheduler: self.scheduler.clone(),
             handle: self.handle.clone(),
             publication: PublicationMode::NativeOnly,
+            image_permit: self.image_permit.clone(),
         }
     }
 }
@@ -987,11 +1123,15 @@ pub async fn get_asset_for_request<R: tauri::Runtime>(
         }
     };
     if let Some(entry) = previous.as_ref()
-        && !refresh_artwork(request.policy, entry.stale)
+        && !(request.policy == AssetPolicy::ForceRefresh
+            || (!permanent_asset(&key) && refresh_artwork(request.policy, entry.stale)))
     {
         return Ok(cached_result(previous.ok_or_else(|| {
             WorkError::Failed("Image cache entry disappeared".into())
         })?));
+    }
+    if previous.is_some() && request.policy == AssetPolicy::RefreshIfExpired {
+        work.handle.mark_refresh();
     }
     if request.policy != AssetPolicy::ForceRefresh && previous.is_some() {
         let failures = cache
@@ -1122,10 +1262,13 @@ async fn get_asset_core<R: tauri::Runtime>(
     let blur_lock = matches!(asset, AssetKind::HeroBlur)
         .then(|| state.asset_lock(&key))
         .transpose()?;
+    if let Some(lock) = blur_lock.as_ref() {
+        lock.register(&work.handle)?;
+    }
     let (mut blur_request, refresh) = match blur_lock.as_ref() {
-        Some(lock) => match lock.try_lock() {
+        Some(lock) => match lock.result.try_lock() {
             Ok(guard) => (Some(guard), refresh),
-            Err(_) => (Some(lock.lock().await), false),
+            Err(_) => (Some(lock.result.lock().await), false),
         },
         None => (None, refresh),
     };
@@ -1133,6 +1276,9 @@ async fn get_asset_core<R: tauri::Runtime>(
         && let Some((_, result)) = request.as_ref()
     {
         return result.clone();
+    }
+    if let Some(lock) = blur_lock.as_ref() {
+        lock.set_owner(&work.handle)?;
     }
     if !refresh {
         let reader = state.clone();
@@ -1191,14 +1337,9 @@ async fn get_asset_core<R: tauri::Runtime>(
             }
         };
         let bytes = optimized_asset_bytes(source.bytes, Some((display_width, true)), work).await?;
-        let stale = source.stale;
         let mode = work.publication;
         let (bytes, written) = tauri::async_runtime::spawn_blocking(move || {
-            let written = if stale {
-                Ok(None)
-            } else {
-                state.publish(&key, source_name, &bytes, "image/webp", mode)
-            };
+            let written = state.publish(&key, source_name, &bytes, "image/webp", mode);
             (bytes, written)
         })
         .await
@@ -1215,8 +1356,8 @@ async fn get_asset_core<R: tauri::Runtime>(
             replacement_token,
             bytes,
             content_type: "image/webp",
-            stale,
-            refresh_after: source.refresh_after,
+            stale: false,
+            refresh_after: 0,
             cache_warning: warning,
         };
         if let Some(request) = blur_request.as_mut() {
@@ -1254,17 +1395,14 @@ async fn get_asset_core<R: tauri::Runtime>(
         }
     }
     let (selected, metadata_warning, hero_fallback) = if let Some(filename) = filename {
-        let path = state
-            .directory()
-            .map(|directory| directory.join("pics").join(format!("{app_id}.json")));
-        let metadata_lock = state.metadata_lock(app_id)?;
-        let (assets, warning) = crate::steam_pics::resolve(path, &metadata_lock, async {
-            work.scheduler
-                .run_metadata(&work.handle, || crate::steam_pics::fetch(app_id))
-                .await
-                .map_err(|error| error.to_string())
-        })
-        .await;
+        let (assets, warning) = state
+            .resolve_metadata(app_id, work, async {
+                work.scheduler
+                    .run_metadata(&work.handle, || crate::steam_pics::fetch(app_id))
+                    .await
+                    .map_err(|error| error.to_string())
+            })
+            .await?;
         if let Some(warning) = warning.as_deref() {
             crate::application_log::failure("asset_metadata_lookup", warning);
         }
@@ -1545,6 +1683,285 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn acquired_image_keeps_network_slot_until_processing_finishes() {
+        let cache = cache();
+        let scheduler = cache.scheduler.clone();
+        let mut held_network = Vec::new();
+        let mut handles = Vec::new();
+        for id in 1..=4 {
+            let handle = scheduler
+                .begin(format!("held-{id}"), id, WorkOrigin::Visible)
+                .unwrap();
+            held_network.push(
+                scheduler
+                    .acquire_for_test(&handle, crate::artwork_scheduler::WorkStage::Network)
+                    .await
+                    .unwrap(),
+            );
+            handles.push(handle);
+        }
+        scheduler.select_game(Some(900)).unwrap();
+        let codec = scheduler
+            .begin("codec".into(), 900, WorkOrigin::Visible)
+            .unwrap();
+        let codec_a = scheduler.acquire_conversion(&codec).await.unwrap();
+        let codec_b = scheduler.acquire_conversion(&codec).await.unwrap();
+        scheduler.select_game(Some(400)).unwrap();
+        let work = AssetWork::new(
+            &scheduler,
+            400,
+            AssetDemand {
+                request_id: "image".into(),
+                origin: WorkOrigin::Visible,
+                publication: PublicationMode::NativeOnly,
+            },
+        )
+        .unwrap();
+        let (url, server) = server(response(PNG));
+        let image_cache = cache.clone();
+        let image = tokio::spawn(async move {
+            let network = NetworkState::new(
+                "0.2.0",
+                crate::diagnostics::Diagnostics::new(Err("test".into())),
+            )
+            .unwrap();
+            load_asset_scheduled(
+                image_cache,
+                &network,
+                "400-header".into(),
+                url,
+                false,
+                None,
+                &work,
+            )
+            .await
+        });
+        tauri::async_runtime::spawn_blocking(move || server.join().unwrap())
+            .await
+            .unwrap();
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!image.is_finished());
+        let next_work = scheduler
+            .begin("next-image".into(), 400, WorkOrigin::Visible)
+            .unwrap();
+        let next_scheduler = scheduler.clone();
+        let next = tokio::spawn(async move {
+            next_scheduler
+                .run_network(&next_work, || async { Ok(()) })
+                .await
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            !next.is_finished(),
+            "The next transfer must wait for the acquired image's processing"
+        );
+        drop(codec_a);
+        drop(codec_b);
+        image.await.unwrap().unwrap();
+        next.await.unwrap().unwrap();
+        fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn visible_join_promotes_a_queued_prefetch_download() {
+        let cache = cache();
+        let scheduler = cache.scheduler.clone();
+        let mut held = Vec::new();
+        let mut handles = Vec::new();
+        for id in 1..=4 {
+            let handle = scheduler
+                .begin(format!("held-{id}"), id, WorkOrigin::Visible)
+                .unwrap();
+            held.push(
+                scheduler
+                    .acquire_for_test(&handle, crate::artwork_scheduler::WorkStage::Network)
+                    .await
+                    .unwrap(),
+            );
+            handles.push(handle);
+        }
+        let prefetch = AssetWork::new(
+            &scheduler,
+            400,
+            AssetDemand {
+                request_id: "prefetch-owner".into(),
+                origin: WorkOrigin::Prefetch,
+                publication: PublicationMode::NativeOnly,
+            },
+        )
+        .unwrap();
+        let (url, server) = server(response(PNG));
+        let first_cache = cache.clone();
+        let first_url = url.clone();
+        let first = tokio::spawn(async move {
+            let network = NetworkState::new(
+                "0.2.0",
+                crate::diagnostics::Diagnostics::new(Err("test".into())),
+            )
+            .unwrap();
+            load_asset_scheduled(
+                first_cache,
+                &network,
+                "400-header".into(),
+                first_url,
+                false,
+                None,
+                &prefetch,
+            )
+            .await
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let ordinary = scheduler
+            .begin("ordinary-missing".into(), 100, WorkOrigin::Visible)
+            .unwrap();
+        let ordinary_scheduler = scheduler.clone();
+        let ordinary_task = tokio::spawn(async move {
+            ordinary_scheduler
+                .acquire_for_test(&ordinary, crate::artwork_scheduler::WorkStage::Network)
+                .await
+        });
+        scheduler.select_game(Some(400)).unwrap();
+        let visible = AssetWork::new(
+            &scheduler,
+            400,
+            AssetDemand {
+                request_id: "visible-join".into(),
+                origin: WorkOrigin::Visible,
+                publication: PublicationMode::NativeOnly,
+            },
+        )
+        .unwrap();
+        let second_cache = cache.clone();
+        let second = tokio::spawn(async move {
+            let network = NetworkState::new(
+                "0.2.0",
+                crate::diagnostics::Diagnostics::new(Err("test".into())),
+            )
+            .unwrap();
+            load_asset_scheduled(
+                second_cache,
+                &network,
+                "400-header".into(),
+                url,
+                false,
+                None,
+                &visible,
+            )
+            .await
+        });
+        let results = tokio::time::timeout(Duration::from_secs(1), async {
+            (
+                first.await.unwrap().unwrap(),
+                second.await.unwrap().unwrap(),
+            )
+        })
+        .await;
+        assert!(
+            results.is_ok(),
+            "A visible selected request must promote the shared queued download"
+        );
+        let (a, b) = results.unwrap();
+        assert_eq!(a.bytes, b.bytes);
+        server.join().unwrap();
+        scheduler.cancel("ordinary-missing").unwrap();
+        assert!(matches!(
+            ordinary_task.await.unwrap(),
+            Err(WorkError::Cancelled)
+        ));
+        fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn visible_asset_promotes_a_queued_shared_metadata_lookup() {
+        let cache = cache();
+        let scheduler = cache.scheduler.clone();
+        let mut held = Vec::new();
+        let mut handles = Vec::new();
+        for id in 1..=4 {
+            let handle = scheduler
+                .begin(format!("held-{id}"), id, WorkOrigin::Visible)
+                .unwrap();
+            held.push(
+                scheduler
+                    .acquire_for_test(&handle, crate::artwork_scheduler::WorkStage::Network)
+                    .await
+                    .unwrap(),
+            );
+            handles.push(handle);
+        }
+        let prefetch = AssetWork::new(
+            &scheduler,
+            400,
+            AssetDemand {
+                request_id: "metadata-prefetch".into(),
+                origin: WorkOrigin::Prefetch,
+                publication: PublicationMode::NativeOnly,
+            },
+        )
+        .unwrap();
+        let first_cache = cache.clone();
+        let first = tokio::spawn(async move {
+            first_cache
+                .resolve_metadata(400, &prefetch, async {
+                    prefetch
+                        .scheduler
+                        .run_metadata(&prefetch.handle, || async {
+                            Ok(serde_json::from_str("{}").unwrap())
+                        })
+                        .await
+                        .map_err(|error| error.to_string())
+                })
+                .await
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let ordinary = scheduler
+            .begin("ordinary-missing".into(), 100, WorkOrigin::Visible)
+            .unwrap();
+        let ordinary_scheduler = scheduler.clone();
+        let ordinary_task = tokio::spawn(async move {
+            ordinary_scheduler
+                .acquire_for_test(&ordinary, crate::artwork_scheduler::WorkStage::Network)
+                .await
+        });
+        scheduler.select_game(Some(400)).unwrap();
+        let visible = AssetWork::new(
+            &scheduler,
+            400,
+            AssetDemand {
+                request_id: "metadata-visible".into(),
+                origin: WorkOrigin::Visible,
+                publication: PublicationMode::NativeOnly,
+            },
+        )
+        .unwrap();
+        let second_cache = cache.clone();
+        let second = tokio::spawn(async move {
+            second_cache
+                .resolve_metadata(400, &visible, async {
+                    panic!("The visible join must reuse shared metadata")
+                })
+                .await
+        });
+        let result = tokio::time::timeout(Duration::from_secs(1), async {
+            first.await.unwrap().unwrap();
+            second.await.unwrap().unwrap();
+        })
+        .await;
+        assert!(
+            result.is_ok(),
+            "The shared metadata owner must inherit visible selected demand"
+        );
+        scheduler.cancel("ordinary-missing").unwrap();
+        assert!(matches!(
+            ordinary_task.await.unwrap(),
+            Err(WorkError::Cancelled)
+        ));
+        fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
+    }
+
+    #[tokio::test]
     async fn unrelated_games_do_not_wait_for_another_games_metadata() {
         let cache = cache();
         let directory = cache.directory().unwrap().join("pics");
@@ -1552,7 +1969,7 @@ mod tests {
         let _busy_game = busy_lock.lock().await;
         let other_lock = cache.metadata_lock(401).unwrap();
         let lookup =
-            crate::steam_pics::resolve(Ok(directory.join("401.json")), &other_lock, async {
+            crate::steam_pics::resolve(Ok(directory.join("401.json")), &other_lock, true, async {
                 Ok(serde_json::from_str::<crate::steam_pics::PicsAssets>("{}").unwrap())
             });
         let result = tokio::time::timeout(Duration::from_millis(100), lookup).await;
@@ -1889,6 +2306,113 @@ mod tests {
         .unwrap();
         assert_eq!(first.bytes, second.bytes);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn card_blur_from_an_expired_sharp_source_survives_restart() {
+        let cache = cache();
+        let root = cache.directory().unwrap().parent().unwrap().to_path_buf();
+        let sharp = crate::image_trim::webp_asset(PNG).unwrap();
+        cache
+            .write("400-hero-display-v1-1920", "test", &sharp, "image/webp")
+            .unwrap();
+        let path = cache
+            .directory()
+            .unwrap()
+            .join("400-hero-display-v1-1920.asset");
+        fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new()
+                    .set_modified(SystemTime::now() - Duration::from_secs(6 * 86400)),
+            )
+            .unwrap();
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().identifier = format!("org.legio.test.{}", uuid::Uuid::new_v4());
+        let app = tauri::test::mock_builder()
+            .manage(cache.clone())
+            .build(context)
+            .unwrap();
+        let network = NetworkState::new(
+            "0.2.0",
+            crate::diagnostics::Diagnostics::new(Err("test".into())),
+        )
+        .unwrap();
+        let first = get_asset(
+            app.handle().clone(),
+            &network,
+            400,
+            AssetKind::HeroBlur,
+            None,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+        let reopened = AssetCacheState::new(Ok(root.clone()));
+        let saved = reopened
+            .read_cached("400-hero-blur-display-v2-1920", None)
+            .unwrap()
+            .expect("A Library card must persist even when its sharp source is expired");
+        assert_eq!(saved.bytes, first.bytes);
+        assert!(!saved.stale);
+        assert!(
+            cache
+                .read_cached("400-hero-display-v1-1920", None)
+                .unwrap()
+                .unwrap()
+                .stale
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn library_cards_and_client_icons_ignore_age_and_survive_cache_pressure() {
+        let cache = cache();
+        let sharp = crate::image_trim::webp_asset(PNG).unwrap();
+        for key in [
+            "400-hero-blur-display-v2-1920",
+            "400-clienticon-alpha",
+            "400-logo",
+            "400-library_capsule.jpg",
+            "400-library_header.jpg",
+        ] {
+            cache.write(key, "test", &sharp, "image/webp").unwrap();
+            let path = cache.directory().unwrap().join(format!("{key}.asset"));
+            fs::OpenOptions::new()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_times(
+                    fs::FileTimes::new()
+                        .set_modified(SystemTime::now() - Duration::from_secs(365 * 86400)),
+                )
+                .unwrap();
+            assert!(!cache.read_cached(key, None).unwrap().unwrap().stale);
+        }
+        for index in 0..=CACHE_FILES {
+            cache
+                .write(
+                    &format!("400-screenshot-{index}"),
+                    "test",
+                    &sharp,
+                    "image/webp",
+                )
+                .unwrap();
+        }
+        cache.maintain().unwrap();
+        for key in [
+            "400-hero-blur-display-v2-1920",
+            "400-clienticon-alpha",
+            "400-logo",
+            "400-library_capsule.jpg",
+            "400-library_header.jpg",
+        ] {
+            assert!(cache.read_cached(key, None).unwrap().is_some());
+        }
+        fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
     }
 
     #[tokio::test]

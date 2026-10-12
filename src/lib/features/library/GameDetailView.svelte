@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { artworkDemand } from "../../utils/artwork-demand";
+  const demand = artworkDemand();
   import { t, language } from "../../i18n";
   import { onMount } from "svelte";
   import { startVisibleRefresh } from "../../stores/visible-refresh";
@@ -88,7 +90,7 @@
 
   $effect(() => {
     void $language;
-    if (steamAppId === null) return;
+    if (steamAppId === null || !demand()) return;
     const work = createArtworkWork(steamAppId, "visible");
     void refreshSteamDetailsOnOpen(steamAppId, work).catch(() => undefined);
     void refreshSteamImagesOnOpen(steamAppId, work).catch(() => undefined);

@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { language } from "../../i18n";
   import type { Snippet } from "svelte";
   import { peekSteamImage, type SteamAssetKind } from "../../services/steam-details";
-  import { ensureSteamDetails, steamDetails } from "../../stores/steam-details";
+  import { steamDetails } from "../../stores/steam-details";
   import { observeVisibility } from "../../utils/visibility";
+  import ArtworkScope from "./ArtworkScope.svelte";
   import SteamArtwork from "../../features/library/SteamArtwork.svelte";
 
   let {
@@ -40,40 +40,38 @@
   $effect(() => {
     return observeVisibility(tile, (value = true) => (visible = value), false);
   });
-
-  $effect(() => {
-    void $language;
-    if (visible && steamAppId !== null) return ensureSteamDetails(steamAppId);
-  });
 </script>
 
-<li
-  class="tile group relative flex min-h-max min-w-0 flex-col overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200 {portrait ? 'aspect-[2/3]' : 'aspect-[2.14/1]'} {className}"
->
-  <div
-    bind:this={tile}
-    class="legio-artwork-zoom absolute inset-0"
+<ArtworkScope active={visible}>
+  <li
+    class="tile group relative flex min-h-max min-w-0 flex-col overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200 {portrait ? 'aspect-[2/3]' : 'aspect-[2.14/1]'} {className}"
   >
-    {#if (visible || cachedCover) && steamAppId !== null}
-      <SteamArtwork
-        {steamAppId}
-        {asset}
-        {fallbackAsset}
-        version={detailsState?.cachedAt ?? null}
-        caption={false}
-        class="size-full object-cover"
-      >
-        {#snippet placeholder()}{@render cover()}{/snippet}
-      </SteamArtwork>
-    {:else}
-      {@render cover()}
-    {/if}
-  </div>
+    <div
+      bind:this={tile}
+      class="legio-artwork-zoom absolute inset-0"
+    >
+      {#if (visible || cachedCover) && steamAppId !== null}
+        <SteamArtwork
+          {steamAppId}
+          {asset}
+          origin="visible"
+          {fallbackAsset}
+          version={detailsState?.cachedAt ?? null}
+          caption={false}
+          class="size-full object-cover"
+        >
+          {#snippet placeholder()}{@render cover()}{/snippet}
+        </SteamArtwork>
+      {:else}
+        {@render cover()}
+      {/if}
+    </div>
 
-  <div class="relative flex min-h-0 flex-1 flex-col">
-    {@render children()}
-  </div>
-</li>
+    <div class="relative flex min-h-0 flex-1 flex-col">
+      {@render children()}
+    </div>
+  </li>
+</ArtworkScope>
 
 {#snippet cover()}
   <div

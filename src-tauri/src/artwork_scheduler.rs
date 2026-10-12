@@ -4,7 +4,7 @@ use std::{
     future::Future,
     sync::{
         Arc, Mutex, Weak,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
     },
     time::Instant,
 };
@@ -73,8 +73,10 @@ struct Lease {
     request_id: String,
     app_id: u32,
     origin: WorkOrigin,
+    priority_origin: AtomicU8,
     cancelled: AtomicBool,
     metadata: AtomicBool,
+    refresh: AtomicBool,
     failed: AtomicBool,
     used: AtomicBool,
     timings: Timings,
@@ -118,6 +120,24 @@ pub struct WorkHandle {
     lease: Arc<Lease>,
 }
 impl WorkHandle {
+    pub fn same_request(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.lease, &other.lease)
+    }
+    pub fn promote_from(&self, other: &Self) {
+        self.lease.priority_origin.fetch_min(
+            other.lease.priority_origin.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+        if !other.lease.refresh.load(Ordering::Relaxed) {
+            self.lease.refresh.store(false, Ordering::Relaxed);
+        }
+        if let Some(inner) = self.lease.scheduler.upgrade() {
+            inner.changed.notify_waiters();
+        }
+    }
+    pub fn mark_refresh(&self) {
+        self.lease.refresh.store(true, Ordering::Relaxed);
+    }
     pub fn mark_metadata(&self) {
         self.lease.metadata.store(true, Ordering::Relaxed);
     }
@@ -179,16 +199,10 @@ fn stage_mut(state: &mut State, stage: WorkStage) -> &mut StageState {
     }
 }
 fn priority(lease: &Lease, selected: Option<u32>) -> u8 {
-    let origin = match lease.origin {
-        WorkOrigin::Visible => 0,
-        WorkOrigin::Decorative => 1,
-        WorkOrigin::Prefetch => 2,
-    };
-    if selected == Some(lease.app_id) {
-        origin
-    } else {
-        origin + 3
-    }
+    let origin = lease.priority_origin.load(Ordering::Relaxed);
+    u8::from(lease.refresh.load(Ordering::Relaxed)) * 6
+        + origin * 2
+        + u8::from(selected != Some(lease.app_id))
 }
 impl ArtworkScheduler {
     pub fn begin(
@@ -226,8 +240,14 @@ impl ArtworkScheduler {
             request_id: request_id.clone(),
             app_id,
             origin,
+            priority_origin: AtomicU8::new(match origin {
+                WorkOrigin::Visible => 0,
+                WorkOrigin::Decorative => 1,
+                WorkOrigin::Prefetch => 2,
+            }),
             cancelled: AtomicBool::new(false),
             metadata: AtomicBool::new(false),
+            refresh: AtomicBool::new(false),
             failed: AtomicBool::new(false),
             used: AtomicBool::new(false),
             timings: Timings::default(),
@@ -330,6 +350,8 @@ impl ArtworkScheduler {
                     WorkStage::Network => 5,
                     WorkStage::Conversion => 2,
                 };
+                let reserve =
+                    usize::from(selected.is_some() || matches!(stage, WorkStage::Network));
                 let ordinary = target
                     .active
                     .values()
@@ -339,11 +361,11 @@ impl ArtworkScheduler {
                     .queue
                     .iter()
                     .filter(|t| !t.lease.cancelled.load(Ordering::Acquire))
+                    .min_by_key(|t| (priority(&t.lease, selected), t.id))
                     .filter(|t| {
                         target.active.len() < total
-                            && (selected == Some(t.lease.app_id) || ordinary < total - 1)
+                            && (selected == Some(t.lease.app_id) || ordinary < total - reserve)
                     })
-                    .min_by_key(|t| (priority(&t.lease, selected), t.id))
                     .map(|t| t.id);
                 if chosen == Some(id) {
                     target.queue.retain(|t| t.id != id);
@@ -388,11 +410,21 @@ impl ArtworkScheduler {
     ) -> Result<ConversionPermit, WorkError> {
         self.acquire(work, WorkStage::Conversion).await
     }
+    #[cfg(test)]
     pub async fn run_network<T, F: Future<Output = Result<T, String>>>(
         &self,
         work: &WorkHandle,
         operation: impl FnMut() -> F,
     ) -> Result<T, WorkError> {
+        self.run_network_phase(work, operation, false)
+            .await
+            .map(|(result, _)| result)
+    }
+    pub async fn run_image<T, F: Future<Output = Result<T, String>>>(
+        &self,
+        work: &WorkHandle,
+        operation: impl FnMut() -> F,
+    ) -> Result<(T, ConversionPermit), WorkError> {
         self.run_network_phase(work, operation, false).await
     }
     pub async fn run_metadata<T, F: Future<Output = Result<T, String>>>(
@@ -400,14 +432,16 @@ impl ArtworkScheduler {
         work: &WorkHandle,
         operation: impl FnMut() -> F,
     ) -> Result<T, WorkError> {
-        self.run_network_phase(work, operation, true).await
+        self.run_network_phase(work, operation, true)
+            .await
+            .map(|(result, _)| result)
     }
     async fn run_network_phase<T, F: Future<Output = Result<T, String>>>(
         &self,
         work: &WorkHandle,
         mut operation: impl FnMut() -> F,
         metadata: bool,
-    ) -> Result<T, WorkError> {
+    ) -> Result<(T, ConversionPermit), WorkError> {
         loop {
             let mut permit = self.acquire(work, WorkStage::Network).await?;
             permit.metadata = metadata;
@@ -432,7 +466,7 @@ impl ArtworkScheduler {
                 if preempted {
                     break;
                 }
-                tokio::select! { result = &mut future => { if result.is_err() { work.mark_failed(); } return result.map_err(WorkError::Failed); }, _ = &mut notified => {} }
+                tokio::select! { result = &mut future => { if result.is_err() { work.mark_failed(); } return result.map(|result| (result, permit)).map_err(WorkError::Failed); }, _ = &mut notified => {} }
             }
             drop(permit);
         }
@@ -635,6 +669,7 @@ mod tests {
         let s = ArtworkScheduler::default();
         let a = work(&s, "a", 1);
         let b = work(&s, "b", 2);
+        s.select_game(Some(3)).unwrap();
         let first = s.acquire_conversion(&a).await.unwrap();
         let sb = s.clone();
         let normal = tokio::spawn(async move { sb.acquire_conversion(&b).await });
@@ -660,6 +695,7 @@ mod tests {
     #[tokio::test]
     async fn cancelled_waiter_releases_queue_and_capacity() {
         let s = ArtworkScheduler::default();
+        s.select_game(Some(3)).unwrap();
         let a = work(&s, "a", 1);
         let b = work(&s, "b", 2);
         let p = s.acquire_conversion(&a).await.unwrap();
@@ -674,5 +710,72 @@ mod tests {
         let shared2 = s.begin("shared".into(), 3, WorkOrigin::Visible).unwrap();
         assert!(Arc::ptr_eq(&shared.lease, &shared2.lease));
         assert!(s.begin("shared".into(), 4, WorkOrigin::Visible).is_err());
+    }
+
+    #[tokio::test]
+    async fn library_converts_two_images_when_no_game_is_selected() {
+        let s = ArtworkScheduler::default();
+        let a = work(&s, "a", 1);
+        let b = work(&s, "b", 2);
+        let first = s.acquire_conversion(&a).await.unwrap();
+        let second = tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            s.acquire_conversion(&b),
+        )
+        .await;
+        assert!(
+            second.is_ok(),
+            "An unselected Library must use both conversion slots"
+        );
+        drop(first);
+    }
+
+    #[test]
+    fn visible_missing_assets_precede_selected_prefetch_and_refresh() {
+        let s = ArtworkScheduler::default();
+        let visible = work(&s, "visible", 1);
+        let prefetch = s.begin("prefetch".into(), 2, WorkOrigin::Prefetch).unwrap();
+        let refresh = work(&s, "refresh", 2);
+        refresh.mark_refresh();
+        assert!(priority(&visible.lease, Some(2)) < priority(&prefetch.lease, Some(2)));
+        assert!(priority(&visible.lease, Some(2)) < priority(&refresh.lease, Some(2)));
+    }
+
+    #[tokio::test]
+    async fn reserved_slot_does_not_let_refresh_pass_visible_missing_assets() {
+        let s = ArtworkScheduler::default();
+        let mut held = Vec::new();
+        let mut handles = Vec::new();
+        for id in 1..=4 {
+            let w = work(&s, &format!("hold-{id}"), id);
+            held.push(s.acquire(&w, WorkStage::Network).await.unwrap());
+            handles.push(w);
+        }
+        let missing = work(&s, "missing", 100);
+        let missing_scheduler = s.clone();
+        let missing_task = tokio::spawn(async move {
+            missing_scheduler
+                .acquire(&missing, WorkStage::Network)
+                .await
+        });
+        flush().await;
+        s.select_game(Some(200)).unwrap();
+        let refresh = work(&s, "refresh", 200);
+        refresh.mark_refresh();
+        let refresh_scheduler = s.clone();
+        let refresh_task = tokio::spawn(async move {
+            refresh_scheduler
+                .acquire(&refresh, WorkStage::Network)
+                .await
+        });
+        flush().await;
+        assert!(
+            !refresh_task.is_finished(),
+            "Visible missing artwork must precede refresh even with reserved capacity"
+        );
+        held.pop();
+        let missing_permit = missing_task.await.unwrap().unwrap();
+        refresh_task.await.unwrap().unwrap();
+        drop(missing_permit);
     }
 }

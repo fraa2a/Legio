@@ -573,6 +573,9 @@ where
             return Ok(previous);
         }
     }
+    if previous.details.is_some() && policy == DetailsPolicy::RefreshIfExpired {
+        work.mark_refresh();
+    }
     let fetched = async {
         let bytes =
             scheduler

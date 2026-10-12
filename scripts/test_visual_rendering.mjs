@@ -28,6 +28,85 @@ test("page foreground fades without moving content or adding a blur filter", asy
   assert.equal(node.style.filter, ""); assert.equal(node.style.transform, "");
 });
 
+test("outgoing foreground remains hidden when the compositor drops the finished animation", async () => {
+  const { animateForeground } = await import(await load("src/lib/utils/foreground-transition.ts"));
+  const node = document.createElement("div");
+  document.body.append(node);
+  let finish;
+  node.animate = () => ({ finished: new Promise(resolve => { finish = resolve; }), cancel() {} });
+  try {
+    const outgoing = animateForeground(node, "out", 105);
+    assert.equal(node.style.opacity, "0", "the underlying style must retain the outgoing terminal state");
+    finish();
+    await outgoing.finished;
+    assert.equal(getComputedStyle(node).opacity, "0", "a finished effect must not expose a visible fallback");
+    outgoing.cancel();
+    assert.equal(node.style.getPropertyValue("opacity"), "", "cancellation must restore the original stylesheet value");
+  } finally { node.remove(); }
+});
+
+test("foreground cancellation restores inline opacity and priority without brightening dim content", async () => {
+  const { animateForeground } = await import(await load("src/lib/utils/foreground-transition.ts"));
+  const node = document.createElement("div");
+  node.style.setProperty("opacity", "0.45", "important");
+  document.body.append(node);
+  const effects = [];
+  node.animate = keyframes => {
+    let reject;
+    const effect = { keyframes, finished: new Promise((_resolve, fail) => { reject = fail; }), cancel() { reject(new Error("cancelled")); } };
+    effects.push(effect);
+    return effect;
+  };
+  try {
+    const outgoing = animateForeground(node, "out", 105);
+    assert.deepEqual(effects[0].keyframes, [{ opacity: 0.45 }, { opacity: 0 }]);
+    assert.equal(node.style.opacity, "0");
+    assert.equal(node.style.getPropertyPriority("opacity"), "", "the animation must be able to override the terminal style");
+    outgoing.cancel();
+    await outgoing.finished;
+    assert.equal(node.style.opacity, "0.45");
+    assert.equal(node.style.getPropertyPriority("opacity"), "important");
+    const incoming = animateForeground(node, "in", 105);
+    assert.deepEqual(effects[1].keyframes, [{ opacity: 0 }, { opacity: 0.45 }]);
+    assert.equal(node.style.opacity, "0.45");
+    incoming.cancel();
+    await incoming.finished;
+    assert.equal(node.style.opacity, "0.45");
+    assert.equal(node.style.getPropertyPriority("opacity"), "important");
+  } finally { node.remove(); }
+});
+
+test("foreground animation preserves opacity supplied by a stylesheet", async () => {
+  const { animateForeground } = await import(await load("src/lib/utils/foreground-transition.ts"));
+  const style = document.createElement("style");
+  style.textContent = ".dim-foreground { opacity: 0.45; }";
+  const node = document.createElement("div");
+  node.className = "dim-foreground";
+  document.body.append(style, node);
+  let keyframes;
+  node.animate = values => { keyframes = values; return { finished: Promise.resolve(), cancel() {} }; };
+  try {
+    const incoming = animateForeground(node, "in", 105);
+    await incoming.finished;
+    assert.deepEqual(keyframes, [{ opacity: 0 }, { opacity: 0.45 }]);
+    incoming.cancel();
+    assert.equal(node.style.opacity, "");
+    assert.equal(getComputedStyle(node).opacity, "0.45");
+  } finally { node.remove(); style.remove(); }
+});
+
+test("retired outgoing foreground never becomes visible during detached-node cleanup", async () => {
+  const { animateForeground } = await import(await load("src/lib/utils/foreground-transition.ts"));
+  const node = document.createElement("div");
+  document.body.append(node);
+  node.animate = () => ({ finished: Promise.resolve(), cancel() {} });
+  const outgoing = animateForeground(node, "out", 105);
+  await outgoing.finished;
+  node.remove();
+  outgoing.cancel();
+  assert.equal(node.style.opacity, "0", "native layer retirement must not receive a visible underlying style");
+});
+
 test("frozen dither requests a persistent drawing buffer without a continuous frame loop", async () => {
   let attributes;
   let draws = 0;
@@ -132,6 +211,9 @@ test("foreground_targets_never_contain_backdrop_surface", async () => {
     await animateForeground(root, "out", 105).finished;
     assert.equal(animated.length, 4);
     assert.ok(animated.every(entry => entry.options.duration === 105));
+    for (const surface of root.querySelectorAll(".legio-panel,.legio-glass,article")) {
+      assert.equal(surface.style.opacity, "", "protected surfaces must retain their own native opacity");
+    }
     const before = animated.length;
     await animateForeground(root, "in", 0).finished;
     assert.equal(animated.length, before, "reduced motion must not animate");

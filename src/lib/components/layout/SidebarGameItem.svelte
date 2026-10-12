@@ -22,8 +22,7 @@
   let visible = $state(false);
 
   $effect(() => {
-    if (visible) return;
-    return observeVisibility(icon, () => (visible = true));
+    return observeVisibility(icon, (value = true) => (visible = value), false);
   });
 </script>
 
