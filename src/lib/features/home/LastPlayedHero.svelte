@@ -21,7 +21,7 @@
   let bannerUrl = $state<string | null>(null);
   let artworkError = $state<string | null>(null);
 
-  $effect(() => { void $language; if (steamAppId !== null) ensureSteamDetails(steamAppId); });
+  $effect(() => { void $language; if (steamAppId !== null) return ensureSteamDetails(steamAppId); });
   $effect(() => {
     const id = artworkGameId;
     void $gameArtworkRevision[`${id}:banner`];

@@ -15,7 +15,7 @@ const localeUrl = dataModule(localeCode);
 async function loadModule(path, imports = {}) {
   const source = await readFile(new URL(path, import.meta.url), "utf8");
   let code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
-  for (const [specifier, url] of Object.entries({ "svelte/store": import.meta.resolve("svelte/store"), "../i18n": localeUrl, ...imports })) {
+  for (const [specifier, url] of Object.entries({ "svelte/store": import.meta.resolve("svelte/store"), "../i18n": localeUrl, "./application-log": dataModule("export const logApplicationEvent = () => {};"), ...imports })) {
     code = code.replaceAll(`from "${specifier}"`, `from "${url}"`);
   }
   return import(dataModule(code));
@@ -53,13 +53,14 @@ test("Steam refresh survives older success and failure without losing cached dat
   globalThis.legioDetailsMock = () => { const request = deferred(); pending.push(request); return request.promise; };
   const service = dataModule("export const getSteamDetails = (...args) => globalThis.legioDetailsMock(...args);");
   const { steamDetails, loadSteamDetails } = await loadModule("../src/lib/stores/steam-details.ts", {
-    "../services/steam-details": service, "../utils/errors": errors,
+    "../services/steam-metadata": service, "../services/artwork-work": dataModule("export const isArtworkCancelled = () => false; export const createArtworkWork = () => ({ requestId: 'test', origin: 'visible', release() {} });"), "../utils/errors": errors,
   });
   const old = loadSteamDetails(42, false);
   const fresh = loadSteamDetails(42, true);
-  assert.equal(loadSteamDetails(42, false), fresh);
+  const joined = loadSteamDetails(42, false);
+  assert.equal(pending.length, 2, "another consumer shares the current native request");
   pending[1].resolve({ details: { name: "NEW" }, cachedAt: 2, stale: false });
-  await fresh;
+  await Promise.all([fresh, joined]);
   pending[0].resolve({ details: { name: "OLD" }, cachedAt: 1, stale: true });
   await old;
   assert.equal(get(steamDetails)[42].details.name, "NEW");
@@ -115,9 +116,10 @@ test("language selection preserves regional formatting and interpolates translat
   assert.equal(t("  Chiudi  ", "en"), "  Close  ");
 });
 
-test("Steam image cache shares library artwork across details versions and retains versions for details assets", async () => {
+test("Steam image cache preserves artwork identity across metadata timestamps and separates monitor profiles", async () => {
   let requests = 0;
-  globalThis.legioInvokeMock = () => {
+  globalThis.legioInvokeMock = command => {
+    if (command !== "get_steam_asset") return Promise.resolve();
     requests++;
     return Promise.resolve(artworkPacket({ bytes: [1], contentType: "image/png", stale: false, cacheWarning: null, refreshAfter: Date.now() + 60_000 }));
   };
@@ -131,20 +133,20 @@ test("Steam image cache shares library artwork across details versions and retai
   assert.equal(oldImage.url, newImage.url);
   const firstHeader = await loadSteamImage({ ...request, asset: "header" });
   const secondHeader = await loadSteamImage({ ...request, asset: "header", version: 2 });
-  assert.equal(requests, 3);
-  assert.notEqual(firstHeader.url, secondHeader.url);
+  assert.equal(requests, 2);
+  assert.equal(firstHeader.url, secondHeader.url);
   const hdRequest = { ...request, displayWidth: 1920 };
   const hd = await loadSteamImage(hdRequest);
   const full = await loadSteamImage({ ...hdRequest, full: true });
   assert.equal(hd.url, full.url, "viewer and banner share the selected monitor profile");
-  assert.equal(requests, 3);
+  assert.equal(requests, 2);
   const qhd = await loadSteamImage({ ...request, displayWidth: 2560 });
-  assert.equal(requests, 4);
+  assert.equal(requests, 3);
   assert.notEqual(hd.url, qhd.url);
   assert.equal((await loadSteamImage(hdRequest)).url, hd.url, "returning to a monitor profile reuses its cache");
   const unchangedHeader = await loadSteamImage({ ...request, asset: "header", displayWidth: 2560 });
   assert.equal(unchangedHeader.url, firstHeader.url);
-  assert.equal(requests, 4, "monitor resolution only separates hero variants");
+  assert.equal(requests, 3, "monitor resolution only separates hero variants");
   URL.revokeObjectURL(qhd.url);
   URL.revokeObjectURL(oldImage.url);
   URL.revokeObjectURL(newImage.url);
@@ -297,60 +299,6 @@ test("native launch events invalidate stale reads and reduce polling during game
   }
 });
 
-test("recent hero prefetch pauses during games and retries failures without exceeding two workers", async () => {
-  const games = writable({ data: Array.from({ length: 10 }, (_, index) => ({ steamAppId: index + 1 })) });
-  const playtime = writable({ data: [] });
-  const active = writable(false);
-  const pending = writable(false);
-  const requests = [];
-  globalThis.legioHeroPrefetch = { games, playtime, active, pending, request: (appId) => {
-    const response = deferred();
-    requests.push({ appId, ...response });
-    return response.promise;
-  } };
-  const { load } = createModuleLoader({
-    "src/lib/stores/games": dataModule("export const games = globalThis.legioHeroPrefetch.games;"),
-    "src/lib/stores/playtime": dataModule("export const playtime = globalThis.legioHeroPrefetch.playtime;"),
-    "src/lib/stores/launch": dataModule("export const hasPendingLaunch = globalThis.legioHeroPrefetch.pending;"),
-    "src/lib/stores/window-activity": dataModule("export const windowActive = globalThis.legioHeroPrefetch.active;"),
-    "src/lib/services/steam-details": dataModule("export const prefetchSteamHero = appId => globalThis.legioHeroPrefetch.request(appId);"),
-    "src/lib/features/home/home-model": dataModule("export const recentGames = games => games.map(game => ({ game }));"),
-  });
-  const settle = () => new Promise((resolve) => setImmediate(resolve));
-  const originalWarn = console.warn;
-  const originalNow = Date.now;
-  let now = 100000;
-  console.warn = () => {};
-  Date.now = () => now;
-  try {
-    const module = await import(await load("src/lib/stores/library-artwork.ts"));
-    module.startLibraryHeroCaching();
-    assert.equal(requests.length, 0);
-    active.set(true);
-    assert.deepEqual(requests.map(({ appId }) => appId), [1, 2]);
-    pending.set(true);
-    requests[0].reject(new Error("temporary failure"));
-    requests[1].resolve();
-    await settle();
-    assert.equal(requests.length, 2, "a game prevents more work when in-flight requests finish");
-    active.set(false);
-    pending.set(false);
-    assert.equal(requests.length, 2);
-    now += 30001;
-    active.set(true);
-    assert.deepEqual(requests.slice(2).map(({ appId }) => appId), [1, 3]);
-    active.set(false);
-    for (const request of requests.slice(2)) request.resolve();
-    await settle();
-    assert.equal(requests.length, 4);
-  } finally {
-    active.set(false);
-    console.warn = originalWarn;
-    Date.now = originalNow;
-    delete globalThis.legioHeroPrefetch;
-  }
-});
-
 test("hydration waits for startup recovery before loading games and displays failures without a shortcut", async () => {
   const ready = deferred();
   const calls = [];
@@ -369,7 +317,6 @@ test("hydration waits for startup recovery before loading games and displays fai
     "src/lib/stores/settings": fromGlobal("settings"),
     "src/lib/stores/games": fromGlobal("games"),
     "src/lib/stores/playtime": fromGlobal("playtime"),
-    "src/lib/stores/library-artwork": dataModule("export const startLibraryHeroCaching = () => {};"),
     "src/lib/stores/downloads": dataModule(["downloads", "bandwidthLimit", "installedFolder"].map((name) => `export const ${name} = globalThis.legioBootstrap.${name};`).join("\n") + "export const startDownloadProgressPolling = () => {};"),
     "src/lib/stores/source-links": dataModule("export const startSourceLinks = async () => {};"),
     "src/lib/stores/source": dataModule("export const source = globalThis.legioBootstrap.source; export const refreshSource = async () => {};"),
@@ -441,12 +388,13 @@ test("download UI polling stops while inactive and catches completed work on res
   }
 });
 
-test("manual artwork refresh renews visible URLs and resets only its Steam App ID", async () => {
+test("manual artwork refresh renews its visible URLs while retaining other games", async () => {
   const calls = [];
   let revision = 0;
   globalThis.legioRefreshArtwork = async (command, args) => {
     calls.push([command, args]);
-    if (command === "reset_steam_artwork_cache") { revision++; return; }
+    if (command !== "get_steam_asset") return;
+    if (args.policy === "force_refresh") revision++;
     return artworkPacket({ bytes: [revision + 1], contentType: "image/png", stale: false, cacheWarning: null, refreshAfter: Date.now() + 100000 });
   };
   const { load } = createModuleLoader({ "@tauri-apps/api/core": dataModule("export const invoke = (...args) => globalThis.legioRefreshArtwork(...args);"), "src/lib/i18n": localeUrl });
@@ -460,7 +408,31 @@ test("manual artwork refresh renews visible URLs and resets only its Steam App I
   await first;
   assert.notEqual(images.peekSteamImage(request(400)).url, old.url);
   assert.equal(images.peekSteamImage(request(401)).url, untouched.url);
-  assert.equal(calls.filter(([command]) => command === "reset_steam_artwork_cache").length, 1);
-  assert.ok(calls.filter(([command, args]) => command === "get_steam_asset" && args.refresh).every(([, args]) => args.steamAppId === 400));
+  assert.equal(calls.filter(([command]) => command === "reset_steam_artwork_cache").length, 0);
+  assert.ok(calls.filter(([command, args]) => command === "get_steam_asset" && args.policy === "force_refresh").every(([, args]) => args.steamAppId === 400));
   retained.release();
+});
+
+
+test("missing updater platform is unavailable, not current, and invalidates a prior installer", async () => {
+  let checks = 0; let installs = 0;
+  globalThis.legioUpdaterCheck = async () => {
+    if (++checks === 1) return { version: "9.0.0", downloadAndInstall: async () => { installs++; } };
+    throw 'None of the fallback platforms `["linux-x86_64"]` were found in the response `platforms` object';
+  };
+  const { load } = createModuleLoader({
+    "src/lib/i18n": dataModule("export const t = value => value;"),
+    "@tauri-apps/plugin-updater": dataModule("export const check = () => globalThis.legioUpdaterCheck();"),
+    "@tauri-apps/plugin-process": dataModule("export const relaunch = async () => {};"),
+    "src/lib/services/invoke": dataModule("export const invoke = async command => command === 'is_aur_package' ? false : undefined;"),
+  });
+  const updater = await import(await load("src/lib/services/app-updater.ts"));
+  try {
+    await updater.checkForAppUpdate(); assert.equal(get(updater.updateState).version, "9.0.0");
+    await updater.checkForAppUpdate(); const state = get(updater.updateState);
+    assert.equal(state.unavailable, true); assert.equal(state.version, null); assert.equal(state.error, null);
+    await updater.installAppUpdate();assert.equal(installs, 0);
+    globalThis.legioUpdaterCheck = async () => { throw new Error("Network unavailable"); };
+    await updater.checkForAppUpdate();assert.match(get(updater.updateState).error,/Network unavailable/);assert.equal(get(updater.updateState).unavailable,false);
+  } finally { delete globalThis.legioUpdaterCheck; }
 });

@@ -200,7 +200,34 @@ pub fn save_game_compatibility_overrides(
 
 #[tauri::command]
 pub fn list_games(state: State<'_, DatabaseState>) -> Result<Vec<Game>, String> {
-    state.database()?.games()
+    let result = state.database().and_then(database::Database::games);
+    if let Err(error) = &result {
+        crate::application_log::failure("library_load", error);
+    }
+    result
+}
+
+#[tauri::command]
+pub fn get_application_log_status(
+    state: State<'_, crate::application_log::ApplicationLog>,
+) -> crate::application_log::LogStatus {
+    state.status()
+}
+
+#[tauri::command]
+pub async fn report_application_event(
+    state: State<'_, crate::application_log::ApplicationLog>,
+    level: crate::application_log::Level,
+    event: crate::application_log::RendererEvent,
+    message: Option<String>,
+    stack: Option<String>,
+) -> Result<(), String> {
+    let log = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        log.report(level, event, message.as_deref(), stack.as_deref())
+    })
+    .await
+    .map_err(|_| "Application log report task failed".to_owned())?
 }
 
 #[tauri::command]
@@ -724,8 +751,9 @@ pub async fn search_catalog(
     app: AppHandle,
     query: String,
     limit: Option<u32>,
+    options: Option<crate::catalog::CatalogOptions>,
 ) -> Result<crate::catalog::CatalogSearch, crate::catalog::CatalogError> {
-    crate::catalog::search_catalog(app, query, limit).await
+    crate::catalog::search_catalog(app, query, limit, options).await
 }
 
 #[tauri::command]
@@ -735,25 +763,39 @@ pub async fn refresh_catalog(
     query: String,
     skip: Option<usize>,
     limit: Option<u32>,
+    options: Option<crate::catalog::CatalogOptions>,
 ) -> Result<crate::catalog::CatalogSearch, crate::catalog::CatalogError> {
-    crate::catalog::refresh_catalog(app, state.inner(), query, skip, limit).await
+    crate::catalog::refresh_catalog(app, state.inner(), query, skip, limit, options).await
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn get_steam_details(
     app: AppHandle,
     state: State<'_, NetworkState>,
+    scheduler: State<'_, crate::artwork_scheduler::ArtworkScheduler>,
     steam_app_id: u32,
-    refresh: bool,
+    policy: crate::steam_details::DetailsPolicy,
     language: crate::locale::LanguagePreference,
+    request_id: String,
+    origin: crate::artwork_scheduler::WorkOrigin,
 ) -> Result<crate::steam_details::DetailsResult, crate::steam_details::DetailsError> {
-    crate::steam_details::get_details_localized(
+    let work = scheduler
+        .begin(request_id, steam_app_id, origin)
+        .map_err(|error| crate::steam_details::DetailsError {
+            kind: crate::steam_details::DetailsErrorKind::Cancelled,
+            message: error.to_string(),
+            status: None,
+        })?;
+    work.mark_metadata();
+    Box::pin(crate::steam_details::get_details_localized_with_policy(
         app,
         state.inner(),
         steam_app_id,
-        refresh,
+        policy,
         language.resolve(),
-    )
+        &work,
+    ))
     .await
 }
 
@@ -768,6 +810,7 @@ pub fn get_artwork_display_width(app: AppHandle) -> u32 {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn get_steam_asset(
     app: AppHandle,
     state: State<'_, NetworkState>,
@@ -775,19 +818,43 @@ pub async fn get_steam_asset(
     asset: crate::steam_assets::AssetKind,
     index: Option<usize>,
     full: Option<bool>,
-    refresh: Option<bool>,
-) -> Result<tauri::ipc::Response, String> {
-    crate::steam_assets::get_asset(
+    policy: crate::steam_assets::AssetPolicy,
+    screenshot_identity: Option<String>,
+    request_id: String,
+    origin: crate::artwork_scheduler::WorkOrigin,
+    publication: crate::artwork_publication::PublicationMode,
+) -> Result<tauri::ipc::Response, crate::artwork_scheduler::WorkError> {
+    Box::pin(crate::steam_assets::get_asset_for_request(
         app,
         state.inner(),
-        steam_app_id,
-        asset,
-        index,
-        full.unwrap_or(false),
-        refresh.unwrap_or(false),
-    )
+        crate::steam_assets::AssetRequest {
+            app_id: steam_app_id,
+            asset,
+            index,
+            full: full.unwrap_or(false),
+            policy,
+            screenshot_identity,
+        },
+        crate::steam_assets::AssetDemand {
+            request_id,
+            origin,
+            publication,
+        },
+    ))
     .await?
     .into_response()
+    .map_err(crate::artwork_scheduler::WorkError::Failed)
+}
+#[tauri::command]
+pub async fn finish_steam_asset_update(
+    state: State<'_, crate::steam_assets::AssetCacheState>,
+    token: String,
+    outcome: crate::artwork_publication::PublicationOutcome,
+) -> Result<crate::artwork_publication::PublicationResult, String> {
+    let cache = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || cache.finish(&token, outcome))
+        .await
+        .map_err(|error| format!("Artwork publication task failed: {error}"))?
 }
 #[tauri::command]
 pub fn is_aur_package() -> bool {
@@ -813,7 +880,7 @@ pub async fn prefetch_steam_hero(
     state: State<'_, NetworkState>,
     steam_app_id: u32,
 ) -> Result<(), String> {
-    crate::steam_assets::get_asset(
+    Box::pin(crate::steam_assets::get_asset(
         app,
         state.inner(),
         steam_app_id,
@@ -821,7 +888,7 @@ pub async fn prefetch_steam_hero(
         None,
         false,
         false,
-    )
+    ))
     .await
     .map(|_| ())
 }
@@ -848,4 +915,84 @@ pub fn take_source_links(
     state: State<'_, crate::source_links::SourceLinks>,
 ) -> Result<crate::source_links::PendingLinks, String> {
     state.take()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn future_size<A, F: std::future::Future>(_: impl FnOnce(A) -> F) -> usize {
+        std::mem::size_of::<F>()
+    }
+
+    #[test]
+    fn artwork_command_futures_fit_the_windows_ui_stack_budget() {
+        // Tauri moves command futures through several frames on the 1 MiB UI stack.
+        let asset = future_size(|(app, state)| {
+            get_steam_asset(
+                app,
+                state,
+                730,
+                crate::steam_assets::AssetKind::HeroBlur,
+                None,
+                None,
+                crate::steam_assets::AssetPolicy::CacheOrFetch,
+                None,
+                "future-size".into(),
+                crate::artwork_scheduler::WorkOrigin::Visible,
+                crate::artwork_publication::PublicationMode::Display,
+            )
+        });
+        let publication = future_size(|state| {
+            finish_steam_asset_update(
+                state,
+                "future-size".into(),
+                crate::artwork_publication::PublicationOutcome::Displayed,
+            )
+        });
+        let metadata = future_size(|(app, network, scheduler)| {
+            get_steam_details(
+                app,
+                network,
+                scheduler,
+                730,
+                crate::steam_details::DetailsPolicy::CacheOrFetch,
+                crate::locale::LanguagePreference::English,
+                "future-size".into(),
+                crate::artwork_scheduler::WorkOrigin::Visible,
+            )
+        });
+        assert!(
+            publication <= 4096,
+            "Artwork publication future occupies {publication} bytes"
+        );
+        assert!(
+            metadata <= 4096,
+            "Artwork metadata future occupies {metadata} bytes"
+        );
+        let prefetch = future_size(|(app, state)| prefetch_steam_hero(app, state, 730));
+        assert!(
+            asset <= 4096,
+            "Artwork command future occupies {asset} bytes"
+        );
+        assert!(
+            prefetch <= 4096,
+            "Artwork prefetch future occupies {prefetch} bytes"
+        );
+    }
+}
+
+#[tauri::command]
+pub fn set_artwork_game(
+    state: State<'_, crate::artwork_scheduler::ArtworkScheduler>,
+    steam_app_id: Option<u32>,
+) -> Result<(), crate::artwork_scheduler::WorkError> {
+    state.select_game(steam_app_id)
+}
+#[tauri::command]
+pub fn cancel_artwork_request(
+    state: State<'_, crate::artwork_scheduler::ArtworkScheduler>,
+    request_id: String,
+) -> Result<(), crate::artwork_scheduler::WorkError> {
+    state.cancel(&request_id)
 }

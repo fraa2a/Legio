@@ -3,6 +3,7 @@ import { defaultAppearance } from "../services/appearance";
 import { get, writable } from "svelte/store";
 import { createResource } from "./resource";
 import { installedFolder } from "./downloads";
+import { setApplicationLoggingEnabled } from "../services/application-log";
 
 export const defaultSettings: Settings = {
   discordPresence: { enabled: true },
@@ -10,10 +11,13 @@ export const defaultSettings: Settings = {
   appearance: defaultAppearance(), theme: "system", language: "system", steamLibraryPollMinutes: 30, downloadPath: null,
   closeToTray: true, hideOnGameStart: true, launchOnSystemStart: false,
   launchMinimized: false, launchInLibrary: false, downloadNotifications: true, verifyVerifiedDownloads: true,
-  diagnosticsEnabled: true, sidebarCollapsed: true, deferExtractionWhilePlaying: false,
+  diagnosticsEnabled: false, applicationLoggingEnabled: false, sidebarCollapsed: true, deferExtractionWhilePlaying: false,
 };
 
 export const settings = createResource<Settings>(defaultSettings, getSettings);
+settings.subscribe(state => {
+  if (state.status === "ready") setApplicationLoggingEnabled(state.data.applicationLoggingEnabled);
+});
 
 export const settingsError = writable<string | null>(null);
 

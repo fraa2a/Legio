@@ -41,7 +41,7 @@ pub(crate) fn refresh<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> u32 {
             width
         }
         Err(error) => {
-            eprintln!("Could not inspect artwork display resolution: {error}");
+            crate::application_log::failure("inspect_artwork_resolution", error);
             width(app)
         }
     }

@@ -126,6 +126,8 @@
         {#if !$updateState.aur}
           <Button label={$updateState.installing ? t("Installazione...", $language) : t("Installa e riavvia", $language)} disabled={$updateState.installing} onClick={() => void installAppUpdate()} />
         {/if}
+      {:else if $updateState.unavailable}
+        <span class="text-sm text-zinc-400 light:text-zinc-600">{t("Nessun aggiornamento automatico disponibile per questa piattaforma.", $language)}</span>
       {:else if $updateState.checked}
         <span class="text-sm text-zinc-300 light:text-zinc-700">{t("Legio è aggiornato.", $language)}</span>
       {/if}

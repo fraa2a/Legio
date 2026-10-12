@@ -12,6 +12,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "lint": "eslint .",
     "test:home": "node --experimental-strip-types --test scripts/test_home.mjs",
+    "test:logging": "node --conditions=browser scripts/test_application_logging.mjs",
     "tauri": "tauri",
     "test:regressions": "node --test scripts/test_regressions.mjs",
     "test:artwork": "node --conditions=browser --test scripts/test_library_artwork.mjs",
@@ -21,10 +22,13 @@
     "test:feedback": "node --conditions=browser --test scripts/test_feedback.mjs",
     "test:onboarding": "node --test scripts/test_onboarding_news.mjs",
     "test:sources": "node --test scripts/test_sources.mjs",
+    "test:catalog": "node --conditions=browser --test scripts/test_catalog.mjs scripts/test_store_filters.mjs",
     "test:review": "node --conditions=browser --test scripts/test_review_frontend.mjs",
     "test:select": "node --conditions=browser --test scripts/test_select.mjs",
     "test:artwork-cache": "node --conditions=browser --test scripts/test_steam_image_cache.mjs",
-    "test:visual": "node --conditions=browser --test scripts/test_visual_rendering.mjs"
+    "test:visual": "node --conditions=browser --test scripts/test_visual_rendering.mjs scripts/test_dither_renderer.mjs",
+    "test:artwork-work": "node --conditions=browser --test scripts/test_artwork_work.mjs",
+    "test:details-cache": "node --conditions=browser --test scripts/test_steam_details_cache.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.1",

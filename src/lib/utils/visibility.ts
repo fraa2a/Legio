@@ -1,16 +1,17 @@
 export function observeVisibility(
   node: HTMLElement | undefined,
-  onVisible: () => void,
+  onVisible: (visible: boolean) => void,
+  once = true,
 ): () => void {
   if (node === undefined || typeof IntersectionObserver === "undefined") {
-    onVisible();
+    onVisible(true);
     return () => undefined;
   }
   const observer = new IntersectionObserver((entries) => {
-    if (!entries.some((entry) => entry.isIntersecting)) return;
-    // One-shot: tiles only need to be observed until they enter the viewport.
-    onVisible();
-    observer.disconnect();
+    const visible = entries.some(entry => entry.isIntersecting);
+    if (once && !visible) return;
+    onVisible(visible);
+    if (once) observer.disconnect();
   });
   observer.observe(node);
   return () => observer.disconnect();

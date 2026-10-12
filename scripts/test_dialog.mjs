@@ -77,7 +77,7 @@ test("dialog fades its surface and content without isolating the surface backdro
   const dialog = document.querySelector("dialog");
   try {
     assert.equal(dom.window.getComputedStyle(dialog).opacity, "1", "opening dialog must not isolate the blurred surface");
-    const content = dialog.firstElementChild;
+    const content = dialog.querySelector(".legio-dialog-content");
     assert.equal(dom.window.getComputedStyle(content).opacity, "0");
     advanceFrame();
     advanceFrame();
@@ -109,7 +109,7 @@ test("closing waits for the content fade and hides the dialog before leaving the
     advanceFrame();
     advanceFrame();
     const dialog = document.querySelector("dialog");
-    const content = dialog.firstElementChild;
+    const content = dialog.querySelector(".legio-dialog-content");
     [...dialog.querySelectorAll("button")].find(button => button.textContent === "Close").click();
     flushSync();
     finishOpacityTransition(content.querySelector("button"));
@@ -141,9 +141,53 @@ test("reopening during an external close reverses the fade and cancels the pendi
     [...document.querySelectorAll("button")].find(button => button.textContent === "Reopen").click();
     flushSync();
     assert.equal(dialog.dataset.visible, "true");
-    finishOpacityTransition(dialog.firstElementChild);
+    finishOpacityTransition(dialog.querySelector(".legio-dialog-content"));
     await new Promise(resolve => setTimeout(resolve, 260));
     assert.equal(dialog.open, true);
     assert.equal(closed, 0);
+  } finally { await unmount(instance); }
+});
+
+
+test("live_blur_targets_surface_not_foreground", async () => {
+  const instance = mount(component, { target: document.body, props: { onClosed() {} } });
+  try {
+    flushSync(); advanceFrame(); advanceFrame(); flushSync();
+    const dialog = document.querySelector("dialog");
+    const surface = dialog.querySelector(".legio-dialog-surface");
+    assert.ok(surface, "the blur needs an independent decorative surface");
+    const content = dialog.querySelector(".legio-dialog-content");
+    assert.equal(surface.getAttribute("aria-hidden"), "true");
+    for (const blur of ["blur(2px)", "blur(10px)", "blur(0px)"]) {
+      document.documentElement.style.setProperty("--legio-dialog-blur", blur);
+      const foreground = dom.window.getComputedStyle(content);
+      assert.ok(!foreground.getPropertyValue("backdrop-filter") || foreground.getPropertyValue("backdrop-filter") === "none");
+      assert.notEqual(foreground.willChange, "opacity");
+      assert.equal(dom.window.getComputedStyle(dialog).getPropertyValue("backdrop-filter"), "none");
+      assert.equal(dom.window.getComputedStyle(surface).getPropertyValue("backdrop-filter"), "var(--legio-dialog-blur)");
+      assert.equal(dom.window.getComputedStyle(surface).pointerEvents, "none");
+    }
+  } finally { await unmount(instance); }
+});
+
+test("dialog_close_waits_only_for_content_transition and blur_drag_during_close_notifies_once", async () => {
+  let closed = 0;
+  const instance = mount(component, { target: document.body, props: { onClosed: () => closed++, persistent: true } });
+  try {
+    flushSync(); advanceFrame(); advanceFrame(); flushSync();
+    const dialog = document.querySelector("dialog");
+    dialog.dispatchEvent(new Event("cancel", { cancelable: true })); flushSync();
+    const surface = dialog.querySelector(".legio-dialog-surface");
+    assert.ok(surface);
+    for (const blur of ["blur(4px)", "blur(8px)"]) {
+      document.documentElement.style.setProperty("--legio-dialog-blur", blur);
+      finishOpacityTransition(surface);
+      assert.equal(closed, 0); assert.equal(dialog.open, true);
+    }
+    finishOpacityTransition(dialog.querySelector(".legio-dialog-content"));
+    assert.equal(closed, 1); assert.equal(dialog.open, false);
+    finishOpacityTransition(surface);
+    await new Promise(resolve => setTimeout(resolve, 260));
+    assert.equal(closed, 1);
   } finally { await unmount(instance); }
 });

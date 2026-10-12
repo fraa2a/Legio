@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { artworkDemand } from "../../utils/artwork-demand";
+  const demand = artworkDemand();
   import { t, language } from "../../i18n";
   import { onMount } from "svelte";
   import { startVisibleRefresh } from "../../stores/visible-refresh";
@@ -21,7 +23,9 @@
   import { describeDownloadStatus } from "../../services/downloads";
   import { playtime } from "../../stores/playtime";
   import { refreshSource, source, sourceRefreshError } from "../../stores/source";
-  import { ensureSteamDetails, steamDetails } from "../../stores/steam-details";
+  import { refreshSteamDetailsOnOpen, steamDetails } from "../../stores/steam-details";
+  import { createArtworkWork } from "../../services/artwork-work";
+  import { refreshSteamImagesOnOpen } from "../../services/steam-details";
   import Button from "../../components/ui/Button.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
@@ -85,7 +89,12 @@
   });
 
   $effect(() => {
-    void $language; if (steamAppId !== null) ensureSteamDetails(steamAppId);
+    void $language;
+    if (steamAppId === null || !demand()) return;
+    const work = createArtworkWork(steamAppId, "visible");
+    void refreshSteamDetailsOnOpen(steamAppId, work).catch(() => undefined);
+    void refreshSteamImagesOnOpen(steamAppId, work).catch(() => undefined);
+    return work.release;
   });
 
   $effect(() => {
@@ -143,7 +152,7 @@
     <section class="relative isolate z-10 aspect-[1920/620] w-full min-h-[20rem] min-w-[1024px] overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200">
       {#if customBannerUrl !== null}
         <img src={customBannerUrl} alt="{t("Banner personalizzato di ", $language)}{name}" class="absolute inset-0 size-full object-cover" />
-      {:else if steamAppId !== null && (storeGame !== null || details !== null)}
+      {:else if steamAppId !== null}
         <SteamArtwork
           {steamAppId}
           asset="hero"

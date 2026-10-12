@@ -4,6 +4,7 @@
   import { appearancePreview } from "./lib/stores/appearance";
   import { appInfo } from "./lib/stores/app-info";
   import AppBackground from "./lib/components/layout/AppBackground.svelte";
+  import { startArtworkSelectionTracking } from "./lib/services/artwork-work";
   import { onMount } from "svelte";
   import { derived } from "svelte/store";
   import Sidebar from "./lib/components/layout/Sidebar.svelte";
@@ -21,6 +22,7 @@
   import { hasRunningGame } from "./lib/stores/launch";
   import { observeMediaPlayback } from "./lib/services/media-playback";
   import { startArtworkDisplayTracking } from "./lib/services/artwork-display";
+  import { applicationErrorStack, describeApplicationError, logApplicationEvent } from "./lib/services/application-log";
 
   const mediaActive = derived([windowVisible, hasRunningGame], ([$visible, $running]) => $visible && !$running);
   const appearance = $derived($appearancePreview?.appearance ?? $settings.data.appearance);
@@ -38,9 +40,15 @@
   });
 
   onMount(() => {
+    const stopArtworkSelection = startArtworkSelectionTracking();
     const stopArtworkDisplays = startArtworkDisplayTracking();
     const stopMedia = observeMediaPlayback(mediaActive.subscribe);
-    void hydrateApp().catch((reason) => console.error(reason));
+    void hydrateApp().then(() => {
+      logApplicationEvent("info", "renderer_ready", "Application resources loaded");
+    }).catch(reason => {
+      logApplicationEvent("error", "bootstrap_error", describeApplicationError(reason), applicationErrorStack(reason));
+      console.error("Application resource initialization failed", reason);
+    });
     if (import.meta.env.PROD) void checkForAppUpdate();
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -51,6 +59,7 @@
     media.addEventListener("change", updateSystemTheme);
 
     return () => {
+      stopArtworkSelection();
       stopArtworkDisplays();
       stopMedia();
       media.removeEventListener("change", updateSystemTheme);
@@ -79,9 +88,9 @@
 />
 
 <AppBackground id={appearance.background} animation={appearance.animatedBackground} animationOpacity={appearance.animatedOpacity} {accent} dither={appearance.dither} active={$mediaActive} />
-<div class="legio-shell relative flex h-dvh select-none">
+<div class="legio-shell relative flex h-full w-full min-h-0 min-w-0 select-none">
   {#if $settings.status === "ready" && $settings.data.onboardingCompleted}<Sidebar />{/if}
-  <div class="flex min-w-0 flex-1 flex-col pl-2.5 pr-2.5 pb-1.5">
+  <div class="flex min-h-0 min-w-0 flex-1 flex-col pl-2.5 pr-2.5 pb-1.5">
     <TitleBar />
     {#if $settings.status === "error" || $appInfo.status === "error"}
       <ErrorBanner message={$settings.error ?? $appInfo.error ?? t("Impossibile caricare la configurazione.", $language)} onRetry={() => void hydrateApp()} />

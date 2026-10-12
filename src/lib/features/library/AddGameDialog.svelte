@@ -104,7 +104,7 @@
 
   $effect(() => {
     void $language;
-    if (parsedAppId !== null) ensureSteamDetails(parsedAppId);
+    if (parsedAppId !== null) return ensureSteamDetails(parsedAppId);
   });
 
   $effect(() => {

@@ -42,6 +42,7 @@
       {steamAppId}
       asset="screenshot"
       index={active}
+      screenshotIdentity={screenshots[active]?.full ?? screenshots[active]?.thumbnail ?? undefined}
       {version}
       full
       alt="{t("Schermata ", $language)}{active + 1}{t(" di ", $language)}{name}"
@@ -75,6 +76,7 @@
             {steamAppId}
             asset="screenshot"
             index={position}
+            screenshotIdentity={screenshot.thumbnail ?? screenshot.full ?? undefined}
             {version}
             alt=""
             caption={false}
@@ -91,6 +93,7 @@
     {steamAppId}
     asset="screenshot"
     index={active}
+    screenshotIdentity={screenshots[active]?.full ?? screenshots[active]?.thumbnail ?? undefined}
     {count}
     {version}
     alt="{t("Schermata ", $language)}{active + 1}{t(" di ", $language)}{name}"

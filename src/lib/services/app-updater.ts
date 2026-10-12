@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./invoke";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { writable } from "svelte/store";
@@ -7,6 +7,7 @@ import { toMessage } from "../utils/errors";
 type UpdateState = {
   version: string | null;
   aur: boolean;
+  unavailable: boolean;
   checking: boolean;
   checked: boolean;
   installing: boolean;
@@ -17,6 +18,7 @@ type UpdateState = {
 export const updateState = writable<UpdateState>({
   version: null,
   aur: false,
+  unavailable: false,
   checking: false,
   checked: false,
   installing: false,
@@ -28,7 +30,8 @@ let availableUpdate: Update | null = null;
 let notifiedVersion: string | null = null;
 
 export async function checkForAppUpdate(): Promise<void> {
-  updateState.update((state) => ({ ...state, checking: true, checked: false, error: null }));
+  availableUpdate = null;
+  updateState.update((state) => ({ ...state, version: null, unavailable: false, checking: true, checked: false, error: null }));
   try {
     const [update, aur] = await Promise.all([check(), invoke<boolean>("is_aur_package")]);
     availableUpdate = update;
@@ -45,7 +48,9 @@ export async function checkForAppUpdate(): Promise<void> {
     }
     updateState.update((state) => ({ ...state, version: update?.version ?? null, aur, checked: true, nativeNotified, error: notificationError }));
   } catch (error) {
-    updateState.update((state) => ({ ...state, error: toMessage(error) }));
+    const message = toMessage(error);
+    const unavailable = /^(?:None of the fallback platforms `[^`]+` were|the platform `[^`]+` was not) found in the response `platforms` object$/.test(message);
+    updateState.update((state) => ({ ...state, checked: unavailable, unavailable, nativeNotified: false, error: unavailable ? null : message }));
   } finally {
     updateState.update((state) => ({ ...state, checking: false }));
   }

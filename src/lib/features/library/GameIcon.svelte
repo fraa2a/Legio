@@ -14,7 +14,7 @@
     const artwork = acquireGameArtwork(id, "icon");
     let cancelled = false;
     url = artwork.url;
-    loading = url === null;
+    loading = artwork.url === null;
     void artwork.ready.then((value) => { if (!cancelled) url = value; }).catch((error: unknown) => {
       console.warn("Could not load local game icon", error);
     }).finally(() => { if (!cancelled) loading = false; });
@@ -23,7 +23,7 @@
 </script>
 
 {#if url !== null}
-  <img src={url} alt="" draggable="false" class={className} onerror={() => { console.warn("Could not display local game icon", gameId); url = null; }} />
+  <img src={url} alt="" draggable="false" class={className} onerror={() => { console.warn("Could not display local game icon"); url = null; }} />
 {:else if !loading && game.steamAppId !== null}
   <SteamArtwork steamAppId={game.steamAppId} asset="client_icon" caption={false} alt="" class={className}>
     {#snippet placeholder()}{@render monogram()}{/snippet}

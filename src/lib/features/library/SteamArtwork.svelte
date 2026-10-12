@@ -1,26 +1,29 @@
 <script lang="ts">
+  import { artworkDemand } from "../../utils/artwork-demand";
   import { t, language } from "../../i18n";
   import type { Snippet } from "svelte";
   import { fade } from "svelte/transition";
   import {
-    loadSteamImage,
+    acquireSteamImage,
     steamImageRevision,
     peekSteamImage,
     retainSteamImage,
+    type RetainedSteamImage,
     type SteamAssetKind,
   } from "../../services/steam-details";
-  import { steamDetails } from "../../stores/steam-details";
-  import { windowActive } from "../../stores/window-activity";
   import { toMessage } from "../../utils/errors";
   import { fadeDuration } from "../../utils/motion";
   import { artworkDisplayWidth } from "../../stores/artwork-display";
+  import { isArtworkCancelled, type ArtworkWork } from "../../services/artwork-work";
+  import { logApplicationEvent } from "../../services/application-log";
 
   let {
     steamAppId,
     asset,
     fallbackAsset = null,
     index = null,
-    version = null,
+    screenshotIdentity = undefined,
+    origin = undefined,
     full = false,
     alt = "",
     caption = true,
@@ -32,6 +35,8 @@
     fallbackAsset?: SteamAssetKind | null;
     index?: number | null;
     version?: number | null;
+    screenshotIdentity?: string;
+    origin?: ArtworkWork["origin"];
     full?: boolean;
     alt?: string;
     caption?: boolean;
@@ -39,82 +44,62 @@
     placeholder?: Snippet;
   } = $props();
 
-  const currentVersion = $derived(version ?? $steamDetails[steamAppId]?.cachedAt ?? null);
-  const request = $derived({ steamAppId, asset, fallbackAsset, index, version: currentVersion, full, displayWidth: $artworkDisplayWidth });
+  const demand = artworkDemand();
+  const request = $derived({ steamAppId, asset, fallbackAsset, index, version: null, full, screenshotIdentity, displayWidth: $artworkDisplayWidth });
   const cached = $derived.by(() => {
     void $steamImageRevision;
     return peekSteamImage(request);
   });
 
+  let publishedImage = $state.raw<RetainedSteamImage | null>(null);
   let url = $state<string | null>(null);
   let stale = $state(false);
   let warning = $state<string | null>(null);
   let error = $state<string | null>(null);
   let fromCache = $state(false);
-  let refreshAt = $state<number | null>(null);
   let loadedRequest = $state.raw<typeof request | null>(null);
-  const displayedUrl = $derived(loadedRequest === request ? url : cached?.url ?? null);
+  let failedUrl = $state<string | null>(null);
+  const candidateUrl = $derived(publishedImage?.url ?? (loadedRequest === request ? url : cached?.url ?? null));
+  const visibleStale = $derived(publishedImage?.stale ?? stale);
+  const visibleWarning = $derived(publishedImage ? publishedImage.cacheWarning : warning);
+  const displayedUrl = $derived(candidateUrl === failedUrl ? null : candidateUrl);
+
+  function imageFailed(event: Event): void {
+    failedUrl = (event.currentTarget as HTMLImageElement).src;
+    error = "Artwork display failed";
+    logApplicationEvent("warn", "console", `Artwork display failed; asset: ${asset}`);
+  }
 
   $effect(() => {
-    void $steamImageRevision;
+    if (!demand()) return;
     const current = request;
-    const cached = retainSteamImage(current);
-    if (cached !== undefined) {
-      loadedRequest = current;
-      url = cached.url;
-      stale = cached.stale;
-      warning = cached.cacheWarning;
-      error = null;
-      fromCache = true;
-      refreshAt = cached.refreshAt;
-      return cached.release;
-    }
-
-    loadedRequest = null;
-    url = null;
-    stale = false;
-    warning = null;
-    error = null;
-    fromCache = false;
-    refreshAt = null;
-
+    const consumer = acquireSteamImage(current, origin ?? (asset === "hero_blur" ? "decorative" : asset === "screenshot" ? "prefetch" : "visible"));
     let cancelled = false;
-    let release: (() => void) | undefined;
-    void loadSteamImage(current).then(
-      () => {
-        if (cancelled) return;
-        const image = retainSteamImage(current);
-        if (image === undefined) return;
-        release = image.release;
-        loadedRequest = current;
-        url = image.url;
-        stale = image.stale;
-        warning = image.cacheWarning;
-        refreshAt = image.refreshAt;
-      },
-      (failure: unknown) => {
-        if (!cancelled) error = toMessage(failure);
-      },
-    );
-
-    return () => {
-      cancelled = true;
-      release?.();
-    };
+    loadedRequest = current;
+    url = consumer.image?.url ?? null;
+    stale = consumer.image?.stale ?? false;
+    warning = consumer.image?.cacheWarning ?? null;
+    error = null;
+    fromCache = consumer.image !== undefined;
+    void consumer.promise.then(image => {
+      if (cancelled) return;
+      url = image.url; stale = image.stale; warning = image.cacheWarning;
+    }, failure => { if (!cancelled && !isArtworkCancelled(failure)) error = toMessage(failure); });
+    return () => { cancelled = true; consumer.release(); };
   });
   $effect(() => {
-    const current = request;
-    if (refreshAt === null || !$windowActive) return;
-    const timer = setTimeout(() => { void loadSteamImage(current); }, Math.max(0, refreshAt - Date.now()));
-    return () => clearTimeout(timer);
+    void $steamImageRevision;
+    const retained = retainSteamImage(request);
+    publishedImage = retained ?? null;
+    return () => retained?.release();
   });
 </script>
 
 {#if displayedUrl !== null}
-  <img draggable="false" src={displayedUrl} {alt} class={className} in:fade={{ duration: cached !== undefined || fromCache ? 0 : fadeDuration }} />
+  <img draggable="false" src={displayedUrl} {alt} class={className} onerror={imageFailed} in:fade={{ duration: cached !== undefined || fromCache ? 0 : fadeDuration }} />
 {:else if placeholder !== undefined}
   {@render placeholder()}
-{:else if error !== null}
+{:else if error !== null || (candidateUrl !== null && candidateUrl === failedUrl)}
   <div class="flex items-center justify-center rounded-lg text-xs text-zinc-500 {className}">
     <span aria-hidden="true">{alt.trim().charAt(0).toUpperCase() || "?"}</span>
   </div>
@@ -124,8 +109,8 @@
   </div>
 {/if}
 
-{#if caption && (stale || warning !== null)}
+{#if caption && (visibleStale || visibleWarning !== null)}
   <p class="mt-1 text-xs text-amber-300 light:text-amber-800">
-    {warning ?? t("Immagine servita dalla cache locale.", $language)}
+    {visibleWarning ?? t("Immagine servita dalla cache locale.", $language)}
   </p>
 {/if}

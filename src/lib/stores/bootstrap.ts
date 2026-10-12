@@ -1,7 +1,6 @@
 import { appInfo } from "./app-info";
 import { settings } from "./settings";
 import { games } from "./games";
-import { startLibraryHeroCaching } from "./library-artwork";
 import { bandwidthLimit, downloads, installedFolder, startDownloadProgressPolling } from "./downloads";
 import { startSourceLinks } from "./source-links";
 import { source, refreshSource } from "./source";
@@ -35,7 +34,6 @@ export async function hydrateApp(): Promise<void> {
     launchStates.load(),
     playtime.load(),
   ]);
-  startLibraryHeroCaching();
   startDownloadProgressPolling();
   if (get(settings).data.launchInLibrary) activeSection.set("library");
   const startup = get(appInfo).data;

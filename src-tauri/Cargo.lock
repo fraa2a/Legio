@@ -2451,14 +2451,16 @@ dependencies = [
 
 [[package]]
 name = "legio"
-version = "0.1.5"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "chrono",
  "compress-tools",
+ "dirs",
  "gtk",
  "image",
  "libc",
+ "regex",
  "reqwest 0.13.5",
  "rusqlite",
  "serde",
@@ -2475,7 +2477,10 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "uuid",
+ "webkit2gtk",
  "webp",
+ "webview2-com",
+ "windows",
  "windows-sys 0.61.2",
  "winreg 0.56.0",
 ]

@@ -215,7 +215,7 @@ async fn run(
 
 fn report_error(previous: &mut Option<String>, error: String) {
     if previous.as_ref() != Some(&error) {
-        eprintln!("Discord Rich Presence unavailable: {error}");
+        crate::application_log::failure("discord_presence", &error);
         *previous = Some(error);
     }
 }

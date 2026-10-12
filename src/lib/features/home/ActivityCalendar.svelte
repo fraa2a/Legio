@@ -54,17 +54,17 @@
         <span class="pb-1 text-center text-xs text-zinc-500">{weekday}</span>
       {/each}
     </div>
-    <div class="grid min-h-0 flex-1 auto-rows-fr grid-cols-7 gap-1.5" role="group" aria-label={t("Calendario di {0}", $language, [monthLabel])}>
+    <div class="grid shrink-0 grid-cols-7 gap-1.5" role="group" aria-label={t("Calendario di {0}", $language, [monthLabel])}>
       {#each calendar.cells as day, index (index)}
         {#if day === null}
-          <span aria-hidden="true"></span>
+          <span class="aspect-square" aria-hidden="true"></span>
         {:else}
           {@const milliseconds = $activity.data[day - 1] ?? 0}
           {@const future = calendar.boundaries[day - 1] > now.getTime()}
           {@const today = new Date(calendar.boundaries[day - 1]).toDateString() === now.toDateString()}
           {@const label = `${day} ${monthLabel}: ${future ? t("giorno futuro", $language) : formatPlaytime(milliseconds) + t(" giocati", $language)}`}
           <span
-            class="activity-cell flex min-h-0 items-center justify-center rounded-lg text-xs font-medium tabular-nums text-zinc-200 light:text-zinc-800"
+            class="activity-cell flex aspect-square items-center justify-center rounded-lg text-xs font-medium tabular-nums text-zinc-200 light:text-zinc-800"
             class:future
             class:today
             class:active={milliseconds >= 3 * 3600000}

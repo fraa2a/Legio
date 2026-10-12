@@ -30,6 +30,10 @@ Get the latest version from [Releases](https://github.com/fraa2a/Legio/releases)
 
 Steam must be installed for Steam integration and for games that require it.
 
+Linux uses WebKitGTK's Skia compositor on runtime versions 2.54 and newer.
+See [Linux rendering diagnostics and acceptance](docs/releases/0.2.0-linux-skia-test.md)
+for backend verification, focused comparisons and runtime packaging limits.
+
 Manual Proton and GE-Proton games without Online Fix use [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher).
 umu is a runtime dependency for these games, not for native Linux games, Wine
 launches or games launched through Steam.

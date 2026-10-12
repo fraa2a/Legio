@@ -1,5 +1,5 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./invoke";
 import type { Game } from "./local-state";
 
 export interface SavedSteamAccount {

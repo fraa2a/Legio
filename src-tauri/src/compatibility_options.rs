@@ -37,7 +37,7 @@ impl PreparedOptions {
             match load_overlay_libraries(steam_root) {
                 Ok(libraries) => Some(libraries),
                 Err(error) => {
-                    eprintln!("Steam overlay unavailable, launching without it: {error}");
+                    crate::application_log::failure("load_steam_overlay", error);
                     None
                 }
             }

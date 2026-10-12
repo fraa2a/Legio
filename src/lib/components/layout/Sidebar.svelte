@@ -58,7 +58,7 @@
     ? "w-[13.5rem]"
     : "w-16"} transition-[width] duration-300 ease-out"
 >
-  <nav class="mt-2 flex flex-1 flex-col gap-1 p-2" aria-label={t("Navigazione principale", $language)}>
+  <nav class="mt-2 flex min-h-0 flex-1 flex-col gap-1 p-2" aria-label={t("Navigazione principale", $language)}>
     <div class="flex w-full items-center text-white light:text-zinc-900">
       <span class="flex h-12 w-full items-center gap-2 overflow-hidden rounded-lg">
         <span class="ml-2 flex size-8 shrink-0 items-center justify-center">
@@ -93,7 +93,7 @@
       </div>
       <section
         transition:fade={{ duration: fadeMs, easing: cubicOut }}
-        class="mt-2 flex flex-col gap-1.5"
+        class="mt-2 flex min-h-0 flex-col gap-1.5 overflow-y-auto scrollbar-none"
         aria-label={t("Recenti", $language)}
       >
         <ul class="flex flex-col gap-1.5">
@@ -103,7 +103,7 @@
         </ul>
       </section>
     {/if}
-    <div class="mt-auto flex flex-col gap-1">
+    <div class="mt-auto flex shrink-0 flex-col gap-1">
       <SidebarDownloadStatus {expanded} />
       <SidebarButton
         label={t("Comprimi", $language)}

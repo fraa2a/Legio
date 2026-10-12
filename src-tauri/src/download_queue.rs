@@ -557,7 +557,7 @@ fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
         if let Some(manager) = app.try_state::<crate::game_lifecycle::GameLaunchManager>()
             && let Err(error) = queue.wait_for_idle(&manager).await
         {
-            eprintln!("Could not schedule download extraction {id}: {error}");
+            crate::application_log::failure("schedule_extraction", error);
             return;
         }
         let worker_app = app.clone();
@@ -572,7 +572,7 @@ fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
         .await;
         match outcome {
             Ok(Ok(_)) => {}
-            Ok(Err(error)) => eprintln!("Could not verify and extract download {id}: {error}"),
+            Ok(Err(error)) => crate::application_log::failure("verify_and_extract", error),
             Err(error) => {
                 let message = format!("Download staging task failed: {error}");
                 let worker_app = app.clone();
@@ -583,8 +583,9 @@ fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
                         Ok(())
                     })
                 }).await;
-                eprintln!(
-                    "Download staging task failed for {id}: {error}; failure persistence: {persisted:?}"
+                crate::application_log::failure(
+                    "stage_download",
+                    format!("{error}; failure persistence: {persisted:?}"),
                 );
             }
         }
@@ -726,7 +727,7 @@ fn kick<R: Runtime>(app: AppHandle<R>) {
     }
     tauri::async_runtime::spawn(async move {
         if let Err(error) = run_queue(&app).await {
-            eprintln!("Download queue stopped: {error}");
+            crate::application_log::failure("download_queue_stopped", error);
         }
         app.state::<DownloadQueueState>()
             .running
@@ -739,7 +740,7 @@ fn kick<R: Runtime>(app: AppHandle<R>) {
         {
             Ok(true) => kick(app),
             Ok(false) => {}
-            Err(error) => eprintln!("Could not restart download queue: {error}"),
+            Err(error) => crate::application_log::failure("restart_download_queue", error),
         }
     });
 }
@@ -788,13 +789,17 @@ async fn run_queue<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
                                 .body(&job.name)
                                 .show()
                             {
-                                eprintln!("Could not show download notification: {error}");
+                                crate::application_log::failure(
+                                    "show_download_notification",
+                                    error,
+                                );
                             }
                         }
                         Ok(_) => {}
-                        Err(error) => {
-                            eprintln!("Could not read download notification setting: {error}")
-                        }
+                        Err(error) => crate::application_log::failure(
+                            "read_download_notification_settings",
+                            error,
+                        ),
                     }
                 }
                 Err(error) => {
@@ -1420,7 +1425,7 @@ pub fn start(app: AppHandle) -> Result<(), String> {
                 .starting
                 .store(false, Ordering::Release);
             if let Err(error) = result {
-                eprintln!("Could not recover downloads: {error}");
+                crate::application_log::failure("recover_downloads", &error);
                 if let Err(notification_error) = app
                     .notification()
                     .builder()
@@ -1428,8 +1433,9 @@ pub fn start(app: AppHandle) -> Result<(), String> {
                     .body(&error)
                     .show()
                 {
-                    eprintln!(
-                        "Could not show download recovery notification: {notification_error}"
+                    crate::application_log::failure(
+                        "show_recovery_notification",
+                        notification_error,
                     );
                 }
             }

@@ -18,7 +18,7 @@
   const details = $derived(detailsState?.details ?? null);
 
   $effect(() => {
-    void $language; if (steamAppId !== null) ensureSteamDetails(steamAppId);
+    void $language; if (steamAppId !== null) return ensureSteamDetails(steamAppId);
   });
 </script>
 
