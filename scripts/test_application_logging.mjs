@@ -14,6 +14,11 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
 let sequence = 0;
 
 test("navigation does not wait for logging and ignores superseded requests", async () => {
+  const previousFrame = globalThis.requestAnimationFrame; const previousCancel = globalThis.cancelAnimationFrame;
+  const animationFrames = new Map();let frameId = 0;
+  globalThis.requestAnimationFrame = callback => { animationFrames.set(++frameId,callback);return frameId; };
+  globalThis.cancelAnimationFrame = id => animationFrames.delete(id);
+  const advance = time => { const scheduled=[...animationFrames.values()];animationFrames.clear();for(const callback of scheduled)callback(time); };
   const emptyView = dataModule("export default () => {};");
   const mocks = { "src/lib/utils/motion": dataModule("export const reducedMotion = false; export const pageTransitionDuration = 210;") };
   for (const [feature, view] of [["home", "HomeView"], ["library", "LibraryView"], ["library", "GameDetailView"], ["store", "StoreView"], ["downloads", "DownloadsView"]]) mocks[`src/lib/features/${feature}/${view}.svelte`] = emptyView;
@@ -30,11 +35,12 @@ test("navigation does not wait for logging and ignores superseded requests", asy
     flushSync();
     navigation.activeSection.set("library"); flushSync();
     navigation.activeSection.set("store"); flushSync();
+    advance(0);advance(105);
     await settle(); flushSync();
     assert.equal(target.querySelector("[data-page]").dataset.page, "store");
     assert.ok(!messages.includes("DOM update completed: library"));
     assert.ok(messages.includes("DOM update completed: store"));
-  } finally { await unmount(instance); target.remove(); }
+  } finally { await unmount(instance); target.remove();globalThis.requestAnimationFrame=previousFrame;globalThis.cancelAnimationFrame=previousCancel; }
 });
 
 test("navigation checkpoints wait for persistence and tolerate a failed logging transport", async () => {

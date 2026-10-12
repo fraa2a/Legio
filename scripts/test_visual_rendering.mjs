@@ -16,95 +16,56 @@ globalThis.cancelAnimationFrame = id => frames.delete(id);
 const { mount, unmount, flushSync } = await import("svelte");
 const { load } = createModuleLoader({});
 
-test("page foreground fades without moving content or adding a blur filter", async () => {
-  const { animateForeground } = await import(await load("src/lib/utils/foreground-transition.ts"));
-  const node = document.createElement("div");
-  let frames;
-  node.animate = values => { frames = values; return { finished: Promise.resolve(), cancel() {} }; };
-  await animateForeground(node, "in", 105).finished;
-  assert.deepEqual(frames, [{ opacity: 0 }, { opacity: 1 }]);
-  await animateForeground(node, "out", 105).finished;
-  assert.deepEqual(frames, [{ opacity: 1 }, { opacity: 0 }]);
-  assert.equal(node.style.filter, ""); assert.equal(node.style.transform, "");
-});
+function advanceFrames(time) {
+  const scheduled = [...frames.values()]; frames.clear();
+  for (const callback of scheduled) callback(time);
+}
 
-test("outgoing foreground remains hidden when the compositor drops the finished animation", async () => {
+test("foreground fade uses one paint-frame clock without compositor animations", async () => {
+  frames.clear();
   const { animateForeground } = await import(await load("src/lib/utils/foreground-transition.ts"));
-  const node = document.createElement("div");
-  document.body.append(node);
-  let finish;
-  node.animate = () => ({ finished: new Promise(resolve => { finish = resolve; }), cancel() {} });
+  const node = document.createElement("div"); document.body.append(node);
+  node.animate = () => { throw new Error("Native compositor animations must not be used"); };
   try {
-    const outgoing = animateForeground(node, "out", 105);
-    assert.equal(node.style.opacity, "0", "the underlying style must retain the outgoing terminal state");
-    finish();
-    await outgoing.finished;
-    assert.equal(getComputedStyle(node).opacity, "0", "a finished effect must not expose a visible fallback");
-    outgoing.cancel();
-    assert.equal(node.style.getPropertyValue("opacity"), "", "cancellation must restore the original stylesheet value");
-  } finally { node.remove(); }
+    const incoming = animateForeground(node, "in", 100);
+    assert.equal(node.style.opacity, "0"); assert.equal(frames.size, 1);
+    advanceFrames(0); advanceFrames(50);
+    assert.equal(Number(node.style.opacity), .5);
+    advanceFrames(100); await incoming.finished;
+    assert.equal(Number(node.style.opacity), 1); assert.equal(frames.size, 0);
+    incoming.cancel(); assert.equal(node.style.opacity, "");
+    assert.equal(node.style.filter, ""); assert.equal(node.style.transform, "");
+  } finally { node.remove(); frames.clear(); }
 });
 
-test("foreground cancellation restores inline opacity and priority without brightening dim content", async () => {
+test("paint-frame fade preserves dim foreground and protected glass", async () => {
+  frames.clear();
   const { animateForeground } = await import(await load("src/lib/utils/foreground-transition.ts"));
-  const node = document.createElement("div");
-  node.style.setProperty("opacity", "0.45", "important");
-  document.body.append(node);
-  const effects = [];
-  node.animate = keyframes => {
-    let reject;
-    const effect = { keyframes, finished: new Promise((_resolve, fail) => { reject = fail; }), cancel() { reject(new Error("cancelled")); } };
-    effects.push(effect);
-    return effect;
-  };
+  const root = document.createElement("div"); root.innerHTML = '<div class="legio-panel"><span style="opacity:.45!important">Text</span></div><div class="legio-glass"><b>Other</b></div>';
+  document.body.append(root); const text = root.querySelector("span");
   try {
-    const outgoing = animateForeground(node, "out", 105);
-    assert.deepEqual(effects[0].keyframes, [{ opacity: 0.45 }, { opacity: 0 }]);
-    assert.equal(node.style.opacity, "0");
-    assert.equal(node.style.getPropertyPriority("opacity"), "", "the animation must be able to override the terminal style");
-    outgoing.cancel();
-    await outgoing.finished;
-    assert.equal(node.style.opacity, "0.45");
-    assert.equal(node.style.getPropertyPriority("opacity"), "important");
-    const incoming = animateForeground(node, "in", 105);
-    assert.deepEqual(effects[1].keyframes, [{ opacity: 0 }, { opacity: 0.45 }]);
-    assert.equal(node.style.opacity, "0.45");
-    incoming.cancel();
-    await incoming.finished;
-    assert.equal(node.style.opacity, "0.45");
-    assert.equal(node.style.getPropertyPriority("opacity"), "important");
-  } finally { node.remove(); }
+    const outgoing = animateForeground(root, "out", 100);
+    assert.equal(frames.size, 1, "all foreground targets share one frame callback");
+    advanceFrames(0); advanceFrames(50);
+    assert.equal(Number(text.style.opacity), .225);
+    assert.equal(root.querySelector(".legio-panel").style.opacity, "");
+    advanceFrames(100); await outgoing.finished;
+    assert.equal(text.style.opacity, "0");
+    root.remove(); outgoing.cancel(); assert.equal(text.style.opacity, "0", "retired layers remain hidden");
+  } finally { root.remove(); frames.clear(); }
 });
 
-test("foreground animation preserves opacity supplied by a stylesheet", async () => {
+test("paint-frame cancellation restores opacity and stops future callbacks", async () => {
+  frames.clear();
   const { animateForeground } = await import(await load("src/lib/utils/foreground-transition.ts"));
-  const style = document.createElement("style");
-  style.textContent = ".dim-foreground { opacity: 0.45; }";
-  const node = document.createElement("div");
-  node.className = "dim-foreground";
-  document.body.append(style, node);
-  let keyframes;
-  node.animate = values => { keyframes = values; return { finished: Promise.resolve(), cancel() {} }; };
+  const node = document.createElement("div"); node.style.setProperty("opacity", ".45", "important");document.body.append(node);
   try {
-    const incoming = animateForeground(node, "in", 105);
-    await incoming.finished;
-    assert.deepEqual(keyframes, [{ opacity: 0 }, { opacity: 0.45 }]);
-    incoming.cancel();
-    assert.equal(node.style.opacity, "");
-    assert.equal(getComputedStyle(node).opacity, "0.45");
-  } finally { node.remove(); style.remove(); }
-});
-
-test("retired outgoing foreground never becomes visible during detached-node cleanup", async () => {
-  const { animateForeground } = await import(await load("src/lib/utils/foreground-transition.ts"));
-  const node = document.createElement("div");
-  document.body.append(node);
-  node.animate = () => ({ finished: Promise.resolve(), cancel() {} });
-  const outgoing = animateForeground(node, "out", 105);
-  await outgoing.finished;
-  node.remove();
-  outgoing.cancel();
-  assert.equal(node.style.opacity, "0", "native layer retirement must not receive a visible underlying style");
+    const outgoing = animateForeground(node, "out", 100);advanceFrames(0);advanceFrames(50);
+    outgoing.cancel();await outgoing.finished;
+    assert.equal(Number(node.style.opacity), .45);assert.equal(node.style.getPropertyPriority("opacity"), "important");assert.equal(frames.size, 0);
+    advanceFrames(100);assert.equal(Number(node.style.opacity), .45);
+    const instant = animateForeground(node, "in", 0);await instant.finished;assert.equal(frames.size, 0);
+  } finally { node.remove(); frames.clear(); }
 });
 
 test("frozen dither requests a persistent drawing buffer without a continuous frame loop", async () => {
@@ -144,8 +105,7 @@ test("frozen dither requests a persistent drawing buffer without a continuous fr
 
 
 test("navigation removes previous page content before the new page enters", async () => {
-  const previousAnimate = HTMLElement.prototype.animate;
-  HTMLElement.prototype.animate = () => ({ finished: Promise.resolve(), cancel() {} });
+  frames.clear();
   const emptyView = dataModule("export default () => {};");
   const mocks = {};
   for (const [feature, view] of [["home", "HomeView"], ["library", "LibraryView"], ["library", "GameDetailView"], ["store", "StoreView"], ["downloads", "DownloadsView"]]) {
@@ -159,20 +119,21 @@ test("navigation removes previous page content before the new page enters", asyn
   document.body.append(target);
   const instance = mount(MainContainer, { target });
   const settle = async () => { flushSync(); await new Promise(resolve => setImmediate(resolve)); flushSync(); };
+  const finishNavigation = async () => { advanceFrames(0);advanceFrames(105);await settle();advanceFrames(0);advanceFrames(105);await settle(); };
   try {
     await settle();
     navigation.activeSection.set("library");
-    await settle();
+    await settle();await finishNavigation();
     assert.deepEqual([...target.querySelectorAll("[data-page]")].map(node => node.dataset.page), ["library"]);
     navigation.selectedGameId.set("first");
     await settle();
     navigation.selectedGameId.set("second");
-    await settle();
+    await settle();await finishNavigation();
     assert.deepEqual([...target.querySelectorAll("[data-page]")].map(node => node.dataset.page), ["library:second"]);
   } finally {
     await unmount(instance);
     target.remove();
-    HTMLElement.prototype.animate = previousAnimate;
+    frames.clear();
   }
 });
 
@@ -201,35 +162,18 @@ test("foreground_targets_never_contain_backdrop_surface", async () => {
     assert.equal(target.querySelector(".legio-panel,.legio-glass,[style]"), null);
     for (const other of targets) if (target !== other) assert.equal(target.contains(other), false);
   }
-  const animated = [];
-  const previousAnimate = HTMLElement.prototype.animate;
-  HTMLElement.prototype.animate = function (keyframes, options) {
-    animated.push({ node: this, keyframes, options });
-    return { finished: Promise.resolve(), cancel() {} };
-  };
   try {
-    await animateForeground(root, "out", 105).finished;
-    assert.equal(animated.length, 4);
-    assert.ok(animated.every(entry => entry.options.duration === 105));
-    for (const surface of root.querySelectorAll(".legio-panel,.legio-glass,article")) {
-      assert.equal(surface.style.opacity, "", "protected surfaces must retain their own native opacity");
-    }
-    const before = animated.length;
-    await animateForeground(root, "in", 0).finished;
-    assert.equal(animated.length, before, "reduced motion must not animate");
-  } finally { root.remove(); HTMLElement.prototype.animate = previousAnimate; }
+    frames.clear(); const outgoing = animateForeground(root, "out", 105);
+    advanceFrames(0);advanceFrames(105);await outgoing.finished;
+    for (const surface of root.querySelectorAll(".legio-panel,.legio-glass,article")) assert.equal(surface.style.opacity, "");
+    outgoing.cancel(); await animateForeground(root, "in", 0).finished;assert.equal(frames.size, 0);
+  } finally { root.remove(); frames.clear(); }
 });
 
 test("navigation_keeps_sidebar_and_canvas_nodes and rapid_navigation_never_republishes_obsolete_target", async () => {
   const previousStart = document.startViewTransition;
   document.startViewTransition = () => { throw new Error("whole document snapshots must not be used"); };
-  const previousAnimate = HTMLElement.prototype.animate;
-  const animations = [];
-  HTMLElement.prototype.animate = function () {
-    let finish;
-    const animation = { node: this, finished: new Promise(resolve => { finish = resolve; }), cancel() { finish(); }, finish() { finish(); } };
-    animations.push(animation); return animation;
-  };
+  frames.clear();
   const mocks = { "src/lib/services/application-log": dataModule('export const logApplicationEvent = () => new Promise(() => {}); export const logNavigationCheckpoint = () => new Promise(() => {});') };
   const emptyView = dataModule("export default () => {};");
   for (const [feature, view] of [["home", "HomeView"], ["library", "LibraryView"], ["library", "GameDetailView"], ["store", "StoreView"], ["downloads", "DownloadsView"]]) mocks[`src/lib/features/${feature}/${view}.svelte`] = emptyView;
@@ -247,15 +191,14 @@ test("navigation_keeps_sidebar_and_canvas_nodes and rapid_navigation_never_repub
     target.querySelector("[data-page]").innerHTML = '<div class="legio-panel"><span>Outgoing foreground</span></div>';
     navigation.activeSection.set("library"); await settle();
     assert.equal(target.querySelector("[data-page]").dataset.page, "home", "outgoing foreground waits for exit");
-    assert.equal(animations.length, 1);
+    assert.equal(frames.size, 1);
     navigation.activeSection.set("store"); await settle();
-    animations[0].finish(); await settle();
+    advanceFrames(0); await settle();
     assert.equal(target.querySelector("[data-page]").dataset.page, "home", "obsolete exit cannot publish library");
-    animations.at(-1).finish(); await settle();
+    advanceFrames(200); await settle();
     assert.equal(target.querySelector("[data-page]").dataset.page, "store", "logging_does_not_gate_page_swap");
     assert.equal(target.querySelector("aside"), sidebar); assert.equal(target.querySelector("canvas"), canvas);
     assert.equal(sidebar.style.opacity, ""); assert.equal(canvas.style.opacity, "");
-    assert.ok(animations.slice(0, 2).every(animation => animation.node.tagName === "SPAN"));
-    assert.ok(animations.every(animation => !animation.node.querySelector(".legio-panel") && animation.node !== sidebar && animation.node !== canvas));
-  } finally { await unmount(instance); target.remove(); document.startViewTransition = previousStart; HTMLElement.prototype.animate = previousAnimate; }
+    assert.equal(sidebar.style.opacity, "");assert.equal(canvas.style.opacity, "");
+  } finally { await unmount(instance); target.remove(); document.startViewTransition = previousStart;frames.clear(); }
 });

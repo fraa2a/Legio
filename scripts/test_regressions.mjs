@@ -412,3 +412,27 @@ test("manual artwork refresh renews its visible URLs while retaining other games
   assert.ok(calls.filter(([command, args]) => command === "get_steam_asset" && args.policy === "force_refresh").every(([, args]) => args.steamAppId === 400));
   retained.release();
 });
+
+
+test("missing updater platform is unavailable, not current, and invalidates a prior installer", async () => {
+  let checks = 0; let installs = 0;
+  globalThis.legioUpdaterCheck = async () => {
+    if (++checks === 1) return { version: "9.0.0", downloadAndInstall: async () => { installs++; } };
+    throw 'None of the fallback platforms `["linux-x86_64"]` were found in the response `platforms` object';
+  };
+  const { load } = createModuleLoader({
+    "src/lib/i18n": dataModule("export const t = value => value;"),
+    "@tauri-apps/plugin-updater": dataModule("export const check = () => globalThis.legioUpdaterCheck();"),
+    "@tauri-apps/plugin-process": dataModule("export const relaunch = async () => {};"),
+    "src/lib/services/invoke": dataModule("export const invoke = async command => command === 'is_aur_package' ? false : undefined;"),
+  });
+  const updater = await import(await load("src/lib/services/app-updater.ts"));
+  try {
+    await updater.checkForAppUpdate(); assert.equal(get(updater.updateState).version, "9.0.0");
+    await updater.checkForAppUpdate(); const state = get(updater.updateState);
+    assert.equal(state.unavailable, true); assert.equal(state.version, null); assert.equal(state.error, null);
+    await updater.installAppUpdate();assert.equal(installs, 0);
+    globalThis.legioUpdaterCheck = async () => { throw new Error("Network unavailable"); };
+    await updater.checkForAppUpdate();assert.match(get(updater.updateState).error,/Network unavailable/);assert.equal(get(updater.updateState).unavailable,false);
+  } finally { delete globalThis.legioUpdaterCheck; }
+});

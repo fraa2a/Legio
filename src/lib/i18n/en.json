@@ -630,5 +630,6 @@
   "Salva log applicativi": "Save application logs",
   "Ripristina log applicativi": "Reset application logging",
   "Registra avvio, navigazione, errori e panic in app.txt. Per diagnosticare un crash, attiva i log e riavvia Legio prima di riprodurlo.": "Records startup, navigation, errors and panics in app.txt. To diagnose a crash, enable logs and restart Legio before reproducing it.",
-  "Entrambi i log sono disattivati di default. I file vengono ruotati per limitare lo spazio occupato; disattivarli interrompe la registrazione di nuovi eventi.": "Both logs are off by default. Files are rotated to limit disk usage; disabling logging stops recording new events."
+  "Entrambi i log sono disattivati di default. I file vengono ruotati per limitare lo spazio occupato; disattivarli interrompe la registrazione di nuovi eventi.": "Both logs are off by default. Files are rotated to limit disk usage; disabling logging stops recording new events.",
+  "Nessun aggiornamento automatico disponibile per questa piattaforma.": "No automatic update is available for this platform."
 }

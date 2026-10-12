@@ -26,32 +26,42 @@ export function collectForegroundTargets(root: HTMLElement): HTMLElement[] {
 }
 
 export function animateForeground(root: HTMLElement, direction: "in" | "out", duration: number): ForegroundAnimation {
-  if (duration === 0 || typeof root.animate !== "function") return { finished: Promise.resolve(), cancel() {} };
-  const animations = collectForegroundTargets(root).map(node => {
+  if (duration <= 0) return { finished: Promise.resolve(), cancel() {} };
+  const targets = collectForegroundTargets(root).map(node => {
     const opacity = Number.parseFloat(getComputedStyle(node).opacity);
-    const visibleOpacity = Number.isFinite(opacity) ? opacity : 1;
-    const originalOpacity = node.style.getPropertyValue("opacity");
-    const originalPriority = node.style.getPropertyPriority("opacity");
-    const endOpacity = direction === "in" ? visibleOpacity : 0;
-    const frames = direction === "in" ? [{ opacity: 0 }, { opacity: visibleOpacity }] : [{ opacity: visibleOpacity }, { opacity: 0 }];
-    // Skia can expose the underlying style when the compositor animation finishes.
-    node.style.setProperty("opacity", String(endOpacity));
-    const animation = node.animate(frames, { duration, easing: "linear", fill: "both" });
-    return { node, animation, originalOpacity, originalPriority };
+    return { node, opacity: Number.isFinite(opacity) ? opacity : 1,
+      original: node.style.getPropertyValue("opacity"), priority: node.style.getPropertyPriority("opacity") };
   });
+  if (targets.length === 0) return { finished: Promise.resolve(), cancel() {} };
+  let resolveFinished = () => {};
+  const finished = new Promise<void>(resolve => { resolveFinished = resolve; });
+  let frame: number | undefined;
+  let start: number | undefined;
   let cancelled = false;
-  const finished = Promise.all(animations.map(({ animation }) => animation.finished.catch(error => {
-    if (!cancelled) console.warn("Page foreground animation failed", error);
-  }))).then(() => undefined);
+  function paint(progress: number): void {
+    const factor = direction === "in" ? progress : 1 - progress;
+    for (const target of targets) target.node.style.setProperty("opacity", String(target.opacity * factor), "important");
+  }
+  function tick(time: number): void {
+    frame = undefined;
+    if (cancelled) return;
+    start ??= time;
+    const progress = Math.min(1, Math.max(0, (time - start) / duration));
+    paint(progress);
+    if (progress === 1) resolveFinished();
+    else frame = requestAnimationFrame(tick);
+  }
+  paint(0);
+  frame = requestAnimationFrame(tick);
   return { finished, cancel() {
     if (cancelled) return;
     cancelled = true;
-    for (const { node, animation, originalOpacity, originalPriority } of animations) {
-      animation.cancel();
-      // Retired native layers may outlive their detached DOM nodes for one frame.
-      if (direction === "out" && !node.isConnected) continue;
-      if (originalOpacity === "") node.style.removeProperty("opacity");
-      else node.style.setProperty("opacity", originalOpacity, originalPriority);
+    if (frame !== undefined) cancelAnimationFrame(frame);
+    for (const target of targets) {
+      if (direction === "out" && !target.node.isConnected) continue;
+      if (target.original === "") target.node.style.removeProperty("opacity");
+      else target.node.style.setProperty("opacity", target.original, target.priority);
     }
+    resolveFinished();
   } };
 }
