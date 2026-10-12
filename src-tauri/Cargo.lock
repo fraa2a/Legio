@@ -2477,6 +2477,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "uuid",
+ "webkit2gtk",
  "webp",
  "webview2-com",
  "windows",

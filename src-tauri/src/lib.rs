@@ -57,6 +57,8 @@ mod settings;
 mod source_links;
 mod startup;
 mod startup_recovery;
+#[cfg(target_os = "linux")]
+mod webkit_features;
 
 struct TrayAvailable(bool);
 struct LaunchEvents(tauri::async_runtime::JoinHandle<()>);
@@ -138,12 +140,6 @@ fn run_application(
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(move |app| {
-            #[cfg(target_os = "linux")]
-            if appearance::supports_transparency()
-                && let Some(window) = app.get_webview_window("main")
-            {
-                native_rendering::configure(&window)?;
-            }
             let source_links = source_links::SourceLinks::default();
             source_links
                 .enqueue(std::env::args_os().skip(1))
@@ -165,6 +161,16 @@ fn run_application(
                 .map_err(std::io::Error::other)?;
             app.state::<application_log::ApplicationLog>()
                 .set_enabled(initial_settings.application_logging_enabled);
+            #[cfg(target_os = "linux")]
+            if let Some(window) = app.get_webview_window("main") {
+                native_rendering::configure(
+                    &window,
+                    app.state::<application_log::ApplicationLog>()
+                        .inner()
+                        .clone(),
+                    appearance::supports_transparency(),
+                )?;
+            }
             #[cfg(windows)]
             if let Some(window) = app.get_webview_window("main") {
                 webview_diagnostics::install(
