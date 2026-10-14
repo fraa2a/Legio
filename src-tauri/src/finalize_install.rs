@@ -894,8 +894,8 @@ mod tests {
         assert_eq!(games.len(), 1);
         assert_eq!(games[0].steam_app_id, Some(42));
         assert_eq!(
-            games[0].executable_path.as_deref(),
-            Some(target.join("game.exe").to_str().unwrap())
+            games[0].executable_path.as_deref().map(Path::new),
+            Some(target.join("game.exe").as_path())
         );
         drop(database);
         fs::remove_dir_all(data_dir).unwrap();
