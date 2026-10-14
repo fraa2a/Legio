@@ -216,6 +216,8 @@ pub struct Settings {
     pub launch_in_library: bool,
     #[serde(default = "default_true")]
     pub sidebar_collapsed: bool,
+    #[serde(default)]
+    pub library_portrait: bool,
     #[serde(default = "default_true")]
     pub download_notifications: bool,
     #[serde(default = "default_true")]
@@ -262,6 +264,7 @@ impl Default for Settings {
             launch_minimized: false,
             launch_in_library: false,
             sidebar_collapsed: true,
+            library_portrait: false,
             download_notifications: true,
             verify_verified_downloads: true,
             diagnostics_enabled: false,
@@ -2098,6 +2101,26 @@ mod tests {
         let reopened = Database::open(&directory).unwrap();
         assert_eq!(reopened.settings().unwrap(), settings);
         drop(reopened);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn library_portrait_defaults_to_false_and_survives_reopen() {
+        let defaults: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(!defaults.library_portrait);
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        for portrait in [true, false] {
+            database
+                .save_settings(Settings {
+                    library_portrait: portrait,
+                    ..Settings::default()
+                })
+                .unwrap();
+            let reopened = Database::open(&directory).unwrap();
+            assert_eq!(reopened.settings().unwrap().library_portrait, portrait);
+        }
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 

@@ -23,6 +23,22 @@
   import { addGameDialogOpen, libraryPortrait, libraryQuery, storeQuery } from "../../stores/library-ui";
   import { runCatalogSearch } from "../../stores/catalog";
   import { refreshSource } from "../../stores/source";
+  import { updateSettings } from "../../stores/settings";
+  import { showToast } from "../../stores/toast";
+  import { toMessage } from "../../utils/errors";
+
+  let savingLibraryView = $state(false);
+
+  async function toggleLibraryView(): Promise<void> {
+    savingLibraryView = true;
+    try {
+      await updateSettings({ libraryPortrait: !$libraryPortrait });
+    } catch (error) {
+      showToast(toMessage(error), "error");
+    } finally {
+      savingLibraryView = false;
+    }
+  }
 
   let maximized = $state(false);
   let heading: HTMLElement | undefined = $state();
@@ -123,7 +139,8 @@
           aria-pressed={$libraryPortrait}
           title={$libraryPortrait ? t("Mostra copertine orizzontali", $language) : t("Mostra copertine verticali", $language)}
           class="flex size-9 items-center justify-center rounded-xl transition-colors hover:bg-white/10 hover:text-white light:hover:bg-zinc-900/10 light:hover:text-zinc-900 {$libraryPortrait ? 'bg-white/10 text-white light:bg-zinc-900/10 light:text-zinc-900' : 'text-zinc-300 light:text-zinc-700'}"
-          onclick={() => libraryPortrait.update((portrait) => !portrait)}
+          disabled={savingLibraryView}
+          onclick={toggleLibraryView}
         >
           <Icon name={$libraryPortrait ? "landscape" : "portrait"} />
         </button>
