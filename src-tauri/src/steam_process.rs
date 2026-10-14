@@ -1,5 +1,6 @@
+use crate::background_process::command;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -75,7 +76,7 @@ pub(crate) fn ensure_running(
         let executable = steam_executable(steam_root)?;
         check_cancelled(cancel)?;
         Some(
-            Command::new(executable)
+            command(executable)
                 .spawn()
                 .map_err(|error| format!("Could not start Steam: {error}"))?,
         )
@@ -129,7 +130,7 @@ pub(crate) fn request_game_launch(
     check_cancelled(cancel)?;
     let executable = steam_executable(steam_root)?;
     check_cancelled(cancel)?;
-    Command::new(executable)
+    command(executable)
         .arg("-applaunch")
         .arg(app_id.to_string())
         .args(arguments)
@@ -152,7 +153,7 @@ pub(crate) fn request_shutdown_and_wait(
     let executable = steam_executable(steam_root)?;
     check_cancelled(cancel)?;
     let start = Instant::now();
-    let mut request = Command::new(executable)
+    let mut request = command(executable)
         .arg("-shutdown")
         .spawn()
         .map_err(|error| format!("Could not request Steam shutdown: {error}"))?;
@@ -189,7 +190,7 @@ pub(crate) fn launch_and_wait_selected_account(
     }
     let executable = steam_executable(steam_root)?;
     check_cancelled(cancel)?;
-    Command::new(executable)
+    command(executable)
         .spawn()
         .map_err(|error| format!("Could not start Steam: {error}"))?;
 
@@ -273,7 +274,7 @@ impl SteamProcesses {
 
 #[cfg(windows)]
 fn running_processes() -> Result<SteamProcesses, String> {
-    let output = Command::new("tasklist")
+    let output = command("tasklist")
         .args(["/FO", "CSV", "/NH"])
         .output()
         .map_err(|error| format!("Could not inspect running processes: {error}"))?;

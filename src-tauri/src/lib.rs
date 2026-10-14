@@ -14,6 +14,7 @@ pub mod archive_install;
 mod artwork_display;
 mod artwork_publication;
 mod artwork_scheduler;
+mod background_process;
 mod catalog;
 mod commands;
 #[cfg(target_os = "linux")]

@@ -4,6 +4,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Child;
+#[cfg(target_os = "linux")]
 use std::process::Command;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -419,7 +420,7 @@ impl GameLaunchManager {
         validate_launch_arguments(&config.arguments)?;
         let working_directory =
             game_working_directory(config.working_directory.as_deref(), parent)?;
-        let mut command = Command::new(&executable);
+        let mut command = crate::background_process::command(&executable);
         command
             .args(&config.arguments)
             .envs(&config.environment)

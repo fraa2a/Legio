@@ -18,6 +18,7 @@ export interface Settings {
   launchMinimized: boolean;
   launchInLibrary: boolean;
   sidebarCollapsed: boolean;
+  libraryPortrait: boolean;
   downloadNotifications: boolean;
   verifyVerifiedDownloads: boolean;
   diagnosticsEnabled: boolean;

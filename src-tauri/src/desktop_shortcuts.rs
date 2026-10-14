@@ -61,7 +61,7 @@ pub(crate) fn remove_steam_shortcuts(game: &Game) -> Result<(), String> {
 mod windows {
     use super::{Game, PathBuf, ShortcutLocation};
     use serde::Deserialize;
-    use std::{path::Path, process::Command};
+    use std::path::Path;
 
     const STEAM_SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
@@ -203,7 +203,7 @@ foreach ($base in @([Environment]::GetFolderPath('DesktopDirectory'), [Environme
 "#;
 
     fn run(script: &str, variables: &[(&str, &str)]) -> Result<String, String> {
-        let mut command = Command::new("powershell.exe");
+        let mut command = crate::background_process::command("powershell.exe");
         command.args(["-NoProfile", "-NonInteractive", "-Command", script]);
         for (key, value) in variables {
             command.env(key, value);
