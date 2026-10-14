@@ -14,7 +14,7 @@
     setScanGameName,
   } from "../../stores/manual-import";
   import { ensureSteamDetails, steamDetails } from "../../stores/steam-details";
-  import { cachedCatalogSearch, refreshCatalogCached, searchCatalog, type CatalogGame } from "../../services/catalog";
+  import SteamGameSearch from "./SteamGameSearch.svelte";
   import { previewManualGameSteamAppId, type SteamIdentificationPreview } from "../../services/manual-import";
   import Button from "../../components/ui/Button.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
@@ -25,18 +25,14 @@
 
   let { onClose, prefill = null }: { onClose: () => void; prefill?: { steamAppId: number; name: string; suggestedName: string } | null } = $props();
 
-  let selectedSteamGame = $state<{ steamAppId: number; name: string } | null>(null);
   let steamQuery = $state("");
-  let searchResults = $state<CatalogGame[]>([]);
-  let searchStatus = $state<"idle" | "loading" | "ready" | "empty">("idle");
-  let searchError = $state<string | null>(null);
+  let selectedSteamGame = $state<{ steamAppId: number; name: string } | null>(null);
   let preview = $state<SteamIdentificationPreview | null>(null);
   let previewPending = $state(false);
   let previewError = $state<string | null>(null);
   let pending = $state(false);
   let actionError = $state<string | null>(null);
   let previewRequest = 0;
-  let searchRequest = 0;
 
   onMount(() => {
     if (prefill !== null) {
@@ -107,42 +103,6 @@
     if (parsedAppId !== null) return ensureSteamDetails(parsedAppId);
   });
 
-  $effect(() => {
-    const query = steamQuery.trim();
-    const request = ++searchRequest;
-    searchResults = [];
-    searchError = null;
-    if (query.length < 2) {
-      searchStatus = "idle";
-      return;
-    }
-    const known = cachedCatalogSearch(query);
-    if (known !== null) {
-      searchResults = known.games;
-      searchStatus = known.games.length > 0 ? "ready" : "empty";
-      return;
-    }
-    searchStatus = "loading";
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const cached = await searchCatalog(query);
-          if (request !== searchRequest) return;
-          searchResults = cached.games;
-          searchStatus = cached.games.length > 0 ? "ready" : "empty";
-          const fresh = await refreshCatalogCached(query);
-          if (request !== searchRequest) return;
-          searchResults = fresh.games;
-          searchStatus = fresh.games.length > 0 ? "ready" : "empty";
-        } catch (error) {
-          if (request !== searchRequest) return;
-          searchError = toMessage(error);
-          if (searchResults.length === 0) searchStatus = "empty";
-        }
-      })();
-    }, 300);
-    return () => clearTimeout(timer);
-  });
 
   async function add(): Promise<void> {
     if (!canAdd) return;
@@ -186,26 +146,9 @@
   <div class="flex flex-col gap-5">
     <div class="flex flex-col gap-2">
         <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Associa il gioco corretto su Steam se il rilevamento automatico è errato o non trova il gioco.", $language)}</p>
-        <TextField id="add-steam-game-search" label={t("Cerca gioco su Steam", $language)} type="search" value={steamQuery} placeholder={t("Cerca per nome", $language)} disabled={pending}
-          oninput={(value) => { steamQuery = value; selectedSteamGame = null; }} />
-        {#if searchStatus === "loading"}
-          <p class="text-xs text-zinc-400" role="status">{t("Ricerca in corso...", $language)}</p>
-        {:else if searchStatus === "empty" && searchError === null}
-          <p class="text-xs text-zinc-500">{t("Nessun risultato per questa ricerca.", $language)}</p>
-        {/if}
-        {#if searchError !== null}<p class="text-xs text-amber-300 light:text-amber-800">{t("Ricerca non disponibile: ", $language)}{searchError}</p>{/if}
-        {#if searchResults.length > 0 && steamQuery.trim().length >= 2}
-          <ul class="max-h-36 overflow-y-auto rounded-lg border border-white/10 bg-white/5 light:border-zinc-900/10 light:bg-white" aria-label={t("Risultati Steam", $language)}>
-            {#each searchResults as result (result.steamAppId)}
-              <li>
-                <button type="button" class="flex h-12 w-full items-center px-3 text-left text-sm text-zinc-200 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white light:text-zinc-800 light:hover:bg-zinc-900/5 light:focus-visible:outline-zinc-900"
-                  disabled={pending} onclick={() => selectSteamGame(result)}>
-                  <span class="truncate">{result.name}</span>
-                </button>
-              </li>
-            {/each}
-          </ul>
-        {/if}
+        <SteamGameSearch id="add-steam-game-search" bind:value={steamQuery} disabled={pending}
+          onQueryChange={() => { selectedSteamGame = null; }}
+          onSelect={(game) => { selectSteamGame(game); return true; }} />
         {#if previewPending}
           <p class="text-xs text-zinc-400" role="status">{t("Rilevamento del gioco su Steam...", $language)}</p>
         {:else if previewError !== null}
