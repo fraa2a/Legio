@@ -218,7 +218,11 @@ pub(crate) fn sync_default<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Resu
         .app_data_dir()
         .map_err(|error| error.to_string())?;
     let storage = database.storage_root(&data)?;
-    let root = crate::finalize_install::install_root(database, &storage)?;
+    sync_storage(database, &storage)
+}
+
+pub(crate) fn sync_storage(database: &Database, storage: &Path) -> Result<(), String> {
+    let root = crate::finalize_install::install_root(database, storage)?;
     sync_entries(database, &root, true)
 }
 
