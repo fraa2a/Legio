@@ -330,6 +330,7 @@ impl GameLaunchManager {
             app_id,
             install_path: target.install_path.clone(),
         };
+        crate::download_policy::protect_launch(&app, &game_id)?;
         let cancel = self.reserve_launch(&game_id, Some(app_id), process_target.clone(), None)?;
 
         let worker_id = game_id.clone();
@@ -446,6 +447,7 @@ impl GameLaunchManager {
                 launcher_pid: None,
             }
         };
+        crate::download_policy::protect_launch(&app, &game_id)?;
         let cancel = self.reserve_launch(&game_id, None, process_target.clone(), None)?;
         let manager = self.clone();
         let worker_id = game_id.clone();
@@ -711,6 +713,7 @@ impl GameLaunchManager {
             &config,
             launch_via_steam,
         );
+        crate::download_policy::protect_launch(&app, &game_id)?;
         let cancel = self.reserve_launch_with_prefix(
             &game_id,
             None,
@@ -2047,6 +2050,128 @@ mod tests {
         .unwrap();
         result.unwrap();
         assert_eq!(manager.list().unwrap()[0].status, GameStatus::Running);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn update_policy_locks_running_game_and_restores_priority_on_exit() {
+        let root = test_dir("update-policy");
+        let database = crate::database::Database::open(&root).unwrap();
+        let game = database
+            .create_game(crate::database::CreateGameInput {
+                name: "Game".into(),
+                steam_app_id: Some(400),
+            })
+            .unwrap();
+        let queue =
+            crate::download_queue::DownloadQueueState::new(Ok(root.clone()), "test").unwrap();
+        let manager = GameLaunchManager::new();
+        let mut settings = database.settings().unwrap();
+        settings.download_while_playing = true;
+        settings.automatic_game_updates = true;
+        database.save_settings(settings).unwrap();
+        let first = uuid::Uuid::new_v4().to_string();
+        let next = uuid::Uuid::new_v4().to_string();
+        database.with_connection(|c| {
+            for (id, target, status, position) in [(&first, Some(game.id.as_str()), "downloading", 1), (&next, None, "queued", 2)] {
+                c.execute("INSERT INTO downloads (id,steam_app_id,name,release_version,url,sha256,size_bytes,status,created_at,updated_at,target_game_id,queue_position,automatic_update) VALUES (?1,400,'Game','2','https://example.test/game.zip','',10,?2,1,1,?3,?4,1)", rusqlite::params![id,status,target,position]).map_err(crate::database::database_error)?;
+            }
+            Ok(())
+        }).unwrap();
+        manager
+            .reserve_launch(
+                &game.id,
+                Some(400),
+                game_process::ProcessTarget::Steam {
+                    app_id: 400,
+                    install_path: root.clone(),
+                },
+                None,
+            )
+            .unwrap();
+        crate::download_policy::sync(&database, &manager, &queue).unwrap();
+        assert!(crate::download_policy::require_resumable(&database, &manager, &first).is_err());
+        let state = |id: &str| {
+            database
+                .with_connection(|c| {
+                    c.query_row(
+                        "SELECT status,pause_reason FROM downloads WHERE id=?1",
+                        [id],
+                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+                    )
+                    .map_err(crate::database::database_error)
+                })
+                .unwrap()
+        };
+        assert_eq!(
+            state(&first),
+            ("paused".into(), Some("game_running".into()))
+        );
+        assert_eq!(state(&next), ("queued".into(), None));
+        database
+            .with_connection(|c| {
+                c.execute(
+                    "UPDATE downloads SET status='downloading' WHERE id=?1",
+                    [&next],
+                )
+                .map_err(crate::database::database_error)?;
+                Ok(())
+            })
+            .unwrap();
+        manager.set_state(&game.id, GameStatus::Idle, None);
+        crate::download_policy::sync(&database, &manager, &queue).unwrap();
+        assert_eq!(state(&first), ("queued".into(), None));
+        assert_eq!(state(&next), ("queued".into(), None));
+        let priority: bool = database.with_connection(|c| c.query_row("SELECT a.queue_position < b.queue_position FROM downloads a,downloads b WHERE a.id=?1 AND b.id=?2", rusqlite::params![first,next], |row| row.get(0)).map_err(crate::database::database_error)).unwrap();
+        assert!(priority);
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn update_policy_allows_manual_override_only_for_another_game() {
+        let root = test_dir("update-policy-override");
+        let database = crate::database::Database::open(&root).unwrap();
+        assert!(!database.settings().unwrap().automatic_game_updates);
+        let game = database
+            .create_game(crate::database::CreateGameInput {
+                name: "Game".into(),
+                steam_app_id: Some(400),
+            })
+            .unwrap();
+        let queue =
+            crate::download_queue::DownloadQueueState::new(Ok(root.clone()), "test").unwrap();
+        let manager = GameLaunchManager::new();
+        let mut settings = database.settings().unwrap();
+        settings.download_while_playing = false;
+        database.save_settings(settings).unwrap();
+        let first = uuid::Uuid::new_v4().to_string();
+        let next = uuid::Uuid::new_v4().to_string();
+        database.with_connection(|c| {
+            for (id, target) in [(&first, Some(game.id.as_str())), (&next, None)] {
+                c.execute("INSERT INTO downloads (id,steam_app_id,name,release_version,url,sha256,size_bytes,status,created_at,updated_at,target_game_id) VALUES (?1,400,'Game','2','https://example.test/game.zip','',10,'queued',1,1,?2)", rusqlite::params![id,target]).map_err(crate::database::database_error)?;
+            }
+            Ok(())
+        }).unwrap();
+        manager
+            .reserve_launch(
+                &game.id,
+                Some(400),
+                game_process::ProcessTarget::Steam {
+                    app_id: 400,
+                    install_path: root.clone(),
+                },
+                None,
+            )
+            .unwrap();
+        crate::download_policy::sync(&database, &manager, &queue).unwrap();
+        crate::download_policy::manual_start(&database, &manager, &first).unwrap();
+        crate::download_policy::manual_start(&database, &manager, &next).unwrap();
+        crate::download_policy::sync(&database, &manager, &queue).unwrap();
+        assert!(crate::download_policy::require_resumable(&database, &manager, &first).is_err());
+        let states: (String,String) = database.with_connection(|c| c.query_row("SELECT a.status,b.status FROM downloads a,downloads b WHERE a.id=?1 AND b.id=?2", rusqlite::params![first,next], |row| Ok((row.get(0)?,row.get(1)?))).map_err(crate::database::database_error)).unwrap();
+        assert_eq!(states, ("paused".into(), "queued".into()));
+        drop(database);
         fs::remove_dir_all(root).unwrap();
     }
 

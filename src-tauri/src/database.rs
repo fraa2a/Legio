@@ -10,7 +10,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 25;
+const SCHEMA_VERSION: i64 = 26;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -218,6 +218,10 @@ pub struct Settings {
     pub sidebar_collapsed: bool,
     #[serde(default)]
     pub library_portrait: bool,
+    #[serde(default)]
+    pub automatic_game_updates: bool,
+    #[serde(default = "default_true")]
+    pub download_while_playing: bool,
     #[serde(default = "default_true")]
     pub download_notifications: bool,
     #[serde(default = "default_true")]
@@ -265,6 +269,8 @@ impl Default for Settings {
             launch_in_library: false,
             sidebar_collapsed: true,
             library_portrait: false,
+            automatic_game_updates: false,
+            download_while_playing: true,
             download_notifications: true,
             verify_verified_downloads: true,
             diagnostics_enabled: false,
@@ -925,6 +931,8 @@ impl Database {
         let name = effective_name(&automatic_name, &name_override)?;
 
         self.with_connection(|connection| {
+            let blocked: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM downloads d JOIN games g ON g.id = d.target_game_id WHERE g.id = ?1 AND g.steam_app_id IS NOT ?2 AND d.status NOT IN ('installed','cancelled'))", params![id,input.steam_app_id], |row| row.get(0)).map_err(database_error)?;
+            if blocked { return Err("Cancel the pending update before changing the game's Steam identity".into()); }
             ensure_unique_game_name(connection, input.steam_app_id, &name, Some(&id))?;
             connection
                 .query_row(
@@ -1245,7 +1253,7 @@ fn migrate(connection: &Connection) -> Result<(), String> {
                 updated_at INTEGER NOT NULL,
                 staged_path TEXT
              );
-             INSERT INTO downloads_v8 SELECT * FROM downloads;
+             INSERT INTO downloads_v8 SELECT id, steam_app_id, name, release_version, url, sha256, etag, size_bytes, downloaded_bytes, speed_bps, eta_seconds, status, error, created_at, updated_at, staged_path FROM downloads;
              DROP TABLE downloads;
              ALTER TABLE downloads_v8 RENAME TO downloads;
              CREATE INDEX downloads_status_idx ON downloads (status, created_at);
@@ -1287,7 +1295,7 @@ fn migrate(connection: &Connection) -> Result<(), String> {
                 executable_relative TEXT,
                 install_token TEXT
              );
-             INSERT INTO downloads_v10 SELECT * FROM downloads;
+             INSERT INTO downloads_v10 SELECT id, steam_app_id, name, release_version, url, sha256, etag, size_bytes, downloaded_bytes, speed_bps, eta_seconds, status, error, created_at, updated_at, staged_path, final_path, executable_relative, install_token FROM downloads;
              DROP TABLE downloads;
              ALTER TABLE downloads_v10 RENAME TO downloads;
              CREATE INDEX downloads_status_idx ON downloads (status, created_at);
@@ -1584,6 +1592,50 @@ fn migrate(connection: &Connection) -> Result<(), String> {
              );
              DELETE FROM legio_source_cache;
              PRAGMA user_version = 25;",
+            )
+            .map_err(database_error)?;
+    }
+    if version < 26 {
+        for (name, definition) in [
+            ("source_id", "TEXT"),
+            ("source_entry_id", "TEXT"),
+            ("target_game_id", "TEXT"),
+            ("pause_reason", "TEXT"),
+            ("manual_override", "INTEGER NOT NULL DEFAULT 0"),
+            ("automatic_update", "INTEGER NOT NULL DEFAULT 0"),
+            ("interrupted_by_game", "INTEGER NOT NULL DEFAULT 0"),
+        ] {
+            let exists: bool = transaction
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM pragma_table_info('downloads') WHERE name = ?1)",
+                    [name],
+                    |row| row.get(0),
+                )
+                .map_err(database_error)?;
+            if !exists {
+                transaction
+                    .execute_batch(&format!(
+                        "ALTER TABLE downloads ADD COLUMN {name} {definition}"
+                    ))
+                    .map_err(database_error)?;
+            }
+        }
+        transaction
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS game_source_installs (
+                game_id TEXT PRIMARY KEY REFERENCES games(id) ON DELETE CASCADE,
+                source_id TEXT NOT NULL, entry_id TEXT,
+                installed_version TEXT NOT NULL, accepted_unverified INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS game_update_journals (
+                job_id TEXT PRIMARY KEY REFERENCES downloads(id) ON DELETE RESTRICT,
+                game_id TEXT NOT NULL REFERENCES games(id) ON DELETE RESTRICT,
+                target TEXT NOT NULL, backup TEXT NOT NULL, manifest TEXT NOT NULL,
+                committed INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS downloads_update_target ON downloads(target_game_id, status);
+            CREATE UNIQUE INDEX IF NOT EXISTS downloads_active_update ON downloads(target_game_id) WHERE target_game_id IS NOT NULL AND status NOT IN ('installed','cancelled');
+            PRAGMA user_version = 26;",
             )
             .map_err(database_error)?;
     }

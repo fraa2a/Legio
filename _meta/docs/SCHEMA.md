@@ -23,7 +23,7 @@ flowchart TD
     Selection --> Queue[Persistent queue]
     Queue --> Archive[Archive download]
     Archive --> Stage[Verification and staging extraction]
-    Stage --> Executable[Executable selection]
+    Stage --> Executable[Automatic executable selection]
     Executable --> Library[Installation and library registration]
 ```
 
@@ -33,10 +33,12 @@ flowchart TD
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "supportGameUpdates": true,
   "generatedAt": "2026-10-05T12:00:00Z",
   "verified": [
     {
+      "id": "portal-vanilla",
       "steamAppId": 400,
       "name": "Portal",
       "release": {
@@ -52,6 +54,7 @@ flowchart TD
   ],
   "unverified": [
     {
+      "id": "portal-modded",
       "steamAppId": 400,
       "name": "Portal modded",
       "release": {
@@ -73,7 +76,9 @@ All objects use `camelCase` field names and reject unknown fields. The parser ac
 
 | Field | Type | Rule |
 | --- | --- | --- |
-| `schemaVersion` | `u32` integer | Required; must be `1` |
+| `schemaVersion` | `u32` integer | Required; `1` or `2` |
+| `supportGameUpdates` | Boolean | Optional, defaults to `false`; `true` requires schema 2 |
+| Entry `id` | String | Required for update sources; unique across both lists, stable across renames and releases; at most 128 UTF-8 bytes |
 | `generatedAt` | String | Required RFC 3339 timestamp with a UTC offset; both `Z` and `+00:00` are accepted |
 | `verified` | Array of entries | Required; may be empty |
 | `unverified` | Array of entries | Required; may be empty |
@@ -134,11 +139,12 @@ The frontend invokes `queue_download` with these arguments:
   "steamAppId": 400,
   "downloadUrl": "https://downloads.example.invalid/portal-1.0.0.zip",
   "releaseVersion": "1.0.0",
-  "acceptUnverified": false
+  "acceptUnverified": false,
+  "sourceId": "<installed-source-id>"
 }
 ```
 
-Rust looks up the exact tuple in the validated source cache. The frontend cannot supply arbitrary size, hash, name, or trust classification. An unverified release requires `acceptUnverified: true`. Queueing stores a snapshot of the selected metadata and its `source_verified` classification; later manifest refreshes do not change the job.
+Rust looks up the exact tuple in the selected validated source. If origin is omitted, the match must be unambiguous. The frontend cannot supply arbitrary size, hash, name, or trust classification. An unverified release requires `acceptUnverified: true`. Queueing stores a snapshot of the selected metadata and its `source_verified` classification; later manifest refreshes do not change the job.
 
 ### Job returned to the frontend
 
@@ -171,11 +177,11 @@ The normal path is `queued -> downloading -> downloaded -> staging -> staged -> 
 | `queued` | Awaiting transfer; can be reordered, paused, or cancelled |
 | `downloading` | Transfer in progress; can be paused or cancelled |
 | `waiting` | Waiting after a network problem; can resume when connectivity recovers, be resumed manually, paused, or cancelled |
-| `paused` | Suspended by the user; can be resumed or cancelled |
+| `paused` | Suspended by the user or game policy; a running target game locks resume |
 | `failed` | Transfer, verification, or installation error; can be retried, cancelled, or removed from the list |
 | `downloaded` | Complete archive; verification/extraction starts automatically |
 | `staging` | Verification and extraction in progress |
-| `staged` | Extraction complete; awaiting executable selection and finalization |
+| `staged` | Extraction complete; awaiting automatic executable selection and installation |
 | `finalizing` | Moving/copying files into the final installation and registering the game in the library |
 | `installed` | Installation complete; the job can be removed from the list |
 | `cancelled` | Cancelled; download files are cleaned up and the job can be removed |
@@ -194,9 +200,19 @@ Single ZIP, 7z, and RAR archives are supported and identified by their content s
 
 ### Executable selection and installation
 
-`scan_staged_executables` receives `{ "id": "<uuid>", "gameName": null }` and returns `candidates` and `selectedRelativePath`. Each candidate contains `relativePath`, `score`, and `signals`. Scanning proposes an executable; it does not launch it.
+After extraction, the backend automatically selects the executable using its existing ranking. It retains the selected executable for updates when it still exists, otherwise uses the best staged candidate. Archives with no usable executable produce a retryable error. New installations register the game without a separate Install action.
 
-`finalize_download` receives `{ "id": "<uuid>", "executableRelative": "Game/game.exe" }`. The path is relative to staging and is validated to prevent escaping the directory or traversing symbolic links. Finalization installs files in the configured location and registers the game in the library. Persistent intents and markers allow recovery of interrupted finalization.
+### Game updates
+
+Each installed variant retains its local game ID, source ID, stable entry ID and installed version independently of download history. Updates match source and entry ID, check the Steam App ID, and compare version strings for inequality without SemVer ordering. Sources that omit or disable `supportGameUpdates` do not produce updates. Schema 1 remains readable; older launchers reject schema 2.
+
+The game detail shows a blue Update button. Unverified updates require confirmation. Automatic game updates default to off; enabling them queues fresh source releases, inheriting unverified consent only from previously accepted installations. A verified release changing to unverified requires new confirmation.
+
+Updates extract to staging and overwrite only paths contained in the archive. Other installed files remain intact. A persistent journal and backups of touched files allow rollback after a write failure or restart. No whole-directory deletion occurs. Installation and recovery refuse to overwrite files while a matching game process is detected. Launch and installation reservations prevent concurrent writes and launches through Legio.
+
+While a target game runs, its update is paused and cannot be resumed through the backend. Other queued downloads follow the download-while-playing preference; explicit manual resume can override that preference for another game. Closing the target game restores its interrupted job at the front of the queue. A manual user pause stays paused. Automatic installation also respects the extraction-while-playing preference.
+
+Legacy installations are associated automatically only when their recorded source and release match uniquely. Ambiguous or manually imported installations require an explicit association in game settings.
 
 ## Hydra catalog and Steam details
 

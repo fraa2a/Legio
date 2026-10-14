@@ -226,7 +226,7 @@ test("download presentation labels and progress tones follow status", async () =
   const { statusBadge, phaseLabel, progressTone } = await loadModule("../src/lib/features/downloads/downloads-model.ts", { "../../i18n": localeUrl });
   assert.equal(statusBadge("installed", "en"), "Completed");
   assert.equal(statusBadge("installed", "it"), "Completato");
-  assert.equal(phaseLabel({ status: "staged" }, "en"), "Ready to install");
+  assert.equal(phaseLabel({ status: "staged" }, "en"), "Waiting for automatic installation");
   assert.equal(progressTone("staged"), "accent");
   assert.equal(progressTone("paused"), "warning");
   assert.equal(statusBadge("future", "en"), "future");
@@ -313,6 +313,8 @@ test("hydration waits for startup recovery before loading games and displays fai
   };
   const fromGlobal = (...names) => dataModule(names.map((name) => `export const ${name} = globalThis.legioBootstrap.${name};`).join("\n"));
   const { load } = createModuleLoader({
+    "src/lib/stores/game-updates": dataModule("export const gameUpdates = { load: async () => {} };"),
+    "src/lib/services/game-updates": dataModule("export const listenDownloadsChanged = async () => () => {}; export const listenGameUpdatesChanged = async () => () => {};"),
     "src/lib/stores/app-info": fromGlobal("appInfo"),
     "src/lib/stores/settings": fromGlobal("settings"),
     "src/lib/stores/games": fromGlobal("games"),
@@ -355,6 +357,7 @@ test("download UI polling stops while inactive and catches completed work on res
   const { load } = createModuleLoader({
     "@tauri-apps/api/core": dataModule("export const invoke = (...args) => globalThis.legioDownloadVisibility.invoke(...args);"),
     "src/lib/i18n": localeUrl,
+    "src/lib/stores/game-updates": dataModule("export const gameUpdates = { load: async () => {} };"),
     "src/lib/stores/window-activity": dataModule("export const windowActive = globalThis.legioDownloadVisibility.active;"),
   });
   const timers = new Set();

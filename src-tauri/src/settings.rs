@@ -56,5 +56,8 @@ pub(crate) fn save(app: &AppHandle, settings: Settings) -> Result<Settings, Stri
         app.state::<crate::discord_presence::PresenceService>()
             .refresh();
     }
+    if saved.automatic_game_updates {
+        crate::game_updates::schedule(app.clone());
+    }
     Ok(saved)
 }

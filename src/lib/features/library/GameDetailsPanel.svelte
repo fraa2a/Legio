@@ -4,6 +4,7 @@
   import type { Game } from "../../services/local-state";
   import { toMessage } from "../../utils/errors";
   import { deleteGame, saveGame } from "../../stores/games";
+  import GameSourcePanel from "./GameSourcePanel.svelte";
   import SteamGameSearch from "./SteamGameSearch.svelte";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
@@ -130,6 +131,8 @@
     {#if identityError !== null}<ErrorBanner message={identityError} />{/if}
   </Panel>
 {/if}
+
+<GameSourcePanel {game} />
 
 {:else}
 <Panel title={t("Rimuovi dalla libreria", $language)}>

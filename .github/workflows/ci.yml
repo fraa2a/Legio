@@ -277,6 +277,18 @@ jobs:
           LEGIO_WINDOWS_TESTS: "1"
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_lifecycle::tests::native_manager_lifecycle_tracks_a_controlled_process
 
+      - name: Test Windows game updates and executable paths
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          LEGIO_WINDOWS_TESTS: "1"
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib manual_import::tests
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib overlay_update::tests
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_updates::tests
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib update_policy
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib automatically_selects_and_installs_the_executable
+
       - name: Test Windows staged executable finalization
         if: runner.os == 'Windows'
         shell: bash

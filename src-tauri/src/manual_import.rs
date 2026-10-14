@@ -207,7 +207,7 @@ pub(crate) fn scan_staged_directory(
     })
 }
 
-fn portable_relative_path(path: &Path) -> Result<String, String> {
+pub(crate) fn portable_relative_path(path: &Path) -> Result<String, String> {
     let components = path
         .components()
         .map(|component| match component {
@@ -656,7 +656,13 @@ mod tests {
         let scan = scan_directory(root.to_str().unwrap(), Some("Portal")).unwrap();
         assert_eq!(
             scan.selected_path,
-            Some(root.join("Portal.exe").to_str().unwrap().to_owned())
+            Some(
+                dunce::canonicalize(root.join("Portal.exe"))
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_owned()
+            )
         );
         fs::remove_dir_all(root).unwrap();
     }
