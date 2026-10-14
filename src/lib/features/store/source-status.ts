@@ -71,5 +71,5 @@ export function sourceReleasesFor(
 }
 
 export function sourceReleaseId(entry: SourceEntry): string {
-  return JSON.stringify([entry.download.url, entry.release.version]);
+  return entry.sourceId ? JSON.stringify([entry.sourceId, entry.id ?? entry.download.url, entry.release.version]) : JSON.stringify([entry.download.url, entry.release.version]);
 }

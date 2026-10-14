@@ -80,6 +80,9 @@ export function statusBadge(status: string, selected?: Language): string {
 }
 
 export function phaseLabel(job: DownloadJob, selected?: Language): string | null {
+  if (job.pauseReason === "game_running") return t("Gioco aperto: aggiornamento bloccato", selected);
+  if (job.pauseReason === "playing") return t("In pausa mentre giochi", selected);
+  if (job.pauseReason === "automatic_disabled") return t("Aggiornamenti automatici disattivati", selected);
   if (job.status === "downloading") return `Download ${Math.round(progressOf(job))}%`;
   // Lo stato "in coda" è già descritto dal badge.
   if (job.status === "queued") return null;
@@ -87,7 +90,7 @@ export function phaseLabel(job: DownloadJob, selected?: Language): string | null
     waiting: "In attesa di rete",
     downloaded: "Verifica del file",
     staging: "Estrazione dei file",
-    staged: "Pronto per l'installazione",
+    staged: "Installazione automatica in attesa",
     finalizing: "Installazione in corso",
     installed: "Installazione completata",
     paused: "Download in pausa",

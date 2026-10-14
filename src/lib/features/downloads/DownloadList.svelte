@@ -2,7 +2,6 @@
   import { t, language } from "../../i18n";
   import {
     canCancelDownload,
-    canFinalizeDownload,
     canPauseDownload,
     canRemoveDownload,
     canResumeDownload,
@@ -29,7 +28,6 @@
     onRetry,
     onCancel,
     onRemove,
-    onInstall,
   }: {
     jobs: DownloadJob[];
     reorder?: boolean;
@@ -42,7 +40,6 @@
     onRetry: (job: DownloadJob) => void;
     onCancel: (job: DownloadJob) => void;
     onRemove: (job: DownloadJob) => void;
-    onInstall: (job: DownloadJob) => void;
   } = $props();
 
   let fromIndex = $state<number | null>(null);
@@ -142,15 +139,6 @@
       </div>
 
       <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
-        {#if canFinalizeDownload(job.status)}
-          <Button
-            label={t("Installa", $language)}
-            variant="primary"
-            class="h-8! px-3! text-xs!"
-            disabled={busyJob === job.id}
-            onClick={() => onInstall(job)}
-          />
-        {/if}
         {#if canPauseDownload(job.status)}
           <Button
             label={t("Pausa", $language)}
@@ -165,7 +153,7 @@
             label={t("Riprendi", $language)}
             variant="secondary"
             class="h-8! px-3! text-xs!"
-            disabled={busyJob === job.id}
+            disabled={busyJob === job.id || job.pauseReason === "game_running"}
             onClick={() => onResume(job)}
           />
         {/if}
@@ -174,7 +162,7 @@
             label={t("Riprova", $language)}
             variant="primary"
             class="h-8! px-3! text-xs!"
-            disabled={busyJob === job.id}
+            disabled={busyJob === job.id || job.pauseReason === "game_running"}
             onClick={() => onRetry(job)}
           />
         {/if}

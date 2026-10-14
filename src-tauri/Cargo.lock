@@ -2457,6 +2457,7 @@ dependencies = [
  "chrono",
  "compress-tools",
  "dirs",
+ "dunce",
  "gtk",
  "image",
  "libc",

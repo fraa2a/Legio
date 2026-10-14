@@ -87,7 +87,7 @@ pub struct SteamIdentificationPreview {
 }
 
 pub fn scan_directory(directory: &str, game_name: Option<&str>) -> Result<ExecutableScan, String> {
-    let root = fs::canonicalize(directory)
+    let root = dunce::canonicalize(directory)
         .map_err(|error| format!("could not open game directory: {error}"))?;
     if !root.is_dir() {
         return Err("game directory is not a directory".to_owned());
@@ -169,7 +169,7 @@ pub(crate) fn scan_staged_directory(
     directory: &Path,
     game_name: Option<&str>,
 ) -> Result<StagedExecutableScan, String> {
-    let root = fs::canonicalize(directory)
+    let root = dunce::canonicalize(directory)
         .map_err(|error| format!("could not open staged game directory: {error}"))?;
     if !root.is_dir() {
         return Err("staged game path is not a directory".to_owned());
@@ -207,7 +207,7 @@ pub(crate) fn scan_staged_directory(
     })
 }
 
-fn portable_relative_path(path: &Path) -> Result<String, String> {
+pub(crate) fn portable_relative_path(path: &Path) -> Result<String, String> {
     let components = path
         .components()
         .map(|component| match component {
@@ -551,8 +551,8 @@ fn validate_executable(value: &str) -> Result<PathBuf, String> {
     if value.is_empty() || !Path::new(value).is_absolute() {
         return Err("executable path must be absolute".to_owned());
     }
-    let path =
-        fs::canonicalize(value).map_err(|error| format!("could not open executable: {error}"))?;
+    let path = dunce::canonicalize(value)
+        .map_err(|error| format!("could not open executable: {error}"))?;
     if !path.is_file() || !is_executable(&path)? {
         return Err("selected path is not an executable file".to_owned());
     }
@@ -728,6 +728,22 @@ mod tests {
         let reopened = Database::open(&root).unwrap();
         assert_eq!(reopened.games().unwrap(), vec![game]);
         drop(reopened);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_selected_and_scanned_paths_use_standard_paths() {
+        let root = fixture();
+        let executable = root.join("Game.exe");
+        fs::write(&executable, []).unwrap();
+        let verbatim = fs::canonicalize(&executable).unwrap();
+        let validated = validate_executable(verbatim.to_str().unwrap()).unwrap();
+        assert!(!validated.to_string_lossy().starts_with(r"\\?\"));
+        let scan = scan_directory(root.to_str().unwrap(), Some("Game")).unwrap();
+        assert_eq!(scan.selected_path.as_deref(), validated.to_str());
+        let staged = scan_staged_directory(&root, Some("Game")).unwrap();
+        assert_eq!(staged.selected_relative_path.as_deref(), Some("Game.exe"));
         fs::remove_dir_all(root).unwrap();
     }
 

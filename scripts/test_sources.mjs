@@ -14,6 +14,7 @@ const installed = { ...empty, manifest: { schemaVersion: 1, generatedAt: "2026-0
 function fixture(name, invoke, listen = async () => () => {}) {
   globalThis[name] = { invoke, listen, sections: [], invalidations: 0 };
   return createModuleLoader({
+    "src/lib/stores/game-updates": dataModule("export const gameUpdates = { load: async () => {} };"),
     "src/lib/i18n": dataModule("export const t = value => value;"),
     "@tauri-apps/api/core": dataModule(`export const invoke = (...args) => globalThis.${name}.invoke(...args);`),
     "@tauri-apps/api/event": dataModule(`export const listen = (...args) => globalThis.${name}.listen(...args);`),

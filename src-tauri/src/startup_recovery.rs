@@ -79,16 +79,20 @@ pub(crate) fn start(app: AppHandle) {
                 worker
                     .state::<crate::database::DatabaseState>()
                     .database()?,
-            )
+            )?;
+            crate::download_queue::start(worker)
         })
         .await
         .map_err(|error| format!("Recovery task failed: {error}"))
-        .and_then(|result| result)
-        .and_then(|()| crate::download_queue::start(app.clone()));
+        .and_then(|result| result);
         if let Err(error) = &result {
             crate::application_log::failure("startup_recovery", error);
         }
+        let ready = result.is_ok();
         app.state::<StartupRecovery>().finish(result);
+        if ready {
+            crate::game_updates::start(app);
+        }
     });
 }
 

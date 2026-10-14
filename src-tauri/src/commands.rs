@@ -727,7 +727,9 @@ pub async fn refresh_legio_source(
     app: AppHandle,
     state: State<'_, NetworkState>,
 ) -> Result<legio_source_cache::SourceSnapshot, String> {
-    legio_source_cache::refresh_source(app, state.inner()).await
+    let snapshot = legio_source_cache::refresh_source(app.clone(), state.inner()).await?;
+    crate::game_updates::schedule(app);
+    Ok(snapshot)
 }
 
 #[tauri::command]

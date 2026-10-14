@@ -2,7 +2,6 @@
   import { t, language } from "../../i18n";
   import {
     canCancelDownload,
-    canFinalizeDownload,
     canPauseDownload,
     canRemoveDownload,
     canResumeDownload,
@@ -24,7 +23,6 @@
     onRetry,
     onCancel,
     onRemove,
-    onInstall,
   }: {
     job: DownloadJob;
     busy?: boolean;
@@ -33,7 +31,6 @@
     onRetry: () => void;
     onCancel: () => void;
     onRemove: () => void;
-    onInstall: () => void;
   } = $props();
 
   const progress = $derived(progressOf(job));
@@ -102,17 +99,14 @@
       {/if}
 
       <div class="mt-4 flex flex-wrap gap-2">
-        {#if canFinalizeDownload(job.status)}
-          <Button label={t("Installa", $language)} variant="primary" disabled={busy} onClick={onInstall} />
-        {/if}
         {#if canPauseDownload(job.status)}
           <Button label={t("Pausa", $language)} variant="secondary" disabled={busy} onClick={onPause} />
         {/if}
         {#if canResumeDownload(job.status)}
-          <Button label={t("Riprendi", $language)} variant="primary" disabled={busy} onClick={onResume} />
+          <Button label={t("Riprendi", $language)} variant="primary" disabled={busy || job.pauseReason === "game_running"} onClick={onResume} />
         {/if}
         {#if canRetryDownload(job.status, job.error)}
-          <Button label={t("Riprova", $language)} variant="primary" disabled={busy} onClick={onRetry} />
+          <Button label={t("Riprova", $language)} variant="primary" disabled={busy || job.pauseReason === "game_running"} onClick={onRetry} />
         {/if}
         {#if canCancelDownload(job.status)}
           <Button label={t("Annulla", $language)} variant="danger" disabled={busy} onClick={onCancel} />

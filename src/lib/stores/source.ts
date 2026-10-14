@@ -1,3 +1,4 @@
+import { gameUpdates } from "./game-updates";
 import { addDownloadSource, getLegioSource, refreshLegioSource, removeDownloadSource, type SourceSnapshot } from "../services/legio-source";
 import { toMessage } from "../utils/errors";
 import { writable } from "svelte/store";
@@ -29,6 +30,7 @@ function changeSource(action: () => Promise<SourceSnapshot>, errorStore: typeof 
     errorStore.set(null);
     try {
       source.set(await action());
+      await gameUpdates.load();
       sourceRefreshError.set(null);
       return true;
     } catch (error) {

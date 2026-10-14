@@ -27,6 +27,8 @@ async function fixture(steamAppId, nameOverride = "My custom version") {
       let current; state.game.subscribe(value=>current=value)();
       const updated={...current,...input,name:input.nameOverride??input.automaticName}; state.game.set(updated); return updated;
     };`),
+    "src/lib/stores/source": dataModule(storeImport + 'export const source=writable({data:{manifest:null,sources:[]}});'),
+    "src/lib/stores/game-updates": dataModule("export const gameUpdates = { load: async () => {} };"),
     "src/lib/stores/manual-import": dataModule('export const detectManualGameSteamAppId=async()=>{throw new Error("Unexpected auto detection");};'),
     "src/lib/services/catalog": dataModule(`export const cachedCatalogSearch=()=>null;
       export const searchCatalog=async()=>({games:[${JSON.stringify(catalogGame)}]});

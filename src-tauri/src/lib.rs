@@ -25,6 +25,7 @@ mod database;
 mod desktop_shortcuts;
 mod diagnostics;
 mod discord_presence;
+mod download_policy;
 mod download_queue;
 mod filesystem_copy;
 mod finalize_install;
@@ -32,6 +33,7 @@ mod game_artwork;
 mod game_lifecycle;
 mod game_process;
 mod game_transfer;
+mod game_updates;
 mod image_format;
 mod image_response;
 mod image_trim;
@@ -50,6 +52,7 @@ mod native_rendering;
 mod network;
 mod news;
 mod online_fix;
+mod overlay_update;
 mod playtime_activity;
 #[cfg(target_os = "linux")]
 mod proton_runtime;
@@ -424,9 +427,11 @@ fn run_application(
             commands::remove_download_source,
             commands::take_source_links,
             download_queue::list_downloads,
-            finalize_install::finalize_download,
-            finalize_install::scan_staged_executables,
             download_queue::queue_download,
+            game_updates::list_game_updates,
+            game_updates::queue_game_update,
+            game_updates::get_game_source_binding,
+            game_updates::bind_game_source,
             download_queue::pause_download,
             download_queue::resume_download,
             download_queue::retry_download,

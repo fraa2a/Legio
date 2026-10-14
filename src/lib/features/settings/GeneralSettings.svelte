@@ -21,6 +21,7 @@
     { key: "hideOnGameStart", label: t("Nascondi Legio nell'area di notifica quando avvii un gioco", $language) },
     { key: "launchOnSystemStart", label: t("Avvia Legio all'accesso al sistema", $language) },
     { key: "launchMinimized", label: t("Avvia Legio ridotto nell'area di notifica", $language) },
+    { key: "downloadWhilePlaying", label: t("Consenti download mentre un gioco è aperto", $language) },
     { key: "deferExtractionWhilePlaying", label: t("Posticipa l’estrazione automatica dei download mentre giochi", $language) },
     { key: "launchInLibrary", label: t("Apri Legio sulla Libreria", $language) },
   ]);
@@ -119,6 +120,7 @@
   </SettingsGroup>
 
   <SettingsGroup icon="reload" title={t("Aggiornamenti", $language)}>
+    <Toggle label={t("Aggiornamenti automatici dei giochi", $language)} checked={$settings.data.automaticGameUpdates} disabled={saving} onChange={checked => void update({ automaticGameUpdates: checked })} />
     <div class="flex flex-wrap items-center gap-3">
       <Button label={$updateState.checking ? t("Controllo...", $language) : t("Controlla aggiornamenti", $language)} variant="secondary" disabled={$updateState.checking || $updateState.installing} onClick={() => void checkForAppUpdate()} />
       {#if $updateState.version}

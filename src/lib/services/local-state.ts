@@ -19,6 +19,8 @@ export interface Settings {
   launchInLibrary: boolean;
   sidebarCollapsed: boolean;
   libraryPortrait: boolean;
+  automaticGameUpdates: boolean;
+  downloadWhilePlaying: boolean;
   downloadNotifications: boolean;
   verifyVerifiedDownloads: boolean;
   diagnosticsEnabled: boolean;

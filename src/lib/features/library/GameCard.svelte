@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { gameUpdates } from "../../stores/game-updates";
   import { t, language } from "../../i18n";
   import type { Game } from "../../services/local-state";
   import type { GameLaunchState } from "../../services/steam-accounts";
@@ -62,6 +63,7 @@
         </span>
       {/if}
       <div class="ml-auto flex items-center gap-1.5">
+        {#if $gameUpdates.data.some(update => update.gameId === game.id || (game.steamAppId !== null && update.steamAppId === game.steamAppId))}<span class="rounded-full bg-legio-download px-2 py-0.5 text-xs font-medium text-white" title={t("Aggiornamento disponibile", $language)}><Icon name="download" size="h-3.5 w-3.5" /></span>{/if}
         {#if status !== "idle"}
           <Badge tone={status === "running" ? "success" : "warning"} title={status === "running" ? t("In esecuzione", $language) : t("Avvio in corso", $language)} />
         {/if}
