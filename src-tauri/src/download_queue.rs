@@ -1677,6 +1677,9 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("legio-download-test-{}", Uuid::new_v4()));
         let database = Database::open(&directory).unwrap();
+        let mut settings = database.settings().unwrap();
+        settings.download_path = Some(directory.to_str().unwrap().to_owned());
+        database.save_settings(settings).unwrap();
         let manifest = br#"{"schemaVersion":1,"generatedAt":"2026-09-22T00:00:00Z","verified":[{"steamAppId":400,"name":"Portal","release":{"version":"1","publishedAt":"2026-09-22T00:00:00Z"},"download":{"url":"https://example.invalid/portal.zip","sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","sizeBytes":10}}],"unverified":[]}"#;
         database.with_connection(|connection| {
             connection.execute("INSERT INTO download_sources (id, url, manifest, fetched_at) VALUES ('test-source', 'https://example.invalid/games.json', ?1, 1)", [manifest.as_slice()]).map_err(db_error)?;
