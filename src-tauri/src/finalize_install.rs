@@ -122,7 +122,7 @@ fn claim(
     let stage = data_dir.join("downloads").join(format!("{id}.stage"));
     regular_directory(&data_dir.join("downloads"), "download directory")?;
     regular_executable(&stage, &executable)?;
-    let target = install_root(database, data_dir)?.join(&id);
+    let root = install_root(database, data_dir)?;
     let token = Uuid::new_v4().to_string();
     database.with_connection(|connection| {
         let row: Option<(i64, String, Option<String>, String)> = connection.query_row(
@@ -134,6 +134,7 @@ fn claim(
         if stored_stage.as_deref() != Some(stage.to_string_lossy().as_ref()) {
             return Err("Stored stage path does not match the app-owned path".to_owned());
         }
+        let target = crate::game_library::available_target(connection, &root, &name)?;
         connection.execute(
             "UPDATE downloads SET status = 'finalizing', final_path = ?2, executable_relative = ?3, install_token = ?4, error = NULL, updated_at = ?5 WHERE id = ?1 AND status = 'staged'",
             params![id, target.to_string_lossy(), executable.to_string_lossy(), token, timestamp()?]
@@ -163,6 +164,8 @@ fn load_intent(database: &Database, data_dir: &Path, id: &str) -> Result<Intent,
         }
         let target = match target.as_deref() {
             Some(path) if path == expected_target.to_string_lossy() => expected_target,
+            Some(path) if Path::new(path).parent() == Some(install_root.as_path())
+                && Path::new(path).file_name().is_some_and(|name| !name.to_string_lossy().starts_with('.')) => PathBuf::from(path),
             Some(path) if install_root == data_dir && path == legacy_target.to_string_lossy() => {
                 regular_directory(&data_dir.join("installed"), "legacy install directory")?;
                 legacy_target
@@ -318,7 +321,28 @@ pub(crate) fn publish_noreplace(source: &Path, target: &Path) -> io::Result<()> 
     }
 }
 
+fn install_layout(intent: &Intent) -> Result<(PathBuf, PathBuf), String> {
+    if intent
+        .target
+        .file_name()
+        .is_some_and(|name| name == intent.id.as_str())
+    {
+        return Ok((intent.stage.clone(), intent.executable.clone()));
+    }
+    let full = intent.stage.join(&intent.executable);
+    let root = crate::game_library::game_root(&full)?;
+    if !root.starts_with(&intent.stage) {
+        return Err("Detected game directory escapes the archive".into());
+    }
+    let executable = full
+        .strip_prefix(&root)
+        .map_err(|error| error.to_string())?
+        .to_path_buf();
+    Ok((root, executable))
+}
+
 fn finish(database: &Database, intent: &Intent) -> Result<(), String> {
+    let (source, relative) = install_layout(intent)?;
     let temporary = intent
         .target
         .with_file_name(format!(".{}.copying", intent.id));
@@ -340,7 +364,7 @@ fn finish(database: &Database, intent: &Intent) -> Result<(), String> {
     } else {
         if existing(&temporary)? {
             if marker_matches(&temporary, &intent.token)? {
-                regular_executable(&temporary, &intent.executable)?;
+                regular_executable(&temporary, &relative)?;
             } else {
                 let metadata =
                     fs::symlink_metadata(&temporary).map_err(|error| error.to_string())?;
@@ -359,13 +383,14 @@ fn finish(database: &Database, intent: &Intent) -> Result<(), String> {
         }
         if !existing(&temporary)? {
             regular_executable(&intent.stage, &intent.executable)?;
+            regular_executable(&source, &relative)?;
             fs::create_dir(&temporary).map_err(|error| {
                 format!("Could not create install temporary directory: {error}")
             })?;
             write_token(&temporary.join(COPY_TOKEN), &intent.token)?;
             sync_directory(&temporary)?;
-            copy_tree(&intent.stage, &temporary)?;
-            regular_executable(&temporary, &intent.executable)?;
+            copy_tree(&source, &temporary)?;
+            regular_executable(&temporary, &relative)?;
             write_token(&temporary.join(MARKER), &intent.token)?;
             sync_directory(&temporary)?;
         }
@@ -381,8 +406,8 @@ fn finish(database: &Database, intent: &Intent) -> Result<(), String> {
                 .ok_or("Install target has no parent")?,
         )?;
     }
-    regular_executable(&intent.target, &intent.executable)?;
-    let executable = intent.target.join(&intent.executable);
+    regular_executable(&intent.target, &relative)?;
+    let executable = intent.target.join(&relative);
     database.with_connection(|connection| {
         let transaction = connection.unchecked_transaction().map_err(database_error)?;
         transaction.execute(
@@ -397,12 +422,30 @@ fn finish(database: &Database, intent: &Intent) -> Result<(), String> {
         if changed != 1 { return Err("Finalization intent changed during commit".to_owned()); }
         transaction.commit().map_err(database_error)
     })?;
+    crate::game_library::sync(
+        database,
+        intent
+            .target
+            .parent()
+            .ok_or("Install has no library directory")?,
+    )?;
+    remove_install_markers(&intent.target, &intent.token)?;
     if let Err(error) = cleanup_stage(database, &intent.id, &intent.stage) {
         save_cleanup_error(database, &intent.id, &error)
             .map_err(|persist| format!("{error}; could not save cleanup failure: {persist}"))?;
         return Err(error);
     }
     Ok(())
+}
+
+pub(crate) fn remove_install_markers(target: &Path, token: &str) -> Result<(), String> {
+    for name in [MARKER, COPY_TOKEN] {
+        if marker_matches_with(target, name, token)? {
+            fs::remove_file(target.join(name))
+                .map_err(|error| format!("Could not remove completed install metadata: {error}"))?;
+        }
+    }
+    sync_directory(target)
 }
 
 fn save_cleanup_error(database: &Database, id: &str, error: &str) -> Result<(), String> {
@@ -586,6 +629,26 @@ fn recover_cleanup(database: &Database, data_dir: &Path) -> Result<(), String> {
             .map_err(|_| "Stored download ID is invalid".to_owned())?
             .to_string();
         let stage = data_dir.join("downloads").join(format!("{id}.stage"));
+        let game_id = crate::game_updates::target(database, &id)?.unwrap_or_else(|| id.clone());
+        let game = database.game(&game_id)?;
+        if let Some(target) = game.installation_root.as_deref().map(Path::new) {
+            crate::game_library::sync(
+                database,
+                target.parent().ok_or("Install has no library directory")?,
+            )?;
+            let token: Option<String> = database.with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT install_token FROM downloads WHERE id = ?1",
+                        [&id],
+                        |row| row.get(0),
+                    )
+                    .map_err(database_error)
+            })?;
+            if let Some(token) = token {
+                remove_install_markers(target, &token)?;
+            }
+        }
         if let Err(error) = cleanup_stage(database, &id, &stage) {
             save_cleanup_error(database, &id, &error)?;
             crate::application_log::failure("clean_staged_files", error);
@@ -701,6 +764,81 @@ mod tests {
     }
 
     #[test]
+    fn readable_install_unwraps_game_and_records_library() {
+        let (database, data_dir, id) = fixture();
+        let stage = data_dir.join("downloads").join(format!("{id}.stage"));
+        fs::create_dir_all(stage.join("Wrapper/Game")).unwrap();
+        fs::write(stage.join("Wrapper/Game/Game.exe"), b"play").unwrap();
+        finalize(&database, &data_dir, &id, "Wrapper/Game/Game.exe").unwrap();
+        let game = database.game(&id).unwrap();
+        let root = data_dir.join("installed/Test Game");
+        assert_eq!(
+            Path::new(game.executable_path.as_ref().unwrap()),
+            root.join("Game.exe")
+        );
+        assert!(!root.join(MARKER).exists());
+        assert!(!root.join(COPY_TOKEN).exists());
+        let manifest = fs::read_to_string(root.parent().unwrap().join("library.ldf")).unwrap();
+        assert!(manifest.contains(&id));
+        assert!(manifest.contains("Game.exe"));
+        let manifest: toml::Value = toml::from_str(&manifest).unwrap();
+        assert_eq!(manifest["format"].as_integer(), Some(1));
+        assert_eq!(manifest["games"][0]["folder"].as_str(), Some("Test Game"));
+        assert_eq!(
+            manifest["games"][0]["executable"].as_str(),
+            Some("Game.exe")
+        );
+        assert_eq!(manifest["games"][0]["version"].as_str(), Some("1.0"));
+        fs::write(
+            root.join(MARKER),
+            database
+                .with_connection(|connection| {
+                    connection
+                        .query_row(
+                            "SELECT install_token FROM downloads WHERE id = ?1",
+                            [&id],
+                            |row| row.get::<_, String>(0),
+                        )
+                        .map_err(database_error)
+                })
+                .unwrap(),
+        )
+        .unwrap();
+        crate::game_library::adopt_existing(&database).unwrap();
+        assert!(!root.join(MARKER).exists());
+        database.remove_game(&id).unwrap();
+        let manifest: toml::Value = toml::from_str(
+            &fs::read_to_string(root.parent().unwrap().join("library.ldf")).unwrap(),
+        )
+        .unwrap();
+        assert!(manifest["games"].as_array().unwrap().is_empty());
+        fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
+    fn unreal_install_keeps_outer_game_directory_and_engine_files() {
+        let (database, data_dir, id) = fixture();
+        let stage = data_dir.join("downloads").join(format!("{id}.stage"));
+        let executable = "Wrapper/Outer/Inner/Binaries/Win64/Anything-Win64-Shipping.exe";
+        fs::create_dir_all(stage.join("Wrapper/Outer/Inner/Binaries/Win64")).unwrap();
+        fs::create_dir_all(stage.join("Wrapper/Outer/Engine")).unwrap();
+        fs::write(stage.join(executable), b"unreal").unwrap();
+        fs::write(stage.join("Wrapper/Outer/Engine/runtime.dat"), b"engine").unwrap();
+        finalize(&database, &data_dir, &id, executable).unwrap();
+        let target = data_dir.join("installed/Test Game");
+        assert_eq!(
+            fs::read(target.join("Engine/runtime.dat")).unwrap(),
+            b"engine"
+        );
+        assert_eq!(
+            fs::read(target.join("Inner/Binaries/Win64/Anything-Win64-Shipping.exe")).unwrap(),
+            b"unreal"
+        );
+        assert!(!target.join("Wrapper").exists());
+        fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
     fn staged_scan_is_limited_to_a_matching_staged_download() {
         let (database, data_dir, id) = fixture();
         let (stage, name) = staged_download_directory(&database, &data_dir, &id).unwrap();
@@ -740,8 +878,8 @@ mod tests {
         let scan = manual_import::scan_staged_directory(&stage, Some(&name)).unwrap();
         let executable = scan.selected_relative_path.unwrap();
         finalize(&database, &data_dir, &id, &executable).unwrap();
-        let target = data_dir.join("installed").join(&id);
-        assert_eq!(fs::read(target.join("bin/game.exe")).unwrap(), b"game");
+        let target = data_dir.join("installed/Test Game");
+        assert_eq!(fs::read(target.join("game.exe")).unwrap(), b"game");
         assert_eq!(state(&database, &id).0, "installed");
         assert!(
             !data_dir
@@ -754,7 +892,7 @@ mod tests {
         assert_eq!(games[0].steam_app_id, Some(42));
         assert_eq!(
             games[0].executable_path.as_deref(),
-            Some(target.join("bin/game.exe").to_str().unwrap())
+            Some(target.join("game.exe").to_str().unwrap())
         );
         drop(database);
         fs::remove_dir_all(data_dir).unwrap();
@@ -764,8 +902,8 @@ mod tests {
     fn custom_folder_is_the_install_root() {
         let (database, data_dir, id) = fixture_with_custom_path(true);
         finalize(&database, &data_dir, &id, "bin/game.exe").unwrap();
-        let target = data_dir.join(&id);
-        assert_eq!(fs::read(target.join("bin/game.exe")).unwrap(), b"game");
+        let target = data_dir.join("Test Game");
+        assert_eq!(fs::read(target.join("game.exe")).unwrap(), b"game");
         assert!(!data_dir.join("installed").exists());
         assert_eq!(
             database.games().unwrap()[0].installation_root.as_deref(),
@@ -804,15 +942,17 @@ mod tests {
     #[test]
     fn failed_finalization_retries_without_restart() {
         let (database, data_dir, id) = fixture();
-        let target = data_dir.join("installed").join(&id);
+        let intent = claim(&database, &data_dir, &id, "bin/game.exe").unwrap();
+        let target = intent.target.clone();
         fs::create_dir_all(&target).unwrap();
         fs::write(target.join("foreign"), b"keep").unwrap();
-        assert!(finalize(&database, &data_dir, &id, "bin/game.exe").is_err());
+        assert!(finish(&database, &intent).is_err());
+        record_error(&database, &id, "conflict").unwrap();
         assert_eq!(fs::read(target.join("foreign")).unwrap(), b"keep");
         fs::remove_dir_all(&target).unwrap();
         finalize(&database, &data_dir, &id, "bin/game.exe").unwrap();
         assert_eq!(state(&database, &id).0, "installed");
-        assert_eq!(fs::read(target.join("bin/game.exe")).unwrap(), b"game");
+        assert_eq!(fs::read(target.join("game.exe")).unwrap(), b"game");
         drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
@@ -820,10 +960,11 @@ mod tests {
     #[test]
     fn refuses_existing_target_and_keeps_evidence() {
         let (database, data_dir, id) = fixture();
-        let target = data_dir.join("installed").join(&id);
+        let intent = claim(&database, &data_dir, &id, "bin/game.exe").unwrap();
+        let target = intent.target.clone();
         fs::create_dir_all(&target).unwrap();
         fs::write(target.join("foreign"), b"keep").unwrap();
-        let error = finalize(&database, &data_dir, &id, "bin/game.exe").unwrap_err();
+        let error = finish(&database, &intent).unwrap_err();
         assert!(error.contains("already exists"));
         assert_eq!(state(&database, &id).0, "finalizing");
         assert_eq!(fs::read(target.join("foreign")).unwrap(), b"keep");
@@ -846,7 +987,7 @@ mod tests {
         assert!(finalize(&database, &data_dir, &id, "bin/game.exe").is_err());
         assert_eq!(state(&database, &id).0, "finalizing");
         assert!(database.games().unwrap().is_empty());
-        assert!(data_dir.join("installed").join(&id).is_dir());
+        assert!(data_dir.join("installed/Test Game").is_dir());
         assert!(
             data_dir
                 .join("downloads")
@@ -867,7 +1008,7 @@ mod tests {
         assert_eq!(state(&database, &id).0, "installed");
         assert_eq!(database.games().unwrap().len(), 1);
         assert_eq!(
-            fs::read(data_dir.join("installed").join(&id).join("bin/game.exe")).unwrap(),
+            fs::read(data_dir.join("installed/Test Game/game.exe")).unwrap(),
             b"game"
         );
         assert!(
@@ -912,10 +1053,7 @@ mod tests {
         recover(&database, &data_dir).unwrap();
         assert_eq!(state(&database, &id).0, "installed");
         assert!(!intent.target.join("partial").exists());
-        assert_eq!(
-            fs::read(intent.target.join("bin/game.exe")).unwrap(),
-            b"game"
-        );
+        assert_eq!(fs::read(intent.target.join("game.exe")).unwrap(), b"game");
         fs::remove_dir_all(data_dir).unwrap();
     }
 
@@ -989,8 +1127,8 @@ mod tests {
         let moved = data_dir.join("held-stage");
         fs::rename(&stage, &moved).unwrap();
         symlink(&moved, &stage).unwrap();
-        fs::create_dir_all(intent.target.join("bin")).unwrap();
-        fs::write(intent.target.join("bin/game.exe"), b"game").unwrap();
+        fs::create_dir_all(intent.target.clone()).unwrap();
+        fs::write(intent.target.join("game.exe"), b"game").unwrap();
         fs::write(intent.target.join(MARKER), &intent.token).unwrap();
         assert!(finish(&database, &intent).is_err());
         assert_eq!(state(&database, &id).0, "installed");

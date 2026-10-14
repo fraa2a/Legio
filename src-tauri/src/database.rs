@@ -989,15 +989,24 @@ impl Database {
 
     pub fn remove_game(&self, id: &str) -> Result<(), String> {
         let id = parse_game_id(id)?;
+        let game = self.game(&id)?;
         self.with_connection(|connection| {
             let changed = connection
-                .execute("DELETE FROM games WHERE id = ?1", [id])
+                .execute("DELETE FROM games WHERE id = ?1", [&id])
                 .map_err(database_error)?;
             if changed == 0 {
                 return Err("game was not found".to_owned());
             }
             Ok(())
-        })
+        })?;
+        if let Some(root) = game
+            .installation_root
+            .as_deref()
+            .and_then(|path| std::path::Path::new(path).parent())
+        {
+            crate::game_library::remove(root, &id)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn start_game_session(&self, game_id: &str, now: i64) -> Result<(), String> {

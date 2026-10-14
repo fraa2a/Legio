@@ -343,7 +343,8 @@ pub(crate) async fn bind_game_source(
             if active { return Err("Cancel the pending update before changing its source".into()); }
             connection.execute("INSERT INTO game_source_installs (game_id,source_id,entry_id,installed_version,accepted_unverified) VALUES (?1,?2,?3,?4,?5) ON CONFLICT(game_id) DO UPDATE SET source_id=excluded.source_id,entry_id=excluded.entry_id,installed_version=excluded.installed_version,accepted_unverified=excluded.accepted_unverified", params![game_id,source_id,entry_id,version,!verified]).map_err(database_error)?;
             Ok(())
-        })
+        })?;
+        crate::game_library::sync_default(&app)
     }).await.map_err(|error| error.to_string())?
 }
 

@@ -283,6 +283,9 @@ jobs:
         env:
           LEGIO_WINDOWS_TESTS: "1"
         run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_library::tests
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_transfer::tests
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib finalize_install::tests
           cargo test --manifest-path src-tauri/Cargo.toml --locked --lib manual_import::tests
           cargo test --manifest-path src-tauri/Cargo.toml --locked --lib overlay_update::tests
           cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_updates::tests

@@ -233,18 +233,20 @@ pub fn set_executable(state: &DatabaseState, game_id: &str, value: &str) -> Resu
         .map_err(|_| "game id is invalid".to_owned())?
         .to_string();
     let path = validate_executable(value)?;
+    let root = crate::game_library::game_root(&path)?;
     let path = path.to_str().ok_or("executable path is not valid UTF-8")?;
     state.database()?.with_connection(|connection| {
         connection.query_row(
-            "UPDATE games SET executable_path = ?2 WHERE id = ?1 AND steam_install_path IS NULL
+            "UPDATE games SET executable_path = ?2, installation_root = ?3 WHERE id = ?1 AND steam_install_path IS NULL
              RETURNING id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path, installation_root",
-            params![id, path], crate::database::game_from_row,
+            params![id, path, root.to_string_lossy()], crate::database::game_from_row,
         ).optional().map_err(database_error)?.ok_or_else(|| "game was not found or is Steam-managed".to_owned())
     })
 }
 
 fn import_into(database: &Database, input: ManualImportInput) -> Result<Game, String> {
     let path = validate_executable(&input.executable_path)?;
+    let root = crate::game_library::game_root(&path)?;
     let stem = path
         .file_stem()
         .and_then(|name| name.to_str())
@@ -267,8 +269,8 @@ fn import_into(database: &Database, input: ManualImportInput) -> Result<Game, St
             return Err("executable is already in the library".to_owned());
         }
         connection.execute(
-            "INSERT INTO games (id, automatic_name, name_override, executable_path) VALUES (?1, ?2, ?3, ?4)",
-            params![id, automatic_name, name_override, executable_path],
+            "INSERT INTO games (id, automatic_name, name_override, executable_path, installation_root) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, automatic_name, name_override, executable_path, root.to_string_lossy()],
         ).map_err(database_error)?;
         connection.query_row(
             "SELECT id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path, installation_root FROM games WHERE id = ?1",

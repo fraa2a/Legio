@@ -19,7 +19,7 @@
     "test:appearance": "node --conditions=browser --test scripts/test_appearance.mjs",
     "test:window": "node --conditions=browser --test scripts/test_window_activity.mjs scripts/test_library_ui.mjs",
     "test:dialog": "node --conditions=browser --test scripts/test_dialog.mjs",
-    "test:feedback": "node --conditions=browser --test scripts/test_feedback.mjs scripts/test_game_identity.mjs",
+    "test:feedback": "node --conditions=browser --test scripts/test_feedback.mjs scripts/test_game_identity.mjs scripts/test_game_library.mjs",
     "test:onboarding": "node --test scripts/test_onboarding_news.mjs",
     "test:sources": "node --test scripts/test_sources.mjs",
     "test:catalog": "node --conditions=browser --test scripts/test_catalog.mjs scripts/test_store_filters.mjs",

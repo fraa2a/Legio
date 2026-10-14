@@ -382,18 +382,23 @@ pub async fn reset_game_banner(app: AppHandle, game_id: String) -> Result<(), St
 }
 
 #[tauri::command]
-pub fn update_game(
-    state: State<'_, DatabaseState>,
-    input: UpdateGameInput,
-) -> Result<Game, String> {
-    state.database()?.update_game(input)
+pub fn update_game(app: AppHandle, input: UpdateGameInput) -> Result<Game, String> {
+    let game = app
+        .state::<DatabaseState>()
+        .database()?
+        .update_game(input)?;
+    crate::game_library::sync_default(&app)?;
+    Ok(game)
 }
 
 #[tauri::command]
 pub async fn remove_game(app: AppHandle, id: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || crate::game_lifecycle::remove_game(&app, &id))
-        .await
-        .map_err(|error| format!("Game removal task failed: {error}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::game_lifecycle::remove_game(&app, &id)?;
+        crate::game_library::remove_default(&app, &id)
+    })
+    .await
+    .map_err(|error| format!("Game removal task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -646,6 +651,7 @@ pub async fn import_manual_game(
     crate::startup_recovery::wait(&app).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let game = manual_import::import(&app.state::<DatabaseState>(), input)?;
+        crate::game_library::sync_default(&app)?;
         Ok(GameActionResult {
             shortcut_warning: crate::desktop_shortcuts::create_application_menu(&app, &game)
                 .unwrap_or_else(|error| {
@@ -691,6 +697,7 @@ pub async fn set_game_executable(
             &game_id,
             &executable_path,
         )?;
+        crate::game_library::sync_default(&app)?;
         Ok(GameActionResult {
             shortcut_warning: crate::desktop_shortcuts::create_application_menu(&app, &game)
                 .unwrap_or_else(|error| {

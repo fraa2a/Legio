@@ -30,6 +30,7 @@ mod download_queue;
 mod filesystem_copy;
 mod finalize_install;
 mod game_artwork;
+mod game_library;
 mod game_lifecycle;
 mod game_process;
 mod game_transfer;

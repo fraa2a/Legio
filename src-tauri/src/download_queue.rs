@@ -665,6 +665,7 @@ fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
                     None
                 };
             let game_id = finalize_install::automatic(database, &root, &job_id)?;
+            crate::game_library::sync_default(&worker)?;
             finalize_install::create_install_shortcut(&worker, database, &game_id)?;
             Ok::<_, String>(())
         })

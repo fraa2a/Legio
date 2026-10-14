@@ -16,6 +16,7 @@
   import GameSettingsPanel from "./GameSettingsPanel.svelte";
   import SteamAccountPanel from "./SteamAccountPanel.svelte";
   import SteamLaunchSettings from "./SteamLaunchSettings.svelte";
+  import { launchStateByGame } from "../../stores/launch";
   import { appInfo } from "../../stores/app-info";
 
   let { game, onClose, onRemoved }: {
@@ -39,20 +40,16 @@
   let shortcutError = $state<string | null>(null);
   let shortcutPath = $state<string | null>(null);
   let shortcutPending = $state(false);
-  const suggestedSource = $derived(game.installationRoot ?? game.executablePath?.replace(/[\\/][^\\/]+$/, "") ?? "");
-  let sourceDraft = $state<string | null>(null);
+  const running = $derived(($launchStateByGame.get(game.id)?.status ?? "idle") !== "idle");
   let destinationDraft = $state("");
   let transferPending = $state(false);
   let transferError = $state<string | null>(null);
   let transferDone = $state(false);
 
-  async function browseTransfer(which: "source" | "destination"): Promise<void> {
+  async function browseTransfer(): Promise<void> {
     try {
-      const selected = await pickGameDirectory(which === "source" ? (sourceDraft ?? suggestedSource) : destinationDraft);
-      if (selected !== null) {
-        if (which === "source") sourceDraft = selected;
-        else destinationDraft = `${selected}${selected.includes("\\") ? "\\" : "/"}${game.id}`;
-      }
+      const selected = await pickGameDirectory(destinationDraft);
+      if (selected !== null) destinationDraft = selected;
     } catch (error) { transferError = toMessage(error); }
   }
 
@@ -61,10 +58,9 @@
     transferError = null;
     transferDone = false;
     try {
-      const result = await transferGame(game.id, sourceDraft ?? suggestedSource, destinationDraft.trim());
+      const result = await transferGame(game.id, destinationDraft.trim());
       reconcileGame(result.game);
       transferError = result.warning;
-      sourceDraft = null;
       destinationDraft = "";
       transferDone = true;
     } catch (error) { transferError = toMessage(error); }
@@ -141,16 +137,13 @@
           {#if !steamManaged && game.executablePath !== null}
             <Panel title={t("Trasferisci gioco", $language)}>
               <div class="flex flex-col gap-3">
-                <TextField id="transfer-source" label={t("Cartella del gioco", $language)} value={sourceDraft ?? suggestedSource}
-                  oninput={(value) => (sourceDraft = value)} />
-                <Button label={t("Sfoglia origine...", $language)} variant="secondary" disabled={transferPending}
-                  onClick={() => void browseTransfer("source")} />
-                <TextField id="transfer-destination" label={t("Nuova cartella del gioco", $language)} value={destinationDraft}
-                  placeholder={t("Percorso completo di una cartella nuova", $language)} oninput={(value) => (destinationDraft = value)} />
+                <TextField id="transfer-destination" label={t("Cartella di destinazione", $language)} value={destinationDraft}
+                  placeholder={t("Seleziona la libreria di destinazione", $language)} oninput={(value) => (destinationDraft = value)} />
                 <Button label={t("Sfoglia destinazione...", $language)} variant="secondary" disabled={transferPending}
-                  onClick={() => void browseTransfer("destination")} />
+                  onClick={() => void browseTransfer()} />
                 <Button label={transferPending ? t("Trasferimento...", $language) : t("Trasferisci gioco", $language)}
-                  disabled={transferPending || destinationDraft.trim().length === 0} onClick={() => void moveGame()} />
+                  disabled={running || transferPending || destinationDraft.trim().length === 0} onClick={() => void moveGame()} />
+                {#if running}<p class="text-sm text-zinc-400">{t("Chiudi il gioco prima di trasferirlo.", $language)}</p>{/if}
                 {#if transferDone}<p class="text-sm text-emerald-300" role="status">{t("Gioco trasferito.", $language)}</p>{/if}
                 {#if transferError}<ErrorBanner message={transferError} />{/if}
               </div>

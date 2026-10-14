@@ -649,5 +649,8 @@
   "Confermi il download e l'installazione dalla source non verificata?": "Confirm download and installation from the unverified source?",
   "Aggiorna comunque": "Update anyway",
   "Avanzamento aggiornamento": "Update progress",
-  "Aggiornamenti automatici dei giochi": "Automatic game updates"
+  "Aggiornamenti automatici dei giochi": "Automatic game updates",
+  "Cartella di destinazione": "Destination library",
+  "Seleziona la libreria di destinazione": "Select the destination library",
+  "Chiudi il gioco prima di trasferirlo.": "Close the game before transferring it."
 }
