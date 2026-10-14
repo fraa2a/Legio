@@ -23,6 +23,7 @@ pub struct InstalledSource {
     pub stale: bool,
     pub warning: Option<String>,
     pub game_count: usize,
+    pub support_game_updates: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -98,9 +99,13 @@ fn merge(rows: &[SourceRow]) -> Option<CachedSource> {
                     entry.steam_app_id,
                     entry.download.url.as_str(),
                     entry.release.version.as_str(),
+                    entry.id.as_ref().map(|_| row.id.as_str()),
                 );
-                let saved = entries.entry(key).or_insert(Some((verified, entry)));
-                if saved.is_some_and(|(old_verified, old)| old != entry || old_verified != verified)
+                let saved = entries
+                    .entry(key)
+                    .or_insert(Some((verified, entry, row.id.as_str())));
+                if saved
+                    .is_some_and(|(old_verified, old, _)| old != entry || old_verified != verified)
                 {
                     *saved = None;
                     conflicts = true;
@@ -109,16 +114,19 @@ fn merge(rows: &[SourceRow]) -> Option<CachedSource> {
         }
     }
     let mut manifest = Manifest {
-        schema_version: 1,
+        schema_version: 2,
+        support_game_updates: false,
         generated_at: rows[0].manifest.generated_at.clone(),
         verified: Vec::new(),
         unverified: Vec::new(),
     };
-    for (verified, entry) in entries.into_values().flatten() {
+    for (verified, entry, source_id) in entries.into_values().flatten() {
+        let mut entry = entry.clone();
+        entry.source_id = Some(source_id.to_owned());
         if verified {
-            manifest.verified.push(entry.clone());
+            manifest.verified.push(entry);
         } else {
-            manifest.unverified.push(entry.clone());
+            manifest.unverified.push(entry);
         }
     }
     Some(CachedSource {
@@ -173,6 +181,7 @@ fn snapshot(database: &Database, current_time: i64) -> Result<SourceSnapshot, St
             stale: row.warning.is_some() || is_stale(row.fetched_at, current_time),
             warning: row.warning,
             game_count: row.manifest.verified.len() + row.manifest.unverified.len(),
+            support_game_updates: row.manifest.support_game_updates,
         })
         .collect();
     Ok(SourceSnapshot {

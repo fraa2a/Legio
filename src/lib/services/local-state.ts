@@ -18,6 +18,9 @@ export interface Settings {
   launchMinimized: boolean;
   launchInLibrary: boolean;
   sidebarCollapsed: boolean;
+  libraryPortrait: boolean;
+  automaticGameUpdates: boolean;
+  downloadWhilePlaying: boolean;
   downloadNotifications: boolean;
   verifyVerifiedDownloads: boolean;
   diagnosticsEnabled: boolean;

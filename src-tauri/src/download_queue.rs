@@ -14,14 +14,14 @@ use rusqlite::{
     types::{FromSql, FromSqlError, ValueRef},
 };
 use serde::Serialize;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_notification::NotificationExt;
 use uuid::Uuid;
 
 use crate::{
     archive_install,
     database::{Database, DatabaseState},
-    finalize_install, legio_source_cache,
+    finalize_install,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -40,6 +40,9 @@ pub struct DownloadJob {
     status: DownloadStatus,
     error: Option<String>,
     updated_at: i64,
+    target_game_id: Option<String>,
+    pause_reason: Option<String>,
+    automatic_update: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -56,6 +59,12 @@ enum DownloadStatus {
     Finalizing,
     Installed,
     Cancelled,
+}
+
+impl DownloadJob {
+    pub(crate) fn id(&self) -> &str {
+        &self.id
+    }
 }
 
 impl DownloadStatus {
@@ -119,6 +128,7 @@ pub struct DownloadQueueState {
     pub(crate) staging: tokio::sync::Mutex<()>,
     defer_extraction: AtomicBool,
     staging_changed: tokio::sync::Notify,
+    processing: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 }
 
 impl DownloadQueueState {
@@ -146,6 +156,7 @@ impl DownloadQueueState {
             staging: tokio::sync::Mutex::new(()),
             defer_extraction: AtomicBool::new(false),
             staging_changed: tokio::sync::Notify::new(),
+            processing: std::sync::Arc::default(),
         })
     }
 
@@ -154,6 +165,7 @@ impl DownloadQueueState {
         self.staging_changed.notify_waiters();
     }
 
+    #[cfg(test)]
     pub(crate) async fn wait_for_idle(
         &self,
         manager: &crate::game_lifecycle::GameLaunchManager,
@@ -210,7 +222,7 @@ impl DownloadQueueState {
         self.limit_changed.notify_one();
     }
 
-    fn interrupt(&self, id: &str) -> Result<(), String> {
+    pub(crate) fn interrupt(&self, id: &str) -> Result<(), String> {
         let active = self
             .active
             .lock()
@@ -271,6 +283,9 @@ fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DownloadJob> {
         status: row.get(8)?,
         error: row.get(9)?,
         updated_at,
+        target_game_id: row.get(13)?,
+        pause_reason: row.get(14)?,
+        automatic_update: row.get(15)?,
     })
 }
 
@@ -279,7 +294,7 @@ fn list(database: &Database) -> Result<Vec<DownloadJob>, String> {
         let mut statement = connection
             .prepare(
                 "SELECT id, steam_app_id, name, release_version, size_bytes, downloaded_bytes,
-                    speed_bps, eta_seconds, status, error, sha256, url, updated_at
+                    speed_bps, eta_seconds, status, error, sha256, url, updated_at, target_game_id, pause_reason, automatic_update
                  FROM downloads ORDER BY queue_position, created_at, id",
             )
             .map_err(db_error)?;
@@ -317,6 +332,7 @@ fn change_status(
     })
 }
 
+#[cfg(test)]
 pub fn enqueue(
     database: &Database,
     app_id: u32,
@@ -324,25 +340,54 @@ pub fn enqueue(
     release_version: &str,
     accept_unverified: bool,
 ) -> Result<DownloadJob, String> {
-    let cache = legio_source_cache::cached(database)?
-        .ok_or_else(|| "No valid Legio source is cached".to_owned())?;
-    let verified = cache.manifest.verified.iter().find(|entry| {
-        entry.steam_app_id == app_id
-            && entry.download.url == download_url
-            && entry.release.version == release_version
-    });
-    let unverified = cache.manifest.unverified.iter().find(|entry| {
-        entry.steam_app_id == app_id
-            && entry.download.url == download_url
-            && entry.release.version == release_version
-    });
-    if verified.is_none() && unverified.is_some() && !accept_unverified {
+    enqueue_from_source(
+        database,
+        app_id,
+        download_url,
+        release_version,
+        accept_unverified,
+        None,
+    )
+}
+
+pub(crate) fn enqueue_from_source(
+    database: &Database,
+    app_id: u32,
+    download_url: &str,
+    release_version: &str,
+    accept_unverified: bool,
+    source_id: Option<&str>,
+) -> Result<DownloadJob, String> {
+    enqueue_with_target(
+        database,
+        app_id,
+        download_url,
+        release_version,
+        accept_unverified,
+        source_id,
+        None,
+    )
+}
+
+pub(crate) fn enqueue_with_target(
+    database: &Database,
+    app_id: u32,
+    download_url: &str,
+    release_version: &str,
+    accept_unverified: bool,
+    source_id: Option<&str>,
+    update: Option<(&str, bool)>,
+) -> Result<DownloadJob, String> {
+    let (source_id, entry, source_verified) = crate::game_updates::find_download(
+        database,
+        app_id,
+        download_url,
+        release_version,
+        source_id,
+    )?;
+    if !source_verified && !accept_unverified {
         return Err("Confirm the unverified source before downloading".to_owned());
     }
-    let source_verified = verified.is_some();
-    let entry = verified
-        .or(unverified)
-        .ok_or_else(|| "Download is unavailable for this game".to_owned())?;
     let size = i64::try_from(entry.download.size_bytes)
         .map_err(|_| "Download size exceeds local storage limits".to_owned())?;
     let id = Uuid::new_v4().to_string();
@@ -351,8 +396,8 @@ pub fn enqueue(
         connection
             .execute(
                 "INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256,
-             size_bytes, status, created_at, updated_at, source_verified, queue_position)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'queued', ?8, ?8, ?9, ?8)",
+             size_bytes, status, created_at, updated_at, source_verified, queue_position, source_id, source_entry_id, target_game_id, automatic_update)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'queued', ?8, ?8, ?9, ?8, ?10, ?11, ?12, ?13)",
                 params![
                     id,
                     app_id,
@@ -362,7 +407,7 @@ pub fn enqueue(
                     entry.download.sha256.as_deref().unwrap_or(""),
                     size,
                     created,
-                    source_verified
+                    source_verified, source_id, entry.id, update.map(|value| value.0), update.is_some_and(|value| value.1)
                 ],
             )
             .map_err(db_error)?;
@@ -382,6 +427,9 @@ pub fn enqueue(
         status: DownloadStatus::Queued,
         error: None,
         updated_at: created,
+        target_game_id: update.map(|value| value.0.to_owned()),
+        pause_reason: None,
+        automatic_update: update.is_some_and(|value| value.1),
     })
 }
 
@@ -507,7 +555,9 @@ fn stage_one(queue: &DownloadQueueState, database: &Database, id: &str) -> Resul
         if verified && hash.is_empty() {
             return Err("SHA-256 is required for verified downloads".into());
         }
-        let verify = verified && database.settings()?.verify_verified_downloads;
+        let update = crate::game_updates::target(database, &id)?.is_some();
+        let verify = (verified && database.settings()?.verify_verified_downloads)
+            || (update && !hash.is_empty());
         let archive = queue.path(&id, "archive")?;
         let stage = queue.path(&id, "stage")?;
         remove_stage(&stage)?;
@@ -548,48 +598,113 @@ fn stage_one(queue: &DownloadQueueState, database: &Database, id: &str) -> Resul
     }
 }
 
+struct ProcessingReservation {
+    ids: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    id: String,
+}
+impl Drop for ProcessingReservation {
+    fn drop(&mut self) {
+        self.ids
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&self.id);
+    }
+}
+
 fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
+    let queue = app.state::<DownloadQueueState>();
+    let Ok(mut processing) = queue.processing.lock() else {
+        crate::application_log::failure("schedule_installation", "Processing lock was poisoned");
+        return;
+    };
+    if !processing.insert(id.to_owned()) {
+        return;
+    }
+    let reservation = ProcessingReservation {
+        ids: queue.processing.clone(),
+        id: id.to_owned(),
+    };
+    drop(processing);
     let app = app.clone();
     let id = id.to_owned();
     tauri::async_runtime::spawn(async move {
+        let _reservation = reservation;
         let queue = app.state::<DownloadQueueState>();
         let _staging = queue.staging.lock().await;
-        if let Some(manager) = app.try_state::<crate::game_lifecycle::GameLaunchManager>()
-            && let Err(error) = queue.wait_for_idle(&manager).await
-        {
-            crate::application_log::failure("schedule_extraction", error);
-            return;
-        }
-        let worker_app = app.clone();
-        let worker_id = id.clone();
+        let worker = app.clone();
+        let job_id = id.clone();
         let outcome = tauri::async_runtime::spawn_blocking(move || {
-            stage_one(
-                &worker_app.state::<DownloadQueueState>(),
-                worker_app.state::<DatabaseState>().database()?,
-                &worker_id,
-            )
+            let database = worker.state::<DatabaseState>();
+            let database = database.database()?;
+            if let Some(manager) = worker.try_state::<crate::game_lifecycle::GameLaunchManager>()
+                && !crate::download_policy::processable(database, &manager, &job_id)?
+            {
+                return Ok(());
+            }
+            if status(database, &job_id)? == "downloaded" {
+                stage_one(&worker.state::<DownloadQueueState>(), database, &job_id)?;
+            }
+            if status(database, &job_id)? != "staged" {
+                return Ok(());
+            }
+            let downloads = worker.state::<DownloadQueueState>().directory()?;
+            let root = downloads
+                .parent()
+                .ok_or("Download directory has no storage root")?
+                .to_path_buf();
+            let target = crate::game_updates::target(database, &job_id)?;
+            let manager = worker.try_state::<crate::game_lifecycle::GameLaunchManager>();
+            let _reservation =
+                if let (Some(manager), Some(game)) = (manager.as_ref(), target.as_ref()) {
+                    let _operation = manager.operation()?;
+                    if crate::download_policy::busy(database, manager, game)? {
+                        return Ok(());
+                    }
+                    Some(manager.reserve_transfer(game)?)
+                } else {
+                    None
+                };
+            let game_id = finalize_install::automatic(database, &root, &job_id)?;
+            finalize_install::create_install_shortcut(&worker, database, &game_id)?;
+            Ok::<_, String>(())
         })
         .await;
-        match outcome {
-            Ok(Ok(_)) => {}
-            Ok(Err(error)) => crate::application_log::failure("verify_and_extract", error),
-            Err(error) => {
-                let message = format!("Download staging task failed: {error}");
-                let worker_app = app.clone();
-                let worker_id = id.clone();
-                let persisted = tauri::async_runtime::spawn_blocking(move || {
-                    worker_app.state::<DatabaseState>().database()?.with_connection(|connection| {
-                        connection.execute("UPDATE downloads SET status = 'failed', error = ?2, staged_path = NULL, updated_at = ?3 WHERE id = ?1 AND status = 'staging'", params![worker_id, message, now()?]).map_err(db_error)?;
-                        Ok(())
-                    })
-                }).await;
-                crate::application_log::failure(
-                    "stage_download",
-                    format!("{error}; failure persistence: {persisted:?}"),
-                );
-            }
+        notify(&app);
+        if !matches!(outcome, Ok(Ok(()))) {
+            let error = match outcome {
+                Ok(Err(error)) => error,
+                Err(error) => format!("Installation task failed: {error}"),
+                Ok(Ok(())) => return,
+            };
+            let worker = app.clone();
+            let job_id = id.clone();
+            let saved_error = error.clone();
+            let persisted = tauri::async_runtime::spawn_blocking(move || {
+                worker.state::<DatabaseState>().database()?.with_connection(|connection| {
+                    connection.execute("UPDATE downloads SET error = ?2, status = CASE WHEN status = 'staging' THEN 'failed' ELSE status END WHERE id = ?1", params![job_id,saved_error]).map_err(db_error)?; Ok(())
+                })
+            }).await;
+            crate::application_log::failure(
+                "automatic_game_installation",
+                format!("{error}; failure persistence: {persisted:?}"),
+            );
         }
     });
+}
+
+pub(crate) fn schedule_installations<R: Runtime>(app: &AppHandle<R>) {
+    let ids = app.state::<DatabaseState>().database().and_then(|database| database.with_connection(|connection| {
+        let mut query = connection.prepare("SELECT id FROM downloads WHERE status IN ('downloaded','staged') AND error IS NULL ORDER BY queue_position,created_at,id").map_err(db_error)?;
+        query.query_map([], |row| row.get::<_, String>(0)).map_err(db_error)?.collect::<Result<Vec<_>,_>>().map_err(db_error)
+    }));
+    match ids {
+        Ok(ids) => {
+            for id in ids {
+                spawn_staging(app, &id);
+            }
+        }
+        Err(error) => crate::application_log::failure("schedule_installations", error),
+    }
 }
 
 fn recover_staging(queue: &DownloadQueueState, database: &Database) -> Result<(), String> {
@@ -627,6 +742,7 @@ fn recover_staging(queue: &DownloadQueueState, database: &Database) -> Result<()
     Ok(())
 }
 
+#[cfg(test)]
 fn downloaded_ids(database: &Database) -> Result<Vec<String>, String> {
     database.with_connection(|connection| {
         let mut statement = connection
@@ -716,15 +832,37 @@ pub(crate) async fn resume_waiting<R: Runtime>(app: AppHandle<R>) -> Result<(), 
     Ok(())
 }
 
-fn kick<R: Runtime>(app: AppHandle<R>) {
+pub(crate) fn notify<R: Runtime>(app: &AppHandle<R>) {
+    if let Err(error) = app.emit("downloads-changed", ()) {
+        crate::application_log::failure("publish_download_state", error);
+    }
+}
+
+pub(crate) fn kick<R: Runtime>(app: AppHandle<R>) {
     let queue = app.state::<DownloadQueueState>();
     if queue.starting.load(Ordering::Acquire) {
         return;
     }
     queue.wake.notify_one();
+    if !queue.running.load(Ordering::Acquire)
+        && !app
+            .state::<DatabaseState>()
+            .database()
+            .and_then(|database| {
+                Ok(has_status(database, DownloadStatus::Queued)?
+                    || has_status(database, DownloadStatus::Waiting)?)
+            })
+            .unwrap_or_else(|error| {
+                crate::application_log::failure("check_download_queue", error);
+                false
+            })
+    {
+        return;
+    }
     if queue.running.swap(true, Ordering::AcqRel) {
         return;
     }
+    notify(&app);
     tauri::async_runtime::spawn(async move {
         if let Err(error) = run_queue(&app).await {
             crate::application_log::failure("download_queue_stopped", error);
@@ -749,7 +887,17 @@ async fn run_queue<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     loop {
         let database = app.state::<DatabaseState>().shared_database()?;
         let reader = database.clone();
+        let policy_app = app.clone();
         let (job, waiting) = tauri::async_runtime::spawn_blocking(move || {
+            if let Some(manager) =
+                policy_app.try_state::<crate::game_lifecycle::GameLaunchManager>()
+            {
+                crate::download_policy::sync(
+                    &reader,
+                    &manager,
+                    &policy_app.state::<DownloadQueueState>(),
+                )?;
+            }
             let job = claim(&reader)?;
             let waiting = job.is_none() && has_status(&reader, DownloadStatus::Waiting)?;
             Ok::<_, String>((job, waiting))
@@ -1098,18 +1246,28 @@ pub async fn queue_download(
     download_url: String,
     release_version: String,
     accept_unverified: bool,
+    source_id: Option<String>,
 ) -> Result<DownloadJob, String> {
     crate::startup_recovery::wait(&app).await?;
     let worker_app = app.clone();
     let job = tauri::async_runtime::spawn_blocking(move || {
         app.state::<DownloadQueueState>().directory()?;
-        enqueue(
+        let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
+        let _operation = manager.operation()?;
+        let job = enqueue_from_source(
             app.state::<DatabaseState>().database()?,
             steam_app_id,
             &download_url,
             &release_version,
             accept_unverified,
-        )
+            source_id.as_deref(),
+        )?;
+        crate::download_policy::manual_start(
+            app.state::<DatabaseState>().database()?,
+            &manager,
+            job.id(),
+        )?;
+        Ok::<_, String>(job)
     })
     .await
     .map_err(|error| format!("Queue task failed: {error}"))??;
@@ -1131,6 +1289,7 @@ pub async fn pause_download(app: AppHandle, id: String) -> Result<(), String> {
             ],
             DownloadStatus::Paused,
         )?;
+        app.state::<DatabaseState>().database()?.with_connection(|connection| { connection.execute("UPDATE downloads SET pause_reason = NULL, interrupted_by_game = 0 WHERE id = ?1", [&id]).map_err(db_error)?; Ok(()) })?;
         app.state::<DownloadQueueState>().interrupt(&id)
     })
     .await
@@ -1142,12 +1301,13 @@ pub async fn resume_download(app: AppHandle, id: String) -> Result<(), String> {
     crate::startup_recovery::wait(&app).await?;
     let worker_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        change_status(
-            app.state::<DatabaseState>().database()?,
-            &id,
-            &[DownloadStatus::Paused, DownloadStatus::Waiting],
-            DownloadStatus::Queued,
-        )
+        let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
+        let _operation = manager.operation()?;
+        let database_state = app.state::<DatabaseState>();
+        let database = database_state.database()?;
+        crate::download_policy::require_resumable(database, &manager, &id)?;
+        change_status(database, &id, &[DownloadStatus::Paused, DownloadStatus::Waiting], DownloadStatus::Queued)?;
+        database.with_connection(|connection| { connection.execute("UPDATE downloads SET manual_override = 1, automatic_update = 0, pause_reason = NULL WHERE id = ?1", [&id]).map_err(db_error)?; Ok(()) })
     })
     .await
     .map_err(|error| format!("Resume task failed: {error}"))??;
@@ -1166,6 +1326,19 @@ pub async fn retry_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result
         let app = retry_app;
         let database = app.state::<DatabaseState>();
         let database = database.database()?;
+        let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
+        let _operation = manager.operation()?;
+        crate::download_policy::require_resumable(database, &manager, &id)?;
+        if status(database, &id)? == "staged" {
+            crate::overlay_update::recover(database)?;
+            database.with_connection(|connection| {
+                connection
+                    .execute("UPDATE downloads SET error = NULL WHERE id = ?1", [&id])
+                    .map_err(db_error)?;
+                Ok(())
+            })?;
+            return Ok(());
+        }
         if status(database, &id)? == "finalizing" {
             let data_dir = app
                 .path()
@@ -1186,6 +1359,7 @@ pub async fn retry_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result
     })
     .await
     .map_err(|error| format!("Retry task failed: {error}"))??;
+    schedule_installations(&worker_app);
     kick(worker_app);
     Ok(())
 }
@@ -1401,48 +1575,26 @@ fn recover_on_start(app: &AppHandle) -> Result<(), String> {
     let database = database.database()?;
     clean_cancelled(&app.state::<DownloadQueueState>(), database)?;
     recover_staging(&app.state::<DownloadQueueState>(), database)?;
-    for id in downloaded_ids(database)? {
-        spawn_staging(app, &id);
-    }
+
     let data_dir = app
         .path()
         .app_data_dir()
         .map_err(|error| format!("Could not locate app data: {error}"))?;
+    crate::overlay_update::recover(database)?;
     finalize_install::recover(database, &database.storage_root(&data_dir)?)?;
     recover(database)?;
     Ok(())
 }
 
 pub fn start(app: AppHandle) -> Result<(), String> {
+    recover_on_start(&app)?;
     app.state::<DownloadQueueState>()
         .starting
-        .store(true, Ordering::Release);
-    std::thread::Builder::new()
-        .name("download-recovery".to_owned())
-        .spawn(move || {
-            let result = recover_on_start(&app);
-            app.state::<DownloadQueueState>()
-                .starting
-                .store(false, Ordering::Release);
-            if let Err(error) = result {
-                crate::application_log::failure("recover_downloads", &error);
-                if let Err(notification_error) = app
-                    .notification()
-                    .builder()
-                    .title("Legio download recovery failed")
-                    .body(&error)
-                    .show()
-                {
-                    crate::application_log::failure(
-                        "show_recovery_notification",
-                        notification_error,
-                    );
-                }
-            }
-            kick(app);
-        })
-        .map(|_| ())
-        .map_err(|error| format!("Could not start download recovery: {error}"))
+        .store(false, Ordering::Release);
+    kick(app.clone());
+    schedule_installations(&app);
+    crate::download_policy::start(app);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1488,8 +1640,18 @@ mod tests {
     fn test_app(directory: &Path) -> tauri::App<tauri::test::MockRuntime> {
         let mut context = tauri::test::mock_context(tauri::test::noop_assets());
         context.config_mut().identifier = format!("org.legio.test.{}", Uuid::new_v4());
+        let state = DatabaseState::new(Ok(directory.to_path_buf()));
+        if let Ok(database) = state.database() {
+            let mut settings = database.settings().unwrap();
+            settings.download_notifications = false;
+            database.save_settings(settings).unwrap();
+        }
         tauri::test::mock_builder()
-            .manage(DatabaseState::new(Ok(directory.to_path_buf())))
+            .manage(state)
+            .manage(crate::game_lifecycle::GameLaunchManager::new())
+            .manage(crate::game_artwork::GameArtworkStore::new(Err(
+                "No shortcut artwork in download fixture".into(),
+            )))
             .manage(DownloadQueueState::new(Ok(directory.to_path_buf()), "test").unwrap())
             .build(context)
             .unwrap()
@@ -1689,6 +1851,45 @@ mod tests {
         (bytes, format!("{:x}", Sha256::digest(bytes)))
     }
 
+    fn install_archive_fixture() -> (&'static [u8], String) {
+        let bytes: &'static [u8] = include_bytes!("../test-fixtures/archive/executable.zip");
+        (bytes, format!("{:x}", Sha256::digest(bytes)))
+    }
+
+    fn wait_for_installation(
+        app: &tauri::App<tauri::test::MockRuntime>,
+        database: &Database,
+        id: &str,
+    ) {
+        wait_for_status(database, id, "installed");
+        let started = Instant::now();
+        while app
+            .state::<DownloadQueueState>()
+            .processing
+            .lock()
+            .unwrap()
+            .contains(id)
+        {
+            assert!(
+                started.elapsed() < Duration::from_secs(3),
+                "installation did not settle"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            list(database)
+                .unwrap()
+                .into_iter()
+                .find(|job| job.id == id)
+                .unwrap()
+                .error
+                .as_deref(),
+            Some(
+                "Could not create application-menu shortcut: No shortcut artwork in download fixture"
+            )
+        );
+    }
+
     fn archive_response(archive: &[u8]) -> Vec<u8> {
         format!(
             "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -1800,9 +2001,9 @@ mod tests {
     fn unverified_releases_without_hash_are_distinct_and_skip_verification() {
         let (database, directory) = database_with_source();
         let mut manifest = serde_json::to_value(
-            legio_source_cache::cached(&database)
+            crate::game_updates::sources(&database)
                 .unwrap()
-                .unwrap()
+                .remove(0)
                 .manifest,
         )
         .unwrap();
@@ -1847,9 +2048,9 @@ mod tests {
     fn migration_recovers_unverified_trust_for_existing_downloads() {
         let (database, _queue, job, directory) = downloaded_fixture();
         let mut manifest = serde_json::to_value(
-            legio_source_cache::cached(&database)
+            crate::game_updates::sources(&database)
                 .unwrap()
-                .unwrap()
+                .remove(0)
                 .manifest,
         )
         .unwrap();
@@ -2075,7 +2276,7 @@ mod tests {
     async fn waiting_download_waits_for_connectivity_retry() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/archive", listener.local_addr().unwrap());
-        let (archive, hash) = archive_fixture();
+        let (archive, hash) = install_archive_fixture();
         let response = archive_response(archive);
         let (request_sent, request_received) = mpsc::channel();
         let server = thread::spawn(move || {
@@ -2133,13 +2334,12 @@ mod tests {
                 .load(Ordering::Acquire)
         );
 
-        resume_waiting(app_handle).await.unwrap();
+        resume_waiting(app_handle.clone()).await.unwrap();
         let request = request_received
             .recv_timeout(Duration::from_secs(3))
             .expect("connectivity retry should resume the waiting download");
         assert!(request.starts_with("GET /archive HTTP/1.1"));
-        wait_for_status(&database, &job.id, "staged");
-        assert_eq!(list(&database).unwrap()[0].error, None);
+        wait_for_installation(&app, &database, &job.id);
         server.join().unwrap();
 
         drop(app);
@@ -2151,7 +2351,7 @@ mod tests {
     async fn completed_download_is_verified_and_extracted_without_a_user_action() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/archive", listener.local_addr().unwrap());
-        let (archive, hash) = archive_fixture();
+        let (archive, hash) = install_archive_fixture();
         let response = archive_response(archive);
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
@@ -2190,13 +2390,13 @@ mod tests {
             .unwrap();
 
         kick(app.handle().clone());
-        wait_for_status(&database, &job.id, "staged");
-
-        let staged = directory
-            .join("downloads")
-            .join(format!("{}.stage", job.id));
-        assert_eq!(fs::read(staged.join("Game/data.bin")).unwrap(), b"hello");
-        assert_eq!(list(&database).unwrap()[0].error, None);
+        wait_for_installation(&app, &database, &job.id);
+        let installed = directory.join("installed").join(&job.id);
+        assert_eq!(
+            fs::read(installed.join("Game/start.sh")).unwrap(),
+            b"#!/bin/sh\nexit 0\n"
+        );
+        assert!(database.game(&job.id).unwrap().executable_path.is_some());
         server.join().unwrap();
 
         drop(app);
@@ -2209,7 +2409,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let url = format!("http://{}/archive", listener.local_addr().unwrap());
-        let (archive, hash) = archive_fixture();
+        let (archive, hash) = install_archive_fixture();
         let (request_sent, request_received) = mpsc::channel();
         let server = thread::spawn(move || {
             for (index, response) in [
@@ -2307,10 +2507,9 @@ mod tests {
             .recv_timeout(Duration::from_secs(3))
             .expect("manual retry should issue one request");
         assert_eq!(index, 2);
-        wait_for_status(&database, &job.id, "staged");
-        assert_eq!(list(&database).unwrap()[0].error, None);
+        wait_for_installation(&app, &database, &job.id);
         assert!(retry_download(app_handle, job.id.clone()).await.is_err());
-        assert_eq!(status(&database, &job.id).unwrap(), "staged");
+        assert_eq!(status(&database, &job.id).unwrap(), "installed");
         server.join().unwrap();
 
         drop(app);

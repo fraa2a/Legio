@@ -1,3 +1,4 @@
+import { gameUpdates } from "./game-updates";
 import { games } from "./games";
 import { windowActive } from "./window-activity";
 import { t } from "../i18n";
@@ -26,9 +27,18 @@ import { createResource } from "./resource";
 
 export const downloads = createResource<DownloadJob[]>([], listDownloads, (jobs) => jobs.length === 0);
 
+let installedRevision = "";
+downloads.subscribe(state => {
+  if (state.status !== "ready") return;
+  const revision = state.data.filter(job => job.status === "installed").map(job => `${job.id}:${job.updatedAt}`).join("|");
+  if (revision === installedRevision) return;
+  installedRevision = revision;
+  void Promise.all([games.load(), gameUpdates.load()]);
+});
+
 export const activeDownloadCount = derived(
   downloads,
-  (state) => state.data.filter((job) => isActiveDownloadStatus(job.status)).length,
+  (state) => state.data.filter((job) => (isActiveDownloadStatus(job.status) || job.pauseReason != null)).length,
 );
 
 export const finishedDownloadCount = derived(
@@ -90,14 +100,14 @@ export function startDownloadProgressPolling(): void {
   if (progressPollingSubscribed) return;
   progressPollingSubscribed = true;
   windowActive.subscribe((active) => {
-    if (active) void downloads.load();
+    if (active) { void downloads.load(); void gameUpdates.load(); }
     syncProgressPolling(active ? get(activeDownloadCount) : 0);
   });
   activeDownloadCount.subscribe((count) => syncProgressPolling(get(windowActive) ? count : 0));
 }
 
-export async function queueJob(steamAppId: number, downloadUrl: string, releaseVersion: string, acceptUnverified: boolean): Promise<void> {
-  await queueDownload(steamAppId, downloadUrl, releaseVersion, acceptUnverified);
+export async function queueJob(steamAppId: number, downloadUrl: string, releaseVersion: string, acceptUnverified: boolean, sourceId?: string | null): Promise<void> {
+  await queueDownload(steamAppId, downloadUrl, releaseVersion, acceptUnverified, sourceId);
   await downloads.load();
 }
 

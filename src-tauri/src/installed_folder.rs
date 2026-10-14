@@ -1,4 +1,5 @@
 use std::path::Path;
+#[cfg(target_os = "linux")]
 use std::process::Command;
 
 use serde::Serialize;
@@ -203,7 +204,7 @@ fn default_handler_is_terminal() -> bool {
 fn open_directory(path: &Path) -> Result<(), String> {
     // explorer.exe reports a failure status even when it opens the folder, so
     // only a failed spawn is treated as an error.
-    Command::new("explorer.exe")
+    crate::background_process::command("explorer.exe")
         .arg(path)
         .spawn()
         .map(|_| ())

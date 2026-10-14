@@ -31,14 +31,12 @@
     resumeJob,
     retryJob,
   } from "../../stores/downloads";
-  import { openStagedInstall, stagedInstall } from "../../stores/staged-install";
   import { toMessage } from "../../utils/errors";
   import ActiveDownloadCard from "./ActiveDownloadCard.svelte";
   import CompletedDownloads from "./CompletedDownloads.svelte";
   import DownloadList from "./DownloadList.svelte";
   import SystemInfoPanel from "./SystemInfoPanel.svelte";
   import CancelDownloadDialog from "./CancelDownloadDialog.svelte";
-  import StagedInstallDialog from "./StagedInstallDialog.svelte";
   import {
     activeSpeed,
     isReorderable,
@@ -63,9 +61,6 @@
   const networkSpeed = $derived(activeSpeed(pending));
   const queueOffset = $derived(
     sections.primary !== null && isReorderable(sections.primary) ? 1 : 0,
-  );
-  const installTarget = $derived(
-    $downloads.data.find((job) => job.id === $stagedInstall.jobId) ?? null,
   );
   const gamesById = $derived(new Map($games.data.map((game) => [game.id, game])));
 
@@ -169,7 +164,6 @@
               onRetry={() => void run(retryJob, primary)}
               onCancel={() => (cancelTarget = primary)}
               onRemove={() => (removeTarget = primary)}
-              onInstall={() => openStagedInstall(primary.id)}
             />
           {/key}
         {/if}
@@ -184,7 +178,6 @@
               onRetry={(job) => void run(retryJob, job)}
               onCancel={(job) => (cancelTarget = job)}
               onRemove={(job) => (removeTarget = job)}
-              onInstall={(job) => openStagedInstall(job.id)}
             />
           </Panel>
         {/if}
@@ -207,7 +200,6 @@
               onRetry={(job) => void run(retryJob, job)}
               onCancel={(job) => (cancelTarget = job)}
               onRemove={(job) => (removeTarget = job)}
-              onInstall={(job) => openStagedInstall(job.id)}
             />
           </Panel>
         {/if}
@@ -269,9 +261,7 @@
   {/snippet}
 </Dialog>
 
-{#if installTarget !== null}
-  <StagedInstallDialog gameName={installTarget.name} status={installTarget.status} />
-{/if}
+
 
 {#if $accountSwitchGame !== null}
   <Dialog open title={t("Cambio account Steam", $language)} onClose={dismissAccountSwitch}>

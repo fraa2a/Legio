@@ -12,6 +12,8 @@ pub const MAX_MANIFEST_BYTES: usize = 2 * 1024 * 1024;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Manifest {
     pub schema_version: u32,
+    #[serde(default)]
+    pub support_game_updates: bool,
     pub generated_at: String,
     pub verified: Vec<SourceEntry>,
     pub unverified: Vec<SourceEntry>,
@@ -20,6 +22,10 @@ pub struct Manifest {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourceEntry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
     pub steam_app_id: u32,
     pub name: String,
     pub release: Release,
@@ -104,7 +110,7 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {
             format!("invalid manifest JSON: {error}"),
         )
     })?;
-    if manifest.schema_version != 1 {
+    if !matches!(manifest.schema_version, 1 | 2) {
         return Err(ManifestError::new(
             ManifestErrorKind::UnsupportedVersion,
             "schemaVersion",
@@ -112,6 +118,13 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {
         ));
     }
     validate_utc_timestamp(&manifest.generated_at, "generatedAt")?;
+    if manifest.support_game_updates && manifest.schema_version != 2 {
+        return Err(invalid_field(
+            "supportGameUpdates",
+            "requires schemaVersion 2",
+        ));
+    }
+    let mut entry_ids = HashSet::new();
     let mut seen = HashSet::new();
     let mut archives = HashSet::new();
     for (list_name, entries) in [
@@ -120,6 +133,29 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {
     ] {
         for (index, entry) in entries.iter().enumerate() {
             let prefix = format!("{list_name}[{index}]");
+            if entry.source_id.is_some() {
+                return Err(invalid_field(
+                    format!("{prefix}.sourceId"),
+                    "is reserved for local source provenance",
+                ));
+            }
+            if let Some(id) = &entry.id {
+                if id.trim().is_empty()
+                    || id.len() > 128
+                    || id != id.trim()
+                    || !entry_ids.insert(id.as_str())
+                {
+                    return Err(invalid_field(
+                        format!("{prefix}.id"),
+                        "must be a unique nonempty stable identifier of at most 128 bytes",
+                    ));
+                }
+            } else if manifest.support_game_updates {
+                return Err(invalid_field(
+                    format!("{prefix}.id"),
+                    "is required when supportGameUpdates is true",
+                ));
+            }
             if entry.steam_app_id == 0 {
                 return Err(invalid_field(
                     format!("{prefix}.steamAppId"),
@@ -249,6 +285,35 @@ fn invalid_field(field: impl Into<String>, detail: impl Into<String>) -> Manifes
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn update_sources_require_stable_unique_entry_ids_and_legacy_defaults_off() {
+        let entry = serde_json::json!({"id":"variant-a","steamAppId":400,"name":"Portal","release":{"version":"2","publishedAt":"2026-10-14T00:00:00Z"},"download":{"url":"https://example.test/game.zip","sizeBytes":1}});
+        let mut document = serde_json::json!({"schemaVersion":2,"supportGameUpdates":true,"generatedAt":"2026-10-14T00:00:00Z","verified":[],"unverified":[entry.clone()]});
+        assert!(super::parse_manifest(&serde_json::to_vec(&document).unwrap()).is_ok());
+        document["unverified"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("id");
+        assert!(super::parse_manifest(&serde_json::to_vec(&document).unwrap()).is_err());
+        document["unverified"] = serde_json::json!([entry.clone(), {"download":{"url":"https://example.test/other.zip","sizeBytes":1},"id":"variant-a","steamAppId":401,"name":"Other","release":{"version":"2","publishedAt":"2026-10-14T00:00:00Z"}}]);
+        assert!(super::parse_manifest(&serde_json::to_vec(&document).unwrap()).is_err());
+        document["schemaVersion"] = 1.into();
+        document
+            .as_object_mut()
+            .unwrap()
+            .remove("supportGameUpdates");
+        document["unverified"] = serde_json::json!([entry]);
+        document["unverified"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("id");
+        let legacy = super::parse_manifest(&serde_json::to_vec(&document).unwrap()).unwrap();
+        assert_eq!(
+            serde_json::to_value(legacy).unwrap()["supportGameUpdates"],
+            false
+        );
+    }
+
     use super::*;
     use serde_json::{Value, json};
 
@@ -304,7 +369,7 @@ mod tests {
         assert_eq!(parse(document).unwrap().unverified[0].steam_app_id, 400);
 
         let mut document = valid();
-        document["schemaVersion"] = json!(2);
+        document["schemaVersion"] = json!(3);
         assert_eq!(
             parse(document).unwrap_err().kind,
             ManifestErrorKind::UnsupportedVersion

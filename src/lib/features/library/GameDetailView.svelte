@@ -31,6 +31,7 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import GameSettingsDialog from "./GameSettingsDialog.svelte";
+  import GameUpdateButton from "./GameUpdateButton.svelte";
   import GameLaunchControls from "./GameLaunchControls.svelte";
   import ArtworkViewer from "./ArtworkViewer.svelte";
   import SteamMetadata from "./SteamMetadata.svelte";
@@ -121,7 +122,7 @@
     queueError = null;
     queueing = true;
     try {
-      await queueJob(steamAppId, downloadUrl, releaseVersion, acceptUnverified);
+      await queueJob(steamAppId, downloadUrl, releaseVersion, acceptUnverified, confirmEntry?.download.url === downloadUrl ? confirmEntry.sourceId : entry?.sourceId);
     } catch (error) {
       queueError = toMessage(error);
     } finally {
@@ -233,6 +234,8 @@
       <ErrorBanner message={artworkError} />
     {/if}
 
+
+    {#if game !== null}<GameUpdateButton gameId={game.id} />{/if}
 
     <div class="grid flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
       <div class="min-w-0">

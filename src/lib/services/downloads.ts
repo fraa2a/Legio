@@ -15,23 +15,15 @@ export interface DownloadJob {
   status: DownloadStatus;
   error: string | null;
   updatedAt: number;
+  targetGameId?: string | null;
+  pauseReason?: "game_running" | "playing" | "automatic_disabled" | null;
+  automaticUpdate?: boolean;
 }
 
 export interface InstalledFolderInfo {
   directory: string;
   freeBytes: number;
   totalBytes: number;
-}
-
-export interface StagedExecutableCandidate {
-  relativePath: string;
-  score: number;
-  signals: string[];
-}
-
-export interface StagedExecutableScan {
-  candidates: StagedExecutableCandidate[];
-  selectedRelativePath: string | null;
 }
 
 export type DownloadStatus = "queued" | "downloading" | "waiting" | "paused" | "failed" | "downloaded" | "staging" | "staged" | "finalizing" | "installed" | "cancelled";
@@ -55,7 +47,7 @@ export function describeDownloadStatus(status: string): string {
 }
 
 export function isActiveDownloadStatus(status: string): boolean {
-  return status === "queued" || status === "downloading" || status === "waiting" || status === "downloaded" || status === "staging" || status === "finalizing";
+  return status === "queued" || status === "downloading" || status === "waiting" || status === "downloaded" || status === "staging" || status === "staged" || status === "finalizing";
 }
 
 export function canPauseDownload(status: string): boolean {
@@ -67,7 +59,7 @@ export function canResumeDownload(status: string): boolean {
 }
 
 export function canRetryDownload(status: string, error?: string | null): boolean {
-  return status === "failed" || (status === "finalizing" && Boolean(error));
+  return status === "failed" || ((status === "finalizing" || status === "staged") && Boolean(error));
 }
 
 export function canCancelDownload(status: string): boolean {
@@ -101,8 +93,8 @@ export function listDownloads(): Promise<DownloadJob[]> {
   return invoke<DownloadJob[]>("list_downloads");
 }
 
-export function queueDownload(steamAppId: number, downloadUrl: string, releaseVersion: string, acceptUnverified: boolean): Promise<DownloadJob> {
-  return invoke<DownloadJob>("queue_download", { steamAppId, downloadUrl, releaseVersion, acceptUnverified });
+export function queueDownload(steamAppId: number, downloadUrl: string, releaseVersion: string, acceptUnverified: boolean, sourceId?: string | null): Promise<DownloadJob> {
+  return invoke<DownloadJob>("queue_download", { steamAppId, downloadUrl, releaseVersion, acceptUnverified, ...(sourceId ? { sourceId } : {}) });
 }
 
 export function pauseDownload(id: string): Promise<void> {
@@ -133,16 +125,7 @@ export function reorderDownloads(ids: string[]): Promise<void> {
   return invoke<void>("reorder_downloads", { ids });
 }
 
-export function scanStagedExecutables(
-  id: string,
-  gameName: string | null,
-): Promise<StagedExecutableScan> {
-  return invoke<StagedExecutableScan>("scan_staged_executables", { id, gameName });
-}
 
-export function finalizeDownload(id: string, executableRelative: string): Promise<void> {
-  return invoke<void>("finalize_download", { id, executableRelative });
-}
 
 export function getDownloadBandwidthLimit(): Promise<number> {
   return invoke<number>("get_download_bandwidth_limit");

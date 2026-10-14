@@ -13,7 +13,8 @@
   import { formatBytes } from "../../utils/format";
   import CancelDownloadDialog from "../../features/downloads/CancelDownloadDialog.svelte";
   import Icon, { type IconName } from "../ui/Icon.svelte";
-  import ProgressBar from "../ui/ProgressBar.svelte";
+  import WaveFill from "../ui/WaveFill.svelte";
+  import DownloadCover from "../../features/downloads/DownloadCover.svelte";
 
   type QuickAction = {
     icon: IconName;
@@ -45,6 +46,9 @@
 
   const detailLabel = $derived.by(() => {
     if (lead === null) return "";
+    if (lead.pauseReason === "game_running") return t("Gioco aperto: aggiornamento bloccato", $language);
+    if (lead.pauseReason === "playing") return t("In pausa mentre giochi", $language);
+    if (lead.pauseReason === "automatic_disabled") return t("Aggiornamenti automatici disattivati", $language);
     return (
       phaseLabels[lead.status] ??
       `${formatBytes(lead.downloadedBytes)} / ${formatBytes(lead.sizeBytes)}`
@@ -54,7 +58,7 @@
   const quickActions: QuickAction[] = $derived.by(() => {
     if (lead === null) return [];
     const actions: QuickAction[] = [];
-    if (canResumeDownload(lead.status)) {
+    if (canResumeDownload(lead.status) && lead.pauseReason !== "game_running") {
       actions.push({
         icon: "play",
         label: t("Riprendi il download di {0}", $language, [lead.name]),
@@ -100,9 +104,11 @@
     <div
       role="group"
       aria-label="{t("Download in corso: ", $language)}{lead.name}"
-      class="group/download flex shrink-0 flex-col gap-2 rounded-lg border border-white/10 bg-white/5 p-2 light:border-zinc-900/15 light:bg-zinc-100"
+      class="group/download relative overflow-hidden flex shrink-0 flex-col gap-2 rounded-lg border border-white/10 bg-white/5 p-2 light:border-zinc-900/15 light:bg-zinc-100"
     >
+      <WaveFill value={percent} active={lead.status !== "paused" && lead.status !== "waiting" && lead.status !== "failed"} />
       <div class="relative flex min-h-7 items-center gap-2">
+        <DownloadCover steamAppId={lead.steamAppId} name={lead.name} class="h-12 w-8 rounded-md!" />
         <p class="min-w-0 flex-1 truncate text-xs font-medium text-white light:text-zinc-900">
           {lead.name}
         </p>
@@ -123,6 +129,7 @@
           </div>
         {/if}
         <span
+          role="progressbar" aria-label={t("Avanzamento di ", $language) + lead.name} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(percent)}
           class="shrink-0 text-xs font-semibold text-zinc-300 light:text-zinc-700 {quickActions.length > 0
             ? 'pointer-events-none absolute right-0 group-hover/download:opacity-0 group-focus-within/download:opacity-0'
             : ''}"
@@ -131,10 +138,9 @@
         </span>
       </div>
 
-      <ProgressBar value={percent} label="{t("Avanzamento di ", $language)}{lead.name}" />
 
       <div
-        class="flex items-center justify-between gap-2 text-[0.65rem] text-zinc-400 light:text-zinc-600"
+        class="relative flex items-center justify-between gap-2 text-[0.65rem] text-zinc-400 light:text-zinc-600"
       >
         <span class="truncate">{detailLabel}</span>
         {#if lead.speedBps > 0}
@@ -153,13 +159,9 @@
       onclick={() => selectSection("downloads")}
       class="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/5 text-zinc-400 transition-colors duration-200 hover:bg-white/10 hover:text-white light:bg-zinc-900/5 light:text-zinc-500 light:hover:bg-zinc-900/10 light:hover:text-zinc-900"
     >
-      <span
-        class="absolute inset-x-0 bottom-0 bg-legio-download"
-        style="height: {percent}%"
-        aria-hidden="true"
-      ></span>
+      <WaveFill value={percent} active={lead.status !== "paused" && lead.status !== "waiting" && lead.status !== "failed"} />
       <span class="relative">
-        <Icon name="downloads" size="h-5 w-5" />
+        <Icon name={lead.pauseReason === "game_running" ? "pause" : "downloads"} size="h-5 w-5" />
       </span>
     </button>
   {/if}

@@ -1,3 +1,5 @@
+import { listenGameUpdatesChanged, listenDownloadsChanged } from "../services/game-updates";
+import { gameUpdates } from "./game-updates";
 import { appInfo } from "./app-info";
 import { settings } from "./settings";
 import { games } from "./games";
@@ -30,11 +32,14 @@ export async function hydrateApp(): Promise<void> {
     bandwidthLimit.load(),
     installedFolder.load(),
     source.load(),
+    gameUpdates.load(),
     network.load(),
     launchStates.load(),
     playtime.load(),
   ]);
   startDownloadProgressPolling();
+  await listenDownloadsChanged(() => { void downloads.load(); });
+  await listenGameUpdatesChanged(() => { void gameUpdates.load(); void source.load(); });
   if (get(settings).data.launchInLibrary) activeSection.set("library");
   const startup = get(appInfo).data;
   if (startup.startupLaunchGameId !== null) {

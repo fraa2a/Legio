@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
 
@@ -198,7 +198,7 @@ jobs:
           key: ${{ matrix.os }}
 
       - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
 
@@ -277,6 +277,18 @@ jobs:
           LEGIO_WINDOWS_TESTS: "1"
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_lifecycle::tests::native_manager_lifecycle_tracks_a_controlled_process
 
+      - name: Test Windows game updates and executable paths
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          LEGIO_WINDOWS_TESTS: "1"
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib manual_import::tests
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib overlay_update::tests
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_updates::tests
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib update_policy
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib automatically_selects_and_installs_the_executable
+
       - name: Test Windows staged executable finalization
         if: runner.os == 'Windows'
         shell: bash
@@ -323,7 +335,7 @@ jobs:
 
       - name: Upload Windows test installer
         if: runner.os == 'Windows' && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: legio-windows-pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
           path: |
@@ -335,7 +347,7 @@ jobs:
 
       - name: Upload matching Windows native symbols
         if: runner.os == 'Windows' && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: legio-windows-symbols-pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
           path: src-tauri/target/release/legio.pdb

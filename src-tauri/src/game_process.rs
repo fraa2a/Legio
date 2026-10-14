@@ -1,6 +1,6 @@
-use std::path::Path;
 #[cfg(windows)]
-use std::process::Command;
+use crate::background_process::command;
+use std::path::Path;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -745,7 +745,7 @@ fn stop_pid(pid: u32) -> Result<(), String> {
 
 #[cfg(windows)]
 fn stop_pid(pid: u32) -> Result<(), String> {
-    let status = Command::new("taskkill")
+    let status = command("taskkill")
         .args(["/PID", &pid.to_string(), "/T"])
         .status()
         .map_err(|error| format!("Could not stop game process {pid}: {error}"))?;
@@ -758,7 +758,7 @@ fn stop_pid(pid: u32) -> Result<(), String> {
 
 #[cfg(windows)]
 fn stop_native_pid(pid: u32) -> Result<(), String> {
-    let status = Command::new("taskkill")
+    let status = command("taskkill")
         .args(["/F", "/PID", &pid.to_string()])
         .status()
         .map_err(|error| format!("Could not stop game process {pid}: {error}"))?;
@@ -771,6 +771,21 @@ fn stop_native_pid(pid: u32) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    #[test]
+    fn background_commands_capture_output_without_a_console_window() {
+        let output = crate::background_process::command("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command",
+                "Add-Type -Name Console -Namespace Legio -MemberDefinition '[DllImport(\"kernel32.dll\")] public static extern IntPtr GetConsoleWindow();'; [Legio.Console]::GetConsoleWindow().ToInt64()"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "0");
+    }
     fn test_processes(value: serde_json::Value) -> Vec<super::WindowsProcess> {
         value
             .as_array()

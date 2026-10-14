@@ -1,6 +1,8 @@
 import { invoke } from "./invoke";
 
 export interface SourceEntry {
+  id?: string | null;
+  sourceId?: string | null;
   steamAppId: number;
   name: string;
   release: { version: string; publishedAt: string };
@@ -9,6 +11,7 @@ export interface SourceEntry {
 
 export interface SourceManifest {
   schemaVersion: number;
+  supportGameUpdates?: boolean;
   generatedAt: string;
   verified: SourceEntry[];
   unverified: SourceEntry[];
@@ -37,6 +40,7 @@ export interface InstalledSource {
   stale: boolean;
   warning: string | null;
   gameCount: number;
+  supportGameUpdates?: boolean;
 }
 
 export function addDownloadSource(url: string): Promise<SourceSnapshot> {

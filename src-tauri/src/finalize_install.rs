@@ -6,12 +6,12 @@ use std::{
 };
 
 use rusqlite::{OptionalExtension, params};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use uuid::Uuid;
 
 use crate::{
     archive_install::safe_relative_path,
-    database::{Database, DatabaseState, database_error},
+    database::{Database, database_error},
     manual_import,
 };
 
@@ -389,6 +389,7 @@ fn finish(database: &Database, intent: &Intent) -> Result<(), String> {
             "INSERT INTO games (id, steam_app_id, automatic_name, executable_path, installation_root) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![intent.id, intent.app_id, intent.name, executable.to_string_lossy(), intent.target.to_string_lossy()]
         ).map_err(database_error)?;
+        crate::game_updates::record_install_on(&transaction, &intent.id, &intent.id)?;
         let changed = transaction.execute(
             "UPDATE downloads SET status = 'installed', error = NULL, updated_at = ?2 WHERE id = ?1 AND status = 'finalizing'",
             params![intent.id, timestamp()?]
@@ -619,53 +620,39 @@ pub(crate) fn create_install_shortcut<R: tauri::Runtime>(
     Ok(())
 }
 
-#[tauri::command]
-pub async fn finalize_download(
-    app: AppHandle,
-    id: String,
-    executable_relative: String,
-) -> Result<(), String> {
-    crate::startup_recovery::wait(&app).await?;
-    let queue = app.state::<crate::download_queue::DownloadQueueState>();
-    let _staging = queue.staging.lock().await;
-    let worker_app = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let app = worker_app;
-        let data_dir = app
-            .path()
-            .app_data_dir()
-            .map_err(|error| format!("Could not locate app data: {error}"))?;
-        let database = app.state::<DatabaseState>();
-        let database = database.database()?;
-        let root = database.storage_root(&data_dir)?;
-        finalize(database, &root, &id, &executable_relative)?;
-        create_install_shortcut(&app, database, &id)?;
-        Ok(())
-    })
-    .await
-    .map_err(|error| format!("Finalization task failed: {error}"))?
-}
-
-#[tauri::command]
-pub async fn scan_staged_executables(
-    app: AppHandle,
-    id: String,
-    game_name: Option<String>,
-) -> Result<manual_import::StagedExecutableScan, String> {
-    crate::startup_recovery::wait(&app).await?;
-    tauri::async_runtime::spawn_blocking(move || {
-        let data_dir = app
-            .path()
-            .app_data_dir()
-            .map_err(|error| format!("Could not locate app data: {error}"))?;
-        let database = app.state::<DatabaseState>();
-        let database = database.database()?;
-        let root = database.storage_root(&data_dir)?;
-        let (stage, name) = staged_download_directory(database, &root, &id)?;
-        manual_import::scan_staged_directory(&stage, game_name.as_deref().or(Some(name.as_str())))
-    })
-    .await
-    .map_err(|error| format!("Staged executable scan task failed: {error}"))?
+pub(crate) fn automatic(database: &Database, data_dir: &Path, id: &str) -> Result<String, String> {
+    let (stage, name) = staged_download_directory(database, data_dir, id)?;
+    let target = crate::game_updates::target(database, id)?;
+    let scan = manual_import::scan_staged_directory(&stage, Some(&name))?;
+    let old_relative = if let Some(game_id) = &target {
+        let game = database.game(game_id)?;
+        game.executable_path
+            .as_deref()
+            .zip(game.installation_root.as_deref())
+            .and_then(|(executable, root)| Path::new(executable).strip_prefix(root).ok())
+            .and_then(|path| manual_import::portable_relative_path(path).ok())
+    } else {
+        None
+    };
+    let executable = old_relative
+        .as_ref()
+        .filter(|path| stage.join(path).is_file())
+        .cloned()
+        .or(scan.selected_relative_path)
+        .or_else(|| {
+            scan.candidates
+                .first()
+                .map(|candidate| candidate.relative_path.clone())
+        })
+        .or(old_relative)
+        .ok_or("Archive contains no usable game executable")?;
+    if let Some(game_id) = target {
+        crate::overlay_update::apply(database, id, &stage, &executable)?;
+        Ok(game_id)
+    } else {
+        finalize(database, data_dir, id, &executable)?;
+        Ok(id.to_owned())
+    }
 }
 
 #[cfg(test)]
@@ -732,6 +719,17 @@ mod tests {
             })
             .unwrap();
         assert!(staged_download_directory(&database, &data_dir, &id).is_err());
+        fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
+    fn automatically_selects_and_installs_the_executable() {
+        let (database, data_dir, id) = fixture();
+        assert_eq!(automatic(&database, &data_dir, &id).unwrap(), id);
+        assert_eq!(state(&database, &id).0, "installed");
+        let game = database.game(&id).unwrap();
+        assert!(Path::new(game.executable_path.as_deref().unwrap()).is_file());
+        drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
 
