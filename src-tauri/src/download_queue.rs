@@ -647,11 +647,11 @@ fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
             if status(database, &job_id)? != "staged" {
                 return Ok(());
             }
-            let data_dir = worker
-                .path()
-                .app_data_dir()
-                .map_err(|error| error.to_string())?;
-            let root = database.storage_root(&data_dir)?;
+            let downloads = worker.state::<DownloadQueueState>().directory()?;
+            let root = downloads
+                .parent()
+                .ok_or("Download directory has no storage root")?
+                .to_path_buf();
             let target = crate::game_updates::target(database, &job_id)?;
             let manager = worker.try_state::<crate::game_lifecycle::GameLaunchManager>();
             let _reservation =
@@ -1643,7 +1643,6 @@ mod tests {
         let state = DatabaseState::new(Ok(directory.to_path_buf()));
         if let Ok(database) = state.database() {
             let mut settings = database.settings().unwrap();
-            settings.download_path = Some(directory.to_str().unwrap().to_owned());
             settings.download_notifications = false;
             database.save_settings(settings).unwrap();
         }
@@ -1677,9 +1676,6 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("legio-download-test-{}", Uuid::new_v4()));
         let database = Database::open(&directory).unwrap();
-        let mut settings = database.settings().unwrap();
-        settings.download_path = Some(directory.to_str().unwrap().to_owned());
-        database.save_settings(settings).unwrap();
         let manifest = br#"{"schemaVersion":1,"generatedAt":"2026-09-22T00:00:00Z","verified":[{"steamAppId":400,"name":"Portal","release":{"version":"1","publishedAt":"2026-09-22T00:00:00Z"},"download":{"url":"https://example.invalid/portal.zip","sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","sizeBytes":10}}],"unverified":[]}"#;
         database.with_connection(|connection| {
             connection.execute("INSERT INTO download_sources (id, url, manifest, fetched_at) VALUES ('test-source', 'https://example.invalid/games.json', ?1, 1)", [manifest.as_slice()]).map_err(db_error)?;
