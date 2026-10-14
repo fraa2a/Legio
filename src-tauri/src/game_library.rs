@@ -389,6 +389,7 @@ mod tests {
         assert_eq!(folder_name("CON.exe"), "_CON.exe");
         assert_eq!(folder_name("../A:B?*"), "_A_B__");
         assert_eq!(folder_name("..."), "Game");
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -400,6 +401,7 @@ mod tests {
         fs::write(directory.join(FILE), "[broken").unwrap();
         assert!(sync(&database, &directory).is_err());
         assert_eq!(fs::read_to_string(directory.join(FILE)).unwrap(), "[broken");
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 }

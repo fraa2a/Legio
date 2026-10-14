@@ -610,6 +610,7 @@ mod tests {
         assert!(intent.destination.join(&intent.relative).is_file());
         assert!(!intent.destination.join(MARKER).exists());
         recover(&database).unwrap();
+        drop(database);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -698,8 +699,8 @@ mod tests {
         let source = Path::new("/games/Game");
         let target = Path::new("/other/Game");
         assert_eq!(
-            remap(Some("/games/Game/bin".to_owned()), source, target).as_deref(),
-            Some("/other/Game/bin")
+            remap(Some("/games/Game/bin".to_owned()), source, target).map(PathBuf::from),
+            Some(target.join("bin"))
         );
         assert_eq!(
             remap(Some("/games/GameTwo/prefix".to_owned()), source, target).as_deref(),

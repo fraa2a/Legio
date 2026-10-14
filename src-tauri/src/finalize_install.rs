@@ -812,6 +812,7 @@ mod tests {
         )
         .unwrap();
         assert!(manifest["games"].as_array().unwrap().is_empty());
+        drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
 
@@ -835,6 +836,7 @@ mod tests {
             b"unreal"
         );
         assert!(!target.join("Wrapper").exists());
+        drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
 
@@ -857,6 +859,7 @@ mod tests {
             })
             .unwrap();
         assert!(staged_download_directory(&database, &data_dir, &id).is_err());
+        drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
 
@@ -909,6 +912,7 @@ mod tests {
             database.games().unwrap()[0].installation_root.as_deref(),
             target.to_str()
         );
+        drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
 
@@ -936,6 +940,7 @@ mod tests {
             b"game"
         );
         assert_eq!(state(&database, &id).0, "installed");
+        drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
 
@@ -974,6 +979,7 @@ mod tests {
                 .join(format!("{id}.stage"))
                 .exists()
         );
+        drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
 
@@ -1039,6 +1045,7 @@ mod tests {
             .unwrap();
             assert!(finalize(&database, &data_dir, &id, "bin/link.exe").is_err());
         }
+        drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
 
@@ -1054,6 +1061,7 @@ mod tests {
         assert_eq!(state(&database, &id).0, "installed");
         assert!(!intent.target.join("partial").exists());
         assert_eq!(fs::read(intent.target.join("game.exe")).unwrap(), b"game");
+        drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
 
@@ -1067,6 +1075,7 @@ mod tests {
         recover(&database, &data_dir).unwrap();
         assert_eq!(state(&database, &id).0, "finalizing");
         assert_eq!(fs::read(temporary.join("foreign")).unwrap(), b"keep");
+        drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
 
@@ -1081,6 +1090,7 @@ mod tests {
         symlink(&moved, &stage).unwrap();
         assert!(finalize(&database, &data_dir, &id, "bin/game.exe").is_err());
         assert_eq!(state(&database, &id).0, "staged");
+        drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
 
@@ -1114,6 +1124,7 @@ mod tests {
         assert!(finalize(&database, &data_dir, &id, "bin/game.exe").is_err());
         fs::remove_file(&data_dir).unwrap();
         fs::rename(&moved_data, &data_dir).unwrap();
+        drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
 
@@ -1138,6 +1149,7 @@ mod tests {
         recover(&database, &data_dir).unwrap();
         assert_eq!(state(&database, &id), ("installed".to_owned(), None));
         assert!(!stage.exists());
+        drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
 
@@ -1170,6 +1182,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(staged_path, None);
+        drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
 
