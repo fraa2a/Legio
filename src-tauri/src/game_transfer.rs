@@ -100,9 +100,9 @@ fn transfer(
         .executable_path
         .as_deref()
         .ok_or_else(|| "Select a game executable first".to_owned())?;
-    let executable = fs::canonicalize(executable)
+    let executable = dunce::canonicalize(executable)
         .map_err(|error| format!("Could not inspect game executable: {error}"))?;
-    let source = fs::canonicalize(source)
+    let source = dunce::canonicalize(source)
         .map_err(|error| format!("Could not inspect source directory: {error}"))?;
     if !source.is_dir() {
         return Err("Transfer source is not a directory".to_owned());
@@ -113,7 +113,7 @@ fn transfer(
     let installed_path = game.installation_root.clone();
     if installed_path
         .as_deref()
-        .is_some_and(|path| fs::canonicalize(path).ok().as_deref() != Some(source.as_path()))
+        .is_some_and(|path| dunce::canonicalize(path).ok().as_deref() != Some(source.as_path()))
     {
         return Err(
             "Select the complete installed game directory as the transfer source".to_owned(),
@@ -142,7 +142,7 @@ fn transfer(
     let parent = destination
         .parent()
         .ok_or_else(|| "Destination has no parent directory".to_owned())?;
-    let parent = fs::canonicalize(parent)
+    let parent = dunce::canonicalize(parent)
         .map_err(|error| format!("Could not inspect destination parent: {error}"))?;
     if !parent.is_dir() {
         return Err("Destination parent is not a directory".to_owned());

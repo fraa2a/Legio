@@ -384,7 +384,7 @@ impl GameLaunchManager {
             .executable_path
             .as_deref()
             .ok_or_else(|| "This game has no selected executable".to_owned())?;
-        let executable = fs::canonicalize(executable)
+        let executable = dunce::canonicalize(executable)
             .map_err(|error| format!("Could not inspect game executable: {error}"))?;
         #[cfg(windows)]
         if !executable.is_file()
@@ -409,7 +409,7 @@ impl GameLaunchManager {
         let game_directory = game
             .installation_root
             .as_deref()
-            .map(fs::canonicalize)
+            .map(dunce::canonicalize)
             .transpose()
             .map_err(|error| format!("Could not inspect installation root: {error}"))?
             .unwrap_or_else(|| parent.to_path_buf());
@@ -565,7 +565,7 @@ impl GameLaunchManager {
             .executable_path
             .as_deref()
             .ok_or_else(|| "This manual game has no selected executable".to_owned())?;
-        let executable_path = fs::canonicalize(executable_path)
+        let executable_path = dunce::canonicalize(executable_path)
             .map_err(|error| format!("Could not inspect game executable: {error}"))?;
         if !executable_path.is_file()
             || !executable_path
@@ -691,7 +691,7 @@ impl GameLaunchManager {
         let installation_root = game
             .installation_root
             .as_deref()
-            .map(fs::canonicalize)
+            .map(dunce::canonicalize)
             .transpose()
             .map_err(|error| format!("Could not inspect installation root: {error}"))?;
         if installation_root
@@ -1464,7 +1464,7 @@ fn create_prefix_directory(root: &Path, game_id: Option<&str>) -> Result<PathBuf
     }
     fs::create_dir_all(root)
         .map_err(|error| format!("Could not create compatibility prefix directory: {error}"))?;
-    let root = fs::canonicalize(root)
+    let root = dunce::canonicalize(root)
         .map_err(|error| format!("Could not resolve compatibility prefix directory: {error}"))?;
     let Some(game_id) = game_id else {
         if !root.is_dir() {
@@ -1475,7 +1475,7 @@ fn create_prefix_directory(root: &Path, game_id: Option<&str>) -> Result<PathBuf
     let prefix = root.join(game_id);
     fs::create_dir_all(&prefix)
         .map_err(|error| format!("Could not create game compatibility prefix: {error}"))?;
-    let prefix = fs::canonicalize(&prefix)
+    let prefix = dunce::canonicalize(&prefix)
         .map_err(|error| format!("Could not resolve game compatibility prefix: {error}"))?;
     if !prefix.starts_with(&root) {
         return Err("Game compatibility prefix escapes its configured root".to_owned());
@@ -1489,7 +1489,7 @@ fn game_wine_prefix(compatdata: &Path, kind: RunnerKind) -> Result<PathBuf, Stri
     let root_is_prefix =
         compatdata.join("system.reg").is_file() || compatdata.join("drive_c").is_dir();
     if root_is_prefix && nested.exists() {
-        let nested_prefix = fs::canonicalize(&nested)
+        let nested_prefix = dunce::canonicalize(&nested)
             .map_err(|error| format!("Could not inspect existing Wine prefix: {error}"))?;
         if nested_prefix != compatdata
             && (kind != RunnerKind::Wine
@@ -1505,7 +1505,7 @@ fn game_wine_prefix(compatdata: &Path, kind: RunnerKind) -> Result<PathBuf, Stri
     if nested.exists() || kind != RunnerKind::Wine {
         fs::create_dir_all(&nested)
             .map_err(|error| format!("Could not create Wine prefix: {error}"))?;
-        let prefix = fs::canonicalize(nested)
+        let prefix = dunce::canonicalize(nested)
             .map_err(|error| format!("Could not resolve Wine prefix: {error}"))?;
         if !prefix.starts_with(compatdata) {
             return Err("Wine prefix escapes its compatibility directory".to_owned());
@@ -1525,7 +1525,7 @@ fn game_working_directory(path: Option<&str>, game_directory: &Path) -> Result<P
             "Working directory must be an absolute path without control characters".to_owned(),
         );
     }
-    let path = fs::canonicalize(path)
+    let path = dunce::canonicalize(path)
         .map_err(|error| format!("Could not resolve working directory: {error}"))?;
     if !path.is_dir() {
         return Err("Working directory is not a directory".to_owned());
@@ -1642,7 +1642,7 @@ fn steam_client_root() -> Result<PathBuf, String> {
     steam_local::default_steam_roots()
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|root| fs::canonicalize(root).ok())
+        .filter_map(|root| dunce::canonicalize(root).ok())
         .find(|root| {
             root.join("steamapps").is_dir()
                 && (root.join("steam.sh").is_file() || root.join("steam").is_dir())
@@ -1924,7 +1924,7 @@ mod tests {
         fs::create_dir_all(root.join("pfx/drive_c")).unwrap();
         let saved = root.join("pfx/drive_c/save.dat");
         fs::write(&saved, b"save").unwrap();
-        let expected = fs::canonicalize(root.join("pfx")).unwrap();
+        let expected = dunce::canonicalize(root.join("pfx")).unwrap();
         assert_eq!(game_wine_prefix(&root, RunnerKind::Wine).unwrap(), expected);
         assert_eq!(
             game_wine_prefix(&root, RunnerKind::GeProton).unwrap(),
@@ -2187,7 +2187,7 @@ mod tests {
             kind: RunnerKind::Wine,
             name: "Controlled Wine".to_owned(),
             version: "test".to_owned(),
-            path: fs::canonicalize(path)
+            path: dunce::canonicalize(path)
                 .unwrap()
                 .to_string_lossy()
                 .into_owned(),
@@ -2200,7 +2200,7 @@ mod tests {
         fs::write(&executable, b"stub").unwrap();
         game_process::ProcessTarget::Runner {
             token: token.to_owned(),
-            executable_path: fs::canonicalize(executable).unwrap(),
+            executable_path: dunce::canonicalize(executable).unwrap(),
             installation_root: None,
             launcher_pid: None,
         }
@@ -2449,7 +2449,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             generated,
-            fs::canonicalize(&prefix_root).unwrap().join(game_id)
+            dunce::canonicalize(&prefix_root).unwrap().join(game_id)
         );
 
         let custom_prefix = base.join("custom-prefix");
@@ -2461,7 +2461,7 @@ mod tests {
                 Some(custom_prefix.to_str().unwrap()),
             )
             .unwrap(),
-            fs::canonicalize(custom_prefix).unwrap()
+            dunce::canonicalize(custom_prefix).unwrap()
         );
 
         let game_directory = base.join("game");

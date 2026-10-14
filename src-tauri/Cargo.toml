@@ -17,6 +17,7 @@ base64 = "0.23"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 compress-tools = "0.16"
 dirs = "7"
+dunce = "1"
 image = { version = "0.25", default-features = false, features = ["ico", "png", "jpeg", "webp"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 regex = "1"
