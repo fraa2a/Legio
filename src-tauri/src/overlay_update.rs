@@ -317,11 +317,26 @@ pub(crate) fn apply(
             let saved = backup.join(relative(&file.path)?);
             fs::create_dir_all(saved.parent().ok_or("Backup has no parent")?)
                 .map_err(|error| error.to_string())?;
-            fs::copy(&source, &saved)
+            let mut input = fs::File::open(&source)
+                .map_err(|error| format!("Could not open installed file for backup: {error}"))?;
+            let mut output = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&saved)
+                .map_err(|error| format!("Could not create update backup file: {error}"))?;
+            crate::filesystem_copy::copy(&mut input, &mut output)
                 .map_err(|error| format!("Could not back up installed file: {error}"))?;
-            fs::File::open(&saved)
-                .and_then(|file| file.sync_all())
-                .map_err(|error| error.to_string())?;
+            output
+                .sync_all()
+                .map_err(|error| format!("Could not flush update backup: {error}"))?;
+            fs::set_permissions(
+                &saved,
+                input
+                    .metadata()
+                    .map_err(|error| error.to_string())?
+                    .permissions(),
+            )
+            .map_err(|error| format!("Could not preserve backup permissions: {error}"))?;
         }
         crate::finalize_install::sync_directory(&backup)?;
         let manifest = serde_json::to_string(&overlay).map_err(|error| error.to_string())?;
