@@ -594,7 +594,6 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
     fn recovery_finishes_after_marker_cleanup_without_requiring_a_game_marker() {
         let (root, database, intent) = fixture("copied");
@@ -614,6 +613,7 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn failed_copy_releases_reservation_without_restart() {
         let (root, database, intent) = fixture("prepared");
