@@ -656,7 +656,13 @@ mod tests {
         let scan = scan_directory(root.to_str().unwrap(), Some("Portal")).unwrap();
         assert_eq!(
             scan.selected_path,
-            Some(root.join("Portal.exe").to_str().unwrap().to_owned())
+            Some(
+                dunce::canonicalize(root.join("Portal.exe"))
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_owned()
+            )
         );
         fs::remove_dir_all(root).unwrap();
     }

@@ -848,7 +848,10 @@ pub(crate) fn kick<R: Runtime>(app: AppHandle<R>) {
         && !app
             .state::<DatabaseState>()
             .database()
-            .and_then(|database| has_status(database, DownloadStatus::Queued))
+            .and_then(|database| {
+                Ok(has_status(database, DownloadStatus::Queued)?
+                    || has_status(database, DownloadStatus::Waiting)?)
+            })
             .unwrap_or_else(|error| {
                 crate::application_log::failure("check_download_queue", error);
                 false
@@ -1654,8 +1657,19 @@ mod tests {
     fn test_app(directory: &Path) -> tauri::App<tauri::test::MockRuntime> {
         let mut context = tauri::test::mock_context(tauri::test::noop_assets());
         context.config_mut().identifier = format!("org.legio.test.{}", Uuid::new_v4());
+        let state = DatabaseState::new(Ok(directory.to_path_buf()));
+        if let Ok(database) = state.database() {
+            let mut settings = database.settings().unwrap();
+            settings.download_path = Some(directory.to_str().unwrap().to_owned());
+            settings.download_notifications = false;
+            database.save_settings(settings).unwrap();
+        }
         tauri::test::mock_builder()
-            .manage(DatabaseState::new(Ok(directory.to_path_buf())))
+            .manage(state)
+            .manage(crate::game_lifecycle::GameLaunchManager::new())
+            .manage(crate::game_artwork::GameArtworkStore::new(Err(
+                "No shortcut artwork in download fixture".into(),
+            )))
             .manage(DownloadQueueState::new(Ok(directory.to_path_buf()), "test").unwrap())
             .build(context)
             .unwrap()
@@ -1853,6 +1867,45 @@ mod tests {
     fn archive_fixture() -> (&'static [u8], String) {
         let bytes: &'static [u8] = include_bytes!("../test-fixtures/archive/safe.zip");
         (bytes, format!("{:x}", Sha256::digest(bytes)))
+    }
+
+    fn install_archive_fixture() -> (&'static [u8], String) {
+        let bytes: &'static [u8] = include_bytes!("../test-fixtures/archive/executable.zip");
+        (bytes, format!("{:x}", Sha256::digest(bytes)))
+    }
+
+    fn wait_for_installation(
+        app: &tauri::App<tauri::test::MockRuntime>,
+        database: &Database,
+        id: &str,
+    ) {
+        wait_for_status(database, id, "installed");
+        let started = Instant::now();
+        while app
+            .state::<DownloadQueueState>()
+            .processing
+            .lock()
+            .unwrap()
+            .contains(id)
+        {
+            assert!(
+                started.elapsed() < Duration::from_secs(3),
+                "installation did not settle"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            list(database)
+                .unwrap()
+                .into_iter()
+                .find(|job| job.id == id)
+                .unwrap()
+                .error
+                .as_deref(),
+            Some(
+                "Could not create application-menu shortcut: No shortcut artwork in download fixture"
+            )
+        );
     }
 
     fn archive_response(archive: &[u8]) -> Vec<u8> {
@@ -2241,7 +2294,7 @@ mod tests {
     async fn waiting_download_waits_for_connectivity_retry() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/archive", listener.local_addr().unwrap());
-        let (archive, hash) = archive_fixture();
+        let (archive, hash) = install_archive_fixture();
         let response = archive_response(archive);
         let (request_sent, request_received) = mpsc::channel();
         let server = thread::spawn(move || {
@@ -2299,13 +2352,12 @@ mod tests {
                 .load(Ordering::Acquire)
         );
 
-        resume_waiting(app_handle).await.unwrap();
+        resume_waiting(app_handle.clone()).await.unwrap();
         let request = request_received
             .recv_timeout(Duration::from_secs(3))
             .expect("connectivity retry should resume the waiting download");
         assert!(request.starts_with("GET /archive HTTP/1.1"));
-        wait_for_status(&database, &job.id, "staged");
-        assert_eq!(list(&database).unwrap()[0].error, None);
+        wait_for_installation(&app, &database, &job.id);
         server.join().unwrap();
 
         drop(app);
@@ -2317,7 +2369,7 @@ mod tests {
     async fn completed_download_is_verified_and_extracted_without_a_user_action() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/archive", listener.local_addr().unwrap());
-        let (archive, hash) = archive_fixture();
+        let (archive, hash) = install_archive_fixture();
         let response = archive_response(archive);
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
@@ -2356,13 +2408,13 @@ mod tests {
             .unwrap();
 
         kick(app.handle().clone());
-        wait_for_status(&database, &job.id, "staged");
-
-        let staged = directory
-            .join("downloads")
-            .join(format!("{}.stage", job.id));
-        assert_eq!(fs::read(staged.join("Game/data.bin")).unwrap(), b"hello");
-        assert_eq!(list(&database).unwrap()[0].error, None);
+        wait_for_installation(&app, &database, &job.id);
+        let installed = directory.join("installed").join(&job.id);
+        assert_eq!(
+            fs::read(installed.join("Game/start.sh")).unwrap(),
+            b"#!/bin/sh\nexit 0\n"
+        );
+        assert!(database.game(&job.id).unwrap().executable_path.is_some());
         server.join().unwrap();
 
         drop(app);
@@ -2375,7 +2427,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let url = format!("http://{}/archive", listener.local_addr().unwrap());
-        let (archive, hash) = archive_fixture();
+        let (archive, hash) = install_archive_fixture();
         let (request_sent, request_received) = mpsc::channel();
         let server = thread::spawn(move || {
             for (index, response) in [
@@ -2473,10 +2525,9 @@ mod tests {
             .recv_timeout(Duration::from_secs(3))
             .expect("manual retry should issue one request");
         assert_eq!(index, 2);
-        wait_for_status(&database, &job.id, "staged");
-        assert_eq!(list(&database).unwrap()[0].error, None);
+        wait_for_installation(&app, &database, &job.id);
         assert!(retry_download(app_handle, job.id.clone()).await.is_err());
-        assert_eq!(status(&database, &job.id).unwrap(), "staged");
+        assert_eq!(status(&database, &job.id).unwrap(), "installed");
         server.join().unwrap();
 
         drop(app);
