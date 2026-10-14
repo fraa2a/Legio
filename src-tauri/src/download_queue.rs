@@ -1262,28 +1262,11 @@ pub async fn queue_download(
             accept_unverified,
             source_id.as_deref(),
         )?;
-        if !app
-            .state::<DatabaseState>()
-            .database()?
-            .settings()?
-            .download_while_playing
-            && manager
-                .list()?
-                .iter()
-                .any(|state| state.status != crate::game_lifecycle::GameStatus::Idle)
-        {
-            app.state::<DatabaseState>()
-                .database()?
-                .with_connection(|connection| {
-                    connection
-                        .execute(
-                            "UPDATE downloads SET manual_override = 1 WHERE id = ?1",
-                            [job.id()],
-                        )
-                        .map_err(db_error)?;
-                    Ok(())
-                })?;
-        }
+        crate::download_policy::manual_start(
+            app.state::<DatabaseState>().database()?,
+            &manager,
+            job.id(),
+        )?;
         Ok::<_, String>(job)
     })
     .await

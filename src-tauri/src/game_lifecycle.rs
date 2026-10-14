@@ -2165,13 +2165,8 @@ mod tests {
             )
             .unwrap();
         crate::download_policy::sync(&database, &manager, &queue).unwrap();
-        database
-            .with_connection(|c| {
-                c.execute("UPDATE downloads SET manual_override=1", [])
-                    .map_err(crate::database::database_error)?;
-                Ok(())
-            })
-            .unwrap();
+        crate::download_policy::manual_start(&database, &manager, &first).unwrap();
+        crate::download_policy::manual_start(&database, &manager, &next).unwrap();
         crate::download_policy::sync(&database, &manager, &queue).unwrap();
         assert!(crate::download_policy::require_resumable(&database, &manager, &first).is_err());
         let states: (String,String) = database.with_connection(|c| c.query_row("SELECT a.status,b.status FROM downloads a,downloads b WHERE a.id=?1 AND b.id=?2", rusqlite::params![first,next], |row| Ok((row.get(0)?,row.get(1)?))).map_err(crate::database::database_error)).unwrap();

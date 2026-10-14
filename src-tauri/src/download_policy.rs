@@ -189,6 +189,30 @@ pub(crate) fn protect_launch<R: Runtime>(app: &AppHandle<R>, game_id: &str) -> R
     Ok(())
 }
 
+pub(crate) fn manual_start(
+    database: &Database,
+    manager: &GameLaunchManager,
+    id: &str,
+) -> Result<(), String> {
+    if !database.settings()?.download_while_playing
+        && manager
+            .list()?
+            .iter()
+            .any(|state| state.status != GameStatus::Idle)
+    {
+        database.with_connection(|connection| {
+            connection
+                .execute(
+                    "UPDATE downloads SET manual_override = 1 WHERE id = ?1",
+                    [id],
+                )
+                .map_err(database_error)?;
+            Ok(())
+        })?;
+    }
+    Ok(())
+}
+
 pub(crate) fn require_resumable(
     database: &Database,
     manager: &GameLaunchManager,

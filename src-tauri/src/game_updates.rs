@@ -202,12 +202,11 @@ pub(crate) async fn queue_game_update(
         let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
         let _operation = manager.operation()?;
         manager.require_idle(&game_id)?;
-        enqueue(
-            app.state::<DatabaseState>().database()?,
-            &game_id,
-            accept_unverified,
-            false,
-        )
+        let state = app.state::<DatabaseState>();
+        let database = state.database()?;
+        let id = enqueue(database, &game_id, accept_unverified, false)?;
+        crate::download_policy::manual_start(database, &manager, &id)?;
+        Ok::<_, String>(id)
     })
     .await
     .map_err(|error| error.to_string())??;
