@@ -218,11 +218,14 @@ fn insert(
         if exists { return Ok(()); }
         let count: i64 = connection.query_row("SELECT COUNT(*) FROM download_sources", [], |row| row.get(0)).map_err(db_error)?;
         if count >= MAX_SOURCES { return Err(format!("You can install up to {MAX_SOURCES} sources")); }
-        connection.execute("INSERT INTO download_sources (id, url, manifest, fetched_at) VALUES (?1, ?2, ?3, ?4)", rusqlite::params![uuid::Uuid::new_v4().to_string(), url, bytes, fetched_at]).map_err(db_error)?;
+        connection.execute("INSERT INTO download_sources (id, url, manifest, fetched_at, url_sha256) VALUES (?1, ?2, ?3, ?4, ?5)", rusqlite::params![uuid::Uuid::new_v4().to_string(), url, bytes, fetched_at, crate::game_library::source_hash(url)?]).map_err(db_error)?;
         Ok(())
     })?;
     *cache = None;
-    Ok(())
+    database.with_connection(|connection| {
+        connection.execute("UPDATE game_source_installs SET source_id = (SELECT id FROM download_sources s WHERE s.url_sha256 = game_source_installs.source_sha256), accepted_unverified = 0 WHERE NOT EXISTS(SELECT 1 FROM download_sources s WHERE s.id = game_source_installs.source_id) AND source_sha256 IN (SELECT url_sha256 FROM download_sources)", []).map_err(db_error)?;
+        Ok(())
+    })
 }
 
 fn update(

@@ -80,6 +80,6 @@ export function createDesktopShortcut(gameId: string): Promise<{ path: string; w
   return invoke("create_game_shortcut", { gameId, location: "desktop" });
 }
 
-export function transferGame(gameId: string, sourceDirectory: string, destinationDirectory: string): Promise<{ game: Game; warning: string | null }> {
-  return invoke("transfer_game", { gameId, sourceDirectory, destinationDirectory });
+export function transferGame(gameId: string, destinationDirectory: string): Promise<{ game: Game; warning: string | null }> {
+  return invoke("transfer_game", { gameId, destinationDirectory });
 }

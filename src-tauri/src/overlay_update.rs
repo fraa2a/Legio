@@ -300,7 +300,32 @@ pub(crate) fn apply(
     {
         return Err("Update is not staged at the recorded path".into());
     }
-    let executable = relative(executable)?;
+    let archive_stage = stage.clone();
+    let original_executable = relative(executable)?;
+    checked(&archive_stage, executable)?;
+    let legacy: bool = database.with_connection(|connection| {
+        connection
+            .query_row(
+                "SELECT archive_layout = 'legacy' FROM games WHERE id = ?1",
+                [&game_id],
+                |row| row.get(0),
+            )
+            .map_err(database_error)
+    })?;
+    let stage = if legacy {
+        stage
+    } else {
+        let detected = crate::game_library::game_root(&stage.join(&original_executable))?;
+        if !detected.starts_with(&stage) {
+            return Err("Detected update directory escapes its archive".into());
+        }
+        detected
+    };
+    let executable = archive_stage
+        .join(&original_executable)
+        .strip_prefix(&stage)
+        .map_err(|error| error.to_string())?
+        .to_path_buf();
     let overlay = inventory(&stage, &target)?;
     if !metadata(&checked(&stage, &executable.to_string_lossy())?)?
         .is_some_and(|value| value.is_file())
@@ -379,7 +404,8 @@ pub(crate) fn apply(
         return Err(format!("{error}; previous game files restored"));
     }
     cleanup(database, &job, &backup)?;
-    crate::finalize_install::remove_stage_directory(&stage)?;
+    crate::game_library::flush_registered(database);
+    crate::finalize_install::remove_stage_directory(&archive_stage)?;
     database.with_connection(|connection| {
         connection
             .execute(

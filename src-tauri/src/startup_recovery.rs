@@ -80,6 +80,15 @@ pub(crate) fn start(app: AppHandle) {
                     .state::<crate::database::DatabaseState>()
                     .database()?,
             )?;
+            crate::game_library::adopt_existing(
+                worker
+                    .state::<crate::database::DatabaseState>()
+                    .database()?,
+            )?;
+            let state = worker.state::<crate::database::DatabaseState>();
+            let data = worker.path().app_data_dir().map_err(|e| e.to_string())?;
+            let storage = state.database()?.storage_root(&data)?;
+            crate::game_library::initialize(state.database()?, &storage);
             crate::download_queue::start(worker)
         })
         .await

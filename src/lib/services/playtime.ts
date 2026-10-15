@@ -14,3 +14,7 @@ export function getPlaytimeSummaries(): Promise<PlaytimeSummary[]> {
 export function getPlaytimeActivity(dayBoundaries: number[]): Promise<number[]> {
   return invoke<number[]>("get_playtime_activity", { dayBoundaries });
 }
+
+export function setGamePlaytime(gameId: string, totalMilliseconds: number): Promise<void> {
+  return invoke<void>("set_game_playtime", { gameId, totalMilliseconds });
+}

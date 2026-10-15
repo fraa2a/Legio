@@ -244,6 +244,76 @@ pub async fn get_playtime_summaries(
 }
 
 #[tauri::command]
+pub async fn set_game_playtime(
+    app: AppHandle,
+    game_id: String,
+    total_milliseconds: i64,
+) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
+        let _operation = manager.operation()?;
+        manager.require_idle(&game_id)?;
+        let state = app.state::<DatabaseState>();
+        let database = state.database()?;
+        let game = database.game(&game_id)?;
+        if let Some(root) = game
+            .installation_root
+            .as_deref()
+            .or(game.steam_install_path.as_deref())
+            .map(std::path::Path::new)
+            && root.is_dir()
+            && crate::download_policy::external_busy(root)?
+        {
+            return Err("Close the game before changing its playtime".into());
+        }
+        database.set_playtime(&game_id, total_milliseconds, database::now_milliseconds()?)
+    })
+    .await
+    .map_err(|e| format!("Playtime edit task failed: {e}"))?
+}
+
+#[tauri::command]
+pub async fn get_game_libraries(
+    app: AppHandle,
+) -> Result<Vec<crate::game_library::LibraryInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::game_library::libraries(app.state::<DatabaseState>().database()?)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn import_game_library(app: AppHandle, directory: String) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
+        let _operation = manager.operation()?;
+        let database = app.state::<DatabaseState>();
+        for game in database.database()?.games()? {
+            manager.require_idle(&game.id)?;
+        }
+        crate::game_library::import(database.database()?, std::path::Path::new(&directory))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn repair_game_library(app: AppHandle, directory: String) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::game_library::repair(
+            app.state::<DatabaseState>().database()?,
+            std::path::Path::new(&directory),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub async fn get_playtime_activity(
     app: AppHandle,
     day_boundaries: Vec<i64>,
@@ -382,18 +452,23 @@ pub async fn reset_game_banner(app: AppHandle, game_id: String) -> Result<(), St
 }
 
 #[tauri::command]
-pub fn update_game(
-    state: State<'_, DatabaseState>,
-    input: UpdateGameInput,
-) -> Result<Game, String> {
-    state.database()?.update_game(input)
+pub fn update_game(app: AppHandle, input: UpdateGameInput) -> Result<Game, String> {
+    let game = app
+        .state::<DatabaseState>()
+        .database()?
+        .update_game(input)?;
+    crate::game_library::sync_default(&app)?;
+    Ok(game)
 }
 
 #[tauri::command]
 pub async fn remove_game(app: AppHandle, id: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || crate::game_lifecycle::remove_game(&app, &id))
-        .await
-        .map_err(|error| format!("Game removal task failed: {error}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::game_lifecycle::remove_game(&app, &id)?;
+        crate::game_library::remove_default(&app, &id)
+    })
+    .await
+    .map_err(|error| format!("Game removal task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -646,6 +721,7 @@ pub async fn import_manual_game(
     crate::startup_recovery::wait(&app).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let game = manual_import::import(&app.state::<DatabaseState>(), input)?;
+        crate::game_library::sync_default(&app)?;
         Ok(GameActionResult {
             shortcut_warning: crate::desktop_shortcuts::create_application_menu(&app, &game)
                 .unwrap_or_else(|error| {
@@ -691,6 +767,7 @@ pub async fn set_game_executable(
             &game_id,
             &executable_path,
         )?;
+        crate::game_library::sync_default(&app)?;
         Ok(GameActionResult {
             shortcut_warning: crate::desktop_shortcuts::create_application_menu(&app, &game)
                 .unwrap_or_else(|error| {

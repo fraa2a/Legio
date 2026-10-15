@@ -665,6 +665,7 @@ fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
                     None
                 };
             let game_id = finalize_install::automatic(database, &root, &job_id)?;
+            crate::game_library::sync_storage(database, &root)?;
             finalize_install::create_install_shortcut(&worker, database, &game_id)?;
             Ok::<_, String>(())
         })
@@ -2391,9 +2392,9 @@ mod tests {
 
         kick(app.handle().clone());
         wait_for_installation(&app, &database, &job.id);
-        let installed = directory.join("installed").join(&job.id);
+        let installed = directory.join("installed/Portal");
         assert_eq!(
-            fs::read(installed.join("Game/start.sh")).unwrap(),
+            fs::read(installed.join("start.sh")).unwrap(),
             b"#!/bin/sh\nexit 0\n"
         );
         assert!(database.game(&job.id).unwrap().executable_path.is_some());
