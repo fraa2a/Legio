@@ -10,7 +10,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 26;
+const SCHEMA_VERSION: i64 = 27;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -989,7 +989,7 @@ impl Database {
 
     pub fn remove_game(&self, id: &str) -> Result<(), String> {
         let id = parse_game_id(id)?;
-        let game = self.game(&id)?;
+
         self.with_connection(|connection| {
             let changed = connection
                 .execute("DELETE FROM games WHERE id = ?1", [&id])
@@ -999,13 +999,7 @@ impl Database {
             }
             Ok(())
         })?;
-        if let Some(root) = game
-            .installation_root
-            .as_deref()
-            .and_then(|path| std::path::Path::new(path).parent())
-        {
-            crate::game_library::remove(root, &id)?;
-        }
+        crate::game_library::flush_registered(self);
         Ok(())
     }
 
@@ -1052,14 +1046,31 @@ impl Database {
         })
     }
 
+    pub(crate) fn set_playtime(&self, game_id: &str, total: i64, now: i64) -> Result<(), String> {
+        let id = parse_game_id(game_id)?;
+        if !(0..=9_007_199_254_740_991).contains(&total) {
+            return Err("Playtime must be a non-negative safe integer in milliseconds".into());
+        }
+        self.with_connection(|connection| {
+            let tx = connection.unchecked_transaction().map_err(database_error)?;
+            let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM games WHERE id=?1)", [&id], |r|r.get(0)).map_err(database_error)?;
+            if !exists { return Err("game was not found".into()); }
+            let (recorded,active): (i64,bool) = tx.query_row("SELECT COALESCE(SUM(MAX(0,COALESCE(ended_at,?2)-started_at)),0), COALESCE(MAX(ended_at IS NULL),0) FROM game_sessions WHERE game_id=?1",params![id,now],|r|Ok((r.get(0)?,r.get(1)?))).map_err(database_error)?;
+            if active { return Err("Close the game before changing its playtime".into()); }
+            let adjustment = total.checked_sub(recorded).ok_or("Playtime exceeds the supported range")?;
+            tx.execute("UPDATE games SET playtime_adjustment=?2 WHERE id=?1",params![id,adjustment]).map_err(database_error)?;
+            tx.commit().map_err(database_error)
+        })
+    }
+
     pub(crate) fn playtime_summaries(&self, now: i64) -> Result<Vec<PlaytimeSummary>, String> {
         self.with_connection(|connection| {
             let mut statement = connection
                 .prepare(
                     "SELECT g.id,
-                         COALESCE(SUM(CASE WHEN s.ended_at IS NULL
+                         MAX(0, COALESCE(SUM(CASE WHEN s.ended_at IS NULL
                              THEN MAX(0, ?1 - s.started_at)
-                             ELSE MAX(0, s.ended_at - s.started_at) END), 0),
+                             ELSE MAX(0, s.ended_at - s.started_at) END), 0) + g.playtime_adjustment),
                          SUM(CASE WHEN s.id IS NOT NULL AND s.ended_at IS NULL THEN 1 ELSE 0 END),
                          MAX(s.started_at)
                      FROM games g LEFT JOIN game_sessions s ON s.game_id = g.id
@@ -1647,6 +1658,92 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             PRAGMA user_version = 26;",
             )
             .map_err(database_error)?;
+    }
+    if version < 27 {
+        for (table, column, definition) in [
+            ("games", "archive_layout", "TEXT NOT NULL DEFAULT 'direct'"),
+            ("games", "playtime_adjustment", "INTEGER NOT NULL DEFAULT 0"),
+            ("download_sources", "url_sha256", "TEXT"),
+            ("game_source_installs", "source_sha256", "TEXT"),
+        ] {
+            let exists: bool = transaction
+                .query_row(
+                    &format!(
+                        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1)"
+                    ),
+                    [column],
+                    |row| row.get(0),
+                )
+                .map_err(database_error)?;
+            if !exists {
+                transaction
+                    .execute_batch(&format!(
+                        "ALTER TABLE {table} ADD COLUMN {column} {definition};"
+                    ))
+                    .map_err(database_error)?;
+            }
+        }
+        let installs: Vec<(String, String)> = {
+            let mut q = transaction
+                .prepare(
+                    "SELECT id, installation_root FROM games WHERE installation_root IS NOT NULL",
+                )
+                .map_err(database_error)?;
+            q.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .map_err(database_error)?
+                .collect::<Result<_, _>>()
+                .map_err(database_error)?
+        };
+        for (id, root) in installs {
+            if Path::new(&root)
+                .file_name()
+                .is_some_and(|name| name == id.as_str())
+            {
+                transaction
+                    .execute(
+                        "UPDATE games SET archive_layout = 'legacy' WHERE id = ?1",
+                        [&id],
+                    )
+                    .map_err(database_error)?;
+            }
+        }
+        let sources: Vec<(String, String)> = {
+            let mut q = transaction
+                .prepare("SELECT id, url FROM download_sources")
+                .map_err(database_error)?;
+            q.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .map_err(database_error)?
+                .collect::<Result<_, _>>()
+                .map_err(database_error)?
+        };
+        for (id, url) in sources {
+            let hash = crate::game_library::source_hash(&url)?;
+            transaction
+                .execute(
+                    "UPDATE download_sources SET url_sha256 = ?2 WHERE id = ?1",
+                    params![id, hash],
+                )
+                .map_err(database_error)?;
+        }
+        transaction.execute_batch("CREATE UNIQUE INDEX IF NOT EXISTS download_sources_hash ON download_sources(url_sha256);
+            UPDATE game_source_installs SET source_sha256 = (SELECT url_sha256 FROM download_sources s WHERE s.id = source_id) WHERE source_sha256 IS NULL;
+            CREATE TABLE IF NOT EXISTS game_libraries (id TEXT PRIMARY KEY, root TEXT NOT NULL UNIQUE, dirty INTEGER NOT NULL DEFAULT 1, warning TEXT);
+            PRAGMA user_version = 27;").map_err(database_error)?;
+        for event in ["INSERT", "UPDATE", "DELETE"] {
+            let records: &[&str] = match event {
+                "INSERT" => &["NEW"],
+                "DELETE" => &["OLD"],
+                _ => &["OLD", "NEW"],
+            };
+            let roots = records.iter().map(|record|format!("substr(replace({record}.installation_root, char(92), '/'),1,length(replace(root,char(92),'/'))+1)=replace(root,char(92),'/')||'/'")).collect::<Vec<_>>().join(" OR ");
+            transaction.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS library_dirty_games_{event} AFTER {event} ON games BEGIN UPDATE game_libraries SET dirty=dirty+1 WHERE {roots}; END;")).map_err(database_error)?;
+            let games = records
+                .iter()
+                .map(|record| format!("g.id={record}.game_id"))
+                .collect::<Vec<_>>()
+                .join(" OR ");
+            transaction.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS library_dirty_game_source_installs_{event} AFTER {event} ON game_source_installs BEGIN UPDATE game_libraries SET dirty=dirty+1 WHERE EXISTS(SELECT 1 FROM games g WHERE ({games}) AND substr(replace(g.installation_root,char(92),'/'),1,length(replace(root,char(92),'/'))+1)=replace(root,char(92),'/')||'/'); END;")).map_err(database_error)?;
+        }
     }
     transaction.commit().map_err(database_error)
 }
@@ -2834,6 +2931,48 @@ mod tests {
         reopened.save_download_bandwidth_limit(0).unwrap();
         assert_eq!(reopened.download_bandwidth_limit().unwrap(), 0);
         drop(reopened);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn editing_playtime_preserves_sessions_and_future_accumulation() {
+        let directory =
+            std::env::temp_dir().join(format!("legio-playtime-edit-{}", Uuid::new_v4()));
+        let db = Database::open(&directory).unwrap();
+        let game = db
+            .create_game(CreateGameInput {
+                name: "Game".into(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        db.start_game_session(&game.id, 1000).unwrap();
+        db.end_game_session(&game.id, 11000).unwrap();
+        db.set_playtime(&game.id, 5000, 11000).unwrap();
+        assert_eq!(
+            db.playtime_summaries(11000).unwrap()[0].total_milliseconds,
+            5000
+        );
+        db.start_game_session(&game.id, 12000).unwrap();
+        assert!(db.set_playtime(&game.id, 0, 13000).is_err());
+        db.end_game_session(&game.id, 15000).unwrap();
+        assert_eq!(
+            db.playtime_summaries(15000).unwrap()[0].total_milliseconds,
+            8000
+        );
+        db.set_playtime(&game.id, 3600000, 15000).unwrap();
+        assert_eq!(
+            db.playtime_summaries(15000).unwrap()[0].total_milliseconds,
+            3600000
+        );
+        assert!(db.set_playtime(&game.id, -1, 15000).is_err());
+        let count: i64 = db
+            .with_connection(|c| {
+                c.query_row("SELECT COUNT(*) FROM game_sessions", [], |r| r.get(0))
+                    .map_err(database_error)
+            })
+            .unwrap();
+        assert_eq!(count, 2);
+        drop(db);
         fs::remove_dir_all(directory).unwrap();
     }
 

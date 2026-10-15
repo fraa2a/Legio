@@ -303,9 +303,15 @@ pub(crate) fn apply(
     let archive_stage = stage.clone();
     let original_executable = relative(executable)?;
     checked(&archive_stage, executable)?;
-    let legacy = target
-        .file_name()
-        .is_some_and(|name| name == game_id.as_str());
+    let legacy: bool = database.with_connection(|connection| {
+        connection
+            .query_row(
+                "SELECT archive_layout = 'legacy' FROM games WHERE id = ?1",
+                [&game_id],
+                |row| row.get(0),
+            )
+            .map_err(database_error)
+    })?;
     let stage = if legacy {
         stage
     } else {
@@ -398,10 +404,7 @@ pub(crate) fn apply(
         return Err(format!("{error}; previous game files restored"));
     }
     cleanup(database, &job, &backup)?;
-    crate::game_library::sync(
-        database,
-        target.parent().ok_or("Game has no library directory")?,
-    )?;
+    crate::game_library::flush_registered(database);
     crate::finalize_install::remove_stage_directory(&archive_stage)?;
     database.with_connection(|connection| {
         connection

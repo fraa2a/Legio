@@ -60,9 +60,9 @@ pub(crate) fn record_install_on(
     job_id: &str,
     game_id: &str,
 ) -> Result<(), String> {
-    connection.execute("INSERT INTO game_source_installs (game_id, source_id, entry_id, installed_version, accepted_unverified)
-            SELECT ?2, source_id, source_entry_id, release_version, NOT source_verified FROM downloads WHERE id = ?1 AND source_id IS NOT NULL
-            ON CONFLICT(game_id) DO UPDATE SET source_id = excluded.source_id, entry_id = excluded.entry_id, installed_version = excluded.installed_version, accepted_unverified = excluded.accepted_unverified", params![job_id, game_id]).map_err(database_error)?;
+    connection.execute("INSERT INTO game_source_installs (game_id, source_id, source_sha256, entry_id, installed_version, accepted_unverified)
+            SELECT ?2, source_id, (SELECT url_sha256 FROM download_sources WHERE id=source_id), source_entry_id, release_version, NOT source_verified FROM downloads WHERE id = ?1 AND source_id IS NOT NULL
+            ON CONFLICT(game_id) DO UPDATE SET source_id = excluded.source_id, source_sha256 = excluded.source_sha256, entry_id = excluded.entry_id, installed_version = excluded.installed_version, accepted_unverified = excluded.accepted_unverified", params![job_id, game_id]).map_err(database_error)?;
     Ok(())
 }
 
@@ -341,7 +341,7 @@ pub(crate) async fn bind_game_source(
         database.with_connection(|connection| {
             let active: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM downloads WHERE target_game_id = ?1 AND status NOT IN ('installed','cancelled'))", [&game_id], |row| row.get(0)).map_err(database_error)?;
             if active { return Err("Cancel the pending update before changing its source".into()); }
-            connection.execute("INSERT INTO game_source_installs (game_id,source_id,entry_id,installed_version,accepted_unverified) VALUES (?1,?2,?3,?4,?5) ON CONFLICT(game_id) DO UPDATE SET source_id=excluded.source_id,entry_id=excluded.entry_id,installed_version=excluded.installed_version,accepted_unverified=excluded.accepted_unverified", params![game_id,source_id,entry_id,version,!verified]).map_err(database_error)?;
+            connection.execute("INSERT INTO game_source_installs (game_id,source_id,source_sha256,entry_id,installed_version,accepted_unverified) VALUES (?1,?2,(SELECT url_sha256 FROM download_sources WHERE id=?2),?3,?4,?5) ON CONFLICT(game_id) DO UPDATE SET source_id=excluded.source_id,source_sha256=excluded.source_sha256,entry_id=excluded.entry_id,installed_version=excluded.installed_version,accepted_unverified=excluded.accepted_unverified", params![game_id,source_id,entry_id,version,!verified]).map_err(database_error)?;
             Ok(())
         })?;
         crate::game_library::sync_default(&app)

@@ -24,6 +24,8 @@ test("transfer asks only for a destination library and stays disabled while the 
     "src/lib/i18n": dataModule(storeImport + 'export const language=writable("it"); export const t=value=>value;'),
     "src/lib/stores/app-info": dataModule(storeImport + 'export const appInfo=writable({data:{platform:"windows"}});'),
     "src/lib/stores/launch": dataModule('export const launchStateByGame=globalThis.libraryFixture.launch;'),
+    "src/lib/stores/playtime": dataModule(storeImport + 'export const playtime=writable({data:[{gameId:"game",totalMilliseconds:3600000,activeSessions:0}]}); playtime.load=async()=>{};'),
+    "src/lib/services/playtime": dataModule('export const setGamePlaytime=async(...args)=>{globalThis.libraryFixture.calls.push(args);};'),
     "src/lib/stores/games": dataModule('export const reconcileGame=()=>{};'),
     "src/lib/services/dialog": dataModule('export const pickGameDirectory=async()=>"/new-library";'),
     "src/lib/services/local-state": dataModule('export const createDesktopShortcut=async()=>({}); export const transferGame=async(...args)=>{globalThis.libraryFixture.calls.push(args);return {game:globalThis.libraryFixture.game,warning:null};};'),
@@ -50,5 +52,14 @@ test("transfer asks only for a destination library and stays disabled while the 
     launch.set(new Map()); await settle();
     button.click(); await settle();
     assert.deepEqual(calls, [[game.id, "/new-library"]]);
+    [...target.querySelectorAll("button")].find(button => button.textContent.trim() === "Zona pericolosa").click(); await settle();
+    const hours = target.querySelector("#playtime-hours");
+    assert.ok(hours, "danger settings expose an editable playtime total");
+    assert.equal(hours.value, "1");
+    hours.value = "2";
+    hours.dispatchEvent(new dom.window.Event("input", {bubbles:true})); await settle();
+    [...target.querySelectorAll("button")].find(button => button.textContent.trim() === "Imposta tempo di gioco").click(); await settle();
+    [...target.querySelectorAll("button")].find(button => button.textContent.trim() === "Conferma modifica").click(); await settle();
+    assert.deepEqual(calls.at(-1), [game.id, 7200000]);
   } finally { await unmount(instance); target.remove(); delete globalThis.libraryFixture; }
 });

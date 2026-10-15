@@ -107,7 +107,8 @@ fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<Transfe
         .ok_or_else(|| "Select a game executable first".to_owned())?;
     let executable = dunce::canonicalize(executable)
         .map_err(|error| format!("Could not inspect game executable: {error}"))?;
-    let source = crate::game_library::installation_root(game.installation_root.as_deref(), &executable)?;
+    let source =
+        crate::game_library::installation_root(game.installation_root.as_deref(), &executable)?;
     require_not_running(&source)?;
     if !source.is_dir() {
         return Err("Transfer source is not a directory".to_owned());
@@ -141,7 +142,14 @@ fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<Transfe
         return Err("Destination library is not a directory".into());
     }
     let destination = database.database()?.with_connection(|connection| {
-        crate::game_library::available_target(connection, &parent, source.file_name().and_then(|name| name.to_str()).ok_or("Game directory name is not valid UTF-8")?)
+        crate::game_library::available_target(
+            connection,
+            &parent,
+            source
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or("Game directory name is not valid UTF-8")?,
+        )
     })?;
     if destination.starts_with(&source) || source.starts_with(&destination) {
         return Err("Source and destination directories overlap".to_owned());
@@ -176,7 +184,7 @@ fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<Transfe
         .and_then(|root| Path::new(root).parent())
         && old_library.join("library.ldf").is_file()
     {
-        crate::game_library::sync(database.database()?, old_library)?;
+        crate::game_library::publish(database.database()?, old_library);
     }
     crate::game_library::sync_default(app)?;
     Ok(TransferResult {
@@ -300,17 +308,17 @@ fn commit_transfer(database: &Database, intent: &TransferIntent) -> Result<(), S
 
 fn cleanup_transfer(database: &Database, intent: &TransferIntent) -> Result<(), String> {
     require_not_running(&intent.source)?;
-    crate::game_library::sync(
+    crate::game_library::publish(
         database,
         intent
             .destination
             .parent()
             .ok_or("Transfer has no destination library")?,
-    )?;
+    );
     if let Some(root) = intent.source.parent()
         && root.join("library.ldf").is_file()
     {
-        crate::game_library::sync(database, root)?;
+        crate::game_library::publish(database, root);
     }
     if !owns_destination(intent) {
         let completed = !intent.source.exists() && !intent.destination.join(MARKER).exists()

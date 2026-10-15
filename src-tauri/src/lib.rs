@@ -44,6 +44,7 @@ mod launch_environment;
 mod launch_journal;
 pub mod legio_source;
 mod legio_source_cache;
+mod library_manifest;
 #[cfg(target_os = "linux")]
 mod linux_performance;
 mod locale;
@@ -388,6 +389,10 @@ fn run_application(
             commands::save_steam_launch_config,
             commands::list_games,
             commands::get_playtime_summaries,
+            commands::set_game_playtime,
+            commands::get_game_libraries,
+            commands::import_game_library,
+            commands::repair_game_library,
             commands::get_playtime_activity,
             commands::create_game,
             commands::create_game_shortcut,

@@ -652,5 +652,20 @@
   "Aggiornamenti automatici dei giochi": "Automatic game updates",
   "Cartella di destinazione": "Destination library",
   "Seleziona la libreria di destinazione": "Select the destination library",
-  "Chiudi il gioco prima di trasferirlo.": "Close the game before transferring it."
+  "Chiudi il gioco prima di trasferirlo.": "Close the game before transferring it.",
+  "Modifica tempo di gioco": "Edit playtime",
+  "Impostazione avanzata: sostituisce il totale locale di Legio. Non modifica Steam né la cronologia delle sessioni.": "Advanced setting: replaces the local total in Legio. Steam and session history are unaffected.",
+  "Ore": "Hours",
+  "Minuti": "Minutes",
+  "Chiudi il gioco prima di modificare il tempo di gioco.": "Close the game before editing playtime.",
+  "Inserisci ore intere non negative e minuti da 0 a 59.": "Enter non-negative whole hours and minutes from 0 to 59.",
+  "Conferma modifica": "Confirm change",
+  "Imposta tempo di gioco": "Set playtime",
+  "Tempo di gioco aggiornato.": "Playtime updated.",
+  "Librerie dei giochi": "Game libraries",
+  "Importa libreria...": "Import library...",
+  "Ripara catalogo": "Repair catalog",
+  "Nessuna libreria registrata.": "No registered libraries.",
+  "Importa una cartella contenente library.ldf. I giochi restano nella posizione attuale.": "Import a folder containing library.ldf. Games stay in their current location.",
+  "La riparazione conserva una copia del catalogo e lo ricostruisce dai dati locali.": "Repair preserves a copy of the catalog and rebuilds it from local data."
 }

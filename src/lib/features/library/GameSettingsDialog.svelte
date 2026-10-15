@@ -11,6 +11,7 @@
   import Icon from "../../components/ui/Icon.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import GameArtworkPanel from "./GameArtworkPanel.svelte";
+  import PlaytimePanel from "./PlaytimePanel.svelte";
   import GameDetailsPanel from "./GameDetailsPanel.svelte";
   import ExecutablePanel from "./ExecutablePanel.svelte";
   import GameSettingsPanel from "./GameSettingsPanel.svelte";
@@ -161,7 +162,10 @@
           </Panel>
         {/if}
       {:else}
-        <GameDetailsPanel {game} {onRemoved} section="danger" />
+        <div class="flex flex-col gap-4">
+          <PlaytimePanel {game} />
+          <GameDetailsPanel {game} {onRemoved} section="danger" />
+        </div>
       {/if}
     </div>
   </div>

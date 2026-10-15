@@ -244,6 +244,68 @@ pub async fn get_playtime_summaries(
 }
 
 #[tauri::command]
+pub async fn set_game_playtime(
+    app: AppHandle,
+    game_id: String,
+    total_milliseconds: i64,
+) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
+        let _operation = manager.operation()?;
+        manager.require_idle(&game_id)?;
+        let state = app.state::<DatabaseState>();
+        let database = state.database()?;
+        if crate::download_policy::busy(database, &manager, &game_id)? {
+            return Err("Close the game before changing its playtime".into());
+        }
+        database.set_playtime(&game_id, total_milliseconds, database::now_milliseconds()?)
+    })
+    .await
+    .map_err(|e| format!("Playtime edit task failed: {e}"))?
+}
+
+#[tauri::command]
+pub async fn get_game_libraries(
+    app: AppHandle,
+) -> Result<Vec<crate::game_library::LibraryInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::game_library::libraries(app.state::<DatabaseState>().database()?)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn import_game_library(app: AppHandle, directory: String) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
+        let _operation = manager.operation()?;
+        let database = app.state::<DatabaseState>();
+        for game in database.database()?.games()? {
+            manager.require_idle(&game.id)?;
+        }
+        crate::game_library::import(database.database()?, std::path::Path::new(&directory))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn repair_game_library(app: AppHandle, directory: String) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::game_library::repair(
+            app.state::<DatabaseState>().database()?,
+            std::path::Path::new(&directory),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub async fn get_playtime_activity(
     app: AppHandle,
     day_boundaries: Vec<i64>,

@@ -411,8 +411,8 @@ fn finish(database: &Database, intent: &Intent) -> Result<(), String> {
     database.with_connection(|connection| {
         let transaction = connection.unchecked_transaction().map_err(database_error)?;
         transaction.execute(
-            "INSERT INTO games (id, steam_app_id, automatic_name, executable_path, installation_root) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![intent.id, intent.app_id, intent.name, executable.to_string_lossy(), intent.target.to_string_lossy()]
+            "INSERT INTO games (id, steam_app_id, automatic_name, executable_path, installation_root, archive_layout) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![intent.id, intent.app_id, intent.name, executable.to_string_lossy(), intent.target.to_string_lossy(), if intent.target.file_name().is_some_and(|name|name == intent.id.as_str()) { "legacy" } else { "direct" }]
         ).map_err(database_error)?;
         crate::game_updates::record_install_on(&transaction, &intent.id, &intent.id)?;
         let changed = transaction.execute(
@@ -422,13 +422,13 @@ fn finish(database: &Database, intent: &Intent) -> Result<(), String> {
         if changed != 1 { return Err("Finalization intent changed during commit".to_owned()); }
         transaction.commit().map_err(database_error)
     })?;
-    crate::game_library::sync(
+    crate::game_library::publish(
         database,
         intent
             .target
             .parent()
             .ok_or("Install has no library directory")?,
-    )?;
+    );
     remove_install_markers(&intent.target, &intent.token)?;
     if let Err(error) = cleanup_stage(database, &intent.id, &intent.stage) {
         save_cleanup_error(database, &intent.id, &error)
@@ -632,10 +632,10 @@ fn recover_cleanup(database: &Database, data_dir: &Path) -> Result<(), String> {
         let game_id = crate::game_updates::target(database, &id)?.unwrap_or_else(|| id.clone());
         let game = database.game(&game_id)?;
         if let Some(target) = game.installation_root.as_deref().map(Path::new) {
-            crate::game_library::sync(
+            crate::game_library::publish(
                 database,
                 target.parent().ok_or("Install has no library directory")?,
-            )?;
+            );
             let token: Option<String> = database.with_connection(|connection| {
                 connection
                     .query_row(
@@ -781,14 +781,16 @@ mod tests {
         let manifest = fs::read_to_string(root.parent().unwrap().join("library.ldf")).unwrap();
         assert!(manifest.contains(&id));
         assert!(manifest.contains("Game.exe"));
-        let manifest: toml::Value = toml::from_str(&manifest).unwrap();
-        assert_eq!(manifest["format"].as_integer(), Some(1));
-        assert_eq!(manifest["games"][0]["folder"].as_str(), Some("Test Game"));
+        let manifest: serde_json::Value = serde_json::from_str(&manifest).unwrap();
+        assert_eq!(manifest["format"].as_i64(), Some(1));
         assert_eq!(
-            manifest["games"][0]["executable"].as_str(),
+            manifest["games"][0]["installation"]["folder"].as_str(),
+            Some("Test Game")
+        );
+        assert_eq!(
+            manifest["games"][0]["installation"]["executable"].as_str(),
             Some("Game.exe")
         );
-        assert_eq!(manifest["games"][0]["version"].as_str(), Some("1.0"));
         fs::write(
             root.join(MARKER),
             database
@@ -807,7 +809,7 @@ mod tests {
         crate::game_library::adopt_existing(&database).unwrap();
         assert!(!root.join(MARKER).exists());
         database.remove_game(&id).unwrap();
-        let manifest: toml::Value = toml::from_str(
+        let manifest: serde_json::Value = serde_json::from_str(
             &fs::read_to_string(root.parent().unwrap().join("library.ldf")).unwrap(),
         )
         .unwrap();
