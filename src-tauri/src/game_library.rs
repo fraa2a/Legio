@@ -180,7 +180,7 @@ fn library_child(folder: &Path, root: &Path) -> bool {
     })
 }
 
-fn snapshot(database: &Database, root: &Path, id: String) -> Result<Library, String> {
+fn snapshot(database: &Database, root: &Path, id: String) -> Result<(Library, i64), String> {
     database.with_connection(|c| {
         let mut q = c.prepare("SELECT g.id, COALESCE(g.name_override,g.automatic_name), g.installation_root, g.executable_path, g.steam_app_id, g.archive_layout, COALESCE(i.source_sha256,s.url_sha256), i.entry_id, COALESCE(i.installed_version,d.release_version) FROM games g LEFT JOIN game_source_installs i ON i.game_id = g.id LEFT JOIN download_sources s ON s.id = i.source_id LEFT JOIN downloads d ON d.id = g.id AND d.status = 'installed' WHERE g.steam_install_path IS NULL AND g.installation_root IS NOT NULL AND g.executable_path IS NOT NULL ORDER BY g.id").map_err(database_error)?;
         let rows = q.query_map([], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,Option<u32>>(4)?,r.get::<_,String>(5)?,r.get::<_,Option<String>>(6)?,r.get::<_,Option<String>>(7)?,r.get::<_,Option<String>>(8)?))).map_err(database_error)?;
@@ -204,7 +204,8 @@ fn snapshot(database: &Database, root: &Path, id: String) -> Result<Library, Str
                 _ => None,
             }});
         }
-        Ok(Library {format:1,library_id:id,games})
+        let revision = c.query_row("SELECT dirty FROM game_libraries WHERE root=?1",[root.to_string_lossy()],|r| r.get(0)).map_err(database_error)?;
+        Ok((Library {format:1,library_id:id,games},revision))
     })
 }
 
@@ -463,10 +464,7 @@ pub(crate) fn sync(database: &Database, root: &Path) -> Result<(), String> {
     if existing.as_ref().is_some_and(|l| l.library_id != id) {
         return Err("Library identity does not match the registered directory".into());
     }
-    let revision = cached_library(database, &root)?
-        .ok_or("Library is not registered")?
-        .1;
-    let desired = snapshot(database, &root, id)?;
+    let (desired, revision) = snapshot(database, &root, id)?;
     let expected: Option<String> = database.with_connection(|c| {
         c.query_row(
             "SELECT manifest_hash FROM game_libraries WHERE root=?1",
@@ -716,7 +714,6 @@ mod tests {
             PathBuf::from(database.game(&id).unwrap().installation_root.unwrap()),
             dunce::canonicalize(root.join("Game")).unwrap()
         );
-        sync(&database, &root).unwrap();
         assert_eq!(
             cached_library(&database, &dunce::canonicalize(&root).unwrap())
                 .unwrap()
