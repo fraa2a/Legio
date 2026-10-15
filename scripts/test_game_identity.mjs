@@ -21,12 +21,13 @@ async function fixture(steamAppId, nameOverride = "My custom version") {
   const storeImport = `import { writable } from "${import.meta.resolve("svelte/store")}";`;
   const { resolveImports } = createModuleLoader({
     "src/lib/i18n": dataModule(storeImport + 'export const language=writable("it"); export const t=value=>value;'),
-    "src/lib/stores/games": dataModule(`export const deleteGame=async()=>{}; export const saveGame=async input=>{
+    "src/lib/stores/games": dataModule(`export const deleteGame=async()=>{}; export const hideSteamGame=async()=>{}; export const saveGame=async input=>{
       const state=globalThis.identityFixture; state.calls.push(input);
       if(state.fail) throw new Error("Could not save identity");
       let current; state.game.subscribe(value=>current=value)();
       const updated={...current,...input,name:input.nameOverride??input.automaticName}; state.game.set(updated); return updated;
     };`),
+    "src/lib/stores/settings": dataModule(storeImport + 'export const settings=writable({data:{syncSteamGames:true}});'),
     "src/lib/stores/source": dataModule(storeImport + 'export const source=writable({data:{manifest:null,sources:[]}});'),
     "src/lib/stores/game-updates": dataModule("export const gameUpdates = { load: async () => {} };"),
     "src/lib/stores/manual-import": dataModule('export const detectManualGameSteamAppId=async()=>{throw new Error("Unexpected auto detection");};'),
