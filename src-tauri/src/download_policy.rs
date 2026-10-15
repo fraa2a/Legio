@@ -264,6 +264,7 @@ pub(crate) fn start<R: Runtime>(app: AppHandle<R>) {
         let mut jobs = app.state::<DownloadQueueState>().policy_changes.subscribe();
         let mut polling = true;
         let mut tick = tokio::time::interval(Duration::from_secs(1));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tokio::select! { _ = tick.tick(), if polling => {}, result = changes.changed() => { if result.is_err() { return; } }, result = jobs.changed() => { if result.is_err() { return; } } }
             let worker = app.clone();
@@ -292,4 +293,24 @@ pub(crate) fn start<R: Runtime>(app: AppHandle<R>) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn idle_policy_does_not_load_unused_settings() {
+        let root = std::env::temp_dir().join(format!("legio-idle-policy-{}", uuid::Uuid::new_v4()));
+        let database = Database::open(&root).unwrap();
+        database.with_connection(|c| {
+            c.execute("INSERT OR REPLACE INTO settings (key,value) VALUES ('app_preferences','invalid JSON')",[]).map_err(database_error)?;
+            Ok(())
+        }).unwrap();
+        assert!(database.settings().is_err());
+        let queue = DownloadQueueState::new(Ok(root.clone()), "test").unwrap();
+        assert!(!sync(&database, &GameLaunchManager::default(), &queue).unwrap());
+        drop(database);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

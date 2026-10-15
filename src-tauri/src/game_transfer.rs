@@ -612,6 +612,7 @@ mod tests {
         ensure_launchable(&database, "unrelated-game").unwrap();
         assert_eq!(pending_transfers(&database, None).unwrap().len(), 1);
         assert!(intent.source.join(&intent.relative).is_file());
+        drop(database);
         fs::remove_dir_all(root).unwrap();
     }
 

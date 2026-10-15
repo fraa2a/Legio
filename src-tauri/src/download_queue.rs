@@ -794,7 +794,7 @@ fn clean_cancelled(queue: &DownloadQueueState, database: &Database) -> Result<()
     for id in ids {
         if let Err(error) = queue
             .path(&id, "part")
-            .and_then(|path| remove_partial(&path))
+            .and_then(|path| remove_partial(&path).map_err(|error| error.to_string()))
         {
             cancellation_error(
                 database,
@@ -2178,6 +2178,7 @@ mod tests {
         .unwrap();
         stage_one(&queue, &database, &job.id).unwrap();
         assert_eq!(status(&database, &job.id).unwrap(), "staged");
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 

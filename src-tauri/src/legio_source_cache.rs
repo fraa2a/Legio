@@ -404,6 +404,7 @@ mod tests {
         let refreshed = cached_rows(&database).unwrap();
         assert!(!Arc::ptr_eq(&before, &refreshed));
         assert_eq!(refreshed[0].manifest.verified[0].steam_app_id, 401);
+        drop(database);
         std::fs::remove_dir_all(directory).unwrap();
     }
 

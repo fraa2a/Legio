@@ -678,6 +678,7 @@ mod tests {
             })
             .unwrap();
         assert!(cached_library(&database, &root).unwrap().unwrap().1 > 0);
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -687,13 +688,15 @@ mod tests {
         let root = directory.join("games");
         sync(&database, &root).unwrap();
         let path = root.join(FILE);
-        let file = fs::File::open(&path).unwrap();
+        let file = fs::OpenOptions::new().write(true).open(&path).unwrap();
         let modified = std::time::UNIX_EPOCH + std::time::Duration::from_secs(100);
         file.set_modified(modified).unwrap();
+        drop(file);
         let before = fs::read(&path).unwrap();
         sync(&database, &root).unwrap();
         assert_eq!(fs::read(&path).unwrap(), before);
         assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), modified);
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 

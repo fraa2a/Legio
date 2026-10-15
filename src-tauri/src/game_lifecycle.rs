@@ -368,7 +368,6 @@ impl GameLaunchManager {
         })
     }
 
-    #[cfg(any(windows, target_os = "linux"))]
     pub(crate) fn launch_native<R: Runtime>(
         &self,
         app: AppHandle<R>,
@@ -377,6 +376,8 @@ impl GameLaunchManager {
         crate::startup_recovery::require_ready(&app)?;
         let _operation = self.operation()?;
         let database = app.state::<DatabaseState>().shared_database()?;
+        self.require_idle(&game_id)?;
+        crate::game_transfer::ensure_launchable(&database, &game_id)?;
         let game = database.game(&game_id)?;
         if game.steam_install_path.is_some() {
             return Err("Steam-managed games must launch through Steam".to_owned());
@@ -555,6 +556,8 @@ impl GameLaunchManager {
         crate::startup_recovery::require_ready(&app)?;
         let _operation = self.operation()?;
         let database = app.state::<DatabaseState>().shared_database()?;
+        self.require_idle(&game_id)?;
+        crate::game_transfer::ensure_launchable(&database, &game_id)?;
         let game = database.game(&game_id)?;
         if game.steam_install_path.is_some() {
             return Err("Compatibility runners can only launch manually imported games".to_owned());
@@ -2275,7 +2278,6 @@ mod tests {
             .unwrap()
     }
 
-    #[cfg(any(windows, target_os = "linux"))]
     fn native_test_app(database_dir: &Path) -> tauri::App<tauri::test::MockRuntime> {
         let mut context = tauri::test::mock_context(tauri::test::noop_assets());
         context.config_mut().identifier = format!("org.legio.test.{}", uuid::Uuid::new_v4());
@@ -2388,7 +2390,6 @@ mod tests {
         }
     }
 
-    #[cfg(any(windows, target_os = "linux"))]
     fn wait_for_native_status(
         manager: &GameLaunchManager,
         game_id: &str,
@@ -2418,7 +2419,6 @@ mod tests {
         }
     }
 
-    #[cfg(any(windows, target_os = "linux"))]
     #[test]
     fn controlled_native_child_waits_for_stop() {
         if std::env::args().any(|arg| arg == "controlled_native_child_waits_for_stop") {
@@ -2426,7 +2426,6 @@ mod tests {
         }
     }
 
-    #[cfg(any(windows, target_os = "linux"))]
     #[test]
     fn native_manager_lifecycle_tracks_a_controlled_process() {
         let base = test_dir("native-manager-lifecycle");

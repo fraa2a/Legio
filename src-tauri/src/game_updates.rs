@@ -114,8 +114,9 @@ pub(crate) fn list(database: &Database) -> Result<Vec<GameUpdate>, String> {
     }
     let mut updates = Vec::new();
     for (game_id, source_id, entry_id, installed_version, app_id, accepted_unverified) in installs {
-        if let Some((source, entry, verified)) =
-            releases.get(&(source_id.as_str(), entry_id.as_str(), app_id))
+        if let Some((source, entry, verified)) = releases
+            .get(&(source_id.as_str(), entry_id.as_str(), app_id))
+            .copied()
             && entry.release.version != installed_version
         {
             updates.push(GameUpdate {
@@ -127,7 +128,7 @@ pub(crate) fn list(database: &Database) -> Result<Vec<GameUpdate>, String> {
                 installed_version,
                 version: entry.release.version.clone(),
                 size_bytes: entry.download.size_bytes,
-                verified: *verified,
+                verified,
                 accepted_unverified,
                 fresh: source.fresh,
             });
