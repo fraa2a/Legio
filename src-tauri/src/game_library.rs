@@ -60,6 +60,10 @@ pub(crate) fn folder_name(name: &str) -> String {
             }
         })
         .take(100)
+        .scan(0, |bytes, character| {
+            *bytes += character.len_utf8();
+            (*bytes <= 200).then_some(character)
+        })
         .collect();
     let name = name.trim().trim_matches(['.', ' ']);
     let reserved = name.split('.').next().unwrap_or("").to_ascii_uppercase();
@@ -162,6 +166,14 @@ fn cached_library(database: &Database, root: &Path) -> Result<Option<(String, i6
     })
 }
 
+fn fingerprint(library: &Library) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    Ok(format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(library).map_err(|e| e.to_string())?)
+    ))
+}
+
 fn snapshot(database: &Database, root: &Path, id: String) -> Result<Library, String> {
     database.with_connection(|c| {
         let mut q = c.prepare("SELECT g.id, COALESCE(g.name_override,g.automatic_name), g.installation_root, g.executable_path, g.steam_app_id, g.archive_layout, COALESCE(i.source_sha256,s.url_sha256), i.entry_id, COALESCE(i.installed_version,d.release_version) FROM games g LEFT JOIN game_source_installs i ON i.game_id = g.id LEFT JOIN download_sources s ON s.id = i.source_id LEFT JOIN downloads d ON d.id = g.id AND d.status = 'installed' WHERE g.steam_install_path IS NULL AND g.installation_root IS NOT NULL AND g.executable_path IS NOT NULL ORDER BY g.id").map_err(database_error)?;
@@ -184,7 +196,12 @@ fn snapshot(database: &Database, root: &Path, id: String) -> Result<Library, Str
     })
 }
 
-fn index(database: &Database, root: &Path, library: &Library) -> Result<(), String> {
+fn index(
+    database: &Database,
+    root: &Path,
+    library: &Library,
+    remove_missing: bool,
+) -> Result<(), String> {
     manifest::validate(library)?;
     let mut paths = Vec::new();
     for game in &library.games {
@@ -196,11 +213,10 @@ fn index(database: &Database, root: &Path, library: &Library) -> Result<(), Stri
         let tx = c.unchecked_transaction().map_err(database_error)?;
         for (game,(folder,executable)) in library.games.iter().zip(paths) {
             let current: Option<(Option<String>,Option<String>)> = tx.query_row("SELECT installation_root,steam_install_path FROM games WHERE id = ?1", [&game.id], |r| Ok((r.get(0)?,r.get(1)?))).optional().map_err(database_error)?;
-            if let Some((old,steam)) = current {
-                if steam.is_some() || old.as_deref().is_some_and(|old| Path::new(old) != folder && Path::new(old).exists()) {
+            if let Some((old,steam)) = current
+                && (steam.is_some() || old.as_deref().is_some_and(|old| Path::new(old) != folder && Path::new(old).exists())) {
                     return Err("An imported game ID already belongs to another installation".into());
                 }
-            }
             let duplicate: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM games WHERE executable_path = ?1 AND id <> ?2)", params![executable.to_string_lossy(),game.id], |r| r.get(0)).map_err(database_error)?;
             if duplicate { return Err("An imported executable already belongs to another game".into()); }
             tx.execute("INSERT INTO games (id,name_override,steam_app_id,installation_root,executable_path,archive_layout) VALUES (?1,?2,?3,?4,?5,?6) ON CONFLICT(id) DO UPDATE SET steam_app_id=excluded.steam_app_id, installation_root=excluded.installation_root,executable_path=excluded.executable_path,archive_layout=excluded.archive_layout",params![game.id,game.name,game.steam_app_id,folder.to_string_lossy(),executable.to_string_lossy(),game.installation.archive_layout]).map_err(database_error)?;
@@ -208,6 +224,27 @@ fn index(database: &Database, root: &Path, library: &Library) -> Result<(), Stri
                 let source: Option<String> = tx.query_row("SELECT id FROM download_sources WHERE url_sha256 = ?1", [&update.source_sha256], |r| r.get(0)).optional().map_err(database_error)?;
                 let source = source.unwrap_or_else(|| format!("sha256:{}",update.source_sha256));
                 tx.execute("INSERT INTO game_source_installs(game_id,source_id,source_sha256,entry_id,installed_version,accepted_unverified) VALUES (?1,?2,?3,?4,?5,0) ON CONFLICT(game_id) DO UPDATE SET source_id=excluded.source_id,source_sha256=excluded.source_sha256,entry_id=excluded.entry_id,installed_version=excluded.installed_version,accepted_unverified=CASE WHEN game_source_installs.source_sha256=excluded.source_sha256 AND game_source_installs.entry_id=excluded.entry_id THEN game_source_installs.accepted_unverified ELSE 0 END",params![game.id,source,update.source_sha256,update.entry_id,update.installed_version]).map_err(database_error)?;
+            } else {
+                tx.execute("DELETE FROM game_source_installs WHERE game_id=?1",[&game.id]).map_err(database_error)?;
+            }
+        }
+        if remove_missing {
+            let removed = {
+                let mut query = tx.prepare("SELECT id,installation_root FROM games WHERE steam_install_path IS NULL AND installation_root IS NOT NULL").map_err(database_error)?;
+                let rows = query.query_map([], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).map_err(database_error)?;
+                let ids: std::collections::HashSet<_> = library.games.iter().map(|game| game.id.as_str()).collect();
+                let mut removed = Vec::new();
+                for row in rows {
+                    let (id,path) = row.map_err(database_error)?;
+                    if Path::new(&path).parent() == Some(root) && !ids.contains(id.as_str()) {
+                        removed.push(id);
+                    }
+                }
+                removed
+            };
+            for id in removed {
+                tx.execute("DELETE FROM game_source_installs WHERE game_id=?1",[&id]).map_err(database_error)?;
+                tx.execute("UPDATE games SET installation_root=NULL,executable_path=NULL WHERE id=?1",[&id]).map_err(database_error)?;
             }
         }
         tx.commit().map_err(database_error)
@@ -382,15 +419,15 @@ pub(crate) fn import(database: &Database, root: &Path) -> Result<(), String> {
     if conflict.is_some_and(|path| Path::new(&path).exists()) {
         return Err("This library is already registered at another location".into());
     }
-    index(database, &root, &library)?;
+    index(database, &root, &library, true)?;
     let id = register(database, &root, Some(&library))?;
     if id != library.library_id {
         return Err("Library identity changed".into());
     }
     database.with_connection(|c| {
         c.execute(
-            "UPDATE game_libraries SET dirty=0,warning=NULL WHERE root=?1",
-            [root.to_string_lossy()],
+            "UPDATE game_libraries SET dirty=0,warning=NULL,manifest_hash=?2 WHERE root=?1",
+            params![root.to_string_lossy(), fingerprint(&library)?],
         )
         .map_err(database_error)?;
         Ok(())
@@ -405,7 +442,7 @@ pub(crate) fn sync(database: &Database, root: &Path) -> Result<(), String> {
     if known.is_none()
         && let Some(library) = &existing
     {
-        index(database, &root, library)?;
+        index(database, &root, library, false)?;
     }
     let id = register(database, &root, existing.as_ref())?;
     if existing.as_ref().is_some_and(|l| l.library_id != id) {
@@ -414,11 +451,26 @@ pub(crate) fn sync(database: &Database, root: &Path) -> Result<(), String> {
     let revision = cached_library(database, &root)?
         .ok_or("Library is not registered")?
         .1;
-    manifest::save(&root, &snapshot(database, &root, id)?)?;
+    let desired = snapshot(database, &root, id)?;
+    let expected: Option<String> = database.with_connection(|c| {
+        c.query_row(
+            "SELECT manifest_hash FROM game_libraries WHERE root=?1",
+            [root.to_string_lossy()],
+            |r| r.get(0),
+        )
+        .map_err(database_error)
+    })?;
+    if let (Some(expected), Some(current)) = (expected, existing.as_ref())
+        && fingerprint(current)? != expected
+        && fingerprint(current)? != fingerprint(&desired)?
+    {
+        return Err("Library changed outside this profile; local publication is pending. Import it before making local changes, or repair after reviewing the backup.".into());
+    }
+    manifest::save(&root, &desired)?;
     database.with_connection(|c| {
         c.execute(
-            "UPDATE game_libraries SET dirty=0,warning=NULL WHERE root=?1 AND dirty=?2",
-            params![root.to_string_lossy(), revision],
+            "UPDATE game_libraries SET dirty=CASE WHEN dirty=?2 THEN 0 ELSE dirty END,warning=NULL,manifest_hash=?3 WHERE root=?1",
+            params![root.to_string_lossy(), revision,fingerprint(&desired)?],
         )
         .map_err(database_error)?;
         Ok(())
@@ -428,10 +480,10 @@ pub(crate) fn sync(database: &Database, root: &Path) -> Result<(), String> {
 pub(crate) fn publish(database: &Database, root: &Path) {
     if let Err(error) = sync(database, root) {
         crate::application_log::failure("library_publication", &error);
-        if cached_library(database, root).ok().flatten().is_none() {
-            if let Err(register_error) = register(database, root, None) {
-                crate::application_log::failure("library_registration", register_error);
-            }
+        if cached_library(database, root).ok().flatten().is_none()
+            && let Err(register_error) = register(database, root, None)
+        {
+            crate::application_log::failure("library_registration", register_error);
         }
         if let Err(persist) = database.with_connection(|c| {
             c.execute(
@@ -580,6 +632,94 @@ mod tests {
     }
 
     #[test]
+    fn another_profile_cannot_overwrite_a_manifest_that_changed_since_import() {
+        let (directory, database, id) = installed_fixture();
+        let root = directory.join("games");
+        sync(&database, &root).unwrap();
+        let other = Database::open(&directory.join("other")).unwrap();
+        import(&other, &root).unwrap();
+        let mut input = crate::database::UpdateGameInput {
+            id: id.clone(),
+            steam_app_id: Some(42),
+            automatic_name: None,
+            name_override: Some("Changed elsewhere".into()),
+        };
+        other.update_game(input.clone()).unwrap();
+        sync(&other, &root).unwrap();
+        input.name_override = Some("Local change".into());
+        database.update_game(input).unwrap();
+        assert!(sync(&database, &root).is_err());
+        assert_eq!(
+            manifest::read(&root).unwrap().unwrap().games[0].name,
+            "Changed elsewhere"
+        );
+        drop(other);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn importing_removed_installations_preserves_history_without_republishing_them() {
+        let (directory, database, id) = installed_fixture();
+        let root = directory.join("games");
+        sync(&database, &root).unwrap();
+        let mut library = manifest::read(&root).unwrap().unwrap();
+        library.games.clear();
+        manifest::save(&root, &library).unwrap();
+        import(&database, &root).unwrap();
+        assert!(database.game(&id).unwrap().installation_root.is_none());
+        sync(&database, &root).unwrap();
+        assert!(manifest::read(&root).unwrap().unwrap().games.is_empty());
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn simultaneous_publications_keep_every_game() {
+        let (directory, database, _) = installed_fixture();
+        let root = directory.join("games");
+        sync(&database, &root).unwrap();
+        let database = std::sync::Arc::new(database);
+        let workers: Vec<_> = (0..4)
+            .map(|n| {
+                let db = database.clone();
+                let root = root.clone();
+                std::thread::spawn(move || {
+                    let folder = root.join(format!("Game{n}"));
+                    fs::create_dir(&folder).unwrap();
+                    fs::write(folder.join("game.exe"), b"game").unwrap();
+                    let game = db
+                        .create_game(crate::database::CreateGameInput {
+                            name: format!("Game{n}"),
+                            steam_app_id: None,
+                        })
+                        .unwrap();
+                    db.with_connection(|c| {
+                        c.execute(
+                            "UPDATE games SET installation_root=?2,executable_path=?3 WHERE id=?1",
+                            params![
+                                game.id,
+                                folder.to_string_lossy(),
+                                folder.join("game.exe").to_string_lossy()
+                            ],
+                        )
+                        .map_err(database_error)?;
+                        Ok(())
+                    })
+                    .unwrap();
+                    sync(&db, &root).unwrap();
+                })
+            })
+            .collect();
+        for worker in workers {
+            worker.join().unwrap();
+        }
+        assert_eq!(manifest::read(&root).unwrap().unwrap().games.len(), 5);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn source_hash_is_stable_for_the_validated_url() {
         assert_eq!(
             source_hash("https://example.com/legio/main.json").unwrap(),
@@ -590,6 +730,33 @@ mod tests {
             source_hash("https://example.com/legio/main.json").unwrap()
         );
         assert!(source_hash("http://example.com/source.json").is_err());
+    }
+
+    #[test]
+    fn legacy_manifest_migration_retains_update_layout_and_original_backup() {
+        let (directory, database, id) = installed_fixture();
+        let root = directory.join("games");
+        let old = format!(
+            "format = 1\n[[games]]\nid = '{id}'\nname = 'Old game'\nfolder = '{id}'\nexecutable = 'Game/Game.exe'\n"
+        );
+        fs::write(root.join(FILE), &old).unwrap();
+        let library = load(&database, &root).unwrap().unwrap();
+        assert_eq!(library.games[0].installation.archive_layout, "legacy");
+        assert_eq!(manifest::read(&root).unwrap().unwrap().games[0].id, id);
+        let backup = fs::read_dir(&root)
+            .unwrap()
+            .find_map(|entry| {
+                let path = entry.unwrap().path();
+                path.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("library.ldf.legacy-")
+                    .then_some(path)
+            })
+            .unwrap();
+        assert_eq!(fs::read_to_string(backup).unwrap(), old);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -795,6 +962,9 @@ mod tests {
         assert_eq!(folder_name("CON.exe"), "_CON.exe");
         assert_eq!(folder_name("../A:B?*"), "_A_B__");
         assert_eq!(folder_name("..."), "Game");
+        let unicode = folder_name(&"🎮".repeat(100));
+        assert!(unicode.len() <= 200);
+        fs::create_dir(directory.join(unicode)).unwrap();
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }

@@ -16,11 +16,11 @@ Advanced playtime editing changes only Legio's total via a persisted adjustment,
 
 Native execution on the existing PR branch, without subagents. No version bump, no rendering dependencies, no merge while checks fail.
 
-- [ ] Add regression coverage for recorded roots, folder names and source hashing; correct transfer/manual executable selection and legacy update layout metadata.
-- [ ] Add schema migration for registered libraries, pending manifest writes, update source hashes and playtime adjustments. Exercise fresh and existing database migration paths.
-- [ ] Implement versioned JSON manifests, validation, local source matching, import and per-library synchronization. Test corrupt files, removals, missing sources, concurrent publication and portable paths.
-- [ ] Route startup and mutating commands through recoverable synchronization, remove the duplicate global catalog, and expose library registration/import through the existing locations UI.
-- [ ] Add playtime editing service, command and danger panel. Test increase/decrease, active-session rejection and frontend refresh.
+- [x] Add regression coverage for recorded roots, folder names and source hashing; correct transfer/manual executable selection and legacy update layout metadata.
+- [x] Add schema migration for registered libraries, pending manifest writes, update source hashes and playtime adjustments. Exercise fresh and existing database migration paths.
+- [x] Implement versioned JSON manifests, validation, local source matching, import and per-library synchronization. Test corrupt files, removals, missing sources, concurrent publication and portable paths.
+- [x] Route startup and mutating commands through recoverable synchronization, remove the duplicate global catalog, and expose library registration/import through the existing locations UI.
+- [x] Add playtime editing service, command and danger panel. Test increase/decrease, active-session rejection and frontend refresh.
 - [ ] Run frontend checks/tests/build and native verification where available; push progressive commits, inspect Linux/Windows CI, self-review the complete diff and update PR #201.
 
 ## Review focus
@@ -35,4 +35,9 @@ Native execution on the existing PR branch, without subagents. No version bump, 
 
 - Existing feature checkout is clean and isolated from main. Updated from origin/main before implementation.
 - User explicitly requested implementation after the in-chat design and review; continue within that authorization.
-- Rust tooling is absent locally; investigate runtime availability, otherwise use native CI and report the limitation explicitly.
+- Installed Rust 1.98.1 and ran formatting, an isolated core harness using the production SQLite/catalog modules, and Clippy with warnings denied. The harness does not compile the Tauri integration or platform process adapters.
+- Frontend type checking, lint, production build and all 17 test scripts passed locally. The local Node runtime is 24; repository CI uses the required Node 22.
+- Core regression coverage includes complete recorded roots, safe names including UTF-8 byte limits, private source identities, import without source trust, legacy format backup/layout, corrupt manifests and repair, interrupted deletion, import reconciliation, cross-profile conflicts, concurrent publication and playtime adjustment. The concurrent publication test also passed 30 consecutive runs.
+- Final review found and corrected stale imported installation entries, missing update binding removal, arbitrary manual update parent publication, and a revision/fingerprint race during concurrent mutation. Import detaches removed installations while retaining local game identity, preferences and session history.
+- Full native Linux tests stop in dependency build because pkg-config and GTK/WebKit development dependencies are unavailable. Windows native tests have not run locally. Both platform checks remain required before merge.
+- Push was rejected by automatic approval review. All implementation commits remain local; do not attempt an alternative export route. Obtain explicit authorization for pushing the reviewed commits to the existing PR branch, then inspect CI and update the PR before considering merge.

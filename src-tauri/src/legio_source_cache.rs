@@ -223,7 +223,7 @@ fn insert(
     })?;
     *cache = None;
     database.with_connection(|connection| {
-        connection.execute("UPDATE game_source_installs SET source_id = (SELECT id FROM download_sources s WHERE s.url_sha256 = game_source_installs.source_sha256) WHERE source_id LIKE 'sha256:%' AND source_sha256 IN (SELECT url_sha256 FROM download_sources)", []).map_err(db_error)?;
+        connection.execute("UPDATE game_source_installs SET source_id = (SELECT id FROM download_sources s WHERE s.url_sha256 = game_source_installs.source_sha256), accepted_unverified = 0 WHERE NOT EXISTS(SELECT 1 FROM download_sources s WHERE s.id = game_source_installs.source_id) AND source_sha256 IN (SELECT url_sha256 FROM download_sources)", []).map_err(db_error)?;
         Ok(())
     })
 }

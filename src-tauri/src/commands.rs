@@ -256,7 +256,15 @@ pub async fn set_game_playtime(
         manager.require_idle(&game_id)?;
         let state = app.state::<DatabaseState>();
         let database = state.database()?;
-        if crate::download_policy::busy(database, &manager, &game_id)? {
+        let game = database.game(&game_id)?;
+        if let Some(root) = game
+            .installation_root
+            .as_deref()
+            .or(game.steam_install_path.as_deref())
+            .map(std::path::Path::new)
+            && root.is_dir()
+            && crate::download_policy::external_busy(root)?
+        {
             return Err("Close the game before changing its playtime".into());
         }
         database.set_playtime(&game_id, total_milliseconds, database::now_milliseconds()?)

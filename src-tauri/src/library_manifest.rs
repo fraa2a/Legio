@@ -147,8 +147,8 @@ pub(crate) fn validate(library: &Library) -> Result<(), String> {
         if !["direct", "legacy"].contains(&entry.installation.archive_layout.as_str()) {
             return Err("Invalid archive layout".into());
         }
-        if let Some(update) = &entry.update {
-            if update.source_sha256.len() != 64
+        if let Some(update) = &entry.update
+            && (update.source_sha256.len() != 64
                 || !update
                     .source_sha256
                     .bytes()
@@ -156,10 +156,9 @@ pub(crate) fn validate(library: &Library) -> Result<(), String> {
                 || update.entry_id.is_empty()
                 || update.entry_id.len() > 256
                 || update.installed_version.trim().is_empty()
-                || update.installed_version.len() > 128
-            {
-                return Err("Invalid update metadata in library".into());
-            }
+                || update.installed_version.len() > 128)
+        {
+            return Err("Invalid update metadata in library".into());
         }
     }
     Ok(())

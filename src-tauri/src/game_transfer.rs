@@ -145,10 +145,14 @@ fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<Transfe
         crate::game_library::available_target(
             connection,
             &parent,
-            source
+            match source
                 .file_name()
                 .and_then(|name| name.to_str())
-                .ok_or("Game directory name is not valid UTF-8")?,
+                .ok_or("Game directory name is not valid UTF-8")?
+            {
+                name if name == game.id => &game.name,
+                name => name,
+            },
         )
     })?;
     if destination.starts_with(&source) || source.starts_with(&destination) {

@@ -629,13 +629,18 @@ fn recover_cleanup(database: &Database, data_dir: &Path) -> Result<(), String> {
             .map_err(|_| "Stored download ID is invalid".to_owned())?
             .to_string();
         let stage = data_dir.join("downloads").join(format!("{id}.stage"));
-        let game_id = crate::game_updates::target(database, &id)?.unwrap_or_else(|| id.clone());
+        let update_target = crate::game_updates::target(database, &id)?;
+        let game_id = update_target.clone().unwrap_or_else(|| id.clone());
         let game = database.game(&game_id)?;
         if let Some(target) = game.installation_root.as_deref().map(Path::new) {
-            crate::game_library::publish(
-                database,
-                target.parent().ok_or("Install has no library directory")?,
-            );
+            if update_target.is_some() {
+                crate::game_library::flush_registered(database);
+            } else {
+                crate::game_library::publish(
+                    database,
+                    target.parent().ok_or("Install has no library directory")?,
+                );
+            }
             let token: Option<String> = database.with_connection(|connection| {
                 connection
                     .query_row(

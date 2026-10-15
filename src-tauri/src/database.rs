@@ -1727,7 +1727,7 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         }
         transaction.execute_batch("CREATE UNIQUE INDEX IF NOT EXISTS download_sources_hash ON download_sources(url_sha256);
             UPDATE game_source_installs SET source_sha256 = (SELECT url_sha256 FROM download_sources s WHERE s.id = source_id) WHERE source_sha256 IS NULL;
-            CREATE TABLE IF NOT EXISTS game_libraries (id TEXT PRIMARY KEY, root TEXT NOT NULL UNIQUE, dirty INTEGER NOT NULL DEFAULT 1, warning TEXT);
+            CREATE TABLE IF NOT EXISTS game_libraries (id TEXT PRIMARY KEY, root TEXT NOT NULL UNIQUE, dirty INTEGER NOT NULL DEFAULT 1, warning TEXT, manifest_hash TEXT);
             PRAGMA user_version = 27;").map_err(database_error)?;
         for event in ["INSERT", "UPDATE", "DELETE"] {
             let records: &[&str] = match event {
