@@ -68,14 +68,14 @@ export function loadSteamDetails(
   suppliedWork?: ArtworkWork,
 ): Promise<SteamDetailsResult> {
   const actualPolicy = typeof policy === "boolean" ? (policy ? "force_refresh" : "cache_or_fetch") : policy;
-  const consumer = suppliedWork ?? createArtworkWork(steamAppId, "visible");
+  const consumer = suppliedWork ?? createArtworkWork("visible");
   if (actualPolicy !== "force_refresh") {
     const pending = inflight.get(steamAppId);
     if (pending !== undefined && !pending.work.signal?.aborted) return retainMetadata(pending, consumer, !suppliedWork);
   }
   const generation = (generations.get(steamAppId) ?? 0) + 1;
   generations.set(steamAppId, generation);
-  const work = createArtworkWork(steamAppId, consumer.origin);
+  const work = createArtworkWork(consumer.origin);
   const task: MetadataTask = { promise: Promise.resolve({ details: null, cachedAt: null, stale: false }), work, consumers: new Set() };
   const abandoned = () => {
     if (generations.get(steamAppId) === generation) {
@@ -116,7 +116,7 @@ export function loadSteamDetails(
 export function ensureSteamDetails(steamAppId: number): () => void {
   const existing = get(steamDetails)[steamAppId];
   if (existing !== undefined && (existing.status === "ready" || existing.status === "empty")) return () => {};
-  const work = createArtworkWork(steamAppId, "visible");
+  const work = createArtworkWork("visible");
   void loadSteamDetails(steamAppId, "cache_or_fetch", work).catch(() => undefined).finally(() => work.release());
   return () => work.release();
 }

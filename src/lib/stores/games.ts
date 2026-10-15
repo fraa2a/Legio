@@ -34,6 +34,6 @@ export async function deleteGame(id: string): Promise<void> {
   try {
     await removeGame(id);
   } finally {
-    await games.load();
+    await games.reload();
   }
 }

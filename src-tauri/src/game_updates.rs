@@ -4,21 +4,25 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::database::{Database, DatabaseState, database_error};
 use crate::legio_source::{Manifest, SourceEntry};
+use std::{collections::HashMap, sync::Arc};
 
 #[derive(Clone)]
 pub(crate) struct Origin {
     pub id: String,
-    pub manifest: Manifest,
+    pub manifest: Arc<Manifest>,
     pub fresh: bool,
 }
 
 pub(crate) fn sources(database: &Database) -> Result<Vec<Origin>, String> {
-    database.with_connection(|connection| {
-        let mut query = connection.prepare("SELECT id, manifest, warning IS NULL AND fetched_at >= strftime('%s','now') - 86400 FROM download_sources ORDER BY rowid").map_err(database_error)?;
-        query.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?, row.get::<_, bool>(2)?))).map_err(database_error)?
-            .map(|row| { let (id, bytes, fresh) = row.map_err(database_error)?;
-                Ok(Origin { id, manifest: crate::legio_source::parse_manifest(&bytes).map_err(|error| error.to_string())?, fresh }) }).collect()
-    })
+    let now = crate::database::now_milliseconds()? / 1000;
+    Ok(crate::legio_source_cache::cached_rows(database)?
+        .iter()
+        .map(|row| Origin {
+            id: row.id.clone(),
+            manifest: row.manifest.clone(),
+            fresh: row.warning.is_none() && row.fetched_at >= now - 86400,
+        })
+        .collect())
 }
 
 pub(crate) fn find_download(
@@ -89,36 +93,44 @@ pub(crate) fn list(database: &Database) -> Result<Vec<GameUpdate>, String> {
             FROM game_source_installs i JOIN games g ON g.id = i.game_id WHERE i.entry_id IS NOT NULL AND g.steam_app_id IS NOT NULL AND g.steam_install_path IS NULL").map_err(database_error)?;
         query.query_map([], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?))).map_err(database_error)?.collect::<Result<_,_>>().map_err(database_error)
     })?;
-    let mut updates = Vec::new();
-    for (game_id, source_id, entry_id, installed_version, app_id, accepted_unverified) in installs {
-        let Some(source) = origins
-            .iter()
-            .find(|source| source.id == source_id && source.manifest.support_game_updates)
-        else {
+    let mut releases = HashMap::new();
+    for source in &origins {
+        if !source.manifest.support_game_updates {
             continue;
-        };
+        }
         for (verified, entries) in [
             (true, &source.manifest.verified),
             (false, &source.manifest.unverified),
         ] {
-            if let Some(entry) = entries.iter().find(|entry| {
-                entry.id.as_deref() == Some(&entry_id) && entry.steam_app_id == app_id
-            }) && entry.release.version != installed_version
-            {
-                updates.push(GameUpdate {
-                    game_id: game_id.clone(),
-                    source_id: source_id.clone(),
-                    entry_id: entry_id.clone(),
-                    steam_app_id: app_id,
-                    name: entry.name.clone(),
-                    installed_version: installed_version.clone(),
-                    version: entry.release.version.clone(),
-                    size_bytes: entry.download.size_bytes,
-                    verified,
-                    accepted_unverified,
-                    fresh: source.fresh,
-                });
+            for entry in entries {
+                if let Some(id) = entry.id.as_deref() {
+                    releases.insert(
+                        (source.id.as_str(), id, entry.steam_app_id),
+                        (source, entry, verified),
+                    );
+                }
             }
+        }
+    }
+    let mut updates = Vec::new();
+    for (game_id, source_id, entry_id, installed_version, app_id, accepted_unverified) in installs {
+        if let Some((source, entry, verified)) =
+            releases.get(&(source_id.as_str(), entry_id.as_str(), app_id))
+            && entry.release.version != installed_version
+        {
+            updates.push(GameUpdate {
+                game_id,
+                source_id,
+                entry_id,
+                steam_app_id: app_id,
+                name: entry.name.clone(),
+                installed_version,
+                version: entry.release.version.clone(),
+                size_bytes: entry.download.size_bytes,
+                verified: *verified,
+                accepted_unverified,
+                fresh: source.fresh,
+            });
         }
     }
     Ok(updates)
@@ -156,6 +168,23 @@ pub(crate) fn enqueue(
         .into_iter()
         .find(|entry| entry.game_id == game_id)
         .ok_or("No update is available for this game")?;
+    enqueue_update(
+        database,
+        &update,
+        &sources(database)?,
+        accept_unverified,
+        automatic,
+    )
+}
+
+fn enqueue_update(
+    database: &Database,
+    update: &GameUpdate,
+    origins: &[Origin],
+    accept_unverified: bool,
+    automatic: bool,
+) -> Result<String, String> {
+    let game_id = update.game_id.as_str();
     if automatic && (!update.fresh || (!update.verified && !update.accepted_unverified)) {
         return Err("This update requires confirmation or a fresh source".to_owned());
     }
@@ -166,8 +195,8 @@ pub(crate) fn enqueue(
     if let Some(id) = existing {
         return Ok(id);
     }
-    let origin = sources(database)?
-        .into_iter()
+    let origin = origins
+        .iter()
         .find(|source| source.id == update.source_id)
         .ok_or("Source is no longer installed")?;
     let entry = origin
@@ -219,9 +248,16 @@ pub(crate) fn queue_automatic(database: &Database) -> Result<(), String> {
         return Ok(());
     }
     backfill(database)?;
+    let origins = sources(database)?;
     for update in list(database)? {
         if update.fresh && (update.verified || update.accepted_unverified) {
-            enqueue(database, &update.game_id, update.accepted_unverified, true)?;
+            enqueue_update(
+                database,
+                &update,
+                &origins,
+                update.accepted_unverified,
+                true,
+            )?;
         }
     }
     Ok(())

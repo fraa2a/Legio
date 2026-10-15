@@ -35,7 +35,7 @@ async function syncSteamLibrary(): Promise<void> {
   steamLibrary.update((state) => ({ ...state, status: "loading", importing: true, error: null }));
   try {
     const importResult = await importSteamInstallations();
-    await games.load();
+    await games.reload();
     steamLibrary.set({ status: "ready", importing: false, importResult, error: null });
   } catch (error) {
     steamLibrary.update((state) => ({

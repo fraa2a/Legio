@@ -125,6 +125,7 @@ pub struct DownloadQueueState {
     bandwidth_limit: AtomicU64,
     wake: tokio::sync::Notify,
     limit_changed: tokio::sync::Notify,
+    pub(crate) policy_changes: tokio::sync::watch::Sender<()>,
     pub(crate) staging: tokio::sync::Mutex<()>,
     defer_extraction: AtomicBool,
     staging_changed: tokio::sync::Notify,
@@ -153,6 +154,7 @@ impl DownloadQueueState {
             bandwidth_limit: AtomicU64::new(0),
             wake: tokio::sync::Notify::new(),
             limit_changed: tokio::sync::Notify::new(),
+            policy_changes: tokio::sync::watch::channel(()).0,
             staging: tokio::sync::Mutex::new(()),
             defer_extraction: AtomicBool::new(false),
             staging_changed: tokio::sync::Notify::new(),
@@ -163,6 +165,7 @@ impl DownloadQueueState {
     pub(crate) fn set_defer_extraction(&self, enabled: bool) {
         self.defer_extraction.store(enabled, Ordering::Release);
         self.staging_changed.notify_waiters();
+        self.policy_changes.send_replace(());
     }
 
     #[cfg(test)]
@@ -720,22 +723,24 @@ fn recover_staging(queue: &DownloadQueueState, database: &Database) -> Result<()
             .map_err(db_error)
     })?;
     for id in ids {
-        let stage = queue.path(&id, "stage")?;
-        let archive = queue.path(&id, "archive")?;
-        let cleanup = remove_stage(&stage);
-        let next = if cleanup.is_ok() {
-            if archive.is_file() {
+        let recovered = (|| {
+            let stage = queue.path(&id, "stage")?;
+            let archive = queue.path(&id, "archive")?;
+            remove_stage(&stage)?;
+            Ok::<_, String>(if archive.is_file() {
                 "downloaded"
             } else {
                 "queued"
-            }
-        } else {
-            "failed"
+            })
+        })();
+        let (next, error) = match recovered {
+            Ok(next) => (next, None),
+            Err(error) => ("failed", Some(error)),
         };
         database.with_connection(|connection| {
             connection.execute(
                 "UPDATE downloads SET status = ?2, error = ?3, staged_path = NULL, updated_at = ?4 WHERE id = ?1 AND status = 'staging'",
-                params![id, next, cleanup.err(), now()?],
+                params![id, next, error, now()?],
             ).map_err(db_error)?;
             Ok(())
         })?;
@@ -787,7 +792,10 @@ fn clean_cancelled(queue: &DownloadQueueState, database: &Database) -> Result<()
             .map_err(db_error)
     })?;
     for id in ids {
-        if let Err(error) = remove_partial(&queue.path(&id, "part")?) {
+        if let Err(error) = queue
+            .path(&id, "part")
+            .and_then(|path| remove_partial(&path))
+        {
             cancellation_error(
                 database,
                 &id,
@@ -834,6 +842,9 @@ pub(crate) async fn resume_waiting<R: Runtime>(app: AppHandle<R>) -> Result<(), 
 }
 
 pub(crate) fn notify<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(queue) = app.try_state::<DownloadQueueState>() {
+        queue.policy_changes.send_replace(());
+    }
     if let Err(error) = app.emit("downloads-changed", ()) {
         crate::application_log::failure("publish_download_state", error);
     }
@@ -845,6 +856,7 @@ pub(crate) fn kick<R: Runtime>(app: AppHandle<R>) {
         return;
     }
     queue.wake.notify_one();
+    queue.policy_changes.send_replace(());
     if !queue.running.load(Ordering::Acquire)
         && !app
             .state::<DatabaseState>()
@@ -1332,6 +1344,9 @@ pub async fn retry_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result
         crate::download_policy::require_resumable(database, &manager, &id)?;
         if status(database, &id)? == "staged" {
             crate::overlay_update::recover(database)?;
+            if let Some(game) = crate::game_updates::target(database, &id)? {
+                crate::overlay_update::ensure_launchable(database, &game)?;
+            }
             database.with_connection(|connection| {
                 connection
                     .execute("UPDATE downloads SET error = NULL WHERE id = ?1", [&id])
@@ -2132,6 +2147,37 @@ mod tests {
         );
         assert_eq!(status(&database, &job.id).unwrap(), "failed");
         drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn inaccessible_staging_storage_is_a_retryable_job_failure() {
+        let (database, queue, job, directory) = downloaded_fixture();
+        database
+            .with_connection(|c| {
+                c.execute(
+                    "UPDATE downloads SET status='staging' WHERE id=?1",
+                    [&job.id],
+                )
+                .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+        let blocked = directory.join("unavailable-storage");
+        fs::write(&blocked, b"not a directory").unwrap();
+        queue.set_storage_root(&blocked).unwrap();
+        recover_staging(&queue, &database).unwrap();
+        assert_eq!(status(&database, &job.id).unwrap(), "failed");
+        queue.set_storage_root(&directory).unwrap();
+        change_status(
+            &database,
+            &job.id,
+            &[DownloadStatus::Failed],
+            DownloadStatus::Downloaded,
+        )
+        .unwrap();
+        stage_one(&queue, &database, &job.id).unwrap();
+        assert_eq!(status(&database, &job.id).unwrap(), "staged");
         fs::remove_dir_all(directory).unwrap();
     }
 

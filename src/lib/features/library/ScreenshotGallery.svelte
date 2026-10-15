@@ -7,12 +7,10 @@
   let {
     steamAppId,
     name,
-    version = null,
     screenshots,
   }: {
     steamAppId: number;
     name: string;
-    version?: number | null;
     screenshots: SteamDetails["assets"]["screenshots"];
   } = $props();
 
@@ -43,7 +41,7 @@
       asset="screenshot"
       index={active}
       screenshotIdentity={screenshots[active]?.full ?? screenshots[active]?.thumbnail ?? undefined}
-      {version}
+
       full
       alt="{t("Schermata ", $language)}{active + 1}{t(" di ", $language)}{name}"
       caption={false}
@@ -77,7 +75,7 @@
             asset="screenshot"
             index={position}
             screenshotIdentity={screenshot.thumbnail ?? screenshot.full ?? undefined}
-            {version}
+
             alt=""
             caption={false}
             class="size-full object-cover"
@@ -95,7 +93,7 @@
     index={active}
     screenshotIdentity={screenshots[active]?.full ?? screenshots[active]?.thumbnail ?? undefined}
     {count}
-    {version}
+
     alt="{t("Schermata ", $language)}{active + 1}{t(" di ", $language)}{name}"
     onSelect={select}
     onClose={() => (open = false)}

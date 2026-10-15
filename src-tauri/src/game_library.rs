@@ -479,7 +479,11 @@ pub(crate) fn sync(database: &Database, root: &Path) -> Result<(), String> {
     {
         return Err("Library changed outside this profile; local publication is pending. Import it before making local changes, or repair after reviewing the backup.".into());
     }
-    manifest::save(&root, &desired)?;
+    if existing.as_ref().map(fingerprint).transpose()?.as_deref()
+        != Some(fingerprint(&desired)?.as_str())
+    {
+        manifest::save(&root, &desired)?;
+    }
     database.with_connection(|c| {
         c.execute(
             "UPDATE game_libraries SET dirty=CASE WHEN dirty=?2 THEN 0 ELSE dirty END,warning=NULL,manifest_hash=?3 WHERE root=?1",
@@ -530,10 +534,20 @@ pub(crate) fn sync_storage(database: &Database, storage: &Path) -> Result<(), St
 }
 
 pub(crate) fn flush_registered(database: &Database) {
-    match libraries(database) {
-        Ok(libraries) => {
-            for library in libraries {
-                publish(database, Path::new(&library.root));
+    let pending = database.with_connection(|c| {
+        let mut query = c
+            .prepare("SELECT root FROM game_libraries WHERE dirty != 0 ORDER BY root")
+            .map_err(database_error)?;
+        query
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(database_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(database_error)
+    });
+    match pending {
+        Ok(roots) => {
+            for root in roots {
+                publish(database, Path::new(&root));
             }
         }
         Err(error) => crate::application_log::failure("library_index", error),
@@ -644,6 +658,43 @@ mod tests {
             })
             .unwrap();
         (directory, database, game.id)
+    }
+
+    #[test]
+    fn local_playtime_changes_do_not_dirty_portable_metadata() {
+        let (directory, database, id) = installed_fixture();
+        let root = directory.join("games");
+        sync(&database, &root).unwrap();
+        database.set_playtime(&id, 12000, 12000).unwrap();
+        assert_eq!(cached_library(&database, &root).unwrap().unwrap().1, 0);
+        database
+            .with_connection(|c| {
+                c.execute(
+                    "UPDATE games SET name_override='Renamed' WHERE id=?1",
+                    [&id],
+                )
+                .map_err(database_error)?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(cached_library(&database, &root).unwrap().unwrap().1 > 0);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn unchanged_sync_preserves_manifest_contents_and_modification_time() {
+        let (directory, database, _) = installed_fixture();
+        let root = directory.join("games");
+        sync(&database, &root).unwrap();
+        let path = root.join(FILE);
+        let file = fs::File::open(&path).unwrap();
+        let modified = std::time::UNIX_EPOCH + std::time::Duration::from_secs(100);
+        file.set_modified(modified).unwrap();
+        let before = fs::read(&path).unwrap();
+        sync(&database, &root).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), modified);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

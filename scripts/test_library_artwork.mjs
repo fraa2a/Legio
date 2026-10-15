@@ -31,6 +31,27 @@ const settle = async () => {
 };
 
 // Each App ID starts with empty details and image caches.
+test("library cover releases its image outside the viewport and reuses the shared cache on return", async () => {
+  const images = await import(await moduleUrl("src/lib/services/steam-details.ts"));
+  await images.loadSteamImage({ steamAppId: 7999, asset: "hero_blur", fallbackAsset: null, index: null, version: null, full: false });
+  requests.length = 0;
+  let intersect;
+  globalThis.IntersectionObserver = class { constructor(callback) { intersect = callback; } observe() {} disconnect() {} };
+  const source = `<script>import ArtworkTile from "./src/lib/components/ui/ArtworkTile.svelte";</script><ul><ArtworkTile steamAppId={7999} monogram="P">Portal</ArtworkTile></ul>`;
+  const url = dataModule(await resolveImports(compile(source, { generate: "client" }).js.code, "offscreen-fixture.svelte"));
+  const target = document.createElement("div");
+  const component = mount((await import(url)).default, { target });
+  try {
+    await settle(); intersect([{ isIntersecting: true }]); await settle();
+    const before = target.querySelector("img").src;
+    intersect([{ isIntersecting: false }]); await settle();
+    assert.equal(target.querySelector("img"), null);
+    intersect([{ isIntersecting: true }]); await settle();
+    assert.equal(target.querySelector("img").src, before);
+    assert.equal(requests.filter(([command]) => command === "get_steam_asset").length, 0);
+  } finally { await unmount(component); delete globalThis.IntersectionObserver; }
+});
+
 test("visible library cover loads without requesting textual metadata", async () => {
   requests.length = 0;
   let intersect;

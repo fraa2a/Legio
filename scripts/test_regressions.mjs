@@ -27,6 +27,40 @@ const deferred = () => {
   return { promise, resolve, reject };
 };
 
+test("resource reload invalidates an older read and coalesces mutation refreshes", async () => {
+  const { createResource } = await loadModule("../src/lib/stores/resource.ts", { "../utils/errors": errors });
+  const reads = [];
+  const resource = createResource([], () => { const request = deferred(); reads.push(request); return request.promise; });
+  const initial = resource.load();
+  const refresh = resource.reload();
+  const joined = resource.reload();
+  reads[0].resolve(["removed"]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reads.length, 2);
+  assert.deepEqual(get(resource).data, []);
+  reads[1].resolve(["current"]);
+  await Promise.all([initial, refresh, joined]);
+  assert.deepEqual(get(resource).data, ["current"]);
+});
+
+test("resource set supersedes an invalidated pending read", async () => {
+  const { createResource } = await loadModule("../src/lib/stores/resource.ts", { "../utils/errors": errors });
+  const read = deferred();
+  const resource = createResource([], () => read.promise);
+  const loading = resource.load();
+  const refresh = resource.reload();
+  resource.set(["saved"]);
+  read.resolve(["old"]);
+  await Promise.all([loading, refresh]);
+  assert.deepEqual(get(resource).data, ["saved"]);
+});
+
+test("release review labels have English translations", async () => {
+  const { t } = await import(localeUrl);
+  assert.equal(t("Aggiornamento disponibile", "en"), "Update available");
+  assert.equal(t("Consenti download mentre un gioco è aperto", "en"), "Allow downloads while a game is running");
+});
+
 test("resource deduplicates slow reads and invalidates responses after set", async () => {
   const { createResource } = await loadModule("../src/lib/stores/resource.ts", { "../utils/errors": errors });
   const first = deferred();
@@ -313,7 +347,7 @@ test("hydration waits for startup recovery before loading games and displays fai
   };
   const fromGlobal = (...names) => dataModule(names.map((name) => `export const ${name} = globalThis.legioBootstrap.${name};`).join("\n"));
   const { load } = createModuleLoader({
-    "src/lib/stores/game-updates": dataModule("export const gameUpdates = { load: async () => {} };"),
+    "src/lib/stores/game-updates": dataModule("export const gameUpdates = { load: async () => {}, reload: async () => {} };"),
     "src/lib/services/game-updates": dataModule("export const listenDownloadsChanged = async () => () => {}; export const listenGameUpdatesChanged = async () => () => {};"),
     "src/lib/stores/app-info": fromGlobal("appInfo"),
     "src/lib/stores/settings": fromGlobal("settings"),
@@ -357,7 +391,7 @@ test("download UI polling stops while inactive and catches completed work on res
   const { load } = createModuleLoader({
     "@tauri-apps/api/core": dataModule("export const invoke = (...args) => globalThis.legioDownloadVisibility.invoke(...args);"),
     "src/lib/i18n": localeUrl,
-    "src/lib/stores/game-updates": dataModule("export const gameUpdates = { load: async () => {} };"),
+    "src/lib/stores/game-updates": dataModule("export const gameUpdates = { load: async () => {}, reload: async () => {} };"),
     "src/lib/stores/window-activity": dataModule("export const windowActive = globalThis.legioDownloadVisibility.active;"),
   });
   const timers = new Set();

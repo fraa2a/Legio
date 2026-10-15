@@ -11,7 +11,6 @@
 
   const detailsState = $derived($steamDetails[steamAppId] ?? null);
   const details = $derived(detailsState?.details ?? null);
-  const cachedAt = $derived(detailsState?.cachedAt ?? null);
   const screenshots = $derived(details?.assets.screenshots.slice(0, 6) ?? []);
   const description = $derived(details?.detailedDescription ?? details?.shortDescription ?? null);
 
@@ -41,7 +40,7 @@
     <p class="text-sm text-zinc-500">{t("\n      Nessun dato Steam disponibile per questo titolo.\n    ", $language)}</p>
   {:else}
     {#if screenshots.length > 0}
-      <ScreenshotGallery {steamAppId} name={details.name} version={cachedAt} {screenshots} />
+      <ScreenshotGallery {steamAppId} name={details.name} {screenshots} />
     {/if}
 
     {#if description !== null}

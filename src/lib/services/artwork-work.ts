@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { logApplicationEvent } from "./application-log";
 
 export type ArtworkWork = { requestId: string; origin: "visible" | "decorative" | "prefetch"; signal?: AbortSignal; release(): void };
-export function createArtworkWork(_appId: number, origin: ArtworkWork["origin"]): ArtworkWork {
+export function createArtworkWork(origin: ArtworkWork["origin"]): ArtworkWork {
   const requestId = crypto.randomUUID();
   let released = false;
   const controller = new AbortController();

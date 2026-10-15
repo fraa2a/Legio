@@ -16,7 +16,7 @@ export interface SteamAsset {
 }
 export interface SteamImageRequest {
   steamAppId: number; asset: SteamAssetKind; fallbackAsset: SteamAssetKind | null; index: number | null;
-  version: number | null; full: boolean; displayWidth?: number; screenshotIdentity?: string;
+  full: boolean; displayWidth?: number; screenshotIdentity?: string;
 }
 export interface SteamImage { refreshAt: number; url: string; stale: boolean; cacheWarning: string | null }
 export interface RetainedSteamImage extends SteamImage { release(): void }
@@ -66,9 +66,9 @@ export function requestSteamAsset(request: SteamImageRequest, policy: AssetPolic
     policy, screenshotIdentity: request.screenshotIdentity, requestId: work.requestId, origin: work.origin, publication }).then(decodeImageResponse<SteamAsset>);
 }
 export function getSteamAsset(steamAppId: number, asset: SteamAssetKind, index?: number, full = false, refresh = false, screenshotIdentity?: string): Promise<SteamAsset> {
-  const request: SteamImageRequest = { steamAppId, asset, index: index ?? null, full, fallbackAsset: null, version: null, screenshotIdentity };
+  const request: SteamImageRequest = { steamAppId, asset, index: index ?? null, full, fallbackAsset: null, screenshotIdentity };
   const key = JSON.stringify([imageKey(request), refresh]); const pending = pendingAssets.get(key); if (pending) return pending;
-  const work = createArtworkWork(steamAppId, "visible");
+  const work = createArtworkWork("visible");
   const task = requestSteamAsset(request, refresh ? "force_refresh" : "cache_or_fetch", work, "native_only").finally(() => { work.release(); pendingAssets.delete(key); });
   pendingAssets.set(key, task); return task;
 }
@@ -79,7 +79,7 @@ async function finish(result: SteamAsset, outcome: PublicationOutcome): Promise<
 }
 function beginImageTask(request: SteamImageRequest, origin: ArtworkWork["origin"], policy: AssetPolicy): ImageTask {
   const key = imageKey(request); requestsByKey.set(key, request); const existing = pendingImages.get(key); if (existing && !existing.work.signal?.aborted) return existing;
-  const work = createArtworkWork(request.steamAppId, origin);
+  const work = createArtworkWork(origin);
   let publicationStarted: number | undefined;
   let outcome = "completed";
   const task: ImageTask = { work, policy, users: 0, promise: Promise.resolve(undefined as never) };
@@ -153,7 +153,7 @@ export async function loadSteamImage(request: SteamImageRequest): Promise<SteamI
 function requestFromKey(key: string): SteamImageRequest {
   const known = requestsByKey.get(key); if (known) return known;
   const [steamAppId, asset, fallbackAsset, index, screenshotIdentity, full, displayWidth] = JSON.parse(key);
-  return { steamAppId, asset, fallbackAsset, index, screenshotIdentity: screenshotIdentity ?? undefined, version: null, full, displayWidth: displayWidth ?? undefined };
+  return { steamAppId, asset, fallbackAsset, index, screenshotIdentity: screenshotIdentity ?? undefined, full, displayWidth: displayWidth ?? undefined };
 }
 function permanentArtwork(asset: SteamAssetKind): boolean {
   return ["hero_blur", "client_icon", "library_capsule", "library_header", "logo"].includes(asset);

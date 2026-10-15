@@ -41,21 +41,25 @@ pub(crate) struct CachedSource {
     pub manifest: Arc<Manifest>,
     pub fetched_at: i64,
     pub warning: Option<String>,
+    pub(crate) rows: Arc<Vec<SourceRow>>,
 }
 
-struct SourceRow {
-    id: String,
-    url: String,
-    manifest: Manifest,
-    fetched_at: i64,
-    warning: Option<String>,
+#[derive(Clone)]
+pub(crate) struct SourceRow {
+    pub id: String,
+    pub url: String,
+    pub manifest: Arc<Manifest>,
+    pub fetched_at: i64,
+    pub warning: Option<String>,
 }
 
 fn rows(database: &Database) -> Result<Vec<SourceRow>, String> {
-    database.with_connection(|connection| {
-        let mut statement = connection.prepare(
-            "SELECT id, url, manifest, fetched_at, warning FROM download_sources ORDER BY rowid",
-        ).map_err(db_error)?;
+    let stored = database.with_connection(|connection| {
+        let mut statement = connection
+            .prepare(
+                "SELECT id,url,manifest,fetched_at,warning FROM download_sources ORDER BY rowid",
+            )
+            .map_err(db_error)?;
         statement
             .query_map([], |row| {
                 Ok((
@@ -67,20 +71,23 @@ fn rows(database: &Database) -> Result<Vec<SourceRow>, String> {
                 ))
             })
             .map_err(db_error)?
-            .map(|row| {
-                let (id, url, bytes, fetched_at, warning) = row.map_err(db_error)?;
-                let manifest = legio_source::parse_manifest(&bytes)
-                    .map_err(|error| format!("Cached source is invalid: {error}"))?;
-                Ok(SourceRow {
-                    id,
-                    url,
-                    manifest,
-                    fetched_at,
-                    warning,
-                })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(db_error)
+    })?;
+    stored
+        .into_iter()
+        .map(|(id, url, bytes, fetched_at, warning)| {
+            let manifest = legio_source::parse_manifest(&bytes)
+                .map_err(|error| format!("Cached source is invalid: {error}"))?;
+            Ok(SourceRow {
+                id,
+                url,
+                manifest: Arc::new(manifest),
+                fetched_at,
+                warning,
             })
-            .collect()
-    })
+        })
+        .collect()
 }
 
 fn merge(rows: &[SourceRow]) -> Option<CachedSource> {
@@ -130,6 +137,7 @@ fn merge(rows: &[SourceRow]) -> Option<CachedSource> {
         }
     }
     Some(CachedSource {
+        rows: Arc::new(rows.to_vec()),
         manifest: Arc::new(manifest),
         fetched_at: rows.iter().map(|row| row.fetched_at).min()?,
         warning: if conflicts {
@@ -156,34 +164,28 @@ pub(crate) fn cached(database: &Database) -> Result<Option<CachedSource>, String
     Ok(cache.clone())
 }
 
+pub(crate) fn cached_rows(database: &Database) -> Result<Arc<Vec<SourceRow>>, String> {
+    Ok(cached(database)?
+        .map(|cache| cache.rows)
+        .unwrap_or_default())
+}
+
 fn snapshot(database: &Database, current_time: i64) -> Result<SourceSnapshot, String> {
-    let mut cache = database
-        .source_cache
-        .lock()
-        .map_err(|_| "Source cache is unavailable".to_owned())?;
-    let rows = rows(database)?;
-    if cache.is_none() {
-        *cache = merge(&rows);
-    }
-    let mut warning = cache.as_ref().and_then(|cache| cache.warning.clone());
-    if warning.is_none() && rows.iter().any(|row| row.warning.is_some()) {
-        warning = Some(
-            "Some sources could not be refreshed. Their cached releases are still available."
-                .to_owned(),
-        );
-    }
-    let sources: Vec<_> = rows
-        .into_iter()
+    let cache = cached(database)?;
+    let sources: Vec<_> = cache
+        .iter()
+        .flat_map(|cache| cache.rows.iter())
         .map(|row| InstalledSource {
-            id: row.id,
-            url: row.url,
+            id: row.id.clone(),
+            url: row.url.clone(),
             cached_at: row.fetched_at,
             stale: row.warning.is_some() || is_stale(row.fetched_at, current_time),
-            warning: row.warning,
+            warning: row.warning.clone(),
             game_count: row.manifest.verified.len() + row.manifest.unverified.len(),
             support_game_updates: row.manifest.support_game_updates,
         })
         .collect();
+    let warning = cache.as_ref().and_then(|cache| cache.warning.clone());
     Ok(SourceSnapshot {
         manifest: cache.as_ref().map(|cache| cache.manifest.clone()),
         cached_at: cache.as_ref().map(|cache| cache.fetched_at),
@@ -381,6 +383,28 @@ mod tests {
             std::env::temp_dir().join(format!("legio-sources-{}", uuid::Uuid::new_v4()));
         let database = Database::open(&directory).unwrap();
         (directory, database)
+    }
+
+    #[test]
+    fn snapshots_reuse_parsed_source_rows_until_refresh() {
+        let (directory, database) = database();
+        insert(
+            &database,
+            "https://example.invalid/cache.json",
+            valid(400),
+            100,
+        )
+        .unwrap();
+        let before = cached_rows(&database).unwrap();
+        snapshot(&database, 101).unwrap();
+        let after = cached_rows(&database).unwrap();
+        assert!(Arc::ptr_eq(&before, &after));
+        assert!(Arc::ptr_eq(&before[0].manifest, &after[0].manifest));
+        update(&database, &before[0].id, Ok(valid(401)), 102).unwrap();
+        let refreshed = cached_rows(&database).unwrap();
+        assert!(!Arc::ptr_eq(&before, &refreshed));
+        assert_eq!(refreshed[0].manifest.verified[0].steam_app_id, 401);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

@@ -667,5 +667,7 @@
   "Ripara catalogo": "Repair catalog",
   "Nessuna libreria registrata.": "No registered libraries.",
   "Importa una cartella contenente library.ldf. I giochi restano nella posizione attuale.": "Import a folder containing library.ldf. Games stay in their current location.",
-  "La riparazione conserva una copia del catalogo e lo ricostruisce dai dati locali.": "Repair preserves a copy of the catalog and rebuilds it from local data."
+  "La riparazione conserva una copia del catalogo e lo ricostruisce dai dati locali.": "Repair preserves a copy of the catalog and rebuilds it from local data.",
+  "Aggiornamento disponibile": "Update available",
+  "Consenti download mentre un gioco è aperto": "Allow downloads while a game is running"
 }

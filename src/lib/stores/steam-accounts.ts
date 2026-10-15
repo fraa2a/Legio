@@ -19,7 +19,7 @@ export function ensureSavedSteamAccounts(): void {
   const { status } = get(savedSteamAccounts);
   // A failed attempt must not pin the selector to an error for the session.
   if (status !== "idle" && status !== "error") return;
-  void savedSteamAccounts.load();
+  void savedSteamAccounts.reload();
 }
 
 export async function saveGameSteamAccount(gameId: string, steamId: string | null): Promise<void> {

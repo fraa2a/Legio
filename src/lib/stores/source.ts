@@ -30,7 +30,7 @@ function changeSource(action: () => Promise<SourceSnapshot>, errorStore: typeof 
     errorStore.set(null);
     try {
       source.set(await action());
-      await gameUpdates.load();
+      await gameUpdates.reload();
       sourceRefreshError.set(null);
       return true;
     } catch (error) {

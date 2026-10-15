@@ -38,8 +38,8 @@ export async function hydrateApp(): Promise<void> {
     playtime.load(),
   ]);
   startDownloadProgressPolling();
-  await listenDownloadsChanged(() => { void downloads.load(); });
-  await listenGameUpdatesChanged(() => { void gameUpdates.load(); void source.load(); });
+  await listenDownloadsChanged(() => { void downloads.reload(); });
+  await listenGameUpdatesChanged(() => { void gameUpdates.reload(); void source.reload(); });
   if (get(settings).data.launchInLibrary) activeSection.set("library");
   const startup = get(appInfo).data;
   if (startup.startupLaunchGameId !== null) {

@@ -31,7 +31,6 @@
       {steamAppId}
       asset="library_capsule"
       fallbackAsset="header"
-      version={detailsState?.cachedAt ?? null}
       caption={false}
       class="size-full object-cover"
     />

@@ -101,7 +101,7 @@
       await reorderJobs(ids);
     } catch (error) {
       actionError = toMessage(error);
-      await downloads.load();
+      await downloads.reload();
     }
   }
 

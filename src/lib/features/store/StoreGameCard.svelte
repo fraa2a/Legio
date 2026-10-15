@@ -50,7 +50,6 @@
         <SteamArtwork
           {steamAppId}
           asset="hero_blur"
-          version={detailsState?.cachedAt ?? null}
           caption={false}
           alt=""
           class="size-full scale-110 object-cover opacity-45 light:opacity-55"
@@ -74,7 +73,6 @@
           <SteamArtwork
             {steamAppId}
             asset="header"
-            version={detailsState?.cachedAt ?? null}
             caption={false}
             alt="{t("Copertina di ", $language)}{name}"
             class="absolute inset-0 size-full object-cover"

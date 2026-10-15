@@ -92,7 +92,7 @@
   $effect(() => {
     void $language;
     if (steamAppId === null || !demand()) return;
-    const work = createArtworkWork(steamAppId, "visible");
+    const work = createArtworkWork("visible");
     void refreshSteamDetailsOnOpen(steamAppId, work).catch(() => undefined);
     void refreshSteamImagesOnOpen(steamAppId, work).catch(() => undefined);
     return work.release;
@@ -158,7 +158,6 @@
           {steamAppId}
           asset="hero"
           fallbackAsset="header"
-          version={detailsState?.cachedAt ?? null}
           caption={false}
           class="absolute inset-0 size-full object-cover"
         >
@@ -213,7 +212,7 @@
             {#if customIconUrl !== null}
               <img src={customIconUrl} alt="{t("Icona personalizzata di ", $language)}{name}" class="size-full object-contain object-right" />
             {:else if steamAppId !== null}
-              <SteamArtwork {steamAppId} asset="logo" version={detailsState?.cachedAt ?? null} caption={false} alt="{t("Logo di ", $language)}{name}" class="size-full object-contain object-right">
+              <SteamArtwork {steamAppId} asset="logo" caption={false} alt="{t("Logo di ", $language)}{name}" class="size-full object-contain object-right">
                 {#snippet placeholder()}{@render nameText()}{/snippet}
               </SteamArtwork>
             {:else}

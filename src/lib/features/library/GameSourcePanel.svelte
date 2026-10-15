@@ -43,7 +43,7 @@
   async function save(): Promise<void> {
     if (choice?.entry.id === undefined || choice.entry.id === null || choice.entry.sourceId === undefined || choice.entry.sourceId === null) return;
     pending = true; error = null;
-    try { await bindGameSource(game.id, choice.entry.sourceId, choice.entry.id, version, accepted); await gameUpdates.load(); }
+    try { await bindGameSource(game.id, choice.entry.sourceId, choice.entry.id, version, accepted); await gameUpdates.reload(); }
     catch (reason) { error = toMessage(reason); }
     finally { pending = false; }
   }

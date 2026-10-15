@@ -100,20 +100,25 @@ pub(crate) fn sync(
         .list()?
         .iter()
         .any(|state| state.status != GameStatus::Idle);
-    let settings = database.settings()?;
     let jobs: Vec<PolicyJob> = database.with_connection(|connection| {
         let mut query = connection.prepare("SELECT id,target_game_id,status,pause_reason,manual_override,automatic_update,interrupted_by_game FROM downloads WHERE status IN ('queued','downloading','waiting','paused') ORDER BY queue_position,created_at,id").map_err(database_error)?;
         query.query_map([], |row| Ok(PolicyJob { id:row.get(0)?, target:row.get(1)?, status:row.get(2)?, previous:row.get(3)?, manual:row.get(4)?, automatic:row.get(5)?, interrupted:row.get(6)? })).map_err(database_error)?.collect::<Result<_,_>>().map_err(database_error)
     })?;
+    if jobs.is_empty() {
+        return Ok(false);
+    }
+    let settings = database.settings()?;
     let mut interruptions = Vec::new();
     let mut changed = false;
     let mut restored_priority = false;
     let mut blocked = HashSet::new();
-    for PolicyJob { target, .. } in &jobs {
-        if let Some(game) = target
-            && busy(database, manager, game)?
-        {
-            blocked.insert(game.clone());
+    let targets: HashSet<_> = jobs
+        .iter()
+        .filter_map(|job| job.target.as_deref())
+        .collect();
+    for game in targets {
+        if busy(database, manager, game)? {
+            blocked.insert(game.to_owned());
         }
     }
     playing |= !blocked.is_empty();
@@ -162,8 +167,10 @@ pub(crate) fn sync(
 pub(crate) fn protect_launch<R: Runtime>(app: &AppHandle<R>, game_id: &str) -> Result<(), String> {
     let database = app.state::<DatabaseState>();
     let database = database.database()?;
-    crate::overlay_update::ensure_launchable(database, game_id)?;
     let manager = app.state::<GameLaunchManager>();
+    manager.require_idle(game_id)?;
+    crate::game_transfer::ensure_launchable(database, game_id)?;
+    crate::overlay_update::ensure_launchable(database, game_id)?;
     let game = database.game(game_id)?;
     if let Some(root) = game.installation_root.as_deref().map(std::path::Path::new) {
         let root = dunce::canonicalize(root).map_err(|error| error.to_string())?;
@@ -173,6 +180,7 @@ pub(crate) fn protect_launch<R: Runtime>(app: &AppHandle<R>, game_id: &str) -> R
                 && (root.starts_with(&other_root) || other_root.starts_with(&root))
             {
                 manager.require_idle(&other.id)?;
+                crate::game_transfer::ensure_launchable(database, &other.id)?;
                 crate::overlay_update::ensure_launchable(database, &other.id)?;
             }
         }
@@ -253,25 +261,30 @@ pub(crate) fn start<R: Runtime>(app: AppHandle<R>) {
             return;
         };
         let mut changes = manager.subscribe_changes();
+        let mut jobs = app.state::<DownloadQueueState>().policy_changes.subscribe();
+        let mut polling = true;
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         loop {
-            tokio::select! { _ = tick.tick() => {}, result = changes.changed() => { if result.is_err() { return; } } }
+            tokio::select! { _ = tick.tick(), if polling => {}, result = changes.changed() => { if result.is_err() { return; } }, result = jobs.changed() => { if result.is_err() { return; } } }
             let worker = app.clone();
             let result = tauri::async_runtime::spawn_blocking(move || {
-                sync(
-                    worker.state::<DatabaseState>().database()?,
-                    &worker.state::<GameLaunchManager>(),
-                    &worker.state::<DownloadQueueState>(),
-                )
+                let database = worker.state::<DatabaseState>();
+                let database = database.database()?;
+                let changed = sync(database, &worker.state::<GameLaunchManager>(), &worker.state::<DownloadQueueState>())?;
+                let pending = database.with_connection(|c| c.query_row("SELECT EXISTS(SELECT 1 FROM downloads WHERE status IN ('queued','downloading','waiting','paused','downloaded','staging','staged','finalizing'))",[],|row| row.get::<_,bool>(0)).map_err(database_error))?;
+                Ok::<_,String>((changed,pending))
             })
             .await;
             match result {
-                Ok(Ok(changed)) => {
+                Ok(Ok((changed, pending))) => {
+                    polling = pending;
                     if changed {
                         crate::download_queue::notify(&app);
+                        crate::download_queue::kick(app.clone());
                     }
-                    crate::download_queue::kick(app.clone());
-                    crate::download_queue::schedule_installations(&app);
+                    if pending {
+                        crate::download_queue::schedule_installations(&app);
+                    }
                 }
                 other => {
                     crate::application_log::failure("download_game_policy", format!("{other:?}"))

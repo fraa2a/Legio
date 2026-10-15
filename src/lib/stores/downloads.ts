@@ -33,7 +33,7 @@ downloads.subscribe(state => {
   const revision = state.data.filter(job => job.status === "installed").map(job => `${job.id}:${job.updatedAt}`).join("|");
   if (revision === installedRevision) return;
   installedRevision = revision;
-  void Promise.all([games.load(), gameUpdates.load()]);
+  void Promise.all([games.reload(), gameUpdates.reload()]);
 });
 
 export const activeDownloadCount = derived(
@@ -108,43 +108,43 @@ export function startDownloadProgressPolling(): void {
 
 export async function queueJob(steamAppId: number, downloadUrl: string, releaseVersion: string, acceptUnverified: boolean, sourceId?: string | null): Promise<void> {
   await queueDownload(steamAppId, downloadUrl, releaseVersion, acceptUnverified, sourceId);
-  await downloads.load();
+  await downloads.reload();
 }
 
 export async function pauseJob(id: string): Promise<void> {
   await pauseDownload(id);
-  await downloads.load();
+  await downloads.reload();
 }
 
 export async function resumeJob(id: string): Promise<void> {
   await resumeDownload(id);
-  await downloads.load();
+  await downloads.reload();
 }
 
 export async function retryJob(id: string): Promise<void> {
   await retryDownload(id);
-  await Promise.all([downloads.load(), games.load(), installedFolder.load()]);
+  await Promise.all([downloads.reload(), games.reload(), installedFolder.reload()]);
 }
 
 export async function cancelJob(id: string): Promise<void> {
   await cancelDownload(id);
-  await downloads.load();
+  await downloads.reload();
 }
 
 export async function removeJob(id: string): Promise<void> {
   await removeDownload(id);
-  await downloads.load();
+  await downloads.reload();
 }
 
 export async function removeFinishedJobs(): Promise<number> {
   const removed = await removeFinishedDownloads();
-  await downloads.load();
+  await downloads.reload();
   return removed.length;
 }
 
 export async function reorderJobs(ids: string[]): Promise<void> {
   await reorderDownloads(ids);
-  await downloads.load();
+  await downloads.reload();
 }
 
 export async function browseInstalledFolder(): Promise<void> {
