@@ -15,7 +15,6 @@
     fallbackAsset = null,
     index = null,
     count = 1,
-    version = null,
     screenshotIdentity = undefined,
     alt = "",
     onSelect,
@@ -26,7 +25,6 @@
     fallbackAsset?: SteamAssetKind | null;
     index?: number | null;
     count?: number;
-    version?: number | null;
     screenshotIdentity?: string;
     alt?: string;
     onSelect?: (index: number) => void;
@@ -112,7 +110,6 @@
             {asset}
             {fallbackAsset}
             {index}
-            {version}
             {screenshotIdentity}
             origin="visible"
             full={asset === "screenshot"}
@@ -161,7 +158,6 @@
             {steamAppId}
             {asset}
             index={slot}
-            {version}
             {screenshotIdentity}
             origin="visible"
             alt=""

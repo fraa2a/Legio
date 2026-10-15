@@ -11,6 +11,7 @@ interface LoadState<T> {
 
 type Resource<T> = Readable<LoadState<T>> & {
   load: () => Promise<void>;
+  reload: () => Promise<void>;
   set: (data: T) => void;
 };
 
@@ -22,6 +23,8 @@ export function createResource<T>(
   const state = writable<LoadState<T>>({ status: "idle", data: initial, error: null });
   let requestId = 0;
   let pending: Promise<void> | null = null;
+  let dirty = false;
+  let cycle = 0;
 
   async function read(): Promise<void> {
     const request = ++requestId;
@@ -38,18 +41,32 @@ export function createResource<T>(
 
   function load(): Promise<void> {
     if (pending !== null) return pending;
-    const request = read().finally(() => {
+    const current = ++cycle;
+    const request = (async () => {
+      do {
+        dirty = false;
+        await read();
+      } while (dirty && cycle === current);
+    })().finally(() => {
       if (pending === request) pending = null;
     });
     pending = request;
     return request;
   }
 
+  function reload(): Promise<void> {
+    requestId += 1;
+    dirty = true;
+    return load();
+  }
+
   function set(data: T): void {
     requestId += 1;
     pending = null;
+    cycle += 1;
+    dirty = false;
     state.set({ status: isEmpty(data) ? "empty" : "ready", data, error: null });
   }
 
-  return { subscribe: state.subscribe, load, set };
+  return { subscribe: state.subscribe, load, reload, set };
 }

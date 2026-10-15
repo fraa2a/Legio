@@ -316,7 +316,6 @@ impl Drop for CompatibilityLog {
         let result = (|| -> io::Result<()> {
             let mut options = OpenOptions::new();
             options.read(true).write(true);
-            #[cfg(target_os = "linux")]
             {
                 use std::os::unix::fs::OpenOptionsExt;
                 options.custom_flags(libc::O_NOFOLLOW);
@@ -384,7 +383,6 @@ fn ensure_log_directory(directory: &Path) -> Result<(), String> {
         Ok(_) => return Err("Compatibility game log path is not a regular directory".to_owned()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             let mut builder = fs::DirBuilder::new();
-            #[cfg(unix)]
             {
                 use std::os::unix::fs::DirBuilderExt;
                 builder.mode(0o700);
@@ -399,7 +397,6 @@ fn ensure_log_directory(directory: &Path) -> Result<(), String> {
             ));
         }
     }
-    #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).map_err(|error| {
@@ -418,7 +415,6 @@ fn open_log_file(path: &Path) -> Result<File, String> {
     }
     let mut options = OpenOptions::new();
     options.create(true).write(true).truncate(true);
-    #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
@@ -426,7 +422,6 @@ fn open_log_file(path: &Path) -> Result<File, String> {
     let file = options
         .open(path)
         .map_err(|error| format!("Could not create compatibility log file: {error}"))?;
-    #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         file.set_permissions(fs::Permissions::from_mode(0o600))

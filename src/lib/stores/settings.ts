@@ -29,7 +29,7 @@ export function updateSettings(changes: Partial<Settings>): Promise<Settings> {
     const previous = get(settings).data;
     const saved = await saveSettings({ ...previous, ...patch });
     settings.set(saved);
-    if (saved.downloadPath !== previous.downloadPath) await installedFolder.load();
+    if (saved.downloadPath !== previous.downloadPath) await installedFolder.reload();
     return saved;
   });
   saveQueue = task.then(() => {}, () => {});

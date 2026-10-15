@@ -888,6 +888,7 @@ mod tests {
         let merged = merge_source(
             search,
             Some(legio_source_cache::CachedSource {
+                rows: Default::default(),
                 manifest: manifest.into(),
                 fetched_at: 100,
                 warning: None,

@@ -14,19 +14,19 @@ pub(crate) fn detected(database: &Database, game: &Game) -> Result<bool, String>
     };
     let executable = fs::canonicalize(executable)
         .map_err(|error| format!("Could not inspect game executable for OnlineFix: {error}"))?;
-    let installed_root =
-        game.installation_root
-            .clone()
-            .or(database.with_connection(|connection| {
-                connection
-                    .query_row(
-                        "SELECT final_path FROM downloads WHERE id = ?1 AND status = 'installed'",
-                        [&game.id],
-                        |row| row.get(0),
-                    )
-                    .optional()
-                    .map_err(|error| error.to_string())
-            })?);
+    let installed_root = match &game.installation_root {
+        Some(root) => Some(root.clone()),
+        None => database.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT final_path FROM downloads WHERE id = ?1 AND status = 'installed'",
+                    [&game.id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|error| error.to_string())
+        })?,
+    };
     let installed_root = installed_root
         .as_deref()
         .map(|root| {

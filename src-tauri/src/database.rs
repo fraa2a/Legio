@@ -10,7 +10,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 27;
+const SCHEMA_VERSION: i64 = 28;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1745,6 +1745,47 @@ fn migrate(connection: &Connection) -> Result<(), String> {
             transaction.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS library_dirty_game_source_installs_{event} AFTER {event} ON game_source_installs BEGIN UPDATE game_libraries SET dirty=dirty+1 WHERE EXISTS(SELECT 1 FROM games g WHERE ({games}) AND substr(replace(g.installation_root,char(92),'/'),1,length(replace(root,char(92),'/'))+1)=replace(root,char(92),'/')||'/'); END;")).map_err(database_error)?;
         }
     }
+    if version < 28 {
+        for (table, columns) in [
+            (
+                "games",
+                &[
+                    "automatic_name",
+                    "name_override",
+                    "installation_root",
+                    "executable_path",
+                    "steam_app_id",
+                    "steam_install_path",
+                    "archive_layout",
+                ][..],
+            ),
+            (
+                "game_source_installs",
+                &[
+                    "game_id",
+                    "source_id",
+                    "source_sha256",
+                    "entry_id",
+                    "installed_version",
+                ][..],
+            ),
+        ] {
+            let changed = columns
+                .iter()
+                .map(|name| format!("OLD.{name} IS NOT NEW.{name}"))
+                .collect::<Vec<_>>()
+                .join(" OR ");
+            let affected = if table == "games" {
+                "substr(replace(OLD.installation_root,char(92),'/'),1,length(replace(root,char(92),'/'))+1)=replace(root,char(92),'/')||'/' OR substr(replace(NEW.installation_root,char(92),'/'),1,length(replace(root,char(92),'/'))+1)=replace(root,char(92),'/')||'/'".to_owned()
+            } else {
+                "EXISTS(SELECT 1 FROM games g WHERE (g.id=OLD.game_id OR g.id=NEW.game_id) AND substr(replace(g.installation_root,char(92),'/'),1,length(replace(root,char(92),'/'))+1)=replace(root,char(92),'/')||'/')".to_owned()
+            };
+            transaction.execute_batch(&format!("DROP TRIGGER IF EXISTS library_dirty_{table}_UPDATE; CREATE TRIGGER library_dirty_{table}_UPDATE AFTER UPDATE OF {} ON {table} WHEN {changed} BEGIN UPDATE game_libraries SET dirty=dirty+1 WHERE {affected}; END;",columns.join(","))).map_err(database_error)?;
+        }
+        transaction
+            .pragma_update(None, "user_version", 28)
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }
 
@@ -2510,7 +2551,7 @@ mod tests {
              DROP TABLE game_native_launch_config; DROP TABLE game_sessions;
              DROP TABLE compatibility_defaults;
              DROP INDEX games_executable_path_idx;
-             ALTER TABLE games DROP COLUMN executable_path;
+             DROP TRIGGER IF EXISTS library_dirty_games_UPDATE; ALTER TABLE games DROP COLUMN executable_path;
              PRAGMA user_version = 8;",
             )
             .unwrap();

@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { peekSteamImage, type SteamAssetKind } from "../../services/steam-details";
-  import { steamDetails } from "../../stores/steam-details";
+  import type { SteamAssetKind } from "../../services/steam-details";
   import { observeVisibility } from "../../utils/visibility";
   import ArtworkScope from "./ArtworkScope.svelte";
   import SteamArtwork from "../../features/library/SteamArtwork.svelte";
@@ -19,20 +18,11 @@
     portrait?: boolean;
     asset?: SteamAssetKind | null;
     class?: string;
-    children: Snippet;
+    children: Snippet<[boolean]>;
   } = $props();
 
-  const detailsState = $derived(steamAppId === null ? null : ($steamDetails[steamAppId] ?? null));
   const asset = $derived(assetOverride ?? (portrait ? "library_capsule" : "hero_blur"));
   const fallbackAsset = $derived(portrait || asset === "hero_blur" ? null : "header");
-  const cachedCover = $derived(steamAppId !== null && peekSteamImage({
-    steamAppId,
-    asset,
-    fallbackAsset,
-    index: null,
-    version: detailsState?.cachedAt ?? null,
-    full: false,
-  }) !== undefined);
 
   let tile: HTMLElement | undefined = $state();
   let visible = $state(false);
@@ -50,13 +40,12 @@
       bind:this={tile}
       class="legio-artwork-zoom absolute inset-0"
     >
-      {#if (visible || cachedCover) && steamAppId !== null}
+      {#if visible && steamAppId !== null}
         <SteamArtwork
           {steamAppId}
           {asset}
           origin="visible"
           {fallbackAsset}
-          version={detailsState?.cachedAt ?? null}
           caption={false}
           class="size-full object-cover"
         >
@@ -68,7 +57,7 @@
     </div>
 
     <div class="relative flex min-h-0 flex-1 flex-col">
-      {@render children()}
+      {@render children(visible)}
     </div>
   </li>
 </ArtworkScope>

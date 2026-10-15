@@ -26,7 +26,7 @@
       const directory = await pickGameDirectory("");
       if (directory !== null) {
         await importGameLibrary(directory);
-        await games.load();
+        await games.reload();
         await refresh();
       }
     } catch (cause) { error = toMessage(cause); }

@@ -24,7 +24,7 @@
   onMount(() => { void gameUpdates.load(); });
   async function queue(accepted = false): Promise<void> {
     pending = true; error = null; confirming = false;
-    try { await queueGameUpdate(gameId, accepted); await downloads.load(); }
+    try { await queueGameUpdate(gameId, accepted); await downloads.reload(); }
     catch (reason) { error = toMessage(reason); }
     finally { pending = false; }
   }

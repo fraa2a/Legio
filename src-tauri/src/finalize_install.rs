@@ -628,35 +628,42 @@ fn recover_cleanup(database: &Database, data_dir: &Path) -> Result<(), String> {
         let id = Uuid::parse_str(&id)
             .map_err(|_| "Stored download ID is invalid".to_owned())?
             .to_string();
-        let stage = data_dir.join("downloads").join(format!("{id}.stage"));
-        let update_target = crate::game_updates::target(database, &id)?;
-        let game_id = update_target.clone().unwrap_or_else(|| id.clone());
-        let game = database.game(&game_id)?;
-        if let Some(target) = game.installation_root.as_deref().map(Path::new) {
-            if update_target.is_some() {
-                crate::game_library::flush_registered(database);
-            } else {
-                crate::game_library::publish(
-                    database,
-                    target.parent().ok_or("Install has no library directory")?,
-                );
+        let result = (|| -> Result<(), String> {
+            let stage = data_dir.join("downloads").join(format!("{id}.stage"));
+            let update_target = crate::game_updates::target(database, &id)?;
+            let game_id = update_target.clone().unwrap_or_else(|| id.clone());
+            let game = database.game(&game_id)?;
+            if let Some(target) = game.installation_root.as_deref().map(Path::new) {
+                if update_target.is_some() {
+                    crate::game_library::flush_registered(database);
+                } else {
+                    crate::game_library::publish(
+                        database,
+                        target.parent().ok_or("Install has no library directory")?,
+                    );
+                }
+                let token: Option<String> = database.with_connection(|connection| {
+                    connection
+                        .query_row(
+                            "SELECT install_token FROM downloads WHERE id = ?1",
+                            [&id],
+                            |row| row.get(0),
+                        )
+                        .map_err(database_error)
+                })?;
+                if let Some(token) = token {
+                    remove_install_markers(target, &token)?;
+                }
             }
-            let token: Option<String> = database.with_connection(|connection| {
-                connection
-                    .query_row(
-                        "SELECT install_token FROM downloads WHERE id = ?1",
-                        [&id],
-                        |row| row.get(0),
-                    )
-                    .map_err(database_error)
-            })?;
-            if let Some(token) = token {
-                remove_install_markers(target, &token)?;
+            if let Err(error) = cleanup_stage(database, &id, &stage) {
+                save_cleanup_error(database, &id, &error)?;
+                crate::application_log::failure("clean_staged_files", error);
             }
-        }
-        if let Err(error) = cleanup_stage(database, &id, &stage) {
+            Ok(())
+        })();
+        if let Err(error) = result {
             save_cleanup_error(database, &id, &error)?;
-            crate::application_log::failure("clean_staged_files", error);
+            crate::application_log::failure("recover_install_cleanup", error);
         }
     }
     Ok(())

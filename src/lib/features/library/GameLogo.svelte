@@ -1,24 +1,22 @@
 <script lang="ts">
   import type { Game } from "../../services/local-state";
-  import { steamDetails } from "../../stores/steam-details";
   import SteamArtwork from "./SteamArtwork.svelte";
 
   let {
     game,
+    visible = true,
     class: className = "h-14 w-56 max-w-full object-contain object-center",
   }: {
     game: Game;
+    visible?: boolean;
     class?: string;
   } = $props();
-
-  const detailsState = $derived(game.steamAppId === null ? null : ($steamDetails[game.steamAppId] ?? null));
 </script>
 
-{#if game.steamAppId !== null}
+{#if visible && game.steamAppId !== null}
   <SteamArtwork
     steamAppId={game.steamAppId}
     asset="logo"
-    version={detailsState?.cachedAt ?? null}
     caption={false}
     alt=""
     class={className}

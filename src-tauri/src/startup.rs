@@ -38,10 +38,11 @@ pub(crate) fn set_enabled(enabled: bool, development: bool) -> Result<(), String
         if enabled {
             fs::create_dir_all(&directory)
                 .map_err(|error| format!("Could not create startup directory: {error}"))?;
-            let launcher = env::var_os("APPIMAGE").map(PathBuf::from).unwrap_or(
-                env::current_exe()
+            let launcher = match env::var_os("APPIMAGE") {
+                Some(path) => PathBuf::from(path),
+                None => env::current_exe()
                     .map_err(|error| format!("Could not find Legio executable: {error}"))?,
-            );
+            };
             let launcher = fs::canonicalize(launcher)
                 .map_err(|error| format!("Could not inspect Legio executable: {error}"))?;
             if !launcher.is_file() {

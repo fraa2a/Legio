@@ -94,6 +94,8 @@ fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<Transfe
     crate::startup_recovery::require_ready(app)?;
     let manager = app.state::<GameLaunchManager>();
     let operation = manager.operation()?;
+    manager.require_idle(game_id)?;
+    ensure_launchable(app.state::<DatabaseState>().database()?, game_id)?;
     let _reservation = manager.reserve_transfer(game_id)?;
     drop(operation);
     let database = app.state::<DatabaseState>();
@@ -463,24 +465,45 @@ fn rollback_prepared(
     Ok(())
 }
 
-pub(crate) fn recover(database: &Database) -> Result<(), String> {
-    let intents: Vec<TransferIntent> = database.with_connection(|connection| {
-        let mut statement = connection.prepare("SELECT game_id, source, destination, temporary, executable_relative, phase FROM game_transfers").map_err(database_error)?;
-        statement.query_map([], |row| Ok(TransferIntent {
+fn pending_transfers(
+    database: &Database,
+    game: Option<&str>,
+) -> Result<Vec<TransferIntent>, String> {
+    database.with_connection(|connection| {
+        let mut statement = connection.prepare("SELECT game_id, source, destination, temporary, executable_relative, phase FROM game_transfers WHERE ?1 IS NULL OR game_id=?1").map_err(database_error)?;
+        statement.query_map([game], |row| Ok(TransferIntent {
             game_id: row.get(0)?, source: PathBuf::from(row.get::<_, String>(1)?),
             destination: PathBuf::from(row.get::<_, String>(2)?), temporary: PathBuf::from(row.get::<_, String>(3)?),
             relative: PathBuf::from(row.get::<_, String>(4)?), phase: row.get(5)?,
         })).map_err(database_error)?.collect::<Result<Vec<_>, _>>().map_err(database_error)
-    })?;
-    for intent in intents {
-        if intent.phase == "prepared" {
-            rollback_prepared(database, &intent, true)?;
-        } else {
-            if intent.phase == "copied" {
-                commit_transfer(database, &intent)?;
-            }
-            cleanup_transfer(database, &intent)?;
+    })
+}
+
+fn recover_transfer(database: &Database, intent: &TransferIntent) -> Result<(), String> {
+    if intent.phase == "prepared" {
+        rollback_prepared(database, intent, true)
+    } else {
+        if intent.phase == "copied" {
+            commit_transfer(database, intent)?;
         }
+        cleanup_transfer(database, intent)
+    }
+}
+
+pub(crate) fn recover(database: &Database) -> Result<(), String> {
+    for intent in pending_transfers(database, None)? {
+        if let Err(error) = recover_transfer(database, &intent) {
+            crate::application_log::failure("recover_game_transfer", error);
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn ensure_launchable(database: &Database, game: &str) -> Result<(), String> {
+    for intent in pending_transfers(database, Some(game))? {
+        recover_transfer(database, &intent).map_err(|error| {
+            format!("Could not recover this game's interrupted transfer: {error}")
+        })?;
     }
     Ok(())
 }
@@ -577,6 +600,18 @@ mod tests {
         assert!(result.is_err());
         assert!(intent.source.join(&intent.relative).is_file());
         assert!(!intent.destination.exists());
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn failed_transfer_recovery_keeps_only_its_game_blocked() {
+        let (root, database, intent) = fixture("copied");
+        recover(&database).unwrap();
+        assert!(ensure_launchable(&database, &intent.game_id).is_err());
+        ensure_launchable(&database, "unrelated-game").unwrap();
+        assert_eq!(pending_transfers(&database, None).unwrap().len(), 1);
+        assert!(intent.source.join(&intent.relative).is_file());
         drop(database);
         fs::remove_dir_all(root).unwrap();
     }

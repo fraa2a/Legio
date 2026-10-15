@@ -170,7 +170,7 @@
         {#if parsedAppId !== null}
           <div class="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-2 light:border-zinc-900/10 light:bg-white">
             <div class="h-16 w-32 shrink-0 overflow-hidden rounded-lg bg-zinc-800 light:bg-zinc-200">
-              <SteamArtwork steamAppId={parsedAppId} asset="header" version={detailsState?.cachedAt ?? null} caption={false} alt="" class="size-full object-cover" />
+              <SteamArtwork steamAppId={parsedAppId} asset="header" caption={false} alt="" class="size-full object-cover" />
             </div>
             <div class="min-w-0">
               <p class="truncate text-sm font-medium text-zinc-100 light:text-zinc-900">{details?.name ?? selectedSteamGame?.name ?? t("Gioco Steam", $language)}</p>

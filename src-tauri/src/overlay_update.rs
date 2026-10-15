@@ -423,31 +423,45 @@ pub(crate) fn recover(database: &Database) -> Result<(), String> {
         query.query_map([], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?))).map_err(database_error)?.collect::<Result<_,_>>().map_err(database_error)
     })?;
     for (job, game, target, backup, manifest, committed) in records {
-        let parsed = uuid::Uuid::parse_str(&job)
-            .map_err(|error| error.to_string())?
-            .to_string();
-        let target = PathBuf::from(target);
-        let backup = PathBuf::from(backup);
-        let expected = target.join(format!(".legio-update-{parsed}"));
-        let install = database
-            .game(&game)?
-            .installation_root
-            .ok_or("Update game has no directory")?;
-        if dunce::canonicalize(install).map_err(|error| error.to_string())? != target
-            || backup != expected
-        {
-            return Err("Update journal does not match its installation".into());
-        }
-        let overlay: Overlay =
-            serde_json::from_str(&manifest).map_err(|error| error.to_string())?;
-        if !committed {
-            if crate::download_policy::external_busy(&target)? {
-                return Err("Close the game before recovering its interrupted update".into());
+        let result = (|| -> Result<(), String> {
+            let parsed = uuid::Uuid::parse_str(&job)
+                .map_err(|error| error.to_string())?
+                .to_string();
+            let target = PathBuf::from(target);
+            let backup = PathBuf::from(backup);
+            let expected = target.join(format!(".legio-update-{parsed}"));
+            let install = database
+                .game(&game)?
+                .installation_root
+                .ok_or("Update game has no directory")?;
+            if dunce::canonicalize(install).map_err(|error| error.to_string())? != target
+                || backup != expected
+            {
+                return Err("Update journal does not match its installation".into());
             }
-            rollback(&target, &backup, &overlay, &job)?;
-            database.with_connection(|connection| { connection.execute("UPDATE downloads SET status = 'staged', error = 'Interrupted update restored. Retry installation.' WHERE id = ?1", [&job]).map_err(database_error)?; Ok(()) })?;
+            let overlay: Overlay =
+                serde_json::from_str(&manifest).map_err(|error| error.to_string())?;
+            if !committed {
+                if crate::download_policy::external_busy(&target)? {
+                    return Err("Close the game before recovering its interrupted update".into());
+                }
+                rollback(&target, &backup, &overlay, &job)?;
+                database.with_connection(|connection| { connection.execute("UPDATE downloads SET status = 'staged', error = 'Interrupted update restored. Retry installation.' WHERE id = ?1", [&job]).map_err(database_error)?; Ok(()) })?;
+            }
+            cleanup(database, &job, &backup)?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            database.with_connection(|c| {
+                c.execute(
+                    "UPDATE downloads SET error=?2 WHERE id=?1",
+                    params![job, error],
+                )
+                .map_err(database_error)?;
+                Ok(())
+            })?;
+            crate::application_log::failure("recover_game_update", error);
         }
-        cleanup(database, &job, &backup)?;
     }
     Ok(())
 }

@@ -31,6 +31,27 @@ const settle = async () => {
 };
 
 // Each App ID starts with empty details and image caches.
+test("library cover releases its image outside the viewport and reuses the shared cache on return", async () => {
+  const images = await import(await moduleUrl("src/lib/services/steam-details.ts"));
+  await images.loadSteamImage({ steamAppId: 7999, asset: "hero_blur", fallbackAsset: null, index: null, version: null, full: false });
+  requests.length = 0;
+  let intersect;
+  globalThis.IntersectionObserver = class { constructor(callback) { intersect = callback; } observe() {} disconnect() {} };
+  const source = `<script>import ArtworkTile from "./src/lib/components/ui/ArtworkTile.svelte";</script><ul><ArtworkTile steamAppId={7999} monogram="P">Portal</ArtworkTile></ul>`;
+  const url = dataModule(await resolveImports(compile(source, { generate: "client" }).js.code, "offscreen-fixture.svelte"));
+  const target = document.createElement("div");
+  const component = mount((await import(url)).default, { target });
+  try {
+    await settle(); intersect([{ isIntersecting: true }]); await settle();
+    const before = target.querySelector("img").src;
+    intersect([{ isIntersecting: false }]); await settle();
+    assert.equal(target.querySelector("img"), null);
+    intersect([{ isIntersecting: true }]); await settle();
+    assert.equal(target.querySelector("img").src, before);
+    assert.equal(requests.filter(([command]) => command === "get_steam_asset").length, 0);
+  } finally { await unmount(component); delete globalThis.IntersectionObserver; }
+});
+
 test("visible library cover loads without requesting textual metadata", async () => {
   requests.length = 0;
   let intersect;
@@ -234,7 +255,7 @@ test("library renders repeated Steam diagnostics and stays usable after refresh"
   const steamLibrary = writable({ importing: false, error: null, importResult: null });
   globalThis.libraryCrashFixture = { games, steamLibrary };
   const storeImport = `import { writable } from "${import.meta.resolve("svelte/store")}";`;
-  Object.assign(mocks, {
+  const { load: libraryModuleUrl } = createModuleLoader({ ...mocks,
     "src/lib/stores/games": dataModule("export const games = globalThis.libraryCrashFixture.games;"),
     "src/lib/stores/steam-library": dataModule("export const steamLibrary = globalThis.libraryCrashFixture.steamLibrary; export const importSteamLibrary = async () => {};"),
     "src/lib/stores/library-ui": dataModule(storeImport + 'export const addGameDialogOpen = writable(false), libraryPortrait = writable(false), libraryQuery = writable("");'),
@@ -244,7 +265,7 @@ test("library renders repeated Steam diagnostics and stays usable after refresh"
     "src/lib/features/library/GameCard.svelte": dataModule(await resolveImports(compile('<script>let { game } = $props();</script><li>{game.name}</li>', { generate: "client" }).js.code, "card-fixture.svelte")),
     "src/lib/features/library/AddGameDialog.svelte": dataModule("export default () => {};"),
   });
-  const { default: LibraryView } = await import(await moduleUrl("src/lib/features/library/LibraryView.svelte"));
+  const { default: LibraryView } = await import(await libraryModuleUrl("src/lib/features/library/LibraryView.svelte"));
   const target = document.createElement("div");
   document.body.append(target);
   let component;
@@ -306,6 +327,33 @@ test("offscreen library cards do not request branding logos", async () => {
   const component = mount(GameCard, { target, props: { game: { id: "offscreen-logo", name: "Hidden game", steamAppId: 7900 }, launch: undefined, onOpen() {} } });
   try { await settle(); assert.equal(calls.filter(([command]) => command === "get_steam_asset").length, 0); }
   finally { await unmount(component); delete globalThis.IntersectionObserver; }
+});
+
+test("offscreen library cards release cached branding as well as their covers", async () => {
+  const calls = [];
+  globalThis.artworkInvoke = (command, args) => {
+    calls.push([command, args]);
+    return Promise.resolve(artworkPacket({ bytes: [1], contentType: "image/png", stale: false, cacheWarning: null }));
+  };
+  const images = await import(await moduleUrl("src/lib/services/steam-details.ts"));
+  const logo = await images.loadSteamImage({ steamAppId: 7998, asset: "logo", fallbackAsset: null, index: null, full: false });
+  calls.length = 0;
+  let intersect;
+  globalThis.IntersectionObserver = class { constructor(callback) { intersect = callback; } observe() {} disconnect() {} };
+  const { default: GameCard } = await import(await moduleUrl("src/lib/features/library/GameCard.svelte"));
+  const target = document.createElement("div");
+  const component = mount(GameCard, { target, props: { game: { id: "cached-branding", name: "Portal", steamAppId: 7998 }, onOpen() {} } });
+  try {
+    await settle();
+    assert.equal(target.querySelectorAll("img").length, 0);
+    intersect([{ isIntersecting: true }]); await settle();
+    assert.ok([...target.querySelectorAll("img")].some(image => image.src === logo.url));
+    intersect([{ isIntersecting: false }]); await settle();
+    assert.equal(target.querySelectorAll("img").length, 0);
+    intersect([{ isIntersecting: true }]); await settle();
+    assert.ok([...target.querySelectorAll("img")].some(image => image.src === logo.url));
+    assert.equal(calls.filter(([command, args]) => command === "get_steam_asset" && args.asset === "logo").length, 0);
+  } finally { await unmount(component); delete globalThis.IntersectionObserver; }
 });
 
 test("outgoing page preserves its cached image after demand stops", async () => {

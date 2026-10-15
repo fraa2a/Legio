@@ -34,7 +34,6 @@
     asset: SteamAssetKind;
     fallbackAsset?: SteamAssetKind | null;
     index?: number | null;
-    version?: number | null;
     screenshotIdentity?: string;
     origin?: ArtworkWork["origin"];
     full?: boolean;
@@ -45,7 +44,7 @@
   } = $props();
 
   const demand = artworkDemand();
-  const request = $derived({ steamAppId, asset, fallbackAsset, index, version: null, full, screenshotIdentity, displayWidth: $artworkDisplayWidth });
+  const request = $derived({ steamAppId, asset, fallbackAsset, index, full, screenshotIdentity, displayWidth: $artworkDisplayWidth });
   const cached = $derived.by(() => {
     void $steamImageRevision;
     return peekSteamImage(request);

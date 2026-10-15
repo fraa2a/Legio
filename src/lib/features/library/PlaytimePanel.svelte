@@ -40,7 +40,7 @@
     saved = false;
     try {
       await setGamePlaytime(game.id, requested);
-      await playtime.load();
+      await playtime.reload();
       hoursDraft = null;
       minutesDraft = null;
       confirming = false;

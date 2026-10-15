@@ -305,6 +305,10 @@ impl AssetCacheState {
             .lock
             .lock()
             .map_err(|_| "Image cache lock was poisoned")?;
+        self.maintain_locked(&mut guard)
+    }
+
+    fn maintain_locked(&self, guard: &mut Maintenance) -> Result<(), String> {
         let directory = self.directory()?;
         self.publication.cleanup_orphans(directory)?;
         let entries = match prune_protected(directory, &self.publication.protected_destinations()?)
@@ -458,10 +462,15 @@ impl AssetCacheState {
             .lock()
             .map_err(|_| "Image cache lock was poisoned")?;
         let result = self.publication.finish(token, outcome)?;
-        guard.entries = None;
-        drop(guard);
         if outcome != PublicationOutcome::Rejected {
-            self.maintain()?;
+            guard.entries = guard.entries.map(|entries| entries.saturating_add(1));
+            if guard.entries.is_none_or(|entries| entries > CACHE_FILES)
+                || guard
+                    .last_prune
+                    .is_none_or(|last| last.elapsed() >= Duration::from_secs(60))
+            {
+                self.maintain_locked(&mut guard)?;
+            }
         }
         Ok(result)
     }
@@ -3007,6 +3016,27 @@ mod tests {
         }
         let count = fs::read_dir(cache.directory().unwrap()).unwrap().count();
         assert_eq!(count, CACHE_FILES);
+        fs::remove_dir_all(cache.directory().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn publication_reuses_recent_cache_maintenance() {
+        let cache = cache();
+        cache.maintain().unwrap();
+        let previous = cache.lock.lock().unwrap().last_prune;
+        let token = cache
+            .publish(
+                "400-header",
+                "https://steamstatic.com/test.png",
+                PNG,
+                "image/png",
+                PublicationMode::Display,
+            )
+            .unwrap()
+            .unwrap();
+        cache.finish(&token, PublicationOutcome::Displayed).unwrap();
+        assert_eq!(cache.lock.lock().unwrap().last_prune, previous);
+        assert!(cache.read_cached("400-header", None).unwrap().is_some());
         fs::remove_dir_all(cache.directory().unwrap()).unwrap();
     }
 
