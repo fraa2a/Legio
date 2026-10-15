@@ -473,21 +473,21 @@ pub(crate) fn sync(database: &Database, root: &Path) -> Result<(), String> {
         )
         .map_err(database_error)
     })?;
-    if let (Some(expected), Some(current)) = (expected, existing.as_ref())
-        && fingerprint(current)? != expected
-        && fingerprint(current)? != fingerprint(&desired)?
+    let desired_hash = fingerprint(&desired)?;
+    let current_hash = existing.as_ref().map(fingerprint).transpose()?;
+    if let (Some(expected), Some(current)) = (expected.as_deref(), current_hash.as_deref())
+        && current != expected
+        && current != desired_hash
     {
         return Err("Library changed outside this profile; local publication is pending. Import it before making local changes, or repair after reviewing the backup.".into());
     }
-    if existing.as_ref().map(fingerprint).transpose()?.as_deref()
-        != Some(fingerprint(&desired)?.as_str())
-    {
+    if current_hash.as_deref() != Some(desired_hash.as_str()) {
         manifest::save(&root, &desired)?;
     }
     database.with_connection(|c| {
         c.execute(
             "UPDATE game_libraries SET dirty=CASE WHEN dirty=?2 THEN 0 ELSE dirty END,warning=NULL,manifest_hash=?3 WHERE root=?1",
-            params![root.to_string_lossy(), revision,fingerprint(&desired)?],
+            params![root.to_string_lossy(), revision,desired_hash],
         )
         .map_err(database_error)?;
         Ok(())

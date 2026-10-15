@@ -2551,7 +2551,7 @@ mod tests {
              DROP TABLE game_native_launch_config; DROP TABLE game_sessions;
              DROP TABLE compatibility_defaults;
              DROP INDEX games_executable_path_idx;
-             ALTER TABLE games DROP COLUMN executable_path;
+             DROP TRIGGER IF EXISTS library_dirty_games_UPDATE; ALTER TABLE games DROP COLUMN executable_path;
              PRAGMA user_version = 8;",
             )
             .unwrap();

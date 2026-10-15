@@ -2260,7 +2260,7 @@ mod tests {
                          ALTER TABLE downloads DROP COLUMN final_path;
                          ALTER TABLE downloads DROP COLUMN staged_path;
                          DROP INDEX games_executable_path_idx;
-                         ALTER TABLE games DROP COLUMN executable_path;
+                         DROP TRIGGER IF EXISTS library_dirty_games_UPDATE; ALTER TABLE games DROP COLUMN executable_path;
                          DROP TABLE game_native_launch_config; DROP TABLE game_sessions;
                          DROP TABLE game_compatibility_overrides;
                          DROP TABLE compatibility_defaults;

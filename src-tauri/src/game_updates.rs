@@ -501,6 +501,7 @@ mod tests {
                 Ok(())
             })
             .unwrap();
+        database.source_cache.lock().unwrap().take();
         assert!(list(&database).unwrap().is_empty());
         other["verified"][0]["id"] = serde_json::json!("portal-onlinefix");
         other["supportGameUpdates"] = serde_json::json!(false);
@@ -514,6 +515,7 @@ mod tests {
                 Ok(())
             })
             .unwrap();
+        database.source_cache.lock().unwrap().take();
         assert!(list(&database).unwrap().is_empty());
         drop(database);
         std::fs::remove_dir_all(root).unwrap();
