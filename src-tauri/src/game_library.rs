@@ -663,7 +663,7 @@ mod tests {
     #[test]
     fn local_playtime_changes_do_not_dirty_portable_metadata() {
         let (directory, database, id) = installed_fixture();
-        let root = directory.join("games");
+        let root = dunce::canonicalize(directory.join("games")).unwrap();
         sync(&database, &root).unwrap();
         database.set_playtime(&id, 12000, 12000).unwrap();
         assert_eq!(cached_library(&database, &root).unwrap().unwrap().1, 0);
