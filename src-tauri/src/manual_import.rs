@@ -245,7 +245,14 @@ pub fn set_executable(state: &DatabaseState, game_id: &str, value: &str) -> Resu
             "UPDATE games SET executable_path = ?2, installation_root = ?3 WHERE id = ?1 AND steam_install_path IS NULL
              RETURNING id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path, installation_root",
             params![id, path, root.to_string_lossy()], crate::database::game_from_row,
-        ).optional().map_err(database_error)?.ok_or_else(|| "game was not found or is Steam-managed".to_owned())
+        ).optional().map_err(|error| match error {
+            rusqlite::Error::SqliteFailure(failure, _)
+                if failure.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE =>
+            {
+                "This executable is already assigned to another game in the library".to_owned()
+            }
+            other => database_error(other),
+        })?.ok_or_else(|| "game was not found or is Steam-managed".to_owned())
     })
 }
 
