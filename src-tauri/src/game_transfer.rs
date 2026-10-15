@@ -1,4 +1,4 @@
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 use serde::Serialize;
 use std::{
     fs, io,
@@ -209,9 +209,13 @@ struct TransferIntent {
 }
 
 fn remap(value: Option<String>, source: &Path, destination: &Path) -> Option<String> {
-    value.map(|value| match Path::new(&value).strip_prefix(source) {
-        Ok(relative) => destination.join(relative).to_string_lossy().into_owned(),
-        Err(_) => value,
+    value.map(|value| {
+        let path = dunce::canonicalize(&value).unwrap_or_else(|_| PathBuf::from(&value));
+        let source = dunce::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
+        match path.strip_prefix(source) {
+            Ok(relative) => destination.join(relative).to_string_lossy().into_owned(),
+            Err(_) => value,
+        }
     })
 }
 
@@ -325,8 +329,19 @@ fn cleanup_transfer(database: &Database, intent: &TransferIntent) -> Result<(), 
         crate::game_library::publish(database, root);
     }
     if !owns_destination(intent) {
-        let completed = !intent.source.exists() && !intent.destination.join(MARKER).exists()
-            && database.with_connection(|connection| connection.query_row("SELECT EXISTS(SELECT 1 FROM game_transfers t JOIN games g ON g.id = t.game_id WHERE t.game_id = ?1 AND t.phase = 'committed' AND g.installation_root = ?2 AND g.executable_path = ?3)", params![intent.game_id, intent.destination.to_string_lossy(), intent.destination.join(&intent.relative).to_string_lossy()], |row| row.get::<_, bool>(0)).map_err(database_error))?;
+        let installed: Option<(String, String)> = database.with_connection(|connection| {
+            connection.query_row("SELECT g.installation_root,g.executable_path FROM game_transfers t JOIN games g ON g.id=t.game_id WHERE t.game_id=?1 AND t.phase='committed'",[&intent.game_id],|row| Ok((row.get(0)?,row.get(1)?))).optional().map_err(database_error)
+        })?;
+        let completed = !intent.source.exists()
+            && !intent.destination.join(MARKER).exists()
+            && installed.is_some_and(|(root, executable)| {
+                dunce::canonicalize(root).is_ok_and(|root| {
+                    dunce::canonicalize(&intent.destination).is_ok_and(|target| root == target)
+                }) && dunce::canonicalize(executable).is_ok_and(|executable| {
+                    dunce::canonicalize(intent.destination.join(&intent.relative))
+                        .is_ok_and(|target| executable == target)
+                })
+            });
         if !completed {
             return Err("Transfer cleanup requires the owned destination".to_owned());
         }
@@ -581,12 +596,12 @@ mod tests {
         recover(&database).unwrap();
         let game = database.game(&intent.game_id).unwrap();
         assert_eq!(
-            game.executable_path.as_deref(),
-            intent.destination.join(&intent.relative).to_str()
+            dunce::canonicalize(game.executable_path.as_ref().unwrap()).unwrap(),
+            dunce::canonicalize(intent.destination.join(&intent.relative)).unwrap()
         );
         assert_eq!(
-            game.installation_root.as_deref(),
-            intent.destination.to_str()
+            dunce::canonicalize(game.installation_root.as_ref().unwrap()).unwrap(),
+            dunce::canonicalize(&intent.destination).unwrap()
         );
         assert_eq!(
             database
@@ -719,5 +734,27 @@ mod tests {
             Some("/games/GameTwo/prefix")
         );
         assert_eq!(remap(None, source, target), None);
+    }
+
+    #[test]
+    fn remaps_equivalent_source_paths() {
+        let (root, database, intent) = fixture("prepared");
+        assert_eq!(
+            remap(
+                Some(
+                    intent
+                        .source
+                        .join("../source/bin")
+                        .to_string_lossy()
+                        .into_owned()
+                ),
+                &dunce::canonicalize(&intent.source).unwrap(),
+                &intent.destination
+            )
+            .map(PathBuf::from),
+            Some(intent.destination.join("bin"))
+        );
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
     }
 }
