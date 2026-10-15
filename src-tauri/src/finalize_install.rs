@@ -734,6 +734,7 @@ mod tests {
     fn fixture_with_custom_path(custom_path: bool) -> (Database, PathBuf, String) {
         let data_dir = std::env::temp_dir().join(format!("legio-finalize-test-{}", Uuid::new_v4()));
         let database = Database::open(&data_dir).unwrap();
+        let data_dir = dunce::canonicalize(data_dir).unwrap();
         if custom_path {
             let mut settings = database.settings().unwrap();
             settings.download_path = Some(data_dir.to_string_lossy().into_owned());
