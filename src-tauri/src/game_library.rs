@@ -174,6 +174,12 @@ fn fingerprint(library: &Library) -> Result<String, String> {
     ))
 }
 
+fn library_child(folder: &Path, root: &Path) -> bool {
+    folder.parent().is_some_and(|parent| {
+        parent == root || dunce::canonicalize(parent).is_ok_and(|parent| parent == root)
+    })
+}
+
 fn snapshot(database: &Database, root: &Path, id: String) -> Result<Library, String> {
     database.with_connection(|c| {
         let mut q = c.prepare("SELECT g.id, COALESCE(g.name_override,g.automatic_name), g.installation_root, g.executable_path, g.steam_app_id, g.archive_layout, COALESCE(i.source_sha256,s.url_sha256), i.entry_id, COALESCE(i.installed_version,d.release_version) FROM games g LEFT JOIN game_source_installs i ON i.game_id = g.id LEFT JOIN download_sources s ON s.id = i.source_id LEFT JOIN downloads d ON d.id = g.id AND d.status = 'installed' WHERE g.steam_install_path IS NULL AND g.installation_root IS NOT NULL AND g.executable_path IS NOT NULL ORDER BY g.id").map_err(database_error)?;
@@ -181,9 +187,15 @@ fn snapshot(database: &Database, root: &Path, id: String) -> Result<Library, Str
         let mut games = Vec::new();
         for row in rows {
             let (id,name,folder,executable,steam_app_id,archive_layout,hash,entry,version) = row.map_err(database_error)?;
-            let folder = Path::new(&folder);
-            if folder.parent() != Some(root) { continue; }
-            let relative = Path::new(&executable).strip_prefix(folder).map_err(|_| "Executable is outside its installation root")?;
+            let mut folder = PathBuf::from(folder);
+            let mut executable = PathBuf::from(executable);
+            if !library_child(&folder, root) { continue; }
+            if folder.parent() != Some(root) {
+                folder = dunce::canonicalize(&folder).map_err(|e| e.to_string())?;
+                executable = dunce::canonicalize(&executable).map_err(|e| e.to_string())?;
+                c.execute("UPDATE games SET installation_root=?2,executable_path=?3 WHERE id=?1",params![id,folder.to_string_lossy(),executable.to_string_lossy()]).map_err(database_error)?;
+            }
+            let relative = executable.strip_prefix(&folder).map_err(|_| "Executable is outside its installation root")?;
             games.push(Entry { id,name,steam_app_id,installation: Installation {
                 folder: folder.file_name().and_then(|n| n.to_str()).ok_or("Invalid game folder")?.into(),
                 executable: crate::manual_import::portable_relative_path(relative)?, archive_layout,
@@ -207,14 +219,17 @@ fn index(
     for game in &library.games {
         let folder = manifest::checked(root, &game.installation.folder, false)?;
         let executable = manifest::checked(&folder, &game.installation.executable, true)?;
-        paths.push((folder, executable));
+        paths.push((
+            dunce::canonicalize(folder).map_err(|e| e.to_string())?,
+            dunce::canonicalize(executable).map_err(|e| e.to_string())?,
+        ));
     }
     database.with_connection(|c| {
         let tx = c.unchecked_transaction().map_err(database_error)?;
         for (game,(folder,executable)) in library.games.iter().zip(paths) {
             let current: Option<(Option<String>,Option<String>)> = tx.query_row("SELECT installation_root,steam_install_path FROM games WHERE id = ?1", [&game.id], |r| Ok((r.get(0)?,r.get(1)?))).optional().map_err(database_error)?;
             if let Some((old,steam)) = current
-                && (steam.is_some() || old.as_deref().is_some_and(|old| Path::new(old) != folder && Path::new(old).exists())) {
+                && (steam.is_some() || old.as_deref().is_some_and(|old| Path::new(old).exists() && dunce::canonicalize(old).unwrap_or_else(|_|PathBuf::from(old)) != folder)) {
                     return Err("An imported game ID already belongs to another installation".into());
                 }
             let duplicate: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM games WHERE executable_path = ?1 AND id <> ?2)", params![executable.to_string_lossy(),game.id], |r| r.get(0)).map_err(database_error)?;
@@ -236,7 +251,7 @@ fn index(
                 let mut removed = Vec::new();
                 for row in rows {
                     let (id,path) = row.map_err(database_error)?;
-                    if Path::new(&path).parent() == Some(root) && !ids.contains(id.as_str()) {
+                    if library_child(Path::new(&path), root) && !ids.contains(id.as_str()) {
                         removed.push(id);
                     }
                 }
@@ -478,6 +493,8 @@ pub(crate) fn sync(database: &Database, root: &Path) -> Result<(), String> {
 }
 
 pub(crate) fn publish(database: &Database, root: &Path) {
+    let normalized = dunce::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let root = normalized.as_path();
     if let Err(error) = sync(database, root) {
         crate::application_log::failure("library_publication", &error);
         if cached_library(database, root).ok().flatten().is_none()
@@ -670,6 +687,59 @@ mod tests {
         assert!(database.game(&id).unwrap().installation_root.is_none());
         sync(&database, &root).unwrap();
         assert!(manifest::read(&root).unwrap().unwrap().games.is_empty());
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn equivalent_parent_paths_are_indexed_and_normalized_for_pending_writes() {
+        let (directory, database, id) = installed_fixture();
+        let root = directory.join("games");
+        let alias = root.join("../games/Game");
+        database
+            .with_connection(|c| {
+                c.execute(
+                    "UPDATE games SET installation_root=?2,executable_path=?3 WHERE id=?1",
+                    params![
+                        id,
+                        alias.to_string_lossy(),
+                        alias.join("game.exe").to_string_lossy()
+                    ],
+                )
+                .map_err(database_error)?;
+                Ok(())
+            })
+            .unwrap();
+        sync(&database, &root).unwrap();
+        assert_eq!(manifest::read(&root).unwrap().unwrap().games.len(), 1);
+        assert_eq!(
+            PathBuf::from(database.game(&id).unwrap().installation_root.unwrap()),
+            dunce::canonicalize(root.join("Game")).unwrap()
+        );
+        sync(&database, &root).unwrap();
+        assert_eq!(
+            cached_library(&database, &dunce::canonicalize(&root).unwrap())
+                .unwrap()
+                .unwrap()
+                .1,
+            0
+        );
+        publish(&database, &root.join("../games"));
+        assert_eq!(libraries(&database).unwrap().len(), 1);
+        database
+            .with_connection(|c| {
+                c.execute("DELETE FROM games WHERE id=?1", [&id])
+                    .map_err(database_error)?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(
+            cached_library(&database, &dunce::canonicalize(&root).unwrap())
+                .unwrap()
+                .unwrap()
+                .1
+                > 0
+        );
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
