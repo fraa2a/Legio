@@ -62,6 +62,9 @@ jobs:
       - name: Test catalog filters and store controls
         run: corepack pnpm test:catalog
 
+      - name: Check Tauri command permissions
+        run: corepack pnpm test:acl
+
       - name: Test library artwork on cold startup
         run: corepack pnpm test:artwork
 

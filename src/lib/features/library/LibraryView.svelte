@@ -10,6 +10,7 @@
   import { openGame } from "../../stores/navigation";
   import { playtime } from "../../stores/playtime";
   import { importSteamLibrary, steamLibrary } from "../../stores/steam-library";
+  import { settings } from "../../stores/settings";
   import AddGameDialog from "./AddGameDialog.svelte";
   import GameCard from "./GameCard.svelte";
   import { libraryGroups, libraryItems } from "./library-model";
@@ -26,7 +27,7 @@
 
 <div class="flex min-h-full flex-col gap-4">
 
-  {#if $steamLibrary.error !== null}
+  {#if $settings.data.syncSteamGames && $steamLibrary.error !== null}
     <ErrorBanner message={$steamLibrary.error} onRetry={() => void importSteamLibrary()} retryLabel={t("Riprova", $language)} />
   {/if}
 
@@ -39,7 +40,9 @@
   <StateBlock
     status={listStatus}
     hasData={$games.data.length > 0}
-    emptyMessage={t("Nessun gioco in libreria. Steam viene sincronizzato automaticamente, oppure puoi aggiungere un gioco con +.", $language)}
+    emptyMessage={$settings.data.syncSteamGames
+      ? t("Nessun gioco visibile in libreria. Puoi aggiungerne uno con + o riabilitare i giochi Steam nascosti nelle impostazioni delle librerie.", $language)
+      : t("Nessun gioco visibile in libreria. Puoi aggiungerne uno con + o riabilitare i giochi Steam nascosti nelle impostazioni delle librerie. Sync Steam games è disattivato.", $language)}
     error={$games.error}
     onRetry={() => void games.load()}
   />

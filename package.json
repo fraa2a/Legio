@@ -23,6 +23,7 @@
     "test:onboarding": "node --test scripts/test_onboarding_news.mjs",
     "test:sources": "node --test scripts/test_sources.mjs",
     "test:catalog": "node --conditions=browser --test scripts/test_catalog.mjs scripts/test_store_filters.mjs",
+    "test:acl": "node --test scripts/test_command_acl.mjs",
     "test:review": "node --conditions=browser --test scripts/test_review_frontend.mjs",
     "test:select": "node --conditions=browser --test scripts/test_select.mjs",
     "test:artwork-cache": "node --conditions=browser --test scripts/test_steam_image_cache.mjs",

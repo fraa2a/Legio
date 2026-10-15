@@ -9,6 +9,7 @@
   import Button from "../../components/ui/Button.svelte";
   import type { Settings } from "../../services/local-state";
   import { configureSteamScanInterval } from "../../stores/bootstrap";
+  import { importSteamLibrary } from "../../stores/steam-library";
   import { closeSettings } from "../../stores/navigation";
   import { defaultSettings, settings, settingsError, updateSettings } from "../../stores/settings";
   import { toMessage } from "../../utils/errors";
@@ -55,7 +56,11 @@
     saved = false;
     settingsError.set(null);
     try {
-      await updateSettings(changes);
+      const updated = await updateSettings(changes);
+      if (changes.syncSteamGames !== undefined) {
+        configureSteamScanInterval(updated.steamLibraryPollMinutes);
+        if (updated.syncSteamGames) void importSteamLibrary();
+      }
       if (changes.onboardingCompleted === false) closeSettings();
       saved = true;
       return true;
@@ -102,6 +107,10 @@
     icon="store"
     title={t("Controllo Steam", $language)}
   >
+    <div class="flex items-center gap-2"><div class="min-w-0 flex-1">
+      <Toggle label={t("Sync Steam games", $language)} checked={$settings.data.syncSteamGames} disabled={saving} onChange={(checked) => void update({ syncSteamGames: checked })} />
+    </div><ResetSetting label={t("Ripristina Sync Steam games", $language)} disabled={saving || $settings.data.syncSteamGames === defaultSettings.syncSteamGames} onClick={() => void update({ syncSteamGames: defaultSettings.syncSteamGames })} /></div>
+    <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Quando è disattivato, Legio non controlla i giochi Steam all'avvio o periodicamente. I giochi già importati restano nella libreria.", $language)}</p>
     <div class="flex max-w-64 items-end gap-2"><div class="min-w-0 flex-1">
       <SelectField
         id="steam-library-poll-interval"
@@ -109,7 +118,7 @@
         value={String($settings.data.steamLibraryPollMinutes)}
         {options}
         borderless
-        disabled={saving || $settings.status === "loading" || $settings.status === "idle"}
+        disabled={saving || !$settings.data.syncSteamGames || $settings.status === "loading" || $settings.status === "idle"}
         onChange={(value) => void selectInterval(value)}
       />
     </div><ResetSetting label={t("Ripristina intervallo di controllo", $language)} disabled={saving || $settings.data.steamLibraryPollMinutes === defaultSettings.steamLibraryPollMinutes} onClick={() => void selectInterval(String(defaultSettings.steamLibraryPollMinutes))} /></div>

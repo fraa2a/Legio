@@ -24,12 +24,12 @@ test("transfer asks only for a destination library and stays disabled while the 
     "src/lib/i18n": dataModule(storeImport + 'export const language=writable("it"); export const t=value=>value;'),
     "src/lib/stores/app-info": dataModule(storeImport + 'export const appInfo=writable({data:{platform:"windows"}});'),
     "src/lib/stores/launch": dataModule('export const launchStateByGame=globalThis.libraryFixture.launch;'),
-    "src/lib/stores/playtime": dataModule(storeImport + 'export const playtime=writable({data:[{gameId:"game",totalMilliseconds:3600000,activeSessions:0}]}); playtime.load=async()=>{};'),
+    "src/lib/stores/playtime": dataModule(storeImport + 'export const playtime=writable({data:[{gameId:"game",totalMilliseconds:3600000,activeSessions:0}]}); playtime.load=async()=>{}; playtime.reload=async()=>{};'),
     "src/lib/services/playtime": dataModule('export const setGamePlaytime=async(...args)=>{globalThis.libraryFixture.calls.push(args);};'),
     "src/lib/stores/games": dataModule('export const reconcileGame=()=>{};'),
     "src/lib/services/dialog": dataModule('export const pickGameDirectory=async()=>"/new-library";'),
     "src/lib/services/local-state": dataModule('export const createDesktopShortcut=async()=>({}); export const transferGame=async(...args)=>{globalThis.libraryFixture.calls.push(args);return {game:globalThis.libraryFixture.game,warning:null};};'),
-    "src/lib/components/ui/Dialog.svelte": await stub('<script>let {children}=$props();</script><div>{@render children?.()}</div>'),
+    "src/lib/components/ui/Dialog.svelte": await stub('<script>let {open,children}=$props();</script>{#if open}<div>{@render children?.()}</div>{/if}'),
   };
   for (const panel of ["GameArtworkPanel", "GameDetailsPanel", "ExecutablePanel", "GameSettingsPanel", "SteamAccountPanel", "SteamLaunchSettings"]) {
     mocks[`src/lib/features/library/${panel}.svelte`] = empty;
@@ -53,13 +53,48 @@ test("transfer asks only for a destination library and stays disabled while the 
     button.click(); await settle();
     assert.deepEqual(calls, [[game.id, "/new-library"]]);
     [...target.querySelectorAll("button")].find(button => button.textContent.trim() === "Zona pericolosa").click(); await settle();
+    const editPlaytime = [...target.querySelectorAll("button")].find(button => button.textContent.trim() === "Imposta tempo di gioco");
+    assert.ok(editPlaytime, "the red playtime button stays in danger settings");
+    assert.equal(target.querySelector("#playtime-hours"), null, "playtime fields stay in the popup");
+    editPlaytime.click(); await settle();
     const hours = target.querySelector("#playtime-hours");
-    assert.ok(hours, "danger settings expose an editable playtime total");
+    assert.ok(hours, "the popup exposes editable hours and minutes");
+    assert.ok(target.querySelector("#playtime-minutes"));
     assert.equal(hours.value, "1");
     hours.value = "2";
     hours.dispatchEvent(new dom.window.Event("input", {bubbles:true})); await settle();
-    [...target.querySelectorAll("button")].find(button => button.textContent.trim() === "Imposta tempo di gioco").click(); await settle();
     [...target.querySelectorAll("button")].find(button => button.textContent.trim() === "Conferma modifica").click(); await settle();
     assert.deepEqual(calls.at(-1), [game.id, 7200000]);
+    assert.equal(target.querySelector("#playtime-hours"), null, "the popup closes after saving");
   } finally { await unmount(instance); target.remove(); delete globalThis.libraryFixture; }
+});
+
+test("Steam game settings offer hide and block removal while sync is enabled", async () => {
+  const settings = writable({ data: { syncSteamGames: true } });
+  const calls = [];
+  globalThis.steamGameActions = { settings, calls };
+  const stub = async source => dataModule(await createModuleLoader({}).resolveImports(compile(source, { generate: "client" }).js.code, "stub.svelte"));
+  const empty = await stub("<div></div>");
+  const mocks = {
+    "src/lib/i18n": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const language=writable("it"); export const t=value=>value;`),
+    "src/lib/stores/settings": dataModule("export const settings = globalThis.steamGameActions.settings;"),
+    "src/lib/stores/games": dataModule("export const deleteGame = async id => globalThis.steamGameActions.calls.push(['remove', id]); export const hideSteamGame = async id => globalThis.steamGameActions.calls.push(['hide', id]); export const saveGame = async () => {};"),
+    "src/lib/features/library/GameSourcePanel.svelte": empty,
+    "src/lib/features/library/SteamGameSearch.svelte": empty,
+  };
+  const { load } = createModuleLoader(mocks);
+  const Panel = (await import(await load("src/lib/features/library/GameDetailsPanel.svelte"))).default;
+  const game = { id: "steam-game", name: "Portal", steamAppId: 400, steamInstallPath: "/steam/Portal", executablePath: null, automaticName: "Portal", nameOverride: null };
+  const target = document.createElement("div"); document.body.append(target);
+  const instance = mount(Panel, { target, props: { game, section: "danger", onRemoved: () => calls.push(["closed"]) } });
+  try {
+    await settle();
+    const button = label => [...target.querySelectorAll("button")].find(item => item.textContent.trim() === label);
+    assert.equal(button("Rimuovi gioco").disabled, true);
+    assert.equal(button("Nascondi dalla libreria").disabled, false);
+    settings.set({ data: { syncSteamGames: false } }); await settle();
+    assert.equal(button("Rimuovi gioco").disabled, false);
+    button("Nascondi dalla libreria").click(); await settle();
+    assert.deepEqual(calls, [["hide", game.id], ["closed"]]);
+  } finally { await unmount(instance); target.remove(); delete globalThis.steamGameActions; }
 });

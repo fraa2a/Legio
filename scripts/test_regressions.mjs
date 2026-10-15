@@ -338,7 +338,7 @@ test("hydration waits for startup recovery before loading games and displays fai
   const calls = [];
   const resource = (name) => ({ ...writable({ data: [] }), load: async () => { calls.push(name); } });
   const appInfo = { ...writable({ data: { startupLaunchGameId: null, startupLaunchError: "Startup recovery failed: marker conflict" } }), load: () => { calls.push("appInfo"); return ready.promise; } };
-  const settings = writable({ status: "ready", data: { launchInLibrary: false, steamLibraryPollMinutes: 30 } });
+  const settings = writable({ status: "ready", data: { launchInLibrary: false, steamLibraryPollMinutes: 30, syncSteamGames: false } });
   const launchError = writable(null);
   globalThis.legioBootstrap = { appInfo, settings, launchError,
     games: resource("games"), downloads: resource("downloads"), bandwidthLimit: resource("bandwidth"), installedFolder: resource("folder"),
@@ -358,13 +358,17 @@ test("hydration waits for startup recovery before loading games and displays fai
     "src/lib/stores/source": dataModule("export const source = globalThis.legioBootstrap.source; export const refreshSource = async () => {};"),
     "src/lib/stores/network": dataModule("export const network = globalThis.legioBootstrap.network; export const checkConnectivity = async () => {};"),
     "src/lib/stores/launch": dataModule(["hasPendingLaunch", "launchError", "launchStates"].map((name) => `export const ${name} = globalThis.legioBootstrap.${name};`).join("\n") + "export const startLaunchEvents = async () => {};"),
-    "src/lib/stores/steam-library": dataModule("export const importSteamLibrary = async () => {};"),
+    "src/lib/stores/steam-library": dataModule("export const importSteamLibrary = async () => { globalThis.legioBootstrap.calls.push('steamImport'); };"),
     "src/lib/stores/navigation": dataModule("export const activeSection = globalThis.legioBootstrap.activeSection; export const openGame = () => {};"),
   });
   const originalInterval = globalThis.setInterval;
-  globalThis.setInterval = () => 0;
+  const originalClearInterval = globalThis.clearInterval;
+  const intervals = [];
+  globalThis.setInterval = () => { const timer = { cleared: false }; intervals.push(timer); return timer; };
+  globalThis.clearInterval = timer => { timer.cleared = true; };
+  globalThis.legioBootstrap.calls = calls;
   try {
-    const { hydrateApp } = await import(await load("src/lib/stores/bootstrap.ts"));
+    const { hydrateApp, configureSteamScanInterval } = await import(await load("src/lib/stores/bootstrap.ts"));
     const hydration = hydrateApp();
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(calls, ["appInfo"], "game and folder operations wait for native recovery");
@@ -373,8 +377,17 @@ test("hydration waits for startup recovery before loading games and displays fai
     assert.ok(calls.includes("games"));
     assert.ok(calls.includes("folder"));
     assert.equal(get(launchError), "Startup recovery failed: marker conflict");
+    assert.equal(calls.includes("steamImport"), false, "disabled Steam sync skips startup scan");
+    assert.equal(intervals.length, 0, "disabled Steam sync has no polling timer");
+    settings.set({ status: "ready", data: { launchInLibrary: false, steamLibraryPollMinutes: 30, syncSteamGames: true } });
+    configureSteamScanInterval(30);
+    assert.equal(intervals.length, 1);
+    settings.set({ status: "ready", data: { launchInLibrary: false, steamLibraryPollMinutes: 30, syncSteamGames: false } });
+    configureSteamScanInterval(30);
+    assert.equal(intervals[0].cleared, true, "turning off Steam sync stops polling");
   } finally {
     globalThis.setInterval = originalInterval;
+    globalThis.clearInterval = originalClearInterval;
     delete globalThis.legioBootstrap;
   }
 });

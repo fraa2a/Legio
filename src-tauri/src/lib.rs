@@ -388,6 +388,8 @@ fn run_application(
             commands::get_steam_launch_config,
             commands::save_steam_launch_config,
             commands::list_games,
+            commands::list_hidden_steam_games,
+            commands::set_game_hidden,
             commands::get_playtime_summaries,
             commands::set_game_playtime,
             commands::get_game_libraries,

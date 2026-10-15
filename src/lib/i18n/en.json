@@ -669,5 +669,17 @@
   "Importa una cartella contenente library.ldf. I giochi restano nella posizione attuale.": "Import a folder containing library.ldf. Games stay in their current location.",
   "La riparazione conserva una copia del catalogo e lo ricostruisce dai dati locali.": "Repair preserves a copy of the catalog and rebuilds it from local data.",
   "Aggiornamento disponibile": "Update available",
-  "Consenti download mentre un gioco è aperto": "Allow downloads while a game is running"
+  "Consenti download mentre un gioco è aperto": "Allow downloads while a game is running",
+  "Sync Steam games": "Sync Steam games",
+  "Ripristina Sync Steam games": "Reset Sync Steam games",
+  "Quando è disattivato, Legio non controlla i giochi Steam all'avvio o periodicamente. I giochi già importati restano nella libreria.": "When disabled, Legio does not scan Steam games at startup or periodically. Already imported games remain in the library.",
+  "Visibilità nella libreria": "Library visibility",
+  "Nascondi questo gioco senza rimuoverlo. Puoi riabilitarlo nelle impostazioni delle librerie.": "Hide this game without removing it. You can restore it in the library settings.",
+  "Nascondi dalla libreria": "Hide from library",
+  "Disattiva Sync Steam games nelle impostazioni per rimuoverlo, oppure usa Nascondi dalla libreria per nascondere solo questo gioco.": "Disable Sync Steam games in settings to remove it, or use Hide from library to hide only this game.",
+  "Giochi Steam nascosti": "Hidden Steam games",
+  "Nessun gioco Steam nascosto.": "No hidden Steam games.",
+  "Mostra nella libreria": "Show in library",
+  "Nessun gioco visibile in libreria. Puoi aggiungerne uno con + o riabilitare i giochi Steam nascosti nelle impostazioni delle librerie.": "No visible games in the library. Add one with + or restore hidden Steam games in library settings.",
+  "Nessun gioco visibile in libreria. Puoi aggiungerne uno con + o riabilitare i giochi Steam nascosti nelle impostazioni delle librerie. Sync Steam games è disattivato.": "No visible games in the library. Add one with + or restore hidden Steam games in library settings. Sync Steam games is off."
 }
