@@ -31,7 +31,7 @@
   const choice = $derived(variants.find(({ entry }) => JSON.stringify([entry.sourceId, entry.id]) === selected));
   $effect(() => {
     const id = game.id;
-    if (variants.length === 0 || loadedGame === id) return;
+    if (game.steamInstallPath !== null || game.installationRoot === null || variants.length === 0 || loadedGame === id) return;
     loadedGame = id;
     const current = ++request;
     void getGameSourceBinding(id).then(binding => {
