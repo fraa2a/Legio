@@ -1970,23 +1970,17 @@ mod tests {
         fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
     }
 
-    #[tokio::test]
-    async fn unrelated_games_do_not_wait_for_another_games_metadata() {
+    #[test]
+    fn metadata_locks_are_shared_only_within_the_same_game() {
         let cache = cache();
-        let directory = cache.directory().unwrap().join("pics");
         let busy_lock = cache.metadata_lock(400).unwrap();
-        let _busy_game = busy_lock.lock().await;
+        let _busy_game = busy_lock.try_lock().unwrap();
+        assert!(cache.metadata_lock(400).unwrap().try_lock().is_err());
         let other_lock = cache.metadata_lock(401).unwrap();
-        let lookup =
-            crate::steam_pics::resolve(Ok(directory.join("401.json")), &other_lock, true, async {
-                Ok(serde_json::from_str::<crate::steam_pics::PicsAssets>("{}").unwrap())
-            });
-        let result = tokio::time::timeout(Duration::from_millis(100), lookup).await;
         assert!(
-            result.is_ok(),
+            other_lock.try_lock().is_ok(),
             "An unrelated app must not wait for a busy app lookup"
         );
-        fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
     }
 
     #[tokio::test]

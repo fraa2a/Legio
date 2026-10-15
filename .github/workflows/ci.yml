@@ -135,7 +135,7 @@ jobs:
       matrix:
         include:
           - name: Linux
-            os: ubuntu-latest
+            os: ubuntu-22.04
           - name: Windows
             os: windows-latest
     steps:
@@ -307,9 +307,37 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib finalize_install::tests::recovers_after_database_commit_fails_and_database_reopens
 
       - name: Build Tauri application
-        if: runner.os != 'Windows' || github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request'
         shell: bash
         run: corepack pnpm tauri build --debug --no-bundle
+
+      - name: Build Linux test AppImage
+        if: runner.os == 'Linux' && github.event_name == 'pull_request'
+        shell: bash
+        run: 'corepack pnpm tauri build --bundles appimage --config ''{"bundle":{"createUpdaterArtifacts":false}}'''
+
+      - name: Record Linux AppImage checksums and revision
+        if: runner.os == 'Linux' && github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          directory="src-tauri/target/release/bundle/appimage"
+          (cd "$directory" && sha256sum -- *.AppImage) > "$directory/SHA256SUMS.txt"
+          printf 'Built revision: %s\nPR head: %s\nTest AppImage. Updater signing is disabled; this is not a published release.\n' \
+            "$(git rev-parse HEAD)" "$PR_HEAD_SHA" > "$directory/build-info.txt"
+
+      - name: Upload Linux test AppImage
+        if: runner.os == 'Linux' && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: legio-linux-pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: |
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/appimage/SHA256SUMS.txt
+            src-tauri/target/release/bundle/appimage/build-info.txt
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Build Windows test installer
         if: runner.os == 'Windows' && github.event_name == 'pull_request'
