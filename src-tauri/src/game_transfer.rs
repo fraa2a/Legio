@@ -107,7 +107,7 @@ fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<Transfe
         .ok_or_else(|| "Select a game executable first".to_owned())?;
     let executable = dunce::canonicalize(executable)
         .map_err(|error| format!("Could not inspect game executable: {error}"))?;
-    let source = crate::game_library::game_root(&executable)?;
+    let source = crate::game_library::installation_root(game.installation_root.as_deref(), &executable)?;
     require_not_running(&source)?;
     if !source.is_dir() {
         return Err("Transfer source is not a directory".to_owned());
@@ -141,7 +141,7 @@ fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<Transfe
         return Err("Destination library is not a directory".into());
     }
     let destination = database.database()?.with_connection(|connection| {
-        crate::game_library::available_target(connection, &parent, &game.name)
+        crate::game_library::available_target(connection, &parent, source.file_name().and_then(|name| name.to_str()).ok_or("Game directory name is not valid UTF-8")?)
     })?;
     if destination.starts_with(&source) || source.starts_with(&destination) {
         return Err("Source and destination directories overlap".to_owned());

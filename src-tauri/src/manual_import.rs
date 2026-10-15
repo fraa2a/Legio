@@ -233,7 +233,11 @@ pub fn set_executable(state: &DatabaseState, game_id: &str, value: &str) -> Resu
         .map_err(|_| "game id is invalid".to_owned())?
         .to_string();
     let path = validate_executable(value)?;
-    let root = crate::game_library::game_root(&path)?;
+    let current = state.database()?.game(&id)?;
+    let recorded = current.installation_root.as_deref().filter(|root| {
+        dunce::canonicalize(root).is_ok_and(|root| path.starts_with(root))
+    });
+    let root = crate::game_library::installation_root(recorded, &path)?;
     let path = path.to_str().ok_or("executable path is not valid UTF-8")?;
     state.database()?.with_connection(|connection| {
         connection.query_row(
@@ -642,6 +646,22 @@ mod tests {
         let path = std::env::temp_dir().join(format!("legio-executable-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    #[test]
+    fn selecting_an_executable_keeps_a_valid_recorded_installation_root() {
+        let directory = std::env::temp_dir().join(format!("legio-selected-root-{}", uuid::Uuid::new_v4()));
+        let database = Database::open(&directory).unwrap();
+        fs::create_dir_all(directory.join("Game/bin")).unwrap();
+        fs::write(directory.join("Game/game.exe"), b"game").unwrap();
+        fs::write(directory.join("Game/bin/other.exe"), b"game").unwrap();
+        let game = import_into(&database, ManualImportInput { executable_path: directory.join("Game/game.exe").to_string_lossy().into_owned(), name: Some("Game".into()) }).unwrap();
+        drop(database);
+        let state = DatabaseState::new(Ok(directory.clone()));
+        let selected = set_executable(&state, &game.id, directory.join("Game/bin/other.exe").to_str().unwrap()).unwrap();
+        assert_eq!(selected.installation_root, game.installation_root);
+        drop(state);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

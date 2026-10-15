@@ -54,6 +54,19 @@ pub(crate) fn game_root(executable: &Path) -> Result<PathBuf, String> {
     Ok(parent.to_path_buf())
 }
 
+pub(crate) fn installation_root(recorded: Option<&str>, executable: &Path) -> Result<PathBuf, String> {
+    match recorded {
+        Some(root) => {
+            let root = dunce::canonicalize(root).map_err(|e| format!("Could not inspect installation root: {e}"))?;
+            if !root.is_dir() || !executable.starts_with(&root) {
+                return Err("Executable is outside the recorded installation root".into());
+            }
+            Ok(root)
+        }
+        None => game_root(executable),
+    }
+}
+
 pub(crate) fn folder_name(name: &str) -> String {
     let name: String = name
         .chars()
@@ -331,6 +344,19 @@ pub(crate) fn remove(root: &Path, id: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recorded_root_preserves_sibling_resources() {
+        let directory = std::env::temp_dir().join(format!("legio-root-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(directory.join("Game/bin")).unwrap();
+        fs::write(directory.join("Game/bin/game.exe"), b"game").unwrap();
+        fs::write(directory.join("Game/assets.dat"), b"resources").unwrap();
+        let executable = dunce::canonicalize(directory.join("Game/bin/game.exe")).unwrap();
+        let recorded = directory.join("Game");
+        assert_eq!(installation_root(Some(recorded.to_str().unwrap()), &executable).unwrap(), dunce::canonicalize(&recorded).unwrap());
+        assert_eq!(installation_root(None, &executable).unwrap(), executable.parent().unwrap());
+        fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn detects_normal_and_unreal_game_roots() {
