@@ -43,6 +43,7 @@
   import { acquireGameArtwork, gameArtworkRevision } from "../../services/game-artwork";
   import { toMessage } from "../../utils/errors";
   import { sourceReleaseId, sourceReleasesFor } from "../store/source-status";
+  import { nextVersionAfterRemoval } from "./library-model";
 
   let { storeGame = null, gameId = null }: { storeGame?: StoreGameSelection | null; gameId?: string | null } = $props();
 
@@ -86,7 +87,7 @@
   });
 
   $effect(() => {
-    if (storeGame === null && $selectedGameId !== null && game === null) closeGame();
+    if (storeGame === null && $selectedGameId !== null && game === null && !gameSettingsOpen) closeGame();
   });
 
   $effect(() => {
@@ -283,7 +284,12 @@
   <GameSettingsDialog
     {game}
     onClose={() => (gameSettingsOpen = false)}
-    onRemoved={() => { gameSettingsOpen = false; closeGame(); }}
+    onRemoved={(removed) => {
+      const nextId = nextVersionAfterRemoval(removed, $games.data, $playtime.data);
+      gameSettingsOpen = false;
+      if (nextId === null) closeGame();
+      else openGame(nextId);
+    }}
   />
 {/if}
 
