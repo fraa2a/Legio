@@ -18,7 +18,7 @@
     portrait?: boolean;
     asset?: SteamAssetKind | null;
     class?: string;
-    children: Snippet;
+    children: Snippet<[boolean]>;
   } = $props();
 
   const asset = $derived(assetOverride ?? (portrait ? "library_capsule" : "hero_blur"));
@@ -57,7 +57,7 @@
     </div>
 
     <div class="relative flex min-h-0 flex-1 flex-col">
-      {@render children()}
+      {@render children(visible)}
     </div>
   </li>
 </ArtworkScope>

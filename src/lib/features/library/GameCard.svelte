@@ -47,43 +47,45 @@
 </script>
 
 <ArtworkTile {steamAppId} {monogram} {portrait} asset={artworkAsset}>
-  <button
-    type="button"
-    class="flex flex-1 flex-col text-left focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-white"
-    aria-label="{t("Dettagli di ", $language)}{game.name}"
-    onclick={onOpen}
-  >
-    <div class="absolute inset-x-2 top-2 flex items-center gap-1.5">
-      {#if lastPlayedLabel !== null}
-        <span
-          class="rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium text-zinc-100 light:bg-zinc-100/70 light:text-zinc-900"
-          title="{t("Ultima partita: ", $language)}{lastPlayedLabel}"
-        >
-          {lastPlayedLabel}
-        </span>
-      {/if}
-      <div class="ml-auto flex items-center gap-1.5">
-        {#if $gameUpdates.data.some(update => update.gameId === game.id || (game.steamAppId !== null && update.steamAppId === game.steamAppId))}<span class="rounded-full bg-legio-download px-2 py-0.5 text-xs font-medium text-white" title={t("Aggiornamento disponibile", $language)}><Icon name="download" size="h-3.5 w-3.5" /></span>{/if}
-        {#if status !== "idle"}
-          <Badge tone={status === "running" ? "success" : "warning"} title={status === "running" ? t("In esecuzione", $language) : t("Avvio in corso", $language)} />
+  {#snippet children(visible)}
+    <button
+      type="button"
+      class="flex flex-1 flex-col text-left focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-white"
+      aria-label="{t("Dettagli di ", $language)}{game.name}"
+      onclick={onOpen}
+    >
+      <div class="absolute inset-x-2 top-2 flex items-center gap-1.5">
+        {#if lastPlayedLabel !== null}
+          <span
+            class="rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium text-zinc-100 light:bg-zinc-100/70 light:text-zinc-900"
+            title="{t("Ultima partita: ", $language)}{lastPlayedLabel}"
+          >
+            {lastPlayedLabel}
+          </span>
         {/if}
-        <span
-          class="flex items-center gap-1 rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-100 light:bg-zinc-100/70 light:text-zinc-900"
-          title="{playtimeLabel}{t(" giocati", $language)}"
-        >
-          <Icon name="clock" size="h-3.5 w-3.5" />
-          {playtimeLabel}
-        </span>
-      </div>
-    </div>
-
-    {#if showTitle}
-      <div class="relative p-3 {portrait ? 'mt-auto' : 'm-auto'}">
-        <div class="flex w-full min-w-0 max-w-full flex-col items-center">
-          <GameLogo {game} />
+        <div class="ml-auto flex items-center gap-1.5">
+          {#if $gameUpdates.data.some(update => update.gameId === game.id || (game.steamAppId !== null && update.steamAppId === game.steamAppId))}<span class="rounded-full bg-legio-download px-2 py-0.5 text-xs font-medium text-white" title={t("Aggiornamento disponibile", $language)}><Icon name="download" size="h-3.5 w-3.5" /></span>{/if}
+          {#if status !== "idle"}
+            <Badge tone={status === "running" ? "success" : "warning"} title={status === "running" ? t("In esecuzione", $language) : t("Avvio in corso", $language)} />
+          {/if}
+          <span
+            class="flex items-center gap-1 rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-100 light:bg-zinc-100/70 light:text-zinc-900"
+            title="{playtimeLabel}{t(" giocati", $language)}"
+          >
+            <Icon name="clock" size="h-3.5 w-3.5" />
+            {playtimeLabel}
+          </span>
         </div>
       </div>
-    {/if}
-  </button>
+
+      {#if showTitle}
+        <div class="relative p-3 {portrait ? 'mt-auto' : 'm-auto'}">
+          <div class="flex w-full min-w-0 max-w-full flex-col items-center">
+            <GameLogo {game} {visible} />
+          </div>
+        </div>
+      {/if}
+    </button>
+  {/snippet}
 </ArtworkTile>
 

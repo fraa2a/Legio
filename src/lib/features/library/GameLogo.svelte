@@ -4,15 +4,16 @@
 
   let {
     game,
+    visible = true,
     class: className = "h-14 w-56 max-w-full object-contain object-center",
   }: {
     game: Game;
+    visible?: boolean;
     class?: string;
   } = $props();
-
 </script>
 
-{#if game.steamAppId !== null}
+{#if visible && game.steamAppId !== null}
   <SteamArtwork
     steamAppId={game.steamAppId}
     asset="logo"
