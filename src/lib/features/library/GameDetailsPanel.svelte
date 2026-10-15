@@ -16,7 +16,7 @@
 
   let { game, onRemoved, section = "general" }: {
     game: Game;
-    onRemoved: () => void;
+    onRemoved: (removed: Game) => void;
     section?: "general" | "danger";
   } = $props();
 
@@ -72,7 +72,7 @@
     try {
       await deleteGame(game.id);
       confirmingRemove = false;
-      onRemoved();
+      onRemoved(game);
     } catch (error) {
       actionError = toMessage(error);
     } finally {
@@ -85,7 +85,7 @@
     pending = true;
     try {
       await hideSteamGame(game.id);
-      onRemoved();
+      onRemoved(game);
     } catch (error) {
       actionError = toMessage(error);
     } finally {

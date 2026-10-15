@@ -23,7 +23,7 @@
   let { game, onClose, onRemoved }: {
     game: Game;
     onClose: () => void;
-    onRemoved: () => void;
+    onRemoved: (removed: Game) => void;
   } = $props();
 
   const steamManaged = $derived(game.steamInstallPath !== null);

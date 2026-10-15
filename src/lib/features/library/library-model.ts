@@ -26,3 +26,14 @@ export function libraryItems(groups: Game[][], query: string, summaries: Map<str
     totalMilliseconds: group.reduce((total, game) => total + (summaries.get(game.id)?.totalMilliseconds ?? 0), 0),
   })).sort((left, right) => collator.compare(left.game.name, right.game.name));
 }
+
+export function nextVersionAfterRemoval(removed: Game, remaining: Game[], summaries: PlaytimeSummary[]): string | null {
+  if (removed.steamAppId === null) return null;
+  const lastPlayed = new Map(summaries.map((summary) => [summary.gameId, summary.lastPlayedAt ?? -1]));
+  let selected: Game | null = null;
+  for (const candidate of remaining) {
+    if (candidate.id === removed.id || candidate.steamAppId !== removed.steamAppId) continue;
+    if (selected === null || (lastPlayed.get(candidate.id) ?? -1) > (lastPlayed.get(selected.id) ?? -1)) selected = candidate;
+  }
+  return selected?.id ?? null;
+}

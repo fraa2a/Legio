@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import { t, language } from "../../i18n";
   import Badge from "../../components/ui/Badge.svelte";
   import Button from "../../components/ui/Button.svelte";
@@ -30,6 +31,28 @@
   let visibleCount = $state(20);
   let savingFilter = $state(false);
   let filterError = $state<string | null>(null);
+  let listElement: HTMLDivElement | undefined = $state();
+  let scrollPage: HTMLElement | null = null;
+  let listScrollTop = 0;
+  let restoreScroll = false;
+
+  function openEntry(entry: StoreEntry): void {
+    scrollPage = listElement?.closest<HTMLElement>("[data-page]") ?? null;
+    listScrollTop = scrollPage?.scrollTop ?? 0;
+    restoreScroll = true;
+    openStoreGame(entry);
+    void tick().then(() => {
+      if ($selectedStoreGame?.steamAppId === entry.steamAppId && scrollPage !== null) scrollPage.scrollTop = 0;
+    });
+  }
+
+  $effect(() => {
+    if ($selectedStoreGame !== null || !restoreScroll) return;
+    restoreScroll = false;
+    void tick().then(() => {
+      if ($selectedStoreGame === null && scrollPage?.isConnected) scrollPage.scrollTop = listScrollTop;
+    });
+  });
 
   async function saveFilter(changes: Partial<Settings>): Promise<void> {
     savingFilter = true;
@@ -78,7 +101,7 @@
 {#if $selectedStoreGame !== null}
   <GameDetailView storeGame={$selectedStoreGame} />
 {:else}
-  <div class="flex min-h-full flex-col gap-4">
+  <div bind:this={listElement} class="flex min-h-full flex-col gap-4">
     {#if $sourceRefreshError}
       <ErrorBanner
         message={$sourceRefreshError}
@@ -144,7 +167,7 @@
             steamAppId={entry.steamAppId}
             name={entry.name}
             status={entry.status}
-            onOpen={() => openStoreGame(entry)}
+            onOpen={() => openEntry(entry)}
           />
         {/each}
       </ul>
