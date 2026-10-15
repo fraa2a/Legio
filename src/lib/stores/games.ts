@@ -2,7 +2,9 @@ import { get } from "svelte/store";
 import {
   createGame,
   listGames,
+  listHiddenSteamGames,
   removeGame,
+  setGameHidden,
   updateGame,
   type CreateGameInput,
   type Game,
@@ -11,6 +13,17 @@ import {
 import { createResource } from "./resource";
 
 export const games = createResource<Game[]>([], listGames, (value) => value.length === 0);
+export const hiddenSteamGames = createResource<Game[]>([], listHiddenSteamGames);
+
+export async function hideSteamGame(id: string): Promise<void> {
+  await setGameHidden(id, true);
+  await Promise.all([games.reload(), hiddenSteamGames.reload()]);
+}
+
+export async function restoreSteamGame(id: string): Promise<void> {
+  await setGameHidden(id, false);
+  await Promise.all([games.reload(), hiddenSteamGames.reload()]);
+}
 
 export function reconcileGame(game: Game): void {
   const current = get(games).data;

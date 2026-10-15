@@ -219,6 +219,16 @@ mod tests {
         );
         assert_eq!(database.games().unwrap(), initial);
 
+        database.set_game_hidden(&portal.id, true).unwrap();
+        let hidden_scan = import_scan(&database, fixture.scan()).unwrap();
+        assert_eq!(hidden_scan.inserted, 0);
+        assert_eq!(
+            database.hidden_steam_games().unwrap(),
+            vec![(*portal).clone()]
+        );
+        database.set_game_hidden(&portal.id, false).unwrap();
+        assert_eq!(database.games().unwrap(), initial);
+
         fixture.install(400, "Portal refreshed", "Portal moved");
         let refreshed = import_scan(&database, fixture.scan()).unwrap();
         assert_eq!(

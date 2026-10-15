@@ -3,7 +3,8 @@
   import { onDestroy } from "svelte";
   import type { Game } from "../../services/local-state";
   import { toMessage } from "../../utils/errors";
-  import { deleteGame, saveGame } from "../../stores/games";
+  import { deleteGame, hideSteamGame, saveGame } from "../../stores/games";
+  import { settings } from "../../stores/settings";
   import GameSourcePanel from "./GameSourcePanel.svelte";
   import SteamGameSearch from "./SteamGameSearch.svelte";
   import Button from "../../components/ui/Button.svelte";
@@ -31,6 +32,7 @@
   const trimmedName = $derived(nameValue.trim());
   const nameChanged = $derived(nameDraft !== null && trimmedName !== (game.nameOverride ?? game.name).trim());
   const canResetName = $derived(game.automaticName !== null && (game.nameOverride !== null || nameChanged));
+  const removeBlocked = $derived(game.steamInstallPath !== null && $settings.data.syncSteamGames);
 
   $effect(() => {
     if (!nameChanged || trimmedName.length === 0 || pending || identityPending || trimmedName === failedName) return;
@@ -70,6 +72,19 @@
     try {
       await deleteGame(game.id);
       confirmingRemove = false;
+      onRemoved();
+    } catch (error) {
+      actionError = toMessage(error);
+    } finally {
+      pending = false;
+    }
+  }
+
+  async function hide(): Promise<void> {
+    actionError = null;
+    pending = true;
+    try {
+      await hideSteamGame(game.id);
       onRemoved();
     } catch (error) {
       actionError = toMessage(error);
@@ -135,6 +150,12 @@
 <GameSourcePanel {game} />
 
 {:else}
+{#if game.steamInstallPath !== null}
+<Panel title={t("Visibilità nella libreria", $language)}>
+  <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Nascondi questo gioco senza rimuoverlo. Puoi riabilitarlo nelle impostazioni delle librerie.", $language)}</p>
+  <div class="mt-3"><Button label={t("Nascondi dalla libreria", $language)} variant="secondary" disabled={pending || identityPending} onClick={() => void hide()} /></div>
+</Panel>
+{/if}
 <Panel title={t("Rimuovi dalla libreria", $language)}>
   {#if actionError !== null}
     <ErrorBanner message={actionError} />
@@ -144,12 +165,15 @@
       {game.name}{t(" verrà rimosso dalla libreria. I file installati non vengono eliminati.\n    ", $language)}</p>
     <div class="flex flex-wrap gap-2">
       <Button label={t("Annulla", $language)} variant="secondary" disabled={pending || identityPending} onClick={() => (confirmingRemove = false)} />
-      <Button label={t("Rimuovi", $language)} variant="danger" disabled={pending || identityPending} onClick={() => void remove()} />
+      <Button label={t("Rimuovi", $language)} variant="danger" disabled={pending || identityPending || removeBlocked} onClick={() => void remove()} />
     </div>
   {:else}
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("\n      Rimuovi questa voce senza toccare i file del gioco.\n    ", $language)}</p>
+    {#if removeBlocked}
+      <p class="mt-2 text-sm text-amber-300 light:text-amber-800">{t("Disattiva Sync Steam games nelle impostazioni per rimuoverlo, oppure usa Nascondi dalla libreria per nascondere solo questo gioco.", $language)}</p>
+    {/if}
     <div>
-      <Button label={t("Rimuovi gioco", $language)} variant="danger" onClick={() => (confirmingRemove = true)} />
+      <Button label={t("Rimuovi gioco", $language)} variant="danger" disabled={removeBlocked || pending || identityPending} onClick={() => (confirmingRemove = true)} />
     </div>
   {/if}
 </Panel>

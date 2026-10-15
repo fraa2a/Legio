@@ -17,8 +17,10 @@ let steamScanTimer: ReturnType<typeof setInterval> | null = null;
 
 export function configureSteamScanInterval(minutes: number): void {
   if (steamScanTimer !== null) clearInterval(steamScanTimer);
+  steamScanTimer = null;
+  if (!get(settings).data.syncSteamGames) return;
   steamScanTimer = setInterval(() => {
-    if (!get(hasPendingLaunch)) void importSteamLibrary();
+    if (get(settings).data.syncSteamGames && !get(hasPendingLaunch)) void importSteamLibrary();
   }, minutes * 60 * 1000);
 }
 
@@ -48,7 +50,7 @@ export async function hydrateApp(): Promise<void> {
   if (startup.startupLaunchError !== null) launchError.set(startup.startupLaunchError);
   if (steamScanTimer === null) {
     configureSteamScanInterval(get(settings).data.steamLibraryPollMinutes);
-    if (!get(hasPendingLaunch)) await importSteamLibrary();
+    if (get(settings).data.syncSteamGames && !get(hasPendingLaunch)) await importSteamLibrary();
   }
   await startSourceLinks();
   await Promise.all([checkConnectivity(), refreshSource()]);

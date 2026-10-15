@@ -11,6 +11,9 @@ export interface Settings {
   appearance: Appearance;
   language: "system" | "it" | "en";
   steamLibraryPollMinutes: number;
+  syncSteamGames: boolean;
+  storeSort: "relevance" | "name_asc" | "name_desc";
+  storeAvailability: "all" | "available" | "verified";
   downloadPath: string | null;
   closeToTray: boolean;
   hideOnGameStart: boolean;
@@ -62,6 +65,14 @@ export function saveSettings(settings: Settings): Promise<Settings> {
 
 export function listGames(): Promise<Game[]> {
   return invoke<Game[]>("list_games");
+}
+
+export function listHiddenSteamGames(): Promise<Game[]> {
+  return invoke<Game[]>("list_hidden_steam_games");
+}
+
+export function setGameHidden(id: string, hidden: boolean): Promise<void> {
+  return invoke<void>("set_game_hidden", { id, hidden });
 }
 
 export function createGame(input: CreateGameInput): Promise<Game> {

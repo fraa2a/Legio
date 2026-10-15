@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { JSDOM } from "jsdom";
-import { writable } from "svelte/store";
+import { get, writable } from "svelte/store";
 import { createModuleLoader, dataModule } from "./test_module_loader.mjs";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBeVisual: true });
@@ -21,6 +21,7 @@ test("store controls combine filters and reset pagination when either choice cha
   const results = Array.from({ length: 80 }, (_, index) => ({ steamAppId: index + 1, name: `Game ${index + 1}` }));
   globalThis.storeFilterFixture = {
     catalog: writable({ results, total: 120, status: "ready", refreshing: false, error: null, nextOffset: null }),
+    settings: writable({ data: { storeSort: "relevance", storeAvailability: "all" }, status: "ready" }),
     source: writable({ data: { manifest: null, warning: null } }),
     query: writable("portal"),
     search: (...args) => calls.push(args), more: (...args) => more.push(args),
@@ -31,6 +32,7 @@ test("store controls combine filters and reset pagination when either choice cha
     "src/lib/stores/catalog": dataModule("export const catalog = globalThis.storeFilterFixture.catalog; export const runCatalogSearch = (...args) => globalThis.storeFilterFixture.search(...args); export const loadMoreCatalog = (...args) => globalThis.storeFilterFixture.more(...args);"),
     "src/lib/stores/library-ui": dataModule("export const storeQuery = globalThis.storeFilterFixture.query;"),
     "src/lib/stores/source": dataModule(`import { writable } from ${JSON.stringify(stores)}; export const source = globalThis.storeFilterFixture.source; export const sourceRefreshError = writable(null); export const refreshSource = async () => {};`),
+    "src/lib/stores/settings": dataModule(`import { get } from ${JSON.stringify(stores)}; export const settings = globalThis.storeFilterFixture.settings; export const updateSettings = async patch => { const current = get(settings).data; const updated = { ...current, ...patch }; settings.set({ data: updated, status: "ready" }); return updated; };`),
     "src/lib/stores/navigation": dataModule(`import { writable } from ${JSON.stringify(stores)}; export const selectedStoreGame = writable(null); export const openStoreGame = () => {};`),
     "src/lib/stores/toast": dataModule("export const showToast = (...args) => globalThis.storeFilterNotifications.push(args);"),
     "src/lib/features/store/StoreGameCard.svelte": dataModule("export default function () {}"),
@@ -66,6 +68,7 @@ test("store controls combine filters and reset pagination when either choice cha
     assert.equal(more.length, 1, "changing availability must restart at 20 visible games");
     await choose("store-availability", "Solo disponibili");
     assert.deepEqual(calls.at(-1), ["portal", { sort: "name_desc", availability: "available" }]);
+    assert.deepEqual(get(globalThis.storeFilterFixture.settings).data, { storeSort: "name_desc", storeAvailability: "available" });
     globalThis.storeFilterFixture.source.set({ data: { manifest: { verified: [], unverified: [] }, warning: null } });
     await searchDelay();
     assert.deepEqual(calls.at(-1), ["portal", { sort: "name_desc", availability: "available" }]);
@@ -74,5 +77,8 @@ test("store controls combine filters and reset pagination when either choice cha
     assert.equal(notifications.at(-1)?.[0], "Offline", "a failed refresh must offer retry while retaining cached games");
     notifications.at(-1)[2].onRetry();
     assert.deepEqual(calls.at(-1), ["portal", { sort: "name_desc", availability: "available" }, true]);
+    globalThis.storeFilterFixture.catalog.set({ results: results.slice(0, 15), total: 15, status: "ready", refreshing: false, error: null, nextOffset: 50 });
+    await settle();
+    assert.equal(target.textContent.includes("Carica altri 20"), false, "a 15-result search must not offer another page");
   } finally { await unmount(instance); target.remove(); }
 });

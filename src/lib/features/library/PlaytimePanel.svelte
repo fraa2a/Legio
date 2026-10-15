@@ -9,11 +9,12 @@
   import TextField from "../../components/ui/TextField.svelte";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
+  import Dialog from "../../components/ui/Dialog.svelte";
 
   let { game }: { game: Game } = $props();
   let hoursDraft = $state<string | null>(null);
   let minutesDraft = $state<string | null>(null);
-  let confirming = $state(false);
+  let editorOpen = $state(false);
   let pending = $state(false);
   let error = $state<string | null>(null);
   let saved = $state(false);
@@ -29,8 +30,15 @@
   function edit(which: "hours" | "minutes", value: string): void {
     if (which === "hours") hoursDraft = value;
     else minutesDraft = value;
-    confirming = false;
     saved = false;
+  }
+
+  function openEditor(): void {
+    hoursDraft = null;
+    minutesDraft = null;
+    error = null;
+    saved = false;
+    editorOpen = true;
   }
 
   async function save(): Promise<void> {
@@ -43,7 +51,7 @@
       await playtime.reload();
       hoursDraft = null;
       minutesDraft = null;
-      confirming = false;
+      editorOpen = false;
       saved = true;
     } catch (cause) { error = toMessage(cause); }
     finally { pending = false; }
@@ -52,20 +60,24 @@
 
 <Panel title={t("Modifica tempo di gioco", $language)}>
   <p class="text-sm text-amber-400 light:text-amber-700">{t("Impostazione avanzata: sostituisce il totale locale di Legio. Non modifica Steam né la cronologia delle sessioni.", $language)}</p>
-  <div class="grid grid-cols-2 gap-3">
-    <TextField id="playtime-hours" label={t("Ore", $language)} value={hours} inputmode="numeric" disabled={pending || running} oninput={(value) => edit("hours", value)} />
-    <TextField id="playtime-minutes" label={t("Minuti", $language)} value={minutes} inputmode="numeric" disabled={pending || running} oninput={(value) => edit("minutes", value)} />
-  </div>
   {#if running}<p class="text-sm text-zinc-400 light:text-zinc-600">{t("Chiudi il gioco prima di modificare il tempo di gioco.", $language)}</p>{/if}
-  {#if !valid}<p class="text-sm text-amber-400 light:text-amber-700">{t("Inserisci ore intere non negative e minuti da 0 a 59.", $language)}</p>{/if}
-  <div class="flex flex-wrap gap-2">
-    {#if confirming}
-      <Button label={t("Annulla", $language)} variant="secondary" disabled={pending} onClick={() => (confirming = false)} />
-      <Button label={pending ? t("Salvataggio...", $language) : t("Conferma modifica", $language)} variant="danger" disabled={pending || running || !valid} onClick={() => void save()} />
-    {:else}
-      <Button label={t("Imposta tempo di gioco", $language)} variant="danger" disabled={pending || running || !valid || summary === undefined} onClick={() => (confirming = true)} />
-    {/if}
-  </div>
-  {#if error}<ErrorBanner message={error} />{/if}
+  <div><Button label={t("Imposta tempo di gioco", $language)} variant="danger" disabled={pending || running || summary === undefined} onClick={openEditor} /></div>
   {#if saved}<p class="text-sm text-emerald-400 light:text-emerald-700" role="status">{t("Tempo di gioco aggiornato.", $language)}</p>{/if}
 </Panel>
+
+<Dialog open={editorOpen} title={t("Modifica tempo di gioco", $language)} onClose={() => (editorOpen = false)}>
+  <div class="flex flex-col gap-4">
+    <p class="text-sm text-amber-400 light:text-amber-700">{t("Impostazione avanzata: sostituisce il totale locale di Legio. Non modifica Steam né la cronologia delle sessioni.", $language)}</p>
+    <div class="grid grid-cols-2 gap-3">
+      <TextField id="playtime-hours" label={t("Ore", $language)} value={hours} inputmode="numeric" disabled={pending || running} oninput={(value) => edit("hours", value)} />
+      <TextField id="playtime-minutes" label={t("Minuti", $language)} value={minutes} inputmode="numeric" disabled={pending || running} oninput={(value) => edit("minutes", value)} />
+    </div>
+    {#if running}<p class="text-sm text-zinc-400 light:text-zinc-600">{t("Chiudi il gioco prima di modificare il tempo di gioco.", $language)}</p>{/if}
+    {#if !valid}<p class="text-sm text-amber-400 light:text-amber-700">{t("Inserisci ore intere non negative e minuti da 0 a 59.", $language)}</p>{/if}
+    {#if error}<ErrorBanner message={error} />{/if}
+    <div class="flex justify-end gap-2">
+      <Button label={t("Annulla", $language)} variant="secondary" disabled={pending} onClick={() => (editorOpen = false)} />
+      <Button label={pending ? t("Salvataggio...", $language) : t("Conferma modifica", $language)} variant="danger" disabled={pending || running || !valid} onClick={() => void save()} />
+    </div>
+  </div>
+</Dialog>

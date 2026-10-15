@@ -258,6 +258,7 @@ test("library renders repeated Steam diagnostics and stays usable after refresh"
   const { load: libraryModuleUrl } = createModuleLoader({ ...mocks,
     "src/lib/stores/games": dataModule("export const games = globalThis.libraryCrashFixture.games;"),
     "src/lib/stores/steam-library": dataModule("export const steamLibrary = globalThis.libraryCrashFixture.steamLibrary; export const importSteamLibrary = async () => {};"),
+    "src/lib/stores/settings": dataModule(storeImport + 'export const settings = writable({ data: { syncSteamGames: true } });'),
     "src/lib/stores/library-ui": dataModule(storeImport + 'export const addGameDialogOpen = writable(false), libraryPortrait = writable(false), libraryQuery = writable("");'),
     "src/lib/stores/launch": dataModule(storeImport + "export const launchError = writable(null), launchStateByGame = writable(new Map());"),
     "src/lib/stores/playtime": dataModule(storeImport + "export const playtime = writable({data:[]}); playtime.load = async () => {};"),

@@ -8,7 +8,7 @@ import { setApplicationLoggingEnabled } from "../services/application-log";
 export const defaultSettings: Settings = {
   discordPresence: { enabled: true },
   onboardingCompleted: false,
-  appearance: defaultAppearance(), theme: "system", language: "system", steamLibraryPollMinutes: 30, downloadPath: null,
+  appearance: defaultAppearance(), theme: "system", language: "system", steamLibraryPollMinutes: 30, syncSteamGames: true, storeSort: "relevance", storeAvailability: "all", downloadPath: null,
   closeToTray: true, hideOnGameStart: true, launchOnSystemStart: false,
   launchMinimized: false, launchInLibrary: false, downloadNotifications: true, verifyVerifiedDownloads: true,
   diagnosticsEnabled: false, applicationLoggingEnabled: false, sidebarCollapsed: true, libraryPortrait: false, automaticGameUpdates: false, downloadWhilePlaying: true, deferExtractionWhilePlaying: false,

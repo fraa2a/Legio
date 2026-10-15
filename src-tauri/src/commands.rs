@@ -200,11 +200,25 @@ pub fn save_game_compatibility_overrides(
 
 #[tauri::command]
 pub fn list_games(state: State<'_, DatabaseState>) -> Result<Vec<Game>, String> {
-    let result = state.database().and_then(database::Database::games);
+    let result = state.database().and_then(database::Database::visible_games);
     if let Err(error) = &result {
         crate::application_log::failure("library_load", error);
     }
     result
+}
+
+#[tauri::command]
+pub fn list_hidden_steam_games(state: State<'_, DatabaseState>) -> Result<Vec<Game>, String> {
+    state.database()?.hidden_steam_games()
+}
+
+#[tauri::command]
+pub fn set_game_hidden(
+    state: State<'_, DatabaseState>,
+    id: String,
+    hidden: bool,
+) -> Result<(), String> {
+    state.database()?.set_game_hidden(&id, hidden)
 }
 
 #[tauri::command]

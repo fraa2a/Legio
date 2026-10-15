@@ -10,7 +10,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 28;
+const SCHEMA_VERSION: i64 = 29;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -202,6 +202,12 @@ pub struct Settings {
     pub language: crate::locale::LanguagePreference,
     #[serde(default = "default_steam_library_poll_minutes")]
     pub steam_library_poll_minutes: u32,
+    #[serde(default = "default_true")]
+    pub sync_steam_games: bool,
+    #[serde(default = "default_store_sort")]
+    pub store_sort: String,
+    #[serde(default = "default_store_availability")]
+    pub store_availability: String,
     #[serde(default)]
     pub download_path: Option<String>,
     #[serde(default = "default_true")]
@@ -242,6 +248,14 @@ fn default_steam_library_poll_minutes() -> u32 {
     DEFAULT_STEAM_LIBRARY_POLL_MINUTES
 }
 
+fn default_store_sort() -> String {
+    "relevance".to_owned()
+}
+
+fn default_store_availability() -> String {
+    "all".to_owned()
+}
+
 fn validate_steam_library_poll_minutes(minutes: u32) -> Result<(), String> {
     if (MIN_STEAM_LIBRARY_POLL_MINUTES..=MAX_STEAM_LIBRARY_POLL_MINUTES).contains(&minutes) {
         Ok(())
@@ -261,6 +275,9 @@ impl Default for Settings {
             appearance: crate::appearance::Appearance::default(),
             language: crate::locale::LanguagePreference::System,
             steam_library_poll_minutes: DEFAULT_STEAM_LIBRARY_POLL_MINUTES,
+            sync_steam_games: true,
+            store_sort: default_store_sort(),
+            store_availability: default_store_availability(),
             download_path: None,
             close_to_tray: true,
             hide_on_game_start: true,
@@ -600,6 +617,18 @@ impl Database {
     pub fn save_settings(&self, settings: Settings) -> Result<Settings, String> {
         crate::appearance::validate(&settings.appearance)?;
         validate_steam_library_poll_minutes(settings.steam_library_poll_minutes)?;
+        if !matches!(
+            settings.store_sort.as_str(),
+            "relevance" | "name_asc" | "name_desc"
+        ) {
+            return Err("Invalid Store sort preference".to_owned());
+        }
+        if !matches!(
+            settings.store_availability.as_str(),
+            "all" | "available" | "verified"
+        ) {
+            return Err("Invalid Store availability preference".to_owned());
+        }
         if settings.launch_minimized && !settings.launch_on_system_start {
             return Err("Launch minimized requires launch on system startup".to_owned());
         }
@@ -863,18 +892,78 @@ impl Database {
     }
 
     pub fn games(&self) -> Result<Vec<Game>, String> {
+        self.list_games(false)
+    }
+
+    pub fn visible_games(&self) -> Result<Vec<Game>, String> {
+        self.list_games(true)
+    }
+
+    fn list_games(&self, visible_only: bool) -> Result<Vec<Game>, String> {
         self.with_connection(|connection| {
+            let query = if visible_only {
+                "SELECT id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path, installation_root
+                 FROM games WHERE id NOT IN (SELECT game_id FROM hidden_games)
+                 ORDER BY COALESCE(name_override, automatic_name), id"
+            } else {
+                "SELECT id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path, installation_root
+                 FROM games ORDER BY COALESCE(name_override, automatic_name), id"
+            };
             let mut statement = connection
-                .prepare(
-                    "SELECT id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path, installation_root
-                     FROM games ORDER BY COALESCE(name_override, automatic_name), id",
-                )
+                .prepare(query)
                 .map_err(database_error)?;
             let rows = statement
                 .query_map([], game_from_row)
                 .map_err(database_error)?;
             rows.collect::<Result<Vec<_>, _>>().map_err(database_error)
         })
+    }
+
+    pub fn hidden_steam_games(&self) -> Result<Vec<Game>, String> {
+        self.with_connection(|connection| {
+            let mut statement = connection
+                .prepare(
+                    "SELECT id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path, installation_root
+                     FROM games WHERE id IN (SELECT game_id FROM hidden_games) AND steam_install_path IS NOT NULL
+                     ORDER BY COALESCE(name_override, automatic_name), id",
+                )
+                .map_err(database_error)?;
+            let rows = statement.query_map([], game_from_row).map_err(database_error)?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(database_error)
+        })
+    }
+
+    pub fn set_game_hidden(&self, id: &str, hidden: bool) -> Result<(), String> {
+        let id = parse_game_id(id)?;
+        self.with_connection(|connection| {
+            let steam_install_path: Option<Option<String>> = connection
+                .query_row(
+                    "SELECT steam_install_path FROM games WHERE id = ?1",
+                    [&id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(database_error)?;
+            match steam_install_path {
+                None => return Err("game was not found".to_owned()),
+                Some(None) => return Err("Only Steam-installed games can be hidden".to_owned()),
+                Some(Some(_)) => {}
+            }
+            if hidden {
+                connection
+                    .execute(
+                        "INSERT OR IGNORE INTO hidden_games (game_id) VALUES (?1)",
+                        [&id],
+                    )
+                    .map_err(database_error)?;
+            } else {
+                connection
+                    .execute("DELETE FROM hidden_games WHERE game_id = ?1", [&id])
+                    .map_err(database_error)?;
+            }
+            Ok(())
+        })?;
+        Ok(())
     }
 
     pub fn game(&self, id: &str) -> Result<Game, String> {
@@ -989,6 +1078,10 @@ impl Database {
 
     pub fn remove_game(&self, id: &str) -> Result<(), String> {
         let id = parse_game_id(id)?;
+
+        if self.settings()?.sync_steam_games && self.game(&id)?.steam_install_path.is_some() {
+            return Err("Disable Sync Steam games before removing a Steam game, or hide it from the library".to_owned());
+        }
 
         self.with_connection(|connection| {
             let changed = connection
@@ -1784,6 +1877,16 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         }
         transaction
             .pragma_update(None, "user_version", 28)
+            .map_err(database_error)?;
+    }
+    if version < 29 {
+        transaction
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS hidden_games (
+                game_id TEXT PRIMARY KEY NOT NULL REFERENCES games(id) ON DELETE CASCADE
+             );
+             PRAGMA user_version = 29;",
+            )
             .map_err(database_error)?;
     }
     transaction.commit().map_err(database_error)
@@ -3635,6 +3738,115 @@ mod tests {
             )
             .unwrap();
         assert_eq!(theme, "light");
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn store_filters_and_steam_sync_survive_reopen() {
+        let legacy: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(legacy.sync_steam_games);
+        assert_eq!(legacy.store_sort, "relevance");
+        assert_eq!(legacy.store_availability, "all");
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        assert!(database.settings().unwrap().sync_steam_games);
+        let mut settings = database.settings().unwrap();
+        settings.store_sort = "name_desc".to_owned();
+        settings.store_availability = "verified".to_owned();
+        settings.sync_steam_games = false;
+        database.save_settings(settings.clone()).unwrap();
+        drop(database);
+
+        let reopened = Database::open(&directory).unwrap();
+        assert_eq!(reopened.settings().unwrap(), settings);
+        drop(reopened);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn hidden_steam_games_stay_hidden_after_reopen_and_can_be_restored() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let steam = database
+            .create_game(CreateGameInput {
+                name: "Portal".to_owned(),
+                steam_app_id: Some(400),
+            })
+            .unwrap();
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE games SET steam_install_path = '/steam/Portal' WHERE id = ?1",
+                        [&steam.id],
+                    )
+                    .map_err(database_error)?;
+                Ok(())
+            })
+            .unwrap();
+        let steam = database.game(&steam.id).unwrap();
+        let manual = database
+            .create_game(CreateGameInput {
+                name: "Manual".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        assert!(database.set_game_hidden(&manual.id, true).is_err());
+        database.set_game_hidden(&steam.id, true).unwrap();
+        assert_eq!(database.visible_games().unwrap(), vec![manual.clone()]);
+        assert_eq!(
+            database.games().unwrap(),
+            vec![manual.clone(), steam.clone()]
+        );
+        assert_eq!(database.hidden_steam_games().unwrap(), vec![steam.clone()]);
+        drop(database);
+
+        let reopened = Database::open(&directory).unwrap();
+        assert_eq!(reopened.hidden_steam_games().unwrap(), vec![steam.clone()]);
+        reopened.set_game_hidden(&steam.id, false).unwrap();
+        assert!(reopened.hidden_steam_games().unwrap().is_empty());
+        assert_eq!(reopened.visible_games().unwrap(), vec![manual, steam]);
+        drop(reopened);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn synced_steam_games_cannot_be_removed_until_sync_is_disabled() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let metadata_only = database
+            .create_game(CreateGameInput {
+                name: "Metadata only".to_owned(),
+                steam_app_id: Some(401),
+            })
+            .unwrap();
+        database.remove_game(&metadata_only.id).unwrap();
+        let steam = database
+            .create_game(CreateGameInput {
+                name: "Portal".to_owned(),
+                steam_app_id: Some(400),
+            })
+            .unwrap();
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE games SET steam_install_path = '/steam/Portal' WHERE id = ?1",
+                        [&steam.id],
+                    )
+                    .map_err(database_error)?;
+                Ok(())
+            })
+            .unwrap();
+        let steam = database.game(&steam.id).unwrap();
+        assert!(database.remove_game(&steam.id).is_err());
+        assert_eq!(database.game(&steam.id).unwrap(), steam);
+        let mut settings = database.settings().unwrap();
+        settings.sync_steam_games = false;
+        database.save_settings(settings).unwrap();
+        database.remove_game(&steam.id).unwrap();
+        assert!(database.game(&steam.id).is_err());
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 }
