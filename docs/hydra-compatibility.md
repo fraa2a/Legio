@@ -106,7 +106,7 @@ Legio now strips recognized release-page labels such as `Free Download`, common 
 
 The user-provided SteamGG file contained 6,678 records. Running the production normalizer over all titles produced no empty names, no remaining numbered build markers, and no changes when normalizing the output a second time. One unusual `Free Download SIMULACRA` prefix remains deliberately unresolved by the generic marketing cleanup, which must preserve real names such as `Free Download Simulator`. Against the user's partial local cache of 559 catalogue games, unique exact title associations improved from 0 to 183 source records. This is an offline comparison against a partial cache, not a count of all games that can be resolved through Steam's remote search.
 
-Nine standalone production matching tests pass, including sequel/edition ambiguity and Unicode regressions. The source import/cache integration regression and full project checks run in CI. These changes improve title recognition; they do not add support for additional download hosts.
+Nine standalone production matching tests and four Hydra parser tests pass, including sequel/edition ambiguity, Unicode and whitespace regressions. The importer collapses whitespace in release titles before rejecting other control characters, so valid build labels containing tabs are accepted. The source import/cache integration regression and full project checks run in CI. These changes improve title recognition; they do not add support for additional download hosts.
 
 Code references:
 
