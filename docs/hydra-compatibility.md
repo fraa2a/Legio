@@ -26,16 +26,15 @@ No new host adapter has been verified against a live download in this environmen
 | FuckingFast | Supported direct-link extraction implemented; live verification pending. |
 | Rootz | Page-token and API flow implemented; live verification pending. |
 | GoFile | Partial guest API flow and Hydra's alternate CDN fallback. Current website-token protocol, token/session reuse, pagination and nested-folder lookup remain incomplete. |
-| Torrent/magnet | Recognized, but the transfer engine is not integrated. |
+| Torrent/magnet | Temporarily excluded from the first release at the user's request on 2026-10-17. Links remain recognized as unsupported. |
 | Paid providers or private Hydra unlock APIs | Excluded from this feature. |
 
 Anonymous guest tokens used internally by a free host are distinct from user-provided paid API keys. No paid account configuration has been added.
 
 ## Remaining before this can leave draft
 
-- Integrate and validate the torrent engine on Linux and Windows. Proposed dependency `librqbit 9.0.1` was absent from the local cache, and dependency registry access was unavailable.
 - Complete GoFile's current website-token flow and lifecycle; verify small controlled live files.
-- Support unknown-length streams, grouped files/multipart extraction, torrent payload directories and explicit installer-file handling. The current implementation requires one resolved file with a known exact size and does not automatically execute installers.
+- Support unknown-length streams, grouped files/multipart extraction and explicit installer-file handling. The current implementation requires one resolved file with a known exact size and does not automatically execute installers.
 - Complete preparation cancellation, availability/throughput caching, bandwidth policy during probes, informative per-candidate outcomes, and safe transfer-start fallback.
 - Add cross-source automatic selection only where equivalent release content and consent can be established. Current automatic selection uses the chosen source release's candidate links; it does not silently choose another build or publisher.
 - Complete HTTP fixture and live-provider verification, Windows checks, running UI review and screenshots.
@@ -54,3 +53,28 @@ Anonymous guest tokens used internally by a free host are distinct from user-pro
 - The cache representation uses a common envelope around the existing native manifest types. Schema version 30 prevents older builds from opening the incompatible cache representation; old native cached documents remain readable by the new code.
 - Main's download fixes from #207 were integrated, including its removal of the installed-game source-binding settings panel.
 - Work was performed directly without subagents. The implementation has an author review, not an independent review.
+
+## Host pricing clarification, 2026-10-17
+
+A free website download, a free developer API, and a free Hydra resolver are separate capabilities. The current unsupported classification groups backend-dependent hosts with paid integrations; it must not be interpreted as a claim that those websites only offer paid downloads.
+
+| Host | Official information checked |
+| --- | --- |
+| DataNodes | Free downloads with waits/ads exist. Its developer API requires a personal API key. The inspected Hydra client delegates resolution to Hydra's authenticated backend without an explicit subscription flag. |
+| VikingFile | Regular mode is free with ads and a landing page. Premium offers direct downloads. The inspected Hydra resolver explicitly requires a Hydra subscription. |
+| FileKeeper | Its free tier allows downloads without an account. Paid plans add features. |
+| AkiraBox | Free visitor/registered tiers exist. The pricing page marks API uploads as Premium-only; this does not establish that downloads require payment. |
+
+GoFile's published developer documentation says most API endpoints require Premium. Hydra's guest downloader instead follows the website's guest-account/session flow and supplies a website token. The alternate `https://gofilecdn.eu.cc` endpoint is present in Hydra's code, but its operator and official relationship with GoFile have not been verified. It must not be described as a guaranteed free official GoFile API/CDN.
+
+References:
+
+- https://gofile.io/api
+- https://gofile.io/premium
+- https://datanodes.to/premium
+- https://datanodes.to/pages/api
+- https://vikingfile.com/
+- https://filekeeper.net/premium
+- https://akirabox.com/premium
+- https://akirabox.com/developers
+- https://github.com/hydralauncher/hydra/tree/a22ec02201e73db8ca2ee214c2b37cd2d6a27374/src/main/services/hosters
