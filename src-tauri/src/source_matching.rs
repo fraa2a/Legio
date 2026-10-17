@@ -11,46 +11,44 @@ fn folded_title(title: &str) -> String {
         match c {
             'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ấ' | 'ắ' | 'ẳ' | 'ẵ' | 'ặ' | 'ầ' | 'ằ' | 'ȃ'
             | 'ả' | 'ạ' | 'ẩ' | 'ẫ' | 'ậ' | 'ā' | 'ă' | 'ą' | 'ǎ' | 'ǻ' | 'ȁ' => {
-                result.push_str("a")
+                result.push('a')
             }
             'æ' | 'ǽ' => result.push_str("ae"),
-            'ç' | 'ḉ' | 'ć' | 'ĉ' | 'ċ' | 'č' => result.push_str("c"),
+            'ç' | 'ḉ' | 'ć' | 'ĉ' | 'ċ' | 'č' => result.push('c'),
             'è' | 'é' | 'ê' | 'ë' | 'ế' | 'ḗ' | 'ề' | 'ḕ' | 'ḝ' | 'ȇ' | 'ẻ' | 'ẽ' | 'ẹ' | 'ể'
-            | 'ễ' | 'ệ' | 'ē' | 'ĕ' | 'ė' | 'ę' | 'ě' | 'ȅ' | 'ȩ' => {
-                result.push_str("e")
-            }
+            | 'ễ' | 'ệ' | 'ē' | 'ĕ' | 'ė' | 'ę' | 'ě' | 'ȅ' | 'ȩ' => result.push('e'),
             'ì' | 'í' | 'î' | 'ï' | 'ḯ' | 'ȋ' | 'ỉ' | 'ị' | 'ĩ' | 'ī' | 'ĭ' | 'į' | 'ı' | 'ǐ'
-            | 'ȉ' => result.push_str("i"),
-            'ð' | 'ď' | 'đ' | 'ḑ' => result.push_str("d"),
-            'ñ' | 'ń' | 'ņ' | 'ň' | 'ŉ' | 'ǹ' => result.push_str("n"),
+            | 'ȉ' => result.push('i'),
+            'ð' | 'ď' | 'đ' | 'ḑ' => result.push('d'),
+            'ñ' | 'ń' | 'ņ' | 'ň' | 'ŉ' | 'ǹ' => result.push('n'),
             'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'ố' | 'ṍ' | 'ṓ' | 'ȏ' | 'ỏ' | 'ọ' | 'ổ' | 'ỗ'
             | 'ộ' | 'ờ' | 'ở' | 'ỡ' | 'ớ' | 'ợ' | 'ō' | 'ŏ' | 'ő' | 'ơ' | 'ǒ' | 'ǿ' | 'ồ' | 'ṑ'
-            | 'ȍ' => result.push_str("o"),
+            | 'ȍ' => result.push('o'),
             'ù' | 'ú' | 'û' | 'ü' | 'ủ' | 'ụ' | 'ử' | 'ữ' | 'ự' | 'ũ' | 'ū' | 'ŭ' | 'ů' | 'ű'
             | 'ų' | 'ȗ' | 'ư' | 'ǔ' | 'ǖ' | 'ǘ' | 'ǚ' | 'ǜ' | 'ứ' | 'ṹ' | 'ừ' | 'ȕ' => {
-                result.push_str("u")
+                result.push('u')
             }
-            'ý' | 'ÿ' | 'ŷ' | 'ỳ' => result.push_str("y"),
-            'ĝ' | 'ǵ' | 'ğ' | 'ġ' | 'ģ' | 'ǧ' => result.push_str("g"),
-            'ĥ' | 'ħ' | 'ḫ' | 'ȟ' | 'ḩ' => result.push_str("h"),
+            'ý' | 'ÿ' | 'ŷ' | 'ỳ' => result.push('y'),
+            'ĝ' | 'ǵ' | 'ğ' | 'ġ' | 'ģ' | 'ǧ' => result.push('g'),
+            'ĥ' | 'ħ' | 'ḫ' | 'ȟ' | 'ḩ' => result.push('h'),
             'ĳ' => result.push_str("ij"),
-            'ĵ' | 'ǰ' => result.push_str("j"),
-            'ķ' | 'ḱ' | 'ǩ' => result.push_str("k"),
-            'ĺ' | 'ļ' | 'ľ' | 'ŀ' | 'ł' => result.push_str("l"),
-            'ḿ' => result.push_str("m"),
+            'ĵ' | 'ǰ' => result.push('j'),
+            'ķ' | 'ḱ' | 'ǩ' => result.push('k'),
+            'ĺ' | 'ļ' | 'ľ' | 'ŀ' | 'ł' => result.push('l'),
+            'ḿ' => result.push('m'),
             'œ' => result.push_str("oe"),
-            'ŕ' | 'ŗ' | 'ř' | 'ȓ' | 'ȑ' => result.push_str("r"),
-            'ś' | 'ŝ' | 'ş' | 'ș' | 'š' | 'ſ' | 'ṥ' | 'ṧ' => result.push_str("s"),
-            'ţ' | 'ț' | 'ť' | 'ŧ' => result.push_str("t"),
-            'ŵ' | 'ẃ' | 'ẁ' => result.push_str("w"),
-            'ź' | 'ż' | 'ž' => result.push_str("z"),
-            'ƒ' => result.push_str("f"),
+            'ŕ' | 'ŗ' | 'ř' | 'ȓ' | 'ȑ' => result.push('r'),
+            'ś' | 'ŝ' | 'ş' | 'ș' | 'š' | 'ſ' | 'ṥ' | 'ṧ' => result.push('s'),
+            'ţ' | 'ț' | 'ť' | 'ŧ' => result.push('t'),
+            'ŵ' | 'ẃ' | 'ẁ' => result.push('w'),
+            'ź' | 'ż' | 'ž' => result.push('z'),
+            'ƒ' => result.push('f'),
             'þ' => result.push_str("th"),
-            'ṕ' => result.push_str("p"),
-            'ѓ' => result.push_str("г"),
-            'ќ' => result.push_str("к"),
-            'й' => result.push_str("и"),
-            'ё' => result.push_str("е"),
+            'ṕ' => result.push('p'),
+            'ѓ' => result.push('г'),
+            'ќ' => result.push('к'),
+            'й' => result.push('и'),
+            'ё' => result.push('е'),
             '\u{0300}'..='\u{036f}' => {}
             c => result.push(c),
         }
