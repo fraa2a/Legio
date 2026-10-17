@@ -1,5 +1,5 @@
 use reqwest::{
-    Client, Response, Url,
+    Client, Method, Response, Url,
     header::{CONTENT_TYPE, HeaderMap, HeaderValue, LOCATION},
 };
 use serde::{Deserialize, Serialize};
@@ -64,6 +64,23 @@ pub(crate) fn classify(uri: &str) -> Result<Provider, String> {
 pub(crate) async fn get(
     client: &Client,
     uri: &str,
+    headers: HeaderMap,
+) -> Result<Response, String> {
+    follow_redirects(client, Method::GET, uri, headers).await
+}
+
+pub(crate) async fn head(
+    client: &Client,
+    uri: &str,
+    headers: HeaderMap,
+) -> Result<Response, String> {
+    follow_redirects(client, Method::HEAD, uri, headers).await
+}
+
+async fn follow_redirects(
+    client: &Client,
+    method: Method,
+    uri: &str,
     mut headers: HeaderMap,
 ) -> Result<Response, String> {
     let mut url = Url::parse(uri).map_err(|_| "Invalid resolved URL")?;
@@ -75,7 +92,7 @@ pub(crate) async fn get(
             return Err("Invalid resolved URL".into());
         }
         let response = client
-            .get(url.clone())
+            .request(method.clone(), url.clone())
             .headers(headers.clone())
             .send()
             .await
@@ -316,7 +333,11 @@ async fn resolve_gofile(client: &Client, uri: &str) -> Result<ResolvedDownload, 
                     .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
         })
         .ok_or("Invalid GoFile content ID")?;
-    crate::gofile::resolve(client, id).await
+    let password = parsed
+        .query_pairs()
+        .find(|(key, _)| key == "password")
+        .map(|(_, value)| value.into_owned());
+    crate::gofile::resolve(client, id, password.as_deref()).await
 }
 
 #[cfg(test)]

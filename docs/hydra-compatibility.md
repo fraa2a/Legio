@@ -25,7 +25,7 @@ No new host adapter has been verified against a live download in this environmen
 | MediaFire | Supported direct-link extraction implemented; live verification pending. |
 | FuckingFast | Supported direct-link extraction implemented; live verification pending. |
 | Rootz | Page-token and API flow implemented; live verification pending. |
-| GoFile | Partial guest API flow and Hydra's alternate CDN fallback. Current website-token protocol, token/session reuse, pagination and nested-folder lookup remain incomplete. |
+| GoFile | Hydra guest/session flow ported: dynamic website-token script execution, persistent guest tokens, auth refresh, retries, pagination, nested-folder lookup, URL passwords and HEAD validation. Selects the first accessible file as Hydra does, with its alternate CDN fallback and 15-second probe cache. Live verification pending. |
 | Torrent/magnet | Temporarily excluded from the first release at the user's request on 2026-10-17. Links remain recognized as unsupported. |
 | Paid providers or private Hydra unlock APIs | Excluded from this feature. |
 
@@ -33,7 +33,7 @@ Anonymous guest tokens used internally by a free host are distinct from user-pro
 
 ## Remaining before this can leave draft
 
-- Complete GoFile's current website-token flow and lifecycle; verify small controlled live files.
+- Verify GoFile against small controlled live files; the protocol port is implemented but live acceptance remains unverified.
 - Support unknown-length streams, grouped files/multipart extraction and explicit installer-file handling. The current implementation requires one resolved file with a known exact size and does not automatically execute installers.
 - Complete preparation cancellation, availability/throughput caching, bandwidth policy during probes, informative per-candidate outcomes, and safe transfer-start fallback.
 - Add cross-source automatic selection only where equivalent release content and consent can be established. Current automatic selection uses the chosen source release's candidate links; it does not silently choose another build or publisher.
@@ -45,6 +45,23 @@ Anonymous guest tokens used internally by a free host are distinct from user-pro
 - Initial full Rust run: 492 passed, 32 failed, 4 ignored. All 32 reported failures hit sandbox-denied localhost sockets or a read-only path. This is not a passing suite.
 - Follow-up checks passed for database migrations, native/source caches, Hydra parsing, release identity, title matching, provider parsing and ranking. Clippy passed after the checkpoint fixes.
 - CI remains authoritative for the unrestricted Linux/Windows checks. Keep this PR draft even if CI passes until the missing functionality above is implemented and verified.
+
+## GoFile protocol port, 2026-10-17
+
+The port follows Hydra at commit `a22ec02201e73db8ca2ee214c2b37cd2d6a27374`, including `hosters/gofile.ts` and the official-first/HEAD-check/CDN-fallback sequence in `download/download-manager.ts`.
+
+- GoFile website script discovery with the same two fallback script URLs.
+- Execution of `generateWT` with Hydra's probe identity and a replaced SHA-256 function to capture the current secret.
+- SHA-256 website tokens using the same user agent, language, account token and four-hour time slot.
+- Guest-account persistence under the active application's data directory, serialized authorization and one refresh after a rejected account token.
+- Three attempts for retryable HTTP/rate-limit responses, paginated and cycle-bounded folder traversal, password hashing, first accessible file selection and account cookie on file requests.
+- Official file HEAD validation before trying Hydra's alternate CDN, whose probe uses a five-second deadline and a 15-second positive/negative cache.
+
+Rust uses an embedded QuickJS runtime instead of Node's VM. Script execution has a one-second deadline, 16 MiB memory limit and no filesystem, process, network, module-loader or Tauri bindings. Folder traversal is limited to 100 content requests and overall resolution to 120 seconds. These resource limits are deliberate adaptations to the native launcher.
+
+The local missing-feature regression was observed failing before implementation. The shared JavaScript probe fixture passes under Node, including timeout and absent host APIs. Local Rust compilation is blocked because this environment cannot download the newly added runtime crates from crates.io. Rust/Windows CI results and live host verification must be reported separately.
+
+Torrent support remains excluded. DataNodes delegates to an authenticated private Hydra backend, and VikingFile's Hydra resolver requires a subscription. Those backend implementations are not supplied by the MIT desktop client; this port does not add Hydra credentials or paid integrations.
 
 ## Integration decisions
 

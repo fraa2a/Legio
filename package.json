@@ -21,7 +21,7 @@
     "test:dialog": "node --conditions=browser --test scripts/test_dialog.mjs",
     "test:feedback": "node --conditions=browser --test scripts/test_feedback.mjs scripts/test_game_identity.mjs scripts/test_game_library.mjs",
     "test:onboarding": "node --test scripts/test_onboarding_news.mjs",
-    "test:sources": "node --conditions=browser --test scripts/test_sources.mjs scripts/test_hydra_sources.mjs",
+    "test:sources": "node scripts/test_gofile_token.mjs && node --conditions=browser --test scripts/test_sources.mjs scripts/test_hydra_sources.mjs",
     "test:catalog": "node --conditions=browser --test scripts/test_catalog.mjs scripts/test_store_filters.mjs",
     "test:acl": "node --test scripts/test_command_acl.mjs",
     "test:review": "node --conditions=browser --test scripts/test_review_frontend.mjs",
