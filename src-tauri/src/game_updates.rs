@@ -11,6 +11,7 @@ pub(crate) struct Origin {
     pub id: String,
     pub manifest: Arc<Manifest>,
     pub fresh: bool,
+    pub candidates: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 pub(crate) fn sources(database: &Database) -> Result<Vec<Origin>, String> {
@@ -20,6 +21,7 @@ pub(crate) fn sources(database: &Database) -> Result<Vec<Origin>, String> {
         .map(|row| Origin {
             id: row.id.clone(),
             manifest: row.manifest.clone(),
+            candidates: row.catalog.candidates.clone(),
             fresh: row.warning.is_none() && row.fetched_at >= now - 86400,
         })
         .collect())
@@ -43,7 +45,12 @@ pub(crate) fn find_download(
         ] {
             for entry in entries {
                 if entry.steam_app_id == app_id
-                    && entry.download.url == url
+                    && (entry.download.url == url
+                        || entry
+                            .id
+                            .as_ref()
+                            .and_then(|id| source.candidates.get(id))
+                            .is_some_and(|uris| uris.iter().any(|candidate| candidate == url)))
                     && entry.release.version == version
                 {
                     if found.is_some() {
@@ -51,7 +58,9 @@ pub(crate) fn find_download(
                             "Select the download source explicitly for this release".to_owned()
                         );
                     }
-                    found = Some((source.id.clone(), entry.clone(), verified));
+                    let mut entry = entry.clone();
+                    entry.download.url = url.to_owned();
+                    found = Some((source.id.clone(), entry, verified));
                 }
             }
         }
@@ -127,7 +136,7 @@ pub(crate) fn list(database: &Database) -> Result<Vec<GameUpdate>, String> {
                 name: entry.name.clone(),
                 installed_version,
                 version: entry.release.version.clone(),
-                size_bytes: entry.download.size_bytes,
+                size_bytes: entry.download.size_bytes.unwrap_or(0),
                 verified,
                 accepted_unverified,
                 fresh: source.fresh,

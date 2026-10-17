@@ -26,7 +26,7 @@
   ]).filter(({ entry }) => entry.steamAppId === game.steamAppId && entry.id !== null && entry.id !== undefined &&
     $source.data.sources.some(origin => origin.id === entry.sourceId && origin.supportGameUpdates)));
   const options = $derived([{ value: "", label: t("Seleziona una variante", $language) }, ...variants.map(({ entry }) => ({
-    value: JSON.stringify([entry.sourceId, entry.id]), label: `${entry.name} (${entry.release.version}) - ${$source.data.sources.find(origin => origin.id === entry.sourceId)?.url ?? ""}`,
+    value: JSON.stringify([entry.sourceId, entry.id]), label: `${entry.name} (${entry.release.version}) - ${$source.data.sources.find(origin => origin.id === entry.sourceId)?.name ?? ""}`,
   }))]);
   const choice = $derived(variants.find(({ entry }) => JSON.stringify([entry.sourceId, entry.id]) === selected));
   $effect(() => {

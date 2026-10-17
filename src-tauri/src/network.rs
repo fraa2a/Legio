@@ -55,6 +55,8 @@ pub struct NetworkState {
     source_client: reqwest::Client,
     status: Arc<Mutex<NetworkStatus>>,
     diagnostics: Diagnostics,
+    source_lookup_limit: Arc<tokio::sync::Mutex<tokio::time::Instant>>,
+    source_lookup_slots: Arc<tokio::sync::Semaphore>,
 }
 
 impl NetworkState {
@@ -93,6 +95,8 @@ impl NetworkState {
             source_client,
             status: Arc::new(Mutex::new(NetworkStatus::Unknown)),
             diagnostics,
+            source_lookup_limit: Arc::new(tokio::sync::Mutex::new(tokio::time::Instant::now())),
+            source_lookup_slots: Arc::new(tokio::sync::Semaphore::new(4)),
         })
     }
     pub fn status(&self) -> Result<NetworkStatus, String> {
@@ -104,6 +108,22 @@ impl NetworkState {
 
     pub async fn hydra_search(&self, body: Vec<u8>) -> Result<Vec<u8>, NetworkError> {
         self.post_catalog(HYDRA_SEARCH_URL, body).await
+    }
+
+    pub(crate) async fn source_title_search(&self, body: Vec<u8>) -> Result<Vec<u8>, String> {
+        let _permit = self
+            .source_lookup_slots
+            .acquire()
+            .await
+            .map_err(|_| "Catalog lookup is unavailable")?;
+        {
+            let mut next = self.source_lookup_limit.lock().await;
+            tokio::time::sleep_until(*next).await;
+            *next = tokio::time::Instant::now() + std::time::Duration::from_millis(500);
+        }
+        self.hydra_search(body)
+            .await
+            .map_err(|error| format!("Catalog lookup failed: {error:?}"))
     }
 
     pub async fn steam_details(
@@ -123,7 +143,7 @@ impl NetworkState {
         let mut log = self.diagnostics.request(Operation::LegioSource);
         let result = async {
             let response = self.source_client.get(url).send().await?;
-            Self::read_bounded_to(response, crate::legio_source::MAX_MANIFEST_BYTES, &mut log).await
+            Self::read_bounded_to(response, crate::hydra_source::MAX_BYTES, &mut log).await
         }
         .await;
         log.finish(&result);

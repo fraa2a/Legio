@@ -18,6 +18,8 @@ export interface DownloadJob {
   targetGameId?: string | null;
   pauseReason?: "game_running" | "playing" | "automatic_disabled" | null;
   automaticUpdate?: boolean;
+  sourceId?: string | null;
+  sourceEntryId?: string | null;
 }
 
 export interface InstalledFolderInfo {
@@ -93,8 +95,8 @@ export function listDownloads(): Promise<DownloadJob[]> {
   return invoke<DownloadJob[]>("list_downloads");
 }
 
-export function queueDownload(steamAppId: number, downloadUrl: string, releaseVersion: string, acceptUnverified: boolean, sourceId?: string | null): Promise<DownloadJob> {
-  return invoke<DownloadJob>("queue_download", { steamAppId, downloadUrl, releaseVersion, acceptUnverified, ...(sourceId ? { sourceId } : {}) });
+export function queueDownload(steamAppId: number, downloadUrl: string, releaseVersion: string, acceptUnverified: boolean, sourceId?: string | null, preferredUri?: string | null): Promise<DownloadJob> {
+  return invoke<DownloadJob>("queue_download", { steamAppId, downloadUrl, releaseVersion, acceptUnverified, ...(sourceId ? { sourceId } : {}), ...(preferredUri ? { preferredUri } : {}) });
 }
 
 export function pauseDownload(id: string): Promise<void> {

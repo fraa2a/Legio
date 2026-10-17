@@ -36,7 +36,7 @@ pub struct SourceEntry {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Release {
     pub version: String,
-    pub published_at: String,
+    pub published_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -44,7 +44,7 @@ pub struct Release {
 pub struct Download {
     pub url: String,
     pub sha256: Option<String>,
-    pub size_bytes: u64,
+    pub size_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -165,7 +165,9 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {
             validate_nonempty(&entry.name, format!("{prefix}.name"))?;
             validate_nonempty(&entry.release.version, format!("{prefix}.release.version"))?;
             validate_utc_timestamp(
-                &entry.release.published_at,
+                entry.release.published_at.as_deref().ok_or_else(|| {
+                    invalid_field(format!("{prefix}.release.publishedAt"), "is required")
+                })?,
                 &format!("{prefix}.release.publishedAt"),
             )?;
             validate_archive_url(&entry.download.url, &format!("{prefix}.download.url"))?;
@@ -187,7 +189,7 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {
                     "must contain 64 lowercase hexadecimal characters",
                 ));
             }
-            if entry.download.size_bytes == 0 {
+            if entry.download.size_bytes.is_none_or(|size| size == 0) {
                 return Err(invalid_field(
                     format!("{prefix}.download.sizeBytes"),
                     "must be positive",

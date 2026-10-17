@@ -38,11 +38,12 @@
   import SteamArtwork from "./SteamArtwork.svelte";
   import SystemRequirements from "./SystemRequirements.svelte";
   import Icon from "../../components/ui/Icon.svelte";
+  import SelectField from "../../components/ui/SelectField.svelte";
   import GameVersionSelect from "./GameVersionSelect.svelte";
   import AddGameDialog from "./AddGameDialog.svelte";
   import { acquireGameArtwork, gameArtworkRevision } from "../../services/game-artwork";
   import { toMessage } from "../../utils/errors";
-  import { sourceReleaseId, sourceReleasesFor } from "../store/source-status";
+  import { sourceNameFor, sourceReleaseId, sourceReleasesFor } from "../store/source-status";
   import { nextVersionAfterRemoval } from "./library-model";
 
   let { storeGame = null, gameId = null }: { storeGame?: StoreGameSelection | null; gameId?: string | null } = $props();
@@ -59,11 +60,14 @@
   const status = $derived(releases.find((release) => sourceReleaseId(release.entry) === selectedReleaseId) ?? releases[0] ?? null);
   const entry = $derived(status?.entry ?? null);
   const name = $derived(storeGame !== null ? (entry?.name ?? storeGame.name) : (game?.name ?? ""));
-  const job = $derived(storeGame === null || entry === null ? null : ($downloads.data.find((candidate) => candidate.steamAppId === steamAppId && candidate.url === entry.download.url && candidate.releaseVersion === entry.release.version && candidate.status !== "installed" && candidate.status !== "cancelled") ?? null));
+  let selectedMirror = $state("auto");
+  const mirrorUris = $derived(entry === null ? [] : ($source.data.sources.find(origin => origin.id === entry.sourceId)?.candidates?.[entry.id ?? ""] ?? [entry.download.url]));
+  const mirrorOptions = $derived([{ value: "auto", label: t("Automatico (GoFile preferito)", $language) }, ...mirrorUris.map((uri, index) => ({ value: uri, label: `${index + 1}. ${uri.startsWith("magnet:") ? "Torrent" : new URL(uri).hostname}` }))]);
+  const job = $derived(storeGame === null || entry === null ? null : ($downloads.data.find((candidate) => candidate.steamAppId === steamAppId && (candidate.sourceId && candidate.sourceEntryId ? candidate.sourceId === entry.sourceId && candidate.sourceEntryId === entry.id : candidate.url === entry.download.url && candidate.releaseVersion === entry.release.version) && candidate.status !== "installed" && candidate.status !== "cancelled") ?? null));
   const downloadProgress = $derived(job === null || job.sizeBytes === 0 ? 0 : Math.min(100, Math.max(0, job.downloadedBytes / job.sizeBytes * 100)));
   const libraryVersions = $derived(game === null ? [] : $games.data.filter((candidate) => candidate.steamAppId === null ? candidate.id === game.id : candidate.steamAppId === game.steamAppId));
   const versionOptions = $derived(storeGame !== null
-    ? releases.map((release) => ({ id: sourceReleaseId(release.entry), name: release.entry.name, subtitle: t("Versione {0}", $language, [release.entry.release.version]) }))
+    ? releases.map((release) => ({ id: sourceReleaseId(release.entry), name: release.entry.name, sourceName: sourceNameFor(release.entry, $source.data.sources), subtitle: t("Versione {0}", $language, [release.entry.release.version]) }))
     : libraryVersions.map((candidate) => {
       const lastPlayed = $playtime.data.find((summary) => summary.gameId === candidate.id)?.lastPlayedAt ?? null;
       return { id: candidate.id, name: candidate.name, subtitle: lastPlayed === null ? t("Mai giocato", $language) : t("Ultima partita: {0}", $language, [new Date(lastPlayed).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })]), isSteam: candidate.steamInstallPath !== null };
@@ -78,6 +82,7 @@
   let artworkError = $state<string | null>(null);
   let confirmOpen = $state(false);
   let confirmEntry = $state<SourceEntry | null>(null);
+  let confirmPreferredUri = $state<string | null>(null);
   let queueing = $state(false);
   let queueError = $state<string | null>(null);
 
@@ -118,12 +123,12 @@
     return () => { cancelled = true; banner.release(); icon.release(); };
   });
 
-  async function startDownload(downloadUrl: string, releaseVersion: string, acceptUnverified: boolean): Promise<void> {
+  async function startDownload(downloadUrl: string, releaseVersion: string, acceptUnverified: boolean, preferredUri: string | null = selectedMirror === "auto" ? null : selectedMirror): Promise<void> {
     if (steamAppId === null) return;
     queueError = null;
     queueing = true;
     try {
-      await queueJob(steamAppId, downloadUrl, releaseVersion, acceptUnverified, confirmEntry?.download.url === downloadUrl ? confirmEntry.sourceId : entry?.sourceId);
+      await queueJob(steamAppId, downloadUrl, releaseVersion, acceptUnverified, confirmEntry?.download.url === downloadUrl ? confirmEntry.sourceId : entry?.sourceId, preferredUri);
     } catch (error) {
       queueError = toMessage(error);
     } finally {
@@ -135,6 +140,7 @@
     if (entry === null) return;
     if (status?.availability === "unverified") {
       confirmEntry = entry;
+      confirmPreferredUri = selectedMirror === "auto" ? null : selectedMirror;
       confirmOpen = true;
       return;
     }
@@ -142,6 +148,7 @@
   }
 
   function selectVersion(id: string): void {
+    selectedMirror = "auto";
     if (storeGame !== null) selectedReleaseId = id;
     else openGame(id);
   }
@@ -201,6 +208,9 @@
           {/if}
           {#if versionOptions.length > 0}
             <GameVersionSelect {steamAppId} options={versionOptions} selectedId={selectedVersionId} onSelect={selectVersion} onAdd={game !== null && libraryVersions.length === 1 && steamAppId !== null ? () => { addVersionOpen = true; } : undefined} />
+          {#if storeGame !== null && entry !== null}
+            <div class="w-[260px] min-w-0"><SelectField id="download-mirror" label={t("Collegamento di download", $language)} bind:value={selectedMirror} options={mirrorOptions} disabled={queueing || confirmOpen} /></div>
+          {/if}
           {/if}
           {#if game !== null}
             <Button label={t("Impostazioni del gioco", $language)} square variant="secondary" class="h-[60px] w-[60px] shrink-0 rounded-xl border border-white/10 !bg-zinc-950/60 hover:!bg-zinc-950/75 light:!border-zinc-900/10 light:!bg-zinc-100/70 light:hover:!bg-zinc-200" onClick={() => (gameSettingsOpen = true)}>
@@ -256,11 +266,11 @@
               </div>
               <div class="flex flex-wrap gap-x-3">
                 <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">{t("Pubblicato", $language)}</dt>
-                <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">{entry === null ? t("non pubblicato", $language) : formatDate(entry.release.publishedAt)}</dd>
+                <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">{entry?.release.publishedAt == null ? t("non pubblicato", $language) : formatDate(entry.release.publishedAt)}</dd>
               </div>
               <div class="flex flex-wrap gap-x-3">
                 <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">{t("Dimensione", $language)}</dt>
-                <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">{entry === null ? t("non disponibile", $language) : formatBytes(entry.download.sizeBytes)}</dd>
+                <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">{entry?.download.sizeBytes == null ? t("Dimensione sconosciuta", $language) : formatBytes(entry.download.sizeBytes)}</dd>
               </div>
               <div class="flex flex-wrap gap-x-3">
                 <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">Manifest</dt>
@@ -313,7 +323,7 @@
     <p class="text-sm text-zinc-300 light:text-zinc-700">{t("\n      Il rilascio di ", $language)}{name}{t(" non è classificato come verificato dalla fonte. Un archivio non verificato può contenere\n      programmi dannosi. Procedere con il download e l'installazione?\n    ", $language)}</p>
     <div class="flex justify-end gap-2">
       <Button label={t("Annulla", $language)} variant="secondary" onClick={dismiss} />
-      <Button label={t("Scarica comunque", $language)} variant="danger" disabled={queueing} onClick={() => { confirmOpen = false; if (confirmEntry !== null) void startDownload(confirmEntry.download.url, confirmEntry.release.version, true); }} />
+      <Button label={t("Scarica comunque", $language)} variant="danger" disabled={queueing} onClick={() => { confirmOpen = false; if (confirmEntry !== null) void startDownload(confirmEntry.download.url, confirmEntry.release.version, true, confirmPreferredUri); }} />
     </div>
     {/snippet}
 </Dialog>

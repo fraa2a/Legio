@@ -43,6 +43,8 @@ pub struct DownloadJob {
     target_game_id: Option<String>,
     pause_reason: Option<String>,
     automatic_update: bool,
+    source_id: Option<String>,
+    source_entry_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -289,6 +291,8 @@ fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DownloadJob> {
         target_game_id: row.get(13)?,
         pause_reason: row.get(14)?,
         automatic_update: row.get(15)?,
+        source_id: row.get(16)?,
+        source_entry_id: row.get(17)?,
     })
 }
 
@@ -297,7 +301,7 @@ fn list(database: &Database) -> Result<Vec<DownloadJob>, String> {
         let mut statement = connection
             .prepare(
                 "SELECT id, steam_app_id, name, release_version, size_bytes, downloaded_bytes,
-                    speed_bps, eta_seconds, status, error, sha256, url, updated_at, target_game_id, pause_reason, automatic_update
+                    speed_bps, eta_seconds, status, error, sha256, url, updated_at, target_game_id, pause_reason, automatic_update, source_id, source_entry_id
                  FROM downloads ORDER BY queue_position, created_at, id",
             )
             .map_err(db_error)?;
@@ -381,6 +385,29 @@ pub(crate) fn enqueue_with_target(
     source_id: Option<&str>,
     update: Option<(&str, bool)>,
 ) -> Result<DownloadJob, String> {
+    enqueue_prepared(
+        database,
+        app_id,
+        download_url,
+        release_version,
+        accept_unverified,
+        source_id,
+        update,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn enqueue_prepared(
+    database: &Database,
+    app_id: u32,
+    download_url: &str,
+    release_version: &str,
+    accept_unverified: bool,
+    source_id: Option<&str>,
+    update: Option<(&str, bool)>,
+    resolved_size: Option<u64>,
+) -> Result<DownloadJob, String> {
     let (source_id, entry, source_verified) = crate::game_updates::find_download(
         database,
         app_id,
@@ -391,7 +418,18 @@ pub(crate) fn enqueue_with_target(
     if !source_verified && !accept_unverified {
         return Err("Confirm the unverified source before downloading".to_owned());
     }
-    let size = i64::try_from(entry.download.size_bytes)
+    if let (Some(expected), Some(actual)) = (entry.download.size_bytes, resolved_size) {
+        if expected != actual {
+            return Err("Download does not match the size published by the source".into());
+        }
+    }
+    let exact_size = entry
+        .download
+        .size_bytes
+        .or(resolved_size)
+        .filter(|size| *size > 0)
+        .ok_or("The host did not provide a download size")?;
+    let size = i64::try_from(exact_size)
         .map_err(|_| "Download size exceeds local storage limits".to_owned())?;
     let id = Uuid::new_v4().to_string();
     let created = now()?;
@@ -423,7 +461,7 @@ pub(crate) fn enqueue_with_target(
         release_version: entry.release.version.clone(),
         sha256: entry.download.sha256.clone(),
         url: entry.download.url.clone(),
-        size_bytes: entry.download.size_bytes,
+        size_bytes: exact_size,
         downloaded_bytes: 0,
         speed_bps: 0,
         eta_seconds: None,
@@ -433,6 +471,8 @@ pub(crate) fn enqueue_with_target(
         target_game_id: update.map(|value| value.0.to_owned()),
         pause_reason: None,
         automatic_update: update.is_some_and(|value| value.1),
+        source_id: Some(source_id),
+        source_entry_id: entry.id.clone(),
     })
 }
 
@@ -1120,17 +1160,45 @@ async fn transfer(
     if offset >= job.size {
         offset = 0;
     }
-    let mut request = queue.client.get(&job.url);
+    let mut resolved = tokio::select! {
+        biased;
+        _ = stopped.changed() => return Err("Download was stopped".into()),
+        result = crate::download_resolver::resolve(&queue.client, &job.url) => result?,
+    };
+    if resolved.files.len() != 1 {
+        return Err("Grouped downloads are not supported by this transfer yet".into());
+    }
+    let resolved = resolved
+        .files
+        .pop()
+        .ok_or("Resolved download contains no files")?;
+    let mut headers = resolved.headers.clone();
     if offset > 0 {
-        request = request.header(RANGE, format!("bytes={offset}-"));
+        headers.insert(
+            RANGE,
+            reqwest::header::HeaderValue::from_str(&format!("bytes={offset}-"))
+                .map_err(|_| "Invalid resume offset")?,
+        );
         if let Some(etag) = job.etag.as_deref() {
-            request = request.header(IF_RANGE, etag);
+            headers.insert(
+                IF_RANGE,
+                reqwest::header::HeaderValue::from_str(etag)
+                    .map_err(|_| "Invalid saved validator")?,
+            );
         }
     }
-    let mut response = interruptible_response(&mut stopped, request.send()).await?;
+    let mut response = tokio::select! {
+        biased;
+        _ = stopped.changed() => return Err("Download was stopped".into()),
+        result = crate::download_resolver::get(&queue.client, &resolved.url, headers) => result?,
+    };
     if offset > 0 && !resume_matches(&response, job, offset) {
         offset = 0;
-        response = interruptible_response(&mut stopped, queue.client.get(&job.url).send()).await?;
+        response = tokio::select! {
+            biased;
+            _ = stopped.changed() => return Err("Download was stopped".into()),
+            result = crate::download_resolver::get(&queue.client, &resolved.url, resolved.headers.clone()) => result?,
+        };
     }
     if response.status()
         != if offset > 0 {
@@ -1140,6 +1208,9 @@ async fn transfer(
         }
     {
         return Err(format!("HTTP {}", response.status()));
+    }
+    if crate::download_resolver::is_web_page(&response) {
+        return Err("The download link returned a web page".into());
     }
     let etag = strong_etag(response.headers())
         .or_else(|| if offset > 0 { job.etag.clone() } else { None });
@@ -1260,20 +1331,98 @@ pub async fn queue_download(
     release_version: String,
     accept_unverified: bool,
     source_id: Option<String>,
+    preferred_uri: Option<String>,
 ) -> Result<DownloadJob, String> {
     crate::startup_recovery::wait(&app).await?;
+    let database = app.state::<DatabaseState>().shared_database()?;
+    let read_database = database.clone();
+    let lookup_url = download_url.clone();
+    let lookup_version = release_version.clone();
+    let lookup_source = source_id.clone();
+    let (selected_source, entry, verified, candidates) =
+        tauri::async_runtime::spawn_blocking(move || {
+            let (origin, entry, verified) = crate::game_updates::find_download(
+                &read_database,
+                steam_app_id,
+                &lookup_url,
+                &lookup_version,
+                lookup_source.as_deref(),
+            )?;
+            if !verified && !accept_unverified {
+                return Err("Confirm the unverified source before downloading".to_owned());
+            }
+            let rows = crate::legio_source_cache::cached_rows(&read_database)?;
+            let candidates = rows
+                .iter()
+                .find(|row| row.id == origin)
+                .and_then(|row| {
+                    entry
+                        .id
+                        .as_ref()
+                        .and_then(|id| row.catalog.candidates.get(id))
+                })
+                .cloned()
+                .unwrap_or_else(|| vec![entry.download.url.clone()]);
+            Ok::<_, String>((origin, entry, verified, candidates))
+        })
+        .await
+        .map_err(|error| error.to_string())??;
+    let mut download_url = download_url;
+    let mut resolved_size = None;
+    let needs_resolution = entry.download.size_bytes.is_none()
+        || candidates.len() > 1
+        || crate::download_resolver::classify(&download_url)?
+            != crate::download_resolver::Provider::Direct;
+    if needs_resolution || preferred_uri.is_some() {
+        let client = crate::download_resolver::client()?;
+        let ranked = if let Some(preferred) = preferred_uri {
+            if !candidates.contains(&preferred) {
+                return Err("Selected link is not part of this source release".into());
+            }
+            vec![preferred]
+        } else {
+            crate::download_selection::rank_candidates(
+                &crate::download_selection::probe_candidates(&client, &candidates).await,
+            )
+        };
+        let mut failure =
+            "No usable free download link was found. Retry or select another version.".to_owned();
+        let mut selected = None;
+        for uri in ranked {
+            match tokio::time::timeout(
+                Duration::from_secs(8),
+                crate::download_selection::probe(&client, &uri),
+            )
+            .await
+            {
+                Ok(Ok((size, _))) => {
+                    selected = Some((uri, size));
+                    break;
+                }
+                Ok(Err(error)) => failure = error,
+                Err(_) => failure = "Download host lookup timed out".to_owned(),
+            }
+        }
+        let (uri, size) = selected.ok_or(failure)?;
+        download_url = uri;
+        resolved_size = Some(size);
+    }
+    let _verified = verified;
+    let source_id = Some(selected_source);
     let worker_app = app.clone();
     let job = tauri::async_runtime::spawn_blocking(move || {
         app.state::<DownloadQueueState>().directory()?;
         let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
         let _operation = manager.operation()?;
-        let job = enqueue_from_source(
+        let job = enqueue_prepared(
             app.state::<DatabaseState>().database()?,
             steam_app_id,
             &download_url,
             &release_version,
             accept_unverified,
             source_id.as_deref(),
+            None,
+            resolved_size,
         )?;
         crate::download_policy::manual_start(
             app.state::<DatabaseState>().database()?,
