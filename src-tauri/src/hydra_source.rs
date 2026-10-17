@@ -128,7 +128,9 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<HydraSource, String> {
             .iter()
             .filter(|uri| paid_or_backend_only(uri))
             .count();
-        if seen.insert((entry.title.clone(), entry.uris.clone())) {
+        let mut stable_uris = entry.uris.clone();
+        stable_uris.sort();
+        if seen.insert((entry.title.clone(), stable_uris)) {
             source.downloads.push(entry);
         }
     }

@@ -25,11 +25,13 @@ pub(crate) async fn probe_candidates(
     uris: &[String],
 ) -> Vec<ProbeResult> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    let mut pending = uris.iter();
+    let mut ordered: Vec<_> = uris.iter().collect();
+    ordered.sort_by_key(|uri| download_resolver::classify(uri).ok() != Some(Provider::Gofile));
+    let mut pending = ordered.into_iter();
     let mut tasks = tokio::task::JoinSet::new();
     let mut results = Vec::new();
     loop {
-        while tasks.len() < 4 {
+        while tasks.len() < 2 {
             let Some(uri) = pending.next() else {
                 break;
             };

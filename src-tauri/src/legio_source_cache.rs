@@ -388,6 +388,7 @@ async fn fetch_catalog(
     let mut tasks = tokio::task::JoinSet::new();
     let mut lookup_matches = std::collections::HashMap::new();
     let mut lookup_failures = Vec::new();
+    let mut consecutive_failures = 0;
     loop {
         while tasks.len() < 4 {
             let Some(title) = pending.pop_front() else {
@@ -405,6 +406,7 @@ async fn fetch_catalog(
         let (title, result) = result.map_err(|error| format!("Title lookup failed: {error}"))?;
         match result {
             Ok(games) => {
+                consecutive_failures = 0;
                 if let crate::source_matching::MatchResult::Matched(id) =
                     crate::source_matching::match_title(&title, &games)
                 {
@@ -412,10 +414,16 @@ async fn fetch_catalog(
                 }
             }
             Err(error) => {
+                consecutive_failures += 1;
                 if lookup_failures.len() < 10 {
                     lookup_failures.push(error);
                 }
             }
+        }
+        if consecutive_failures >= 3 {
+            tasks.abort_all();
+            lookup_failures.push("Further title lookups were stopped after repeated catalog failures. Refresh this source to retry.".into());
+            break;
         }
         processed += 1;
         app.emit(

@@ -99,13 +99,16 @@ pub(crate) fn from_hydra(
             continue;
         }
         matches.insert(entry.title.clone(), app_id);
+        let mut stable_uris = entry.uris.clone();
+        stable_uris.sort();
         let id = format!(
             "{:x}",
             Sha256::digest(
                 format!(
-                    "{}\0{}",
+                    "{}\0{}\0{}",
                     entry.title,
-                    entry.upload_date.as_deref().unwrap_or("")
+                    entry.upload_date.as_deref().unwrap_or(""),
+                    stable_uris.join("\0")
                 )
                 .as_bytes()
             )
@@ -162,7 +165,9 @@ pub(crate) fn decode_cache(bytes: &[u8]) -> Result<SourceCatalog, String> {
     let source: SourceCatalog = serde_json::from_value(value).map_err(|error| error.to_string())?;
     if source.format == SourceFormat::Hydra {
         let raw = source.raw_hydra.ok_or("Missing original Hydra records")?;
-        return Ok(from_hydra(raw, &[], source.matches));
+        let mut restored = from_hydra(raw, &[], source.matches);
+        restored.diagnostics.reasons = source.diagnostics.reasons;
+        return Ok(restored);
     }
     let manifest_bytes = serde_json::to_vec(&source.manifest).map_err(|error| error.to_string())?;
     legio_source::parse_manifest(&manifest_bytes)
@@ -188,6 +193,16 @@ mod tests {
         assert_eq!(cached.name.as_deref(), Some("SteamGG"));
         assert_eq!(cached.candidates.values().next().unwrap().len(), 2);
         assert!(cached.manifest.verified.is_empty());
+    }
+
+    #[test]
+    fn same_label_with_different_links_has_distinct_release_ids() {
+        let source = parse_source(br#"{"name":"Publisher","downloads":[{"title":"Portal","uris":["https://example.test/a.zip"]},{"title":"Portal","uris":["https://example.test/b.zip"]}]}"#, &[(400, "Portal".into())]).unwrap();
+        assert_ne!(
+            source.manifest.unverified[0].id,
+            source.manifest.unverified[1].id
+        );
+        assert_eq!(source.candidates.len(), 2);
     }
 
     #[test]

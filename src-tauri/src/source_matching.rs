@@ -10,7 +10,11 @@ pub(crate) fn normalized_title(title: &str) -> String {
     let mut end = lower.len();
     for (index, _) in lower.char_indices() {
         let tail = &lower[index..];
-        if tail.starts_with(" [")
+        let bracket_label = tail
+            .strip_prefix(" [")
+            .and_then(|label| label.split(']').next());
+        let release_label = bracket_label.is_some_and(|label| significant_tokens(label).is_empty());
+        if release_label
             || tail.starts_with(" (v") && tail.as_bytes().get(3).is_some_and(u8::is_ascii_digit)
             || tail.starts_with(" v") && tail.as_bytes().get(2).is_some_and(u8::is_ascii_digit)
             || tail.starts_with(" build ")
@@ -112,6 +116,10 @@ mod tests {
         );
         assert_eq!(
             match_title("Portal 3 v1.0", &catalog),
+            MatchResult::Unresolved
+        );
+        assert_eq!(
+            match_title("Portal [Remastered]", &catalog),
             MatchResult::Unresolved
         );
         assert_eq!(
