@@ -26,27 +26,70 @@ fn checked_target(database: &Database, id: &str, protected: &[PathBuf]) -> Resul
             "The installation directory must be an absolute path without a symbolic link".into(),
         );
     }
-    let executable = dunce::canonicalize(
+    let executable = Path::new(
         game.executable_path
             .as_deref()
             .ok_or("Select a game executable first")?,
-    )
-    .map_err(|e| format!("Could not inspect game executable: {e}"))?;
+    );
+    let executable = match dunce::canonicalize(executable) {
+        Ok(path) if path.is_file() => path,
+        Ok(_) => return Err("The game executable is not a regular file".into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let relative = executable
+                .strip_prefix(recorded)
+                .map_err(|_| "Executable is outside the recorded installation root")?;
+            if relative.as_os_str().is_empty()
+                || relative
+                    .components()
+                    .any(|part| !matches!(part, std::path::Component::Normal(_)))
+            {
+                return Err("Executable is outside the recorded installation root".into());
+            }
+            dunce::canonicalize(recorded)
+                .map_err(|e| e.to_string())?
+                .join(relative)
+        }
+        Err(error) => return Err(format!("Could not inspect game executable: {error}")),
+    };
     let root =
         crate::game_library::installation_root(Some(&recorded.to_string_lossy()), &executable)?;
-    if root.parent().is_none() || protected.iter().any(|path| path.starts_with(&root)) {
+    if root.parent().is_none()
+        || root.join(crate::library_manifest::FILE).exists()
+        || protected.iter().any(|path| path.starts_with(&root))
+    {
         return Err("This directory contains protected application or user files".into());
     }
     #[cfg(target_os = "linux")]
     if [
-        "/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/boot", "/proc", "/sys", "/dev",
-        "/run", "/var",
+        "/usr",
+        "/bin",
+        "/sbin",
+        "/lib",
+        "/lib64",
+        "/etc",
+        "/boot",
+        "/proc",
+        "/sys",
+        "/dev",
+        "/var/lib",
+        "/var/cache",
+        "/var/log",
     ]
     .iter()
     .any(|path| root.starts_with(path))
-        || ["/opt", "/tmp", "/home", "/mnt", "/media"]
-            .iter()
-            .any(|path| root == Path::new(path))
+        || [
+            "/opt",
+            "/tmp",
+            "/home",
+            "/mnt",
+            "/media",
+            "/var",
+            "/var/tmp",
+            "/run",
+            "/run/media",
+        ]
+        .iter()
+        .any(|path| root == Path::new(path))
     {
         return Err("System directories cannot be uninstalled by Legio".into());
     }
@@ -83,7 +126,12 @@ fn checked_target(database: &Database, id: &str, protected: &[PathBuf]) -> Resul
         if busy { return Err("Finish or cancel this game's download, update or transfer before uninstalling".into()); }
         let mut query = connection.prepare("SELECT root FROM game_libraries").map_err(database_error)?;
         for library in query.query_map([], |row| row.get::<_, String>(0)).map_err(database_error)? {
-            let library = dunce::canonicalize(library.map_err(database_error)?).map_err(|e| e.to_string())?;
+            let library = library.map_err(database_error)?;
+            let library = match dunce::canonicalize(&library) {
+                Ok(path) => path,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => PathBuf::from(library),
+                Err(error) => return Err(format!("Could not inspect a game library directory: {error}")),
+            };
             if library.starts_with(&root) { return Err("A game library directory cannot be uninstalled".into()); }
         }
         Ok(())
@@ -262,6 +310,17 @@ mod tests {
     }
 
     #[test]
+    fn a_missing_executable_does_not_prevent_removing_remaining_game_files() {
+        let f = Fixture::new();
+        fs::remove_file(f.directory.join("bin/game.exe")).unwrap();
+        fs::write(f.directory.join("remaining.dat"), b"game data").unwrap();
+        let target = checked_target(&f.database, &f.id, &[]).unwrap();
+        remove_installation(&f.database, &f.id, &target, &[]).unwrap();
+        assert!(!f.directory.exists());
+        assert!(f.database.game(&f.id).is_err());
+    }
+
+    #[test]
     fn steam_managed_and_protected_directories_are_rejected() {
         let f = Fixture::new();
         assert!(checked_target(&f.database, &f.id, std::slice::from_ref(&f.directory)).is_err());
@@ -302,6 +361,35 @@ mod tests {
             })
             .unwrap();
         assert!(checked_target(&f.database, &f.id, &[]).is_err());
+    }
+
+    #[test]
+    fn pending_updates_prevent_file_deletion() {
+        let f = Fixture::new();
+        f.database.with_connection(|connection| {
+            connection.execute("INSERT INTO downloads (id,steam_app_id,name,release_version,url,sha256,size_bytes,status,created_at,updated_at,target_game_id) VALUES (?1,400,'Game','1','https://example.org/game.zip','',1,'paused',0,0,?2)", params![uuid::Uuid::new_v4().to_string(), f.id]).map_err(database_error)?;
+            Ok(())
+        }).unwrap();
+        assert!(remove_installation(&f.database, &f.id, &f.directory, &[]).is_err());
+        assert!(f.directory.join("bin/game.exe").is_file());
+        assert!(f.database.game(&f.id).is_ok());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn externally_running_game_prevents_uninstall() {
+        let f = Fixture::new();
+        let executable = f.directory.join("bin/game.exe");
+        fs::copy("/bin/sleep", &executable).unwrap();
+        let mut process = std::process::Command::new(&executable)
+            .arg("60")
+            .spawn()
+            .unwrap();
+        let result = remove_installation(&f.database, &f.id, &f.directory, &[]);
+        process.kill().unwrap();
+        process.wait().unwrap();
+        assert!(result.unwrap_err().contains("Close the game"));
+        assert!(executable.is_file());
     }
 
     #[cfg(target_os = "linux")]
