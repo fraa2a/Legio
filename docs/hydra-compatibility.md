@@ -114,3 +114,19 @@ Code references:
 - https://github.com/hydralauncher/hydra/blob/a22ec02201e73db8ca2ee214c2b37cd2d6a27374/src/shared/index.ts
 - https://github.com/hydralauncher/hydra/blob/a22ec02201e73db8ca2ee214c2b37cd2d6a27374/src/shared/char-map.ts
 - https://github.com/hydralauncher/hydra/blob/v2.0.3/src/main/services/repacks-manager.ts
+
+## FlexSearch release index, 2026-10-18
+
+Legio now embeds the actual FlexSearch library, rather than only implementing a title normalizer or a similar Rust search algorithm. The pinned upstream commit is `4c3966709f855c6980c21035cf230b2f9150d065`, whose package version is `0.7.43`, matching Hydra v2.0.3's dependency. The unmodified upstream bundle retains its older `v0.7.41` banner. Its Git blob SHA is `aba4476ddf956f12a469a906cac04e41da83576b`. Apache-2.0 attribution is retained and the full license is included in application bundles.
+
+The index direction follows Hydra's old `RepacksManager`: index normalized release titles, then query using catalogue game names. This finds source titles with added release words and reordered words. Source result limits use the source's record count, avoiding the default top-result cap. No worker, browser, filesystem or network bindings are exposed to the embedded library.
+
+Rust retains final authority over Steam App ID assignment. Exact normalized local matches take precedence. Text candidates must retain sequel/edition/VR tokens, contain the catalogue title's complete word set, and have only recognized release-page words left over. Distinct surviving App IDs are ambiguous and remain unresolved; duplicate rows for the same ID do not create false ambiguity. Generic title subsets such as `Portal` versus `Portal Stories Mel` are rejected. This deliberately adds safeguards beyond Hydra's historical repack search, which returned download options rather than importing a permanent Steam identity.
+
+The local source import builds one release index for the available catalogue. Remote Steam lookup results also pass through FlexSearch when conservative matching cannot identify the release. Remote matching runs on a blocking worker, keeping JavaScript execution off the asynchronous runtime. Index errors are reported in source import diagnostics; exact local matches remain available if text indexing fails. Cached known matches do not require an index rebuild with an empty catalogue.
+
+Index execution is limited to 128 MiB and ten seconds, with at most 100,000 releases and catalogue candidates per batch. This reuses the existing embedded QuickJS dependency and introduces no runtime dependency on Node.js or an external search service.
+
+Offline check on the provided SteamGG file: the production parser accepts 6,654 records. Against the partial local catalogue of 559 games, exact normalization alone identifies 181 source records, and the FlexSearch candidates plus Rust guards identify 182, with no ambiguous result in that subset. A Node execution of the bundled index and production JavaScript adapter took about 50 ms for indexing and searching that subset; this is a local benchmark, not a QuickJS or full Steam catalogue performance guarantee. The earlier normalization-only count of 183 included raw records that the source parser rejects.
+
+The JavaScript test exercises the actual vendored library for added release words, word ordering, missing titles, and more than 100 results. Rust regressions cover final assignment, generic-title rejection, sequel/VR separation, ambiguous IDs, exact-match precedence and cache restoration. Full Rust verification runs in CI because the local sandbox does not have the QuickJS crate cached.
