@@ -37,13 +37,15 @@ Anonymous guest tokens used internally by a free host are distinct from user-pro
 - Support unknown-length streams, grouped files/multipart extraction and explicit installer-file handling. The current implementation requires one resolved file with a known exact size and does not automatically execute installers.
 - Complete preparation cancellation, availability/throughput caching, bandwidth policy during probes, informative per-candidate outcomes, and safe transfer-start fallback.
 - Add cross-source automatic selection only where equivalent release content and consent can be established. Current automatic selection uses the chosen source release's candidate links; it does not silently choose another build or publisher.
-- Complete HTTP fixture and live-provider verification, Windows checks, running UI review and screenshots.
+- Complete HTTP fixture and live-provider verification, running UI review and screenshots. Automated Linux and Windows build checks pass; interactive validation remains pending.
 
 ## Validation record
 
 - Local frontend production build, Svelte/TypeScript check, ESLint, and source/catalog/Store/version-badge tests passed at the initial checkpoint.
 - Initial full Rust run: 492 passed, 32 failed, 4 ignored. All 32 reported failures hit sandbox-denied localhost sockets or a read-only path. This is not a passing suite.
 - Follow-up checks passed for database migrations, native/source caches, Hydra parsing, release identity, title matching, provider parsing and ranking. Clippy passed after the checkpoint fixes.
+- Latest implementation CI at `0d713a8198e287545ff19134a6521b5ab67a77e0` passed all four jobs: Frontend, Rust, Tauri smoke (Linux), and Tauri smoke (Windows). Clippy passed with warnings denied. The full Linux Rust suite reported 533 passed, 0 failed and 4 ignored, including all seven GoFile protocol tests. Linux AppImage and Windows release builds completed. These unrestricted results supersede the initial sandbox-only failures above.
+- Evidence: https://github.com/fraa2a/Legio/actions/runs/39053972352
 - CI remains authoritative for the unrestricted Linux/Windows checks. Keep this PR draft even if CI passes until the missing functionality above is implemented and verified.
 
 ## GoFile protocol port, 2026-10-17
@@ -59,7 +61,7 @@ The port follows Hydra at commit `a22ec02201e73db8ca2ee214c2b37cd2d6a27374`, inc
 
 Rust uses an embedded QuickJS runtime instead of Node's VM. Script execution has a one-second deadline, 16 MiB memory limit and no filesystem, process, network, module-loader or Tauri bindings. Folder traversal is limited to 100 content requests and overall resolution to 120 seconds. These resource limits are deliberate adaptations to the native launcher. Automatic selection allows up to 120 seconds for GoFile initialization instead of cancelling its website/session flow after the eight-second budget used for other hosts.
 
-The local missing-feature regression was observed failing before implementation. The shared JavaScript probe fixture passes under Node, including timeout and absent host APIs. Local Rust compilation is blocked because this environment cannot download the newly added runtime crates from crates.io. Rust/Windows CI results and live host verification must be reported separately.
+The local missing-feature regression was observed failing before implementation. The shared JavaScript probe fixture passes under Node, including timeout and absent host APIs. Local Rust compilation is blocked because this environment cannot download the newly added runtime crates from crates.io. The unrestricted CI completed successfully for Linux and Windows as recorded above. Live host acceptance remains a separate, unverified check.
 
 Torrent support remains excluded. DataNodes delegates to an authenticated private Hydra backend, and VikingFile's Hydra resolver requires a subscription. Those backend implementations are not supplied by the MIT desktop client; this port does not add Hydra credentials or paid integrations.
 
