@@ -97,3 +97,20 @@ References:
 - https://akirabox.com/premium
 - https://akirabox.com/developers
 - https://github.com/hydralauncher/hydra/tree/a22ec02201e73db8ca2ee214c2b37cd2d6a27374/src/main/services/hosters
+
+## SteamGG title normalization, 2026-10-18
+
+Hydra's current desktop client posts source URLs to `/download-sources` on its backend with `needsAuth: false`. Its shared `formatName` performs character folding, case/symbol/spacing cleanup and edition cleanup, but the source-to-game assignment is not implemented in that public client. The older v2.0.3 `RepacksManager` indexed formatted release titles with FlexSearch and searched that index using catalogue titles. Token search can find a release despite extra marketing words, unlike Legio's exact local title index. This does not establish that every source record has a correct Steam association.
+
+Legio now strips recognized release-page labels such as `Free Download`, common spelling variants, `Direct Download`, `Download Free` and leading `Download`. It handles bracketed versions, builds, hotfix/build payloads, version separators, apostrophes, trademark symbols and Hydra's Latin character folding map. Explicit edition, remaster, sequel and VR identity is retained rather than merging those records into a base game. Original release titles and source trust remain unchanged in storage and the UI.
+
+The user-provided SteamGG file contained 6,678 records. Running the production normalizer over all titles produced no empty names, no remaining numbered build markers, and no changes when normalizing the output a second time. One unusual `Free Download SIMULACRA` prefix remains deliberately unresolved by the generic marketing cleanup, which must preserve real names such as `Free Download Simulator`. Against the user's partial local cache of 559 catalogue games, unique exact title associations improved from 0 to 183 source records. This is an offline comparison against a partial cache, not a count of all games that can be resolved through Steam's remote search.
+
+Nine standalone production matching tests pass, including sequel/edition ambiguity and Unicode regressions. The source import/cache integration regression and full project checks run in CI. These changes improve title recognition; they do not add support for additional download hosts.
+
+Code references:
+
+- https://github.com/hydralauncher/hydra/blob/a22ec02201e73db8ca2ee214c2b37cd2d6a27374/src/main/events/download-sources/add-download-source.ts
+- https://github.com/hydralauncher/hydra/blob/a22ec02201e73db8ca2ee214c2b37cd2d6a27374/src/shared/index.ts
+- https://github.com/hydralauncher/hydra/blob/a22ec02201e73db8ca2ee214c2b37cd2d6a27374/src/shared/char-map.ts
+- https://github.com/hydralauncher/hydra/blob/v2.0.3/src/main/services/repacks-manager.ts
