@@ -57,7 +57,7 @@ The port follows Hydra at commit `a22ec02201e73db8ca2ee214c2b37cd2d6a27374`, inc
 - Three attempts for retryable HTTP/rate-limit responses, paginated and cycle-bounded folder traversal, password hashing, first accessible file selection and account cookie on file requests.
 - Official file HEAD validation before trying Hydra's alternate CDN, whose probe uses a five-second deadline and a 15-second positive/negative cache.
 
-Rust uses an embedded QuickJS runtime instead of Node's VM. Script execution has a one-second deadline, 16 MiB memory limit and no filesystem, process, network, module-loader or Tauri bindings. Folder traversal is limited to 100 content requests and overall resolution to 120 seconds. These resource limits are deliberate adaptations to the native launcher.
+Rust uses an embedded QuickJS runtime instead of Node's VM. Script execution has a one-second deadline, 16 MiB memory limit and no filesystem, process, network, module-loader or Tauri bindings. Folder traversal is limited to 100 content requests and overall resolution to 120 seconds. These resource limits are deliberate adaptations to the native launcher. Automatic selection allows up to 120 seconds for GoFile initialization instead of cancelling its website/session flow after the eight-second budget used for other hosts.
 
 The local missing-feature regression was observed failing before implementation. The shared JavaScript probe fixture passes under Node, including timeout and absent host APIs. Local Rust compilation is blocked because this environment cannot download the newly added runtime crates from crates.io. Rust/Windows CI results and live host verification must be reported separately.
 
