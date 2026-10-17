@@ -1,5 +1,5 @@
 import type { CatalogGame } from "../../services/catalog";
-import type { SourceEntry, SourceManifest } from "../../services/legio-source";
+import type { InstalledSource, SourceEntry, SourceManifest } from "../../services/legio-source";
 
 export type SourceAvailability = CatalogGame["availability"];
 
@@ -72,4 +72,10 @@ export function sourceReleasesFor(
 
 export function sourceReleaseId(entry: SourceEntry): string {
   return entry.sourceId ? JSON.stringify([entry.sourceId, entry.id ?? entry.download.url, entry.release.version]) : JSON.stringify([entry.download.url, entry.release.version]);
+}
+
+export function sourceNameFor(entry: SourceEntry, sources: InstalledSource[]): string | undefined {
+  const origin = sources.find(source => source.id === entry.sourceId);
+  if (origin === undefined) return undefined;
+  return origin.name || new URL(origin.url).hostname;
 }

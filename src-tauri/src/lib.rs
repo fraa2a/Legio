@@ -27,6 +27,8 @@ mod diagnostics;
 mod discord_presence;
 mod download_policy;
 mod download_queue;
+mod download_resolver;
+mod download_selection;
 mod filesystem_copy;
 mod finalize_install;
 mod game_artwork;
@@ -36,6 +38,8 @@ mod game_process;
 mod game_transfer;
 mod game_uninstall;
 mod game_updates;
+mod gofile;
+mod hydra_source;
 mod image_format;
 mod image_response;
 mod image_trim;
@@ -61,7 +65,10 @@ mod playtime_activity;
 mod proton_runtime;
 mod runner_discovery;
 mod settings;
+mod source_catalog;
 mod source_links;
+mod source_matching;
+mod source_search;
 mod startup;
 mod startup_recovery;
 #[cfg(target_os = "linux")]
@@ -162,6 +169,7 @@ fn run_application(
                     .map_err(std::io::Error::other)?;
             }
             app.manage(source_links);
+            gofile::initialize(app.path().app_data_dir()?);
             let database = database::DatabaseState::new(app.path().app_data_dir());
             let initial_settings = database
                 .database()?
