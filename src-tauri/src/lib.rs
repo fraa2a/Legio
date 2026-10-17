@@ -37,6 +37,7 @@ mod game_lifecycle;
 mod game_process;
 mod game_transfer;
 mod game_updates;
+mod gofile;
 mod hydra_source;
 mod image_format;
 mod image_response;
@@ -166,6 +167,7 @@ fn run_application(
                     .map_err(std::io::Error::other)?;
             }
             app.manage(source_links);
+            gofile::initialize(app.path().app_data_dir()?);
             let database = database::DatabaseState::new(app.path().app_data_dir());
             let initial_settings = database
                 .database()?
