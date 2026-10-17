@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::source_catalog::{self, SourceCatalog, SourceFormat};
 use serde::Serialize;
-use tauri::{Manager, Runtime};
+use tauri::{Emitter, Manager, Runtime};
 
 use crate::{
     database::{Database, DatabaseState},
@@ -24,6 +25,10 @@ pub struct InstalledSource {
     pub warning: Option<String>,
     pub game_count: usize,
     pub support_game_updates: bool,
+    pub name: String,
+    pub format: SourceFormat,
+    pub diagnostics: crate::hydra_source::ImportDiagnostics,
+    pub candidates: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -49,6 +54,7 @@ pub(crate) struct SourceRow {
     pub id: String,
     pub url: String,
     pub manifest: Arc<Manifest>,
+    pub catalog: Arc<SourceCatalog>,
     pub fetched_at: i64,
     pub warning: Option<String>,
 }
@@ -77,12 +83,13 @@ fn rows(database: &Database) -> Result<Vec<SourceRow>, String> {
     stored
         .into_iter()
         .map(|(id, url, bytes, fetched_at, warning)| {
-            let manifest = legio_source::parse_manifest(&bytes)
+            let catalog = source_catalog::decode_cache(&bytes)
                 .map_err(|error| format!("Cached source is invalid: {error}"))?;
             Ok(SourceRow {
                 id,
                 url,
-                manifest: Arc::new(manifest),
+                manifest: Arc::new(catalog.manifest.clone()),
+                catalog: Arc::new(catalog),
                 fetched_at,
                 warning,
             })
@@ -183,6 +190,15 @@ fn snapshot(database: &Database, current_time: i64) -> Result<SourceSnapshot, St
             warning: row.warning.clone(),
             game_count: row.manifest.verified.len() + row.manifest.unverified.len(),
             support_game_updates: row.manifest.support_game_updates,
+            name: row.catalog.name.clone().unwrap_or_else(|| {
+                reqwest::Url::parse(&row.url)
+                    .ok()
+                    .and_then(|url| url.host_str().map(str::to_owned))
+                    .unwrap_or_else(|| "Source".into())
+            }),
+            format: row.catalog.format,
+            diagnostics: row.catalog.diagnostics.clone(),
+            candidates: row.catalog.candidates.clone(),
         })
         .collect();
     let warning = cache.as_ref().and_then(|cache| cache.warning.clone());
@@ -195,6 +211,7 @@ fn snapshot(database: &Database, current_time: i64) -> Result<SourceSnapshot, St
     })
 }
 
+#[cfg(test)]
 fn encode(manifest: &Manifest) -> Result<Vec<u8>, String> {
     let bytes = serde_json::to_vec(manifest)
         .map_err(|error| format!("Could not encode source: {error}"))?;
@@ -204,13 +221,23 @@ fn encode(manifest: &Manifest) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+#[cfg(test)]
 fn insert(
     database: &Database,
     url: &str,
     manifest: Manifest,
     fetched_at: i64,
 ) -> Result<(), String> {
-    let bytes = encode(&manifest)?;
+    insert_catalog(database, url, SourceCatalog::native(manifest), fetched_at)
+}
+
+fn insert_catalog(
+    database: &Database,
+    url: &str,
+    catalog: SourceCatalog,
+    fetched_at: i64,
+) -> Result<(), String> {
+    let bytes = source_catalog::encode_cache(&catalog)?;
     let mut cache = database
         .source_cache
         .lock()
@@ -230,10 +257,25 @@ fn insert(
     })
 }
 
+#[cfg(test)]
 fn update(
     database: &Database,
     id: &str,
     fetched: Result<Manifest, String>,
+    current_time: i64,
+) -> Result<(), String> {
+    update_catalog(
+        database,
+        id,
+        fetched.map(SourceCatalog::native),
+        current_time,
+    )
+}
+
+fn update_catalog(
+    database: &Database,
+    id: &str,
+    fetched: Result<SourceCatalog, String>,
     current_time: i64,
 ) -> Result<(), String> {
     let mut cache = database
@@ -243,7 +285,7 @@ fn update(
     database.with_connection(|connection| {
         match fetched {
             Ok(manifest) => {
-                connection.execute("UPDATE download_sources SET manifest = ?1, fetched_at = ?2, warning = NULL WHERE id = ?3", rusqlite::params![encode(&manifest)?, current_time, id]).map_err(db_error)?;
+                connection.execute("UPDATE download_sources SET manifest = ?1, fetched_at = ?2, warning = NULL WHERE id = ?3", rusqlite::params![source_catalog::encode_cache(&manifest)?, current_time, id]).map_err(db_error)?;
             }
             Err(error) => {
                 connection.execute("UPDATE download_sources SET warning = ?1 WHERE id = ?2", rusqlite::params![error, id]).map_err(db_error)?;
@@ -294,6 +336,106 @@ pub async fn cached_source<R: Runtime>(app: tauri::AppHandle<R>) -> Result<Sourc
     .map_err(|error| format!("Source cache task failed: {error}"))?
 }
 
+async fn fetch_catalog(
+    app: &tauri::AppHandle,
+    network: &NetworkState,
+    database: Arc<Database>,
+    url: &str,
+    previous: Option<&SourceCatalog>,
+) -> Result<SourceCatalog, String> {
+    let bytes = network
+        .legio_source(url)
+        .await
+        .map_err(|error| format!("Could not fetch source: {error:?}"))?;
+    let games = tauri::async_runtime::spawn_blocking(move || {
+        database.with_connection(|connection| {
+            let mut statement = connection
+                .prepare("SELECT steam_app_id, name FROM catalog_games")
+                .map_err(db_error)?;
+            statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, u32>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(db_error)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(db_error)
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    let mut catalog =
+        tauri::async_runtime::spawn_blocking(move || source_catalog::parse_source(&bytes, &games))
+            .await
+            .map_err(|error| error.to_string())??;
+    let Some(raw) = catalog.raw_hydra.take() else {
+        return Ok(catalog);
+    };
+    let mut matches = previous
+        .map(|source| source.matches.clone())
+        .unwrap_or_default();
+    matches.extend(catalog.matches);
+    let mut pending = std::collections::VecDeque::new();
+    let mut seen = std::collections::HashSet::new();
+    for entry in &raw.downloads {
+        let title = crate::source_matching::normalized_title(&entry.title);
+        if !matches.contains_key(&entry.title) && seen.insert(title.clone()) {
+            pending.push_back(title);
+        }
+    }
+    let operation_id = uuid::Uuid::new_v4().to_string();
+    let total = pending.len();
+    let mut processed = 0;
+    let mut tasks = tokio::task::JoinSet::new();
+    let mut lookup_matches = std::collections::HashMap::new();
+    let mut lookup_failures = Vec::new();
+    loop {
+        while tasks.len() < 4 {
+            let Some(title) = pending.pop_front() else {
+                break;
+            };
+            let network = network.clone();
+            tasks.spawn(async move {
+                let result = crate::catalog::lookup_source_title(&network, &title).await;
+                (title, result)
+            });
+        }
+        let Some(result) = tasks.join_next().await else {
+            break;
+        };
+        let (title, result) = result.map_err(|error| format!("Title lookup failed: {error}"))?;
+        match result {
+            Ok(games) => {
+                if let crate::source_matching::MatchResult::Matched(id) =
+                    crate::source_matching::match_title(&title, &games)
+                {
+                    lookup_matches.insert(title, id);
+                }
+            }
+            Err(error) => {
+                if lookup_failures.len() < 10 {
+                    lookup_failures.push(error);
+                }
+            }
+        }
+        processed += 1;
+        app.emit(
+            "source-import-progress",
+            serde_json::json!({"operationId":operation_id,"processed":processed,"total":total}),
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    for entry in &raw.downloads {
+        if let Some(id) =
+            lookup_matches.get(&crate::source_matching::normalized_title(&entry.title))
+        {
+            matches.insert(entry.title.clone(), *id);
+        }
+    }
+    let mut result = source_catalog::from_hydra(raw, &[], matches);
+    result.diagnostics.reasons.extend(lookup_failures);
+    Ok(result)
+}
+
 pub async fn add_source(
     app: tauri::AppHandle,
     network: &NetworkState,
@@ -321,10 +463,10 @@ pub async fn add_source(
     if exists {
         return cached_source(app).await;
     }
-    let manifest = legio_source::fetch_manifest(network, &url).await?;
+    let manifest = fetch_catalog(&app, network, database.clone(), &url, None).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let current_time = now()?;
-        insert(&database, &url, manifest, current_time)?;
+        insert_catalog(&database, &url, manifest, current_time)?;
         snapshot(&database, current_time)
     })
     .await
@@ -355,10 +497,18 @@ pub async fn refresh_source(
     for row in sources {
         let network = network.clone();
         let database = database.clone();
+        let import_app = app.clone();
         tasks.spawn(async move {
-            let fetched = legio_source::fetch_manifest(&network, &row.url).await;
+            let fetched = fetch_catalog(
+                &import_app,
+                &network,
+                database.clone(),
+                &row.url,
+                Some(row.catalog.as_ref()),
+            )
+            .await;
             tauri::async_runtime::spawn_blocking(move || {
-                update(&database, &row.id, fetched, now()?)
+                update_catalog(&database, &row.id, fetched, now()?)
             })
             .await
             .map_err(|error| format!("Source refresh task failed: {error}"))?
@@ -503,7 +653,7 @@ mod tests {
             2
         );
         let mut conflict = valid(400);
-        conflict.verified[0].download.size_bytes = 2;
+        conflict.verified[0].download.size_bytes = Some(2);
         insert(
             &database,
             "https://example.invalid/three.json",
@@ -515,7 +665,10 @@ mod tests {
         assert!(snapshot.warning.is_none());
         let entries = snapshot.manifest.unwrap().verified.clone();
         assert_eq!(entries.len(), 3);
-        let ids: std::collections::HashSet<_> = entries.iter().map(|entry| entry.source_id.as_deref().unwrap()).collect();
+        let ids: std::collections::HashSet<_> = entries
+            .iter()
+            .map(|entry| entry.source_id.as_deref().unwrap())
+            .collect();
         assert_eq!(ids.len(), 3);
         drop(database);
         std::fs::remove_dir_all(directory).unwrap();
@@ -549,6 +702,57 @@ mod tests {
         assert_eq!(legacy_count, 0);
         assert_eq!(reopened.game(&game.id).unwrap().name, "Portal");
         drop(reopened);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn queues_a_resolved_hydra_mirror_without_inventing_manifest_size() {
+        let (directory, database) = database();
+        let source = crate::source_catalog::parse_source(br#"{"name":"SteamGG","downloads":[{"title":"Portal","uris":["https://gofile.io/d/a","https://example.test/other.zip"]}]}"#, &[(400, "Portal".to_owned())]).unwrap();
+        insert_catalog(&database, "https://example.test/hydra.json", source, 100).unwrap();
+        let source_id = snapshot(&database, 100).unwrap().sources[0].id.clone();
+        assert!(
+            crate::download_queue::enqueue(
+                &database,
+                400,
+                "https://example.test/other.zip",
+                "Portal",
+                false
+            )
+            .is_err()
+        );
+        let job = crate::download_queue::enqueue_prepared(
+            &database,
+            400,
+            "https://example.test/other.zip",
+            "Portal",
+            true,
+            Some(&source_id),
+            None,
+            Some(123),
+        )
+        .unwrap();
+        assert!(!job.id().is_empty());
+        assert!(
+            crate::download_queue::enqueue_prepared(
+                &database,
+                400,
+                "https://attacker.test/other.zip",
+                "Portal",
+                true,
+                Some(&source_id),
+                None,
+                Some(123)
+            )
+            .is_err()
+        );
+        assert_eq!(
+            cached_rows(&database).unwrap()[0].manifest.unverified[0]
+                .download
+                .size_bytes,
+            None
+        );
+        drop(database);
         std::fs::remove_dir_all(directory).unwrap();
     }
 

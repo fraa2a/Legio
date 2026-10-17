@@ -1171,3 +1171,22 @@ mod tests {
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
+
+pub(crate) async fn lookup_source_title(
+    network: &NetworkState,
+    title: &str,
+) -> Result<Vec<(u32, String)>, String> {
+    let body = serde_json::to_vec(&HydraRequest {
+        title,
+        take: REMOTE_LIMIT,
+        skip: 0,
+    })
+    .map_err(|e| e.to_string())?;
+    let bytes = network.source_title_search(body).await?;
+    let page = decode(&bytes).map_err(|e| e.message)?;
+    Ok(page
+        .games
+        .into_iter()
+        .map(|game| (game.steam_app_id, game.name))
+        .collect())
+}

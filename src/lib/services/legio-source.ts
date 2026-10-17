@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { invoke } from "./invoke";
 
 export interface SourceEntry {
@@ -5,8 +6,8 @@ export interface SourceEntry {
   sourceId?: string | null;
   steamAppId: number;
   name: string;
-  release: { version: string; publishedAt: string };
-  download: { url: string; sha256?: string | null; sizeBytes: number };
+  release: { version: string; publishedAt: string | null };
+  download: { url: string; sha256?: string | null; sizeBytes: number | null };
 }
 
 export interface SourceManifest {
@@ -41,6 +42,10 @@ export interface InstalledSource {
   warning: string | null;
   gameCount: number;
   supportGameUpdates?: boolean;
+  name?: string;
+  format?: "legio" | "hydra";
+  diagnostics?: { rejected: number; unsupported: number; unresolved: number; reasons: string[] };
+  candidates?: Record<string, string[]>;
 }
 
 export function addDownloadSource(url: string): Promise<SourceSnapshot> {
@@ -58,4 +63,9 @@ export interface PendingSourceLinks {
 
 export function takeSourceLinks(): Promise<PendingSourceLinks> {
   return invoke<PendingSourceLinks>("take_source_links");
+}
+
+export interface SourceImportProgress { operationId: string; processed: number; total: number }
+export function observeSourceImportProgress(callback: (progress: SourceImportProgress) => void): Promise<() => void> {
+  return listen<SourceImportProgress>("source-import-progress", event => callback(event.payload));
 }
