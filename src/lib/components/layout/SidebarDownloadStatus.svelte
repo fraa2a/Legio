@@ -159,7 +159,7 @@
       onclick={() => selectSection("downloads")}
       class="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/5 text-zinc-400 transition-colors duration-200 hover:bg-white/10 hover:text-white light:bg-zinc-900/5 light:text-zinc-500 light:hover:bg-zinc-900/10 light:hover:text-zinc-900"
     >
-      <WaveFill value={percent} active={lead.status !== "paused" && lead.status !== "waiting" && lead.status !== "failed"} />
+      <WaveFill compact value={percent} active={lead.status !== "paused" && lead.status !== "waiting" && lead.status !== "failed"} />
       <span class="relative">
         <Icon name={lead.pauseReason === "game_running" ? "pause" : "downloads"} size="h-5 w-5" />
       </span>
