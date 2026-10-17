@@ -329,62 +329,6 @@ pub(crate) fn backfill(database: &Database) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct GameSourceBinding {
-    pub source_id: Option<String>,
-    pub entry_id: Option<String>,
-    pub installed_version: String,
-}
-
-#[tauri::command]
-pub(crate) async fn get_game_source_binding(
-    app: AppHandle,
-    game_id: String,
-) -> Result<GameSourceBinding, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        app.state::<DatabaseState>().database()?.with_connection(|connection| {
-            let binding = connection.query_row("SELECT source_id, entry_id, installed_version FROM game_source_installs WHERE game_id = ?1", [&game_id], |row| Ok(GameSourceBinding { source_id: row.get(0)?, entry_id: row.get(1)?, installed_version: row.get(2)? })).optional().map_err(database_error)?;
-            if let Some(binding) = binding { return Ok(binding); }
-            let version = connection.query_row("SELECT release_version FROM downloads WHERE id = ?1 AND status = 'installed'", [&game_id], |row| row.get(0)).optional().map_err(database_error)?.unwrap_or_default();
-            Ok(GameSourceBinding { source_id: None, entry_id: None, installed_version: version })
-        })
-    }).await.map_err(|error| error.to_string())?
-}
-
-#[tauri::command]
-pub(crate) async fn bind_game_source(
-    app: AppHandle,
-    game_id: String,
-    source_id: String,
-    entry_id: String,
-    installed_version: String,
-    accept_unverified: bool,
-) -> Result<(), String> {
-    crate::startup_recovery::wait(&app).await?;
-    tauri::async_runtime::spawn_blocking(move || {
-        let manager = app.state::<crate::game_lifecycle::GameLaunchManager>(); let _operation = manager.operation()?;
-        manager.require_idle(&game_id)?;
-        let state = app.state::<DatabaseState>(); let database = state.database()?;
-        let game = database.game(&game_id)?;
-        if game.steam_install_path.is_some() || game.installation_root.is_none() { return Err("Only installed local games can be linked to an update source".into()); }
-        let version = installed_version.trim();
-        if version.is_empty() || version.len() > 128 { return Err("Enter a valid installed version".into()); }
-        let origin = sources(database)?.into_iter().find(|origin| origin.id == source_id && origin.manifest.support_game_updates).ok_or("Source does not support updates")?;
-        let verified = origin.manifest.verified.iter().any(|entry| entry.id.as_deref() == Some(&entry_id));
-        let entry = origin.manifest.verified.iter().chain(&origin.manifest.unverified).find(|entry| entry.id.as_deref() == Some(&entry_id)).ok_or("Variant is not available")?;
-        if game.steam_app_id != Some(entry.steam_app_id) { return Err("Variant does not match this game's Steam identity".into()); }
-        if !verified && !accept_unverified { return Err("Confirm the unverified source before linking".into()); }
-        database.with_connection(|connection| {
-            let active: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM downloads WHERE target_game_id = ?1 AND status NOT IN ('installed','cancelled'))", [&game_id], |row| row.get(0)).map_err(database_error)?;
-            if active { return Err("Cancel the pending update before changing its source".into()); }
-            connection.execute("INSERT INTO game_source_installs (game_id,source_id,source_sha256,entry_id,installed_version,accepted_unverified) VALUES (?1,?2,(SELECT url_sha256 FROM download_sources WHERE id=?2),?3,?4,?5) ON CONFLICT(game_id) DO UPDATE SET source_id=excluded.source_id,source_sha256=excluded.source_sha256,entry_id=excluded.entry_id,installed_version=excluded.installed_version,accepted_unverified=excluded.accepted_unverified", params![game_id,source_id,entry_id,version,!verified]).map_err(database_error)?;
-            Ok(())
-        })?;
-        crate::game_library::sync_default(&app)
-    }).await.map_err(|error| error.to_string())?
-}
-
 pub(crate) fn schedule(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let worker = app.clone();

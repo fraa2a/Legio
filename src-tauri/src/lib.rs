@@ -438,8 +438,6 @@ fn run_application(
             download_queue::queue_download,
             game_updates::list_game_updates,
             game_updates::queue_game_update,
-            game_updates::get_game_source_binding,
-            game_updates::bind_game_source,
             download_queue::pause_download,
             download_queue::resume_download,
             download_queue::retry_download,

@@ -79,7 +79,6 @@ test("Steam game settings offer hide and block removal while sync is enabled", a
     "src/lib/i18n": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const language=writable("it"); export const t=value=>value;`),
     "src/lib/stores/settings": dataModule("export const settings = globalThis.steamGameActions.settings;"),
     "src/lib/stores/games": dataModule("export const deleteGame = async id => globalThis.steamGameActions.calls.push(['remove', id]); export const hideSteamGame = async id => globalThis.steamGameActions.calls.push(['hide', id]); export const saveGame = async () => {};"),
-    "src/lib/features/library/GameSourcePanel.svelte": empty,
     "src/lib/features/library/SteamGameSearch.svelte": empty,
   };
   const { load } = createModuleLoader(mocks);
