@@ -10,7 +10,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 29;
+const SCHEMA_VERSION: i64 = 30;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1887,6 +1887,12 @@ fn migrate(connection: &Connection) -> Result<(), String> {
              );
              PRAGMA user_version = 29;",
             )
+            .map_err(database_error)?;
+    }
+    if version < 30 {
+        // Source caches now use a format-aware envelope.
+        transaction
+            .execute_batch("PRAGMA user_version = 30;")
             .map_err(database_error)?;
     }
     transaction.commit().map_err(database_error)

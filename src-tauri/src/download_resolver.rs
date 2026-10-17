@@ -79,7 +79,7 @@ pub(crate) async fn get(
             .headers(headers.clone())
             .send()
             .await
-            .map_err(|error| error.without_url().to_string())?;
+            .map_err(|error| format!("Network: {}", error.without_url()))?;
         if response.status().is_redirection() {
             if hop == 5 {
                 return Err("Download redirected too many times".into());
@@ -95,7 +95,7 @@ pub(crate) async fn get(
             if url.scheme() == "https" && next.scheme() != "https" {
                 return Err("Download redirected to an insecure connection".into());
             }
-            if url.host_str() != next.host_str() {
+            if url.origin() != next.origin() {
                 headers.remove("authorization");
                 headers.remove("cookie");
             }
@@ -103,10 +103,7 @@ pub(crate) async fn get(
             continue;
         }
         if !response.status().is_success() {
-            return Err(format!(
-                "Download host returned HTTP {}",
-                response.status().as_u16()
-            ));
+            return Err(format!("HTTP {}", response.status().as_u16()));
         }
         return Ok(response);
     }
@@ -119,7 +116,7 @@ async fn text(client: &Client, url: &str, headers: HeaderMap) -> Result<String, 
     while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|error| error.without_url().to_string())?
+        .map_err(|error| format!("Network: {}", error.without_url()))?
     {
         if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
             return Err("Host response exceeds the size limit".into());
@@ -324,7 +321,7 @@ async fn resolve_gofile(client: &Client, uri: &str) -> Result<ResolvedDownload, 
             .post("https://api.gofile.io/accounts")
             .send()
             .await
-            .map_err(|e| e.without_url().to_string())?;
+            .map_err(|e| format!("Network: {}", e.without_url()))?;
         let status = response.status();
         if !status.is_success() {
             return Err(format!(
@@ -337,7 +334,7 @@ async fn resolve_gofile(client: &Client, uri: &str) -> Result<ResolvedDownload, 
         while let Some(chunk) = response
             .chunk()
             .await
-            .map_err(|e| e.without_url().to_string())?
+            .map_err(|e| format!("Network: {}", e.without_url()))?
         {
             if bytes.len() + chunk.len() > 64 * 1024 {
                 return Err("GoFile authentication response is too large".to_owned());

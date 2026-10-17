@@ -356,6 +356,7 @@ pub fn enqueue(
     )
 }
 
+#[cfg(test)]
 pub(crate) fn enqueue_from_source(
     database: &Database,
     app_id: u32,
@@ -417,10 +418,10 @@ pub(crate) fn enqueue_prepared(
     if !source_verified && !accept_unverified {
         return Err("Confirm the unverified source before downloading".to_owned());
     }
-    if let (Some(expected), Some(actual)) = (entry.download.size_bytes, resolved_size) {
-        if expected != actual {
-            return Err("Download does not match the size published by the source".into());
-        }
+    if let (Some(expected), Some(actual)) = (entry.download.size_bytes, resolved_size)
+        && expected != actual
+    {
+        return Err("Download does not match the size published by the source".into());
     }
     let exact_size = entry
         .download
