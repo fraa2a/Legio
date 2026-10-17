@@ -108,6 +108,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<HydraSource, String> {
                 .push(format!("Record {index}: invalid title or URI list"));
             continue;
         };
+        entry.title = entry.title.split_whitespace().collect::<Vec<_>>().join(" ");
         let valid = !entry.title.trim().is_empty()
             && entry.title.len() <= 512
             && !entry.title.chars().any(char::is_control)
@@ -141,6 +142,17 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<HydraSource, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accepts_release_page_whitespace_but_rejects_control_characters() {
+        let source = parse(br#"{"name":"SteamGG","downloads":[{"title":"Scritchy Scratchy Free Download (Build\t22395563)","uris":["https://example.test/game.zip"]},{"title":"Bad\u0007Title","uris":["https://example.test/game.zip"]}]}"#).unwrap();
+        assert_eq!(source.downloads.len(), 1);
+        assert_eq!(
+            source.downloads[0].title,
+            "Scritchy Scratchy Free Download (Build 22395563)"
+        );
+        assert_eq!(source.diagnostics.rejected, 1);
+    }
 
     #[test]
     fn parses_named_source_and_keeps_mirrors_without_claiming_trust() {
