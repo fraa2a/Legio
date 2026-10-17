@@ -106,7 +106,7 @@ fn merge(rows: &[SourceRow]) -> Option<CachedSource> {
                     entry.steam_app_id,
                     entry.download.url.as_str(),
                     entry.release.version.as_str(),
-                    entry.id.as_ref().map(|_| row.id.as_str()),
+                    Some(row.id.as_str()),
                 );
                 let saved = entries
                     .entry(key)
@@ -482,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_releases_are_deduplicated_and_conflicts_are_omitted() {
+    fn same_app_id_keeps_all_source_releases() {
         let (directory, database) = database();
         insert(
             &database,
@@ -500,7 +500,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             cached(&database).unwrap().unwrap().manifest.verified.len(),
-            1
+            2
         );
         let mut conflict = valid(400);
         conflict.verified[0].download.size_bytes = 2;
@@ -512,8 +512,11 @@ mod tests {
         )
         .unwrap();
         let snapshot = snapshot(&database, 100).unwrap();
-        assert!(snapshot.warning.is_some());
-        assert!(snapshot.manifest.unwrap().verified.is_empty());
+        assert!(snapshot.warning.is_none());
+        let entries = snapshot.manifest.unwrap().verified.clone();
+        assert_eq!(entries.len(), 3);
+        let ids: std::collections::HashSet<_> = entries.iter().map(|entry| entry.source_id.as_deref().unwrap()).collect();
+        assert_eq!(ids.len(), 3);
         drop(database);
         std::fs::remove_dir_all(directory).unwrap();
     }
