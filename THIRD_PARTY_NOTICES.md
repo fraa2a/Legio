@@ -4,6 +4,8 @@
 
 The free-host resolution behavior in `src-tauri/src/download_resolver.rs`, `src-tauri/src/gofile.rs`, `src-tauri/src/gofile_probe.js` and `src-tauri/src/gofile_capture.js` is adapted from the Hydra Launcher hoster implementations at commit `a22ec02201e73db8ca2ee214c2b37cd2d6a27374`.
 
+The character folding map in `src-tauri/src/source_matching.rs` is adapted from Hydra's `src/shared/char-map.ts` at the same commit.
+
 Source: https://github.com/hydralauncher/hydra
 
 MIT License

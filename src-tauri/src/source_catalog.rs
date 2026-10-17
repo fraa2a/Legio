@@ -180,6 +180,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn steamgg_titles_match_without_changing_release_display_or_trust() {
+        let title = "Beyond These Stars Free Download [v1.0.2244/Build-25972788]";
+        let bytes = serde_json::to_vec(&serde_json::json!({
+            "name": "SteamGG", "downloads": [{"title": title, "uris": ["https://gofile.io/d/example"]}]
+        })).unwrap();
+        let source = parse_source(&bytes, &[(123, "Beyond These Stars".into())]).unwrap();
+        assert!(source.manifest.verified.is_empty());
+        assert_eq!(source.diagnostics.unresolved, 0);
+        assert_eq!(source.manifest.unverified[0].steam_app_id, 123);
+        assert_eq!(source.manifest.unverified[0].name, title);
+        let cached = decode_cache(&encode_cache(&source).unwrap()).unwrap();
+        assert_eq!(cached.manifest.unverified[0].steam_app_id, 123);
+        assert_eq!(cached.manifest.unverified[0].name, title);
+    }
+
+    #[test]
     fn cache_roundtrip_preserves_unverified_origin_and_unknown_metadata() {
         let bytes = br#"{"name":"SteamGG","downloads":[{"title":"Portal v1.0","uris":["https://gofile.io/d/test","https://example.test/file.zip"]}]}"#;
         let games = vec![(400, "Portal".to_owned())];
