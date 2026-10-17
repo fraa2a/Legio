@@ -234,7 +234,7 @@ pub(crate) fn safe_relative_path(name: &str) -> Result<PathBuf, String> {
     Ok(path.to_path_buf())
 }
 
-fn is_multipart_name(path: &Path) -> bool {
+pub(crate) fn is_multipart_name(path: &Path) -> bool {
     let name = path
         .file_name()
         .unwrap_or_default()

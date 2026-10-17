@@ -367,6 +367,11 @@ async fn fetch_catalog(
         tauri::async_runtime::spawn_blocking(move || source_catalog::parse_source(&bytes, &games))
             .await
             .map_err(|error| error.to_string())??;
+    let operation_id = uuid::Uuid::new_v4().to_string();
+    catalog = source_catalog::validate_links(catalog, &crate::download_resolver::client()?, |processed, total| {
+        app.emit("source-import-progress", serde_json::json!({"operationId":operation_id,"processed":processed,"total":total,"phase":"links"})).map_err(|error| error.to_string())
+    }).await?;
+    let validated_sizes = catalog.validated_sizes.clone();
     let Some(raw) = catalog.raw_hydra.take() else {
         return Ok(catalog);
     };
@@ -449,6 +454,7 @@ async fn fetch_catalog(
         }
     }
     let mut result = source_catalog::from_hydra(raw, &[], matches);
+    result.validated_sizes = validated_sizes;
     result.diagnostics.reasons.extend(lookup_failures);
     Ok(result)
 }

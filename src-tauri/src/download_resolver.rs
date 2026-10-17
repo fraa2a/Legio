@@ -45,7 +45,9 @@ pub(crate) fn classify(uri: &str) -> Result<Provider, String> {
     }
     let host = url.host_str().ok_or("Missing download host")?;
     Ok(
-        if host_is(host, "gofile.io") && url.path().starts_with("/d/") {
+        if host_is(host, "filekeeper.net") || host_is(host, "akirabox.com") {
+            Provider::Unsupported
+        } else if host_is(host, "gofile.io") && url.path().starts_with("/d/") {
             Provider::Gofile
         } else if host_is(host, "pixeldrain.com") && url.path().starts_with("/u/") {
             Provider::PixelDrain

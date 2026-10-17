@@ -10,7 +10,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 30;
+const SCHEMA_VERSION: i64 = 31;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1893,6 +1893,17 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         // Source caches now use a format-aware envelope.
         transaction
             .execute_batch("PRAGMA user_version = 30;")
+            .map_err(database_error)?;
+    }
+    if version < 31 {
+        let exists: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('downloads') WHERE name='mirror_plan')", [], |row| row.get(0)).map_err(database_error)?;
+        if !exists {
+            transaction
+                .execute_batch("ALTER TABLE downloads ADD COLUMN mirror_plan TEXT;")
+                .map_err(database_error)?;
+        }
+        transaction
+            .pragma_update(None, "user_version", 31)
             .map_err(database_error)?;
     }
     transaction.commit().map_err(database_error)

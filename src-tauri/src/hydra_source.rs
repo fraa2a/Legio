@@ -113,8 +113,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<HydraSource, String> {
             && entry.title.len() <= 512
             && !entry.title.chars().any(char::is_control)
             && !entry.uris.is_empty()
-            && entry.uris.len() <= 256
-            && entry.uris.iter().all(|uri| valid_uri(uri));
+            && entry.uris.len() <= 256;
         if !valid {
             source.diagnostics.rejected += 1;
             source.diagnostics.reasons.push(format!(
@@ -122,13 +121,19 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<HydraSource, String> {
             ));
             continue;
         }
+        if !entry.uris.iter().any(|uri| valid_uri(uri)) {
+            source.diagnostics.rejected += 1;
+            continue;
+        }
         let mut links = HashSet::new();
-        entry.uris.retain(|uri| links.insert(uri.clone()));
-        source.diagnostics.unsupported += entry
+        let original_count = entry.uris.len();
+        entry
             .uris
-            .iter()
-            .filter(|uri| paid_or_backend_only(uri))
-            .count();
+            .retain(|uri| crate::download_selection::supported(uri) && links.insert(uri.clone()));
+        source.diagnostics.unsupported += original_count - entry.uris.len();
+        if entry.uris.is_empty() {
+            continue;
+        }
         let mut stable_uris = entry.uris.clone();
         stable_uris.sort();
         if seen.insert((entry.title.clone(), stable_uris)) {
@@ -166,7 +171,7 @@ mod tests {
     #[test]
     fn partial_import_reports_invalid_records_without_discarding_valid_ones() {
         let source = parse(br#"{"name":"Public","downloads":[{"title":"Portal","uris":["https://example.test/file.zip"]},{"title":"Invalid","uris":["file:///etc/passwd"]},{"title":"Paid","uris":["https://real-debrid.com/d/test"]}]}"#).unwrap();
-        assert_eq!(source.downloads.len(), 2);
+        assert_eq!(source.downloads.len(), 1);
         assert_eq!(source.diagnostics.rejected, 1);
         assert_eq!(source.diagnostics.unsupported, 1);
     }
@@ -176,5 +181,19 @@ mod tests {
         assert!(parse(br#"{"name":"","downloads":[]}"#).is_err());
         assert!(parse(br#"{"schemaVersion":1,"downloads":[]}"#).is_err());
         assert!(parse(br#"{"name":"Public","downloads":"wrong"}"#).is_err());
+    }
+
+    #[test]
+    fn unsupported_only_entries_are_omitted_and_valid_mirrors_keep_json_order() {
+        let source = parse(br#"{"name":"SteamGG","downloads":[{"title":"Hidden","uris":["https://datanodes.to/a","https://vikingfile.com/f/a","https://filekeeper.net/a/game.zip","https://akirabox.com/a/file"]},{"title":"Visible","uris":["magnet:?xt=urn:btih:abc","https://example.test/first.zip","https://gofile.io/d/second","file:///wrong"]}]}"#).unwrap();
+        assert_eq!(source.downloads.len(), 1);
+        assert_eq!(source.downloads[0].title, "Visible");
+        assert_eq!(
+            source.downloads[0].uris,
+            vec![
+                "https://example.test/first.zip",
+                "https://gofile.io/d/second"
+            ]
+        );
     }
 }

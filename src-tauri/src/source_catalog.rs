@@ -25,10 +25,18 @@ pub(crate) struct SourceCatalog {
     pub diagnostics: ImportDiagnostics,
     pub raw_hydra: Option<HydraSource>,
     pub matches: HashMap<String, u32>,
+    #[serde(default)]
+    pub validated_sizes: BTreeMap<String, u64>,
 }
 
 impl SourceCatalog {
-    pub(crate) fn native(manifest: Manifest) -> Self {
+    pub(crate) fn native(mut manifest: Manifest) -> Self {
+        manifest
+            .verified
+            .retain(|entry| crate::download_selection::supported(&entry.download.url));
+        manifest
+            .unverified
+            .retain(|entry| crate::download_selection::supported(&entry.download.url));
         Self {
             format: SourceFormat::Legio,
             name: None,
@@ -37,6 +45,7 @@ impl SourceCatalog {
             diagnostics: ImportDiagnostics::default(),
             raw_hydra: None,
             matches: HashMap::new(),
+            validated_sizes: BTreeMap::new(),
         }
     }
 }
@@ -57,10 +66,16 @@ pub(crate) fn parse_source(bytes: &[u8], games: &[(u32, String)]) -> Result<Sour
 }
 
 pub(crate) fn from_hydra(
-    raw: HydraSource,
+    mut raw: HydraSource,
     games: &[(u32, String)],
     mut matches: HashMap<String, u32>,
 ) -> SourceCatalog {
+    for entry in &mut raw.downloads {
+        entry
+            .uris
+            .retain(|uri| crate::download_selection::supported(uri));
+    }
+    raw.downloads.retain(|entry| !entry.uris.is_empty());
     let mut manifest = Manifest {
         schema_version: 2,
         support_game_updates: false,
@@ -155,6 +170,7 @@ pub(crate) fn from_hydra(
         diagnostics,
         raw_hydra: Some(raw),
         matches,
+        validated_sizes: BTreeMap::new(),
     }
 }
 
@@ -178,18 +194,188 @@ pub(crate) fn decode_cache(bytes: &[u8]) -> Result<SourceCatalog, String> {
     if source.format == SourceFormat::Hydra {
         let raw = source.raw_hydra.ok_or("Missing original Hydra records")?;
         let mut restored = from_hydra(raw, &[], source.matches);
+        restored.validated_sizes = source.validated_sizes;
         restored.diagnostics.reasons = source.diagnostics.reasons;
         return Ok(restored);
     }
     let manifest_bytes = serde_json::to_vec(&source.manifest).map_err(|error| error.to_string())?;
-    legio_source::parse_manifest(&manifest_bytes)
-        .map(SourceCatalog::native)
-        .map_err(|error| error.to_string())
+    let mut restored = SourceCatalog::native(
+        legio_source::parse_manifest(&manifest_bytes).map_err(|error| error.to_string())?,
+    );
+    restored.validated_sizes = source.validated_sizes;
+    Ok(restored)
+}
+
+pub(crate) async fn validate_links(
+    mut catalog: SourceCatalog,
+    client: &reqwest::Client,
+    mut progress: impl FnMut(usize, usize) -> Result<(), String>,
+) -> Result<SourceCatalog, String> {
+    let mut links = BTreeMap::new();
+    if let Some(raw) = &catalog.raw_hydra {
+        for entry in &raw.downloads {
+            for uri in &entry.uris {
+                links.insert(uri.clone(), None);
+            }
+        }
+    } else {
+        for entry in catalog
+            .manifest
+            .verified
+            .iter()
+            .chain(&catalog.manifest.unverified)
+        {
+            links.insert(entry.download.url.clone(), entry.download.size_bytes);
+        }
+    }
+    let total = links.len();
+    let mut sizes = BTreeMap::new();
+    let mut pending = links.into_iter();
+    let mut tasks = tokio::task::JoinSet::new();
+    let mut processed = 0;
+    let mut reasons = Vec::new();
+    loop {
+        while tasks.len() < 4 {
+            let Some((uri, expected)) = pending.next() else {
+                break;
+            };
+            if crate::download_selection::native_cdn(&uri)
+                && let Some(size) = expected
+            {
+                sizes.insert(uri, size);
+                processed += 1;
+                continue;
+            }
+            let client = client.clone();
+            tasks.spawn(async move {
+                let result = crate::download_selection::inspect(&client, &uri)
+                    .await
+                    .and_then(|size| {
+                        if expected.is_some_and(|expected| expected != size) {
+                            Err("Download does not match the size published by the source".into())
+                        } else {
+                            Ok(size)
+                        }
+                    });
+                (uri, result)
+            });
+        }
+        let Some(result) = tasks.join_next().await else {
+            break;
+        };
+        let (uri, result) =
+            result.map_err(|error| format!("Download validation task failed: {error}"))?;
+        match result {
+            Ok(size) => {
+                sizes.insert(uri, size);
+            }
+            Err(error) if reasons.len() < 20 => reasons.push(error),
+            Err(_) => {}
+        }
+        processed += 1;
+        progress(processed, total)?;
+    }
+    if let Some(mut raw) = catalog.raw_hydra.take() {
+        for entry in &mut raw.downloads {
+            let original = entry.uris.len();
+            entry.uris.retain(|uri| sizes.contains_key(uri));
+            raw.diagnostics.unsupported += original - entry.uris.len();
+        }
+        raw.downloads.retain(|entry| !entry.uris.is_empty());
+        catalog = from_hydra(raw, &[], catalog.matches);
+    } else {
+        catalog
+            .manifest
+            .verified
+            .retain(|entry| sizes.contains_key(&entry.download.url));
+        catalog
+            .manifest
+            .unverified
+            .retain(|entry| sizes.contains_key(&entry.download.url));
+    }
+    catalog.validated_sizes = sizes;
+    catalog.diagnostics.reasons.extend(reasons);
+    progress(total, total)?;
+    Ok(catalog)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn validated_links_hide_html_entries_preserve_json_order_and_survive_cache() {
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+            thread,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let first = format!("{base}/z-good.zip");
+        let second = format!("{base}/a-good.zip");
+        let page = format!("{base}/page.zip");
+        let server = thread::spawn(move || {
+            for _ in 0..3 {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket
+                    .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while !request.ends_with(b"\r\n\r\n") {
+                    socket.read_exact(&mut byte).unwrap();
+                    request.push(byte[0]);
+                }
+                let request = String::from_utf8(request).unwrap();
+                let (kind, body): (&str, &[u8]) = if request.starts_with("GET /page") {
+                    ("text/html", b"<html>landing page</html>")
+                } else {
+                    ("application/zip", b"PK\x03\x04abcdef")
+                };
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",body.len()).as_bytes()).unwrap();
+                socket.write_all(body).unwrap();
+            }
+        });
+        let bytes=serde_json::to_vec(&serde_json::json!({"name":"Publisher","downloads":[{"title":"Portal","uris":[first,second]},{"title":"Other","uris":[page]}]})).unwrap();
+        let catalog =
+            parse_source(&bytes, &[(400, "Portal".into()), (401, "Other".into())]).unwrap();
+        let validated = validate_links(
+            catalog,
+            &crate::download_resolver::client().unwrap(),
+            |_, _| Ok(()),
+        )
+        .await
+        .unwrap();
+        server.join().unwrap();
+        assert_eq!(validated.manifest.unverified.len(), 1);
+        assert_eq!(validated.manifest.unverified[0].steam_app_id, 400);
+        let entry_id = validated.manifest.unverified[0].id.as_ref().unwrap();
+        assert_eq!(validated.candidates[entry_id], vec![first, second]);
+        let restored = decode_cache(&encode_cache(&validated).unwrap()).unwrap();
+        assert_eq!(restored.manifest.unverified.len(), 1);
+        assert_eq!(restored.candidates, validated.candidates);
+        assert_eq!(restored.validated_sizes, validated.validated_sizes);
+    }
+
+    #[tokio::test]
+    async fn native_cdn_entries_do_not_use_link_inspection() {
+        let bytes=br#"{"schemaVersion":1,"generatedAt":"2026-10-17T00:00:00Z","verified":[],"unverified":[{"steamAppId":400,"name":"Portal","release":{"version":"1","publishedAt":"2026-10-17T00:00:00Z"},"download":{"url":"https://cdn.taxphobia.top/game.zip","sizeBytes":10}}]}"#;
+        let catalog = parse_source(bytes, &[]).unwrap();
+        let client = crate::download_resolver::client().unwrap();
+        let validated = tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            validate_links(catalog, &client, |_, _| Ok(())),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(validated.manifest.unverified.len(), 1);
+        assert_eq!(
+            validated.validated_sizes["https://cdn.taxphobia.top/game.zip"],
+            10
+        );
+    }
 
     #[test]
     fn text_index_imports_release_words_and_preserves_exact_identity() {
