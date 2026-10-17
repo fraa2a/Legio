@@ -7,6 +7,7 @@
     title,
     size = "default",
     flush = false,
+    dismissible = true,
     onClose,
     actions,
     children,
@@ -15,6 +16,7 @@
     title: string;
     size?: "default" | "wide" | "large";
     flush?: boolean;
+    dismissible?: boolean;
     onClose: () => void;
     actions?: Snippet<[close: () => void]>;
     children: Snippet<[close: () => void]>;
@@ -58,6 +60,7 @@
   });
 
   function close(notifyParent = true): void {
+    if (notifyParent && !dismissible) return;
     if (!dialog?.open || closeTimer !== undefined) return;
     cancelAnimationFrame(openFrame);
     dialog.dataset.visible = "false";

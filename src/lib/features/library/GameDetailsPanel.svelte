@@ -6,6 +6,7 @@
   import { deleteGame, hideSteamGame, saveGame } from "../../stores/games";
   import { settings } from "../../stores/settings";
   import SteamGameSearch from "./SteamGameSearch.svelte";
+  import UninstallGameDialog from "./UninstallGameDialog.svelte";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
@@ -13,15 +14,17 @@
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
   import type { CatalogGame } from "../../services/catalog";
 
-  let { game, onRemoved, section = "general" }: {
+  let { game, onRemoved, section = "general", running = false }: {
     game: Game;
     onRemoved: (removed: Game) => void;
     section?: "general" | "danger";
+    running?: boolean;
   } = $props();
 
   let nameDraft = $state<string | null>(null);
   let pending = $state(false);
   let confirmingRemove = $state(false);
+  let confirmingUninstall = $state(false);
   let actionError = $state<string | null>(null);
   let identityPending = $state(false);
   let identityError = $state<string | null>(null);
@@ -153,6 +156,16 @@
   <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Nascondi questo gioco senza rimuoverlo. Puoi riabilitarlo nelle impostazioni delle librerie.", $language)}</p>
   <div class="mt-3"><Button label={t("Nascondi dalla libreria", $language)} variant="secondary" disabled={pending || identityPending} onClick={() => void hide()} /></div>
 </Panel>
+{/if}
+{#if game.steamInstallPath === null && game.executablePath !== null}
+  <Panel title={t("Disinstalla gioco", $language)}>
+    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Elimina i file installati del gioco e rimuovi la voce dalla libreria.", $language)}</p>
+    {#if running}<p class="text-sm text-amber-300 light:text-amber-800">{t("Chiudi il gioco prima di disinstallarlo.", $language)}</p>{/if}
+    <Button label={t("Disinstalla gioco", $language)} variant="danger" disabled={running || pending || identityPending} onClick={() => (confirmingUninstall = true)} />
+  </Panel>
+  {#if confirmingUninstall}
+    <UninstallGameDialog {game} onClose={() => (confirmingUninstall = false)} {onRemoved} />
+  {/if}
 {/if}
 <Panel title={t("Rimuovi dalla libreria", $language)}>
   {#if actionError !== null}

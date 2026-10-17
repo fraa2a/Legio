@@ -42,6 +42,8 @@ fn main() {
             "reset_game_banner",
             "update_game",
             "remove_game",
+            "get_game_uninstall_target",
+            "uninstall_game",
             "launch_steam_game",
             "launch_game_with_runner",
             "launch_configured_game_with_runner",

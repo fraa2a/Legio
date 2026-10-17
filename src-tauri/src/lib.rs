@@ -34,6 +34,7 @@ mod game_library;
 mod game_lifecycle;
 mod game_process;
 mod game_transfer;
+mod game_uninstall;
 mod game_updates;
 mod image_format;
 mod image_response;
@@ -407,6 +408,8 @@ fn run_application(
             commands::reset_game_banner,
             commands::update_game,
             commands::remove_game,
+            game_uninstall::get_game_uninstall_target,
+            game_uninstall::uninstall_game,
             commands::launch_steam_game,
             commands::launch_game_with_runner,
             commands::launch_configured_game_with_runner,

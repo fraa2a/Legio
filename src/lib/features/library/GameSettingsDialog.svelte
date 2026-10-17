@@ -164,7 +164,7 @@
       {:else}
         <div class="flex flex-col gap-4">
           <PlaytimePanel {game} />
-          <GameDetailsPanel {game} {onRemoved} section="danger" />
+          <GameDetailsPanel {game} {onRemoved} {running} section="danger" />
         </div>
       {/if}
     </div>

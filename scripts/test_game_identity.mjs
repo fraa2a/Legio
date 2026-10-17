@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { JSDOM } from "jsdom";
 import { compile } from "svelte/compiler";
 import { createModuleLoader, dataModule } from "./test_module_loader.mjs";
+globalThis.matchMedia = () => ({ matches: false });
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBeVisual: true });
 for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputElement", "Element", "Node", "Text", "Comment", "Event", "MutationObserver"]) {
@@ -21,7 +22,7 @@ async function fixture(steamAppId, nameOverride = "My custom version") {
   const storeImport = `import { writable } from "${import.meta.resolve("svelte/store")}";`;
   const { resolveImports } = createModuleLoader({
     "src/lib/i18n": dataModule(storeImport + 'export const language=writable("it"); export const t=value=>value;'),
-    "src/lib/stores/games": dataModule(`export const deleteGame=async()=>{}; export const hideSteamGame=async()=>{}; export const saveGame=async input=>{
+    "src/lib/stores/games": dataModule(`export const uninstallGame=async()=>{}; export const deleteGame=async()=>{}; export const hideSteamGame=async()=>{}; export const saveGame=async input=>{
       const state=globalThis.identityFixture; state.calls.push(input);
       if(state.fail) throw new Error("Could not save identity");
       let current; state.game.subscribe(value=>current=value)();
