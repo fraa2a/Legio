@@ -75,7 +75,19 @@ pub(crate) fn from_hydra(
     for (id, name) in games {
         index.entry(normalized_title(name)).or_default().push(*id);
     }
-    for entry in &raw.downloads {
+    let titles: Vec<_> = raw
+        .downloads
+        .iter()
+        .map(|entry| entry.title.clone())
+        .collect();
+    let text_matches = match crate::source_search::find_matches(&titles, games) {
+        Ok(matches) => matches,
+        Err(error) => {
+            diagnostics.reasons.push(error);
+            vec![MatchResult::Unresolved; titles.len()]
+        }
+    };
+    for (position, entry) in raw.downloads.iter().enumerate() {
         let matched = matches
             .get(&entry.title)
             .copied()
@@ -87,7 +99,7 @@ pub(crate) fn from_hydra(
                 {
                     Some([id]) => MatchResult::Matched(*id),
                     Some(_) => MatchResult::Ambiguous,
-                    None => MatchResult::Unresolved,
+                    None => text_matches[position],
                 }
             });
         let MatchResult::Matched(app_id) = matched else {
@@ -178,6 +190,26 @@ pub(crate) fn decode_cache(bytes: &[u8]) -> Result<SourceCatalog, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_index_imports_release_words_and_preserves_exact_identity() {
+        let bytes = br#"{"name":"Publisher","downloads":[{"title":"Machine Human Resource SteamGG Repack","uris":["https://example.test/a.zip"]},{"title":"Portal Stories Mel","uris":["https://example.test/b.zip"]}]}"#;
+        let source = parse_source(
+            bytes,
+            &[
+                (1, "Human Resource Machine".into()),
+                (2, "Portal".into()),
+                (3, "Portal Stories Mel".into()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(source.manifest.unverified.len(), 2);
+        assert_eq!(source.manifest.unverified[0].steam_app_id, 1);
+        assert_eq!(source.manifest.unverified[1].steam_app_id, 3);
+        assert!(source.manifest.verified.is_empty());
+        let cached = decode_cache(&encode_cache(&source).unwrap()).unwrap();
+        assert_eq!(cached.manifest.unverified[0].steam_app_id, 1);
+    }
 
     #[test]
     fn steamgg_titles_match_without_changing_release_display_or_trust() {

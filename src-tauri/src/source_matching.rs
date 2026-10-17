@@ -237,7 +237,43 @@ fn similarity(a: &str, b: &str) -> f64 {
     1.0 - row[b.len()] as f64 / a.len().max(b.len()).max(1) as f64
 }
 
-pub(crate) fn match_title(title: &str, catalog: &[(u32, String)]) -> MatchResult {
+pub(crate) fn text_candidate_matches(release: &str, game: &str) -> bool {
+    if significant_tokens(release) != significant_tokens(game) {
+        return false;
+    }
+    let release_words: std::collections::HashSet<_> = release.split_whitespace().collect();
+    let game_words: std::collections::HashSet<_> = game.split_whitespace().collect();
+    game_words.iter().all(|word| release_words.contains(word))
+        && release_words.difference(&game_words).all(|word| {
+            matches!(
+                *word,
+                "free"
+                    | "download"
+                    | "direct"
+                    | "pc"
+                    | "game"
+                    | "repack"
+                    | "steamgg"
+                    | "net"
+                    | "com"
+                    | "latest"
+                    | "version"
+                    | "portable"
+                    | "uncensored"
+                    | "online"
+            )
+        })
+}
+
+pub(crate) fn match_title(title: &str, catalog: &[(u32, String)]) -> Result<MatchResult, String> {
+    let matched = conservative_match(title, catalog);
+    if matched != MatchResult::Unresolved {
+        return Ok(matched);
+    }
+    crate::source_search::find_matches(&[title.to_owned()], catalog).map(|matches| matches[0])
+}
+
+fn conservative_match(title: &str, catalog: &[(u32, String)]) -> MatchResult {
     let title = normalized_title(title);
     if title.is_empty() || title.len() > 512 {
         return MatchResult::Unresolved;
@@ -269,6 +305,56 @@ pub(crate) fn match_title(title: &str, catalog: &[(u32, String)]) -> MatchResult
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn match_title(title: &str, catalog: &[(u32, String)]) -> MatchResult {
+        super::match_title(title, catalog).unwrap()
+    }
+
+    #[test]
+    fn text_search_matches_extra_release_words_and_reordered_tokens() {
+        let catalog = vec![
+            (1, "Human Resource Machine".into()),
+            (2, "SIMULACRA".into()),
+        ];
+        assert_eq!(
+            match_title("Human Resource Machine SteamGG Repack", &catalog),
+            MatchResult::Matched(1)
+        );
+        assert_eq!(
+            match_title("Machine Human Resource", &catalog),
+            MatchResult::Matched(1)
+        );
+        assert_eq!(
+            match_title("Free Download SIMULACRA", &catalog),
+            MatchResult::Matched(2)
+        );
+    }
+
+    #[test]
+    fn text_search_refuses_title_subsets_and_ambiguous_catalogue_ids() {
+        assert_eq!(
+            match_title("Portal Stories Mel", &[(1, "Portal".into())]),
+            MatchResult::Unresolved
+        );
+        assert_eq!(
+            match_title("Portal 2 SteamGG Repack", &[(1, "Portal".into())]),
+            MatchResult::Unresolved
+        );
+        assert_eq!(
+            match_title("Portal VR SteamGG Repack", &[(1, "Portal".into())]),
+            MatchResult::Unresolved
+        );
+        assert_eq!(
+            match_title(
+                "Machine Human Resource",
+                &[
+                    (1, "Human Resource Machine".into()),
+                    (2, "Resource Machine Human".into())
+                ]
+            ),
+            MatchResult::Ambiguous
+        );
+    }
 
     #[test]
     fn normalization_is_stable_for_nested_edition_builds() {

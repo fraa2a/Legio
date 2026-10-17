@@ -67,6 +67,7 @@ mod settings;
 mod source_catalog;
 mod source_links;
 mod source_matching;
+mod source_search;
 mod startup;
 mod startup_recovery;
 #[cfg(target_os = "linux")]

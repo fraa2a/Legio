@@ -86,3 +86,12 @@ THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+## FlexSearch
+
+Source title indexing embeds the upstream FlexSearch distribution from the `0.7.43` package at commit `4c3966709f855c6980c21035cf230b2f9150d065`.
+
+- Source: https://github.com/nextapps-de/flexsearch
+- Author and Copyright: Thomas Wilkerling, hosted by Nextapps GmbH.
+- License: Apache-2.0. The complete license is in `src-tauri/vendor/flexsearch.LICENSE` and is included in application bundles.
+- The upstream distribution banner says `v0.7.41`; the package metadata at the pinned commit says `0.7.43`. The distribution file is vendored unchanged.

@@ -31,7 +31,7 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
-    "resources": ["../src/assets/fonts/OFL.txt"],
+    "resources": ["../src/assets/fonts/OFL.txt", "vendor/flexsearch.LICENSE"],
     "icon": [
       "icons/icon.png",
       "icons/icon.ico"

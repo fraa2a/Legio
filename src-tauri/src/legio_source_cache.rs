@@ -396,7 +396,18 @@ async fn fetch_catalog(
             };
             let network = network.clone();
             tasks.spawn(async move {
-                let result = crate::catalog::lookup_source_title(&network, &title).await;
+                let result = match crate::catalog::lookup_source_title(&network, &title).await {
+                    Ok(games) => {
+                        let matching_title = title.clone();
+                        tokio::task::spawn_blocking(move || {
+                            crate::source_matching::match_title(&matching_title, &games)
+                        })
+                        .await
+                        .map_err(|error| format!("Title matcher failed: {error}"))
+                        .and_then(|result| result)
+                    }
+                    Err(error) => Err(error),
+                };
                 (title, result)
             });
         }
@@ -405,11 +416,9 @@ async fn fetch_catalog(
         };
         let (title, result) = result.map_err(|error| format!("Title lookup failed: {error}"))?;
         match result {
-            Ok(games) => {
+            Ok(matched) => {
                 consecutive_failures = 0;
-                if let crate::source_matching::MatchResult::Matched(id) =
-                    crate::source_matching::match_title(&title, &games)
-                {
+                if let crate::source_matching::MatchResult::Matched(id) = matched {
                     lookup_matches.insert(title, id);
                 }
             }
