@@ -143,16 +143,14 @@
     onRetry={() => void downloads.load()}
   />
 
-  {#if $downloads.status === "empty"}
-    <section class="flex flex-col items-start justify-center gap-4 rounded-2xl legio-glass p-8">
-      <h2 class="text-lg font-medium text-zinc-50 light:text-zinc-900">{t("Nessun download", $language)}</h2>
-      <Button label={t("Sfoglia lo store", $language)} variant="primary" onClick={() => selectSection("store")} />
-    </section>
-  {/if}
-
-  {#if $downloads.data.length > 0}
-    <div class="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_17rem]">
-      <div class="flex min-w-0 flex-col gap-4">
+  <div class="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_17rem]">
+    <div class="flex min-w-0 flex-col gap-4">
+      {#if $downloads.status === "empty"}
+        <section class="flex flex-col items-start justify-center gap-4 rounded-2xl legio-glass p-8">
+          <h2 class="text-lg font-medium text-zinc-50 light:text-zinc-900">{t("Nessun download", $language)}</h2>
+          <Button label={t("Sfoglia lo store", $language)} variant="primary" onClick={() => selectSection("store")} />
+        </section>
+      {/if}
         {#if sections.primary !== null}
           {@const primary = sections.primary}
           {#key primary.id}
@@ -239,7 +237,6 @@
         onOpenFolder={() => void browseInstalledFolder()}
       />
     </div>
-  {/if}
 </div>
 
 {#if cancelTarget !== null}
