@@ -73,8 +73,6 @@ fn main() {
             "queue_download",
             "list_game_updates",
             "queue_game_update",
-            "get_game_source_binding",
-            "bind_game_source",
             "pause_download",
             "resume_download",
             "retry_download",
