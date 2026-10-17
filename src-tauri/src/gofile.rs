@@ -122,6 +122,23 @@ fn website_token(secret: &str, token: &str, seconds: u64) -> String {
     );
     format!("{:x}", Sha256::digest(raw.as_bytes()))
 }
+fn content_url(id: &str, page: usize, password: Option<&str>) -> String {
+    let mut url = format!(
+        "https://api.gofile.io/contents/{id}?page={page}&pageSize=1000&sortField=createTime&sortDirection=-1"
+    );
+    if let Some(password) = password {
+        url.push_str(&format!("&password={}", hash_password(password)));
+    }
+    url
+}
+fn hash_password(password: &str) -> String {
+    let password = password.trim();
+    if password.len() == 64 && password.bytes().all(|c| c.is_ascii_hexdigit()) {
+        password.to_ascii_lowercase()
+    } else {
+        format!("{:x}", Sha256::digest(password.as_bytes()))
+    }
+}
 fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -357,6 +374,7 @@ async fn first_file(
     id: &str,
     token: &str,
     secret: &str,
+    password: Option<&str>,
 ) -> Result<ResolvedFile, String> {
     enum Work {
         Lookup(String),
@@ -381,9 +399,7 @@ async fn first_file(
                     if requests > 100 {
                         return Err("GoFile folder exceeds the lookup limit".into());
                     }
-                    let url = format!(
-                        "https://api.gofile.io/contents/{id}?page={page}&pageSize=1000&sortField=createTime&sortDirection=-1"
-                    );
+                    let url = content_url(&id, page, password);
                     let reply =
                         request(client, Method::GET, &url, headers(Some(token), secret)?).await?;
                     let content: Content = serde_json::from_str(reply.data.get())
@@ -442,7 +458,11 @@ async fn first_file(
     }
     Err("GoFile folder has no accessible file links".into())
 }
-async fn official(client: &Client, id: &str) -> Result<ResolvedFile, String> {
+async fn official(
+    client: &Client,
+    id: &str,
+    password: Option<&str>,
+) -> Result<ResolvedFile, String> {
     let mut state = STATE
         .get_or_init(|| AsyncMutex::new(Session::default()))
         .lock()
@@ -465,15 +485,17 @@ async fn official(client: &Client, id: &str) -> Result<ResolvedFile, String> {
         .token
         .as_deref()
         .ok_or("GoFile guest token is unavailable")?;
-    match first_file(client, id, token, &secret).await {
+    let file = match first_file(client, id, token, &secret, password).await {
         Err(error) if error == "GoFile authorization rejected" => {
             state.token = None;
             let token = create_token(client, &secret).await?;
             state.token = Some(token.clone());
-            first_file(client, id, &token, &secret).await
+            first_file(client, id, &token, &secret, password).await
         }
         result => result,
-    }
+    }?;
+    crate::download_resolver::head(client, &file.url, file.headers.clone()).await?;
+    Ok(file)
 }
 
 fn cdn_is_file(status: u16, content_type: &str) -> bool {
@@ -521,11 +543,15 @@ async fn alternate(client: &Client, id: &str) -> Option<ResolvedFile> {
         headers: HeaderMap::new(),
     })
 }
-pub(crate) async fn resolve(client: &Client, id: &str) -> Result<ResolvedDownload, String> {
+pub(crate) async fn resolve(
+    client: &Client,
+    id: &str,
+    password: Option<&str>,
+) -> Result<ResolvedDownload, String> {
     if !valid_id(id) {
         return Err("Invalid GoFile content ID".into());
     }
-    let result = tokio::time::timeout(Duration::from_secs(120), official(client, id))
+    let result = tokio::time::timeout(Duration::from_secs(120), official(client, id, password))
         .await
         .map_err(|_| "GoFile resolution timed out".to_owned())
         .and_then(|r| r);
@@ -555,6 +581,16 @@ mod tests {
         assert_eq!(website_token("secret", "guest", 28800), expected);
         assert_eq!(website_token("secret", "guest", 43199), expected);
         assert_ne!(website_token("secret", "guest", 43200), expected);
+    }
+
+    #[test]
+    fn content_urls_hash_passwords_and_preserve_existing_hashes() {
+        let hashed = format!("{:x}", Sha256::digest(b"test password"));
+        let url = content_url("folder", 2, Some(" test password "));
+        assert!(url.contains("page=2&pageSize=1000&sortField=createTime&sortDirection=-1"));
+        assert!(url.ends_with(&format!("&password={hashed}")));
+        assert_eq!(content_url("folder", 2, Some(&hashed.to_uppercase())), url);
+        assert!(!content_url("folder", 1, None).contains("password="));
     }
 
     #[test]
