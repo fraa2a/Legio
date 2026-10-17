@@ -112,7 +112,6 @@ impl FromSql for DownloadStatus {
 #[derive(Debug)]
 struct Transfer {
     id: String,
-    name: String,
     url: String,
     size: u64,
     etag: Option<String>,
@@ -478,16 +477,16 @@ pub(crate) fn enqueue_prepared(
 
 fn claim(database: &Database) -> Result<Option<Transfer>, String> {
     database.with_connection(|connection| {
-        let row: Option<(String, String, String, i64, Option<String>)> = connection.query_row(
-            "SELECT id, name, url, size_bytes, etag FROM downloads WHERE status = 'queued' ORDER BY queue_position, created_at, id LIMIT 1",
-            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        let row: Option<(String, String, i64, Option<String>)> = connection.query_row(
+            "SELECT id, url, size_bytes, etag FROM downloads WHERE status = 'queued' ORDER BY queue_position, created_at, id LIMIT 1",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         ).optional().map_err(db_error)?;
-        let Some((id, name, url, size, etag)) = row else { return Ok(None); };
+        let Some((id, url, size, etag)) = row else { return Ok(None); };
         connection.execute(
             "UPDATE downloads SET status = 'downloading', updated_at = ?2 WHERE id = ?1",
             params![id, now()?],
         ).map_err(db_error)?;
-        Ok(Some(Transfer { id, name, url, size: u64::try_from(size).map_err(|_| "Invalid stored download size".to_owned())?, etag }))
+        Ok(Some(Transfer { id, url, size: u64::try_from(size).map_err(|_| "Invalid stored download size".to_owned())?, etag }))
     })
 }
 
@@ -654,6 +653,37 @@ impl Drop for ProcessingReservation {
     }
 }
 
+fn completion_notification(
+    database: &Database,
+    id: &str,
+) -> Result<Option<(String, String)>, String> {
+    let settings = database.settings()?;
+    if !settings.download_notifications {
+        return Ok(None);
+    }
+    database.with_connection(|connection| {
+        connection
+            .query_row(
+                "SELECT name FROM downloads WHERE id = ?1 AND status = 'installed'",
+                [id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(db_error)
+            .map(|name| {
+                name.map(|name| {
+                    (
+                        settings
+                            .language
+                            .text("Download completato", "Download complete")
+                            .to_owned(),
+                        name,
+                    )
+                })
+            })
+    })
+}
+
 fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
     let queue = app.state::<DownloadQueueState>();
     let Ok(mut processing) = queue.processing.lock() else {
@@ -710,6 +740,21 @@ fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
             let game_id = finalize_install::automatic(database, &root, &job_id)?;
             crate::game_library::sync_storage(database, &root)?;
             finalize_install::create_install_shortcut(&worker, database, &game_id)?;
+            match completion_notification(database, &job_id) {
+                Ok(Some((title, name))) => {
+                    if let Err(error) = worker
+                        .notification()
+                        .builder()
+                        .title(title)
+                        .body(name)
+                        .show()
+                    {
+                        crate::application_log::failure("show_download_notification", error);
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => crate::application_log::failure("read_download_notification", error),
+            }
             Ok::<_, String>(())
         })
         .await;
@@ -977,31 +1022,6 @@ async fn run_queue<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
                 Ok(()) => {
                     finish(&database, &job.id, DownloadStatus::Downloaded, None)?;
                     spawn_staging(&app, &job.id);
-                    match database.settings() {
-                        Ok(settings) if settings.download_notifications => {
-                            if let Err(error) = app
-                                .notification()
-                                .builder()
-                                .title(
-                                    settings
-                                        .language
-                                        .text("Download completato", "Download complete"),
-                                )
-                                .body(&job.name)
-                                .show()
-                            {
-                                crate::application_log::failure(
-                                    "show_download_notification",
-                                    error,
-                                );
-                            }
-                        }
-                        Ok(_) => {}
-                        Err(error) => crate::application_log::failure(
-                            "read_download_notification_settings",
-                            error,
-                        ),
-                    }
                 }
                 Err(error) => {
                     if status(&database, &job.id)? == "downloading" {
@@ -1801,6 +1821,71 @@ mod tests {
     };
 
     const TEST_HASH: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn completion_notification_waits_for_installation_and_respects_settings() {
+        let (database, directory) = database_with_source();
+        let job = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
+        for state in [
+            "downloading",
+            "downloaded",
+            "staging",
+            "staged",
+            "finalizing",
+            "failed",
+            "cancelled",
+        ] {
+            database
+                .with_connection(|connection| {
+                    connection
+                        .execute(
+                            "UPDATE downloads SET status = ?2 WHERE id = ?1",
+                            params![job.id, state],
+                        )
+                        .map_err(db_error)?;
+                    Ok(())
+                })
+                .unwrap();
+            assert_eq!(
+                completion_notification(&database, &job.id).unwrap(),
+                None,
+                "{state}"
+            );
+        }
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET status = 'installed' WHERE id = ?1",
+                        [&job.id],
+                    )
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+        let mut settings = database.settings().unwrap();
+        settings.download_notifications = true;
+        database.save_settings(settings.clone()).unwrap();
+        assert_eq!(
+            completion_notification(&database, &job.id)
+                .unwrap()
+                .unwrap()
+                .1,
+            job.name
+        );
+        settings.download_notifications = false;
+        database.save_settings(settings).unwrap();
+        assert_eq!(completion_notification(&database, &job.id).unwrap(), None);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
 
     fn test_app(directory: &Path) -> tauri::App<tauri::test::MockRuntime> {
         let mut context = tauri::test::mock_context(tauri::test::noop_assets());

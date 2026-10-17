@@ -5,7 +5,6 @@
   import { toMessage } from "../../utils/errors";
   import { deleteGame, hideSteamGame, saveGame } from "../../stores/games";
   import { settings } from "../../stores/settings";
-  import GameSourcePanel from "./GameSourcePanel.svelte";
   import SteamGameSearch from "./SteamGameSearch.svelte";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
@@ -147,7 +146,6 @@
   </Panel>
 {/if}
 
-<GameSourcePanel {game} />
 
 {:else}
 {#if game.steamInstallPath !== null}
