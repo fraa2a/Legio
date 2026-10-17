@@ -24,7 +24,7 @@ pub(crate) async fn probe_candidates(
     client: &reqwest::Client,
     uris: &[String],
 ) -> Vec<ProbeResult> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(125);
     let mut ordered: Vec<_> = uris.iter().collect();
     ordered.sort_by_key(|uri| download_resolver::classify(uri).ok() != Some(Provider::Gofile));
     let mut pending = ordered.into_iter();
@@ -39,8 +39,12 @@ pub(crate) async fn probe_candidates(
             let client = client.clone();
             tasks.spawn(async move {
                 let provider = download_resolver::classify(&uri).unwrap_or(Provider::Unsupported);
-                let result =
-                    tokio::time::timeout(Duration::from_secs(8), probe(&client, &uri)).await;
+                let timeout = if provider == Provider::Gofile {
+                    Duration::from_secs(120)
+                } else {
+                    Duration::from_secs(8)
+                };
+                let result = tokio::time::timeout(timeout, probe(&client, &uri)).await;
                 ProbeResult {
                     uri,
                     provider,
