@@ -35,11 +35,11 @@ const { mount, unmount, flushSync } = await import("svelte");
 const { resolveImports } = createModuleLoader({});
 const source = `<script>
   import Dialog from "../src/lib/components/ui/Dialog.svelte";
-  let { onClosed, persistent = false } = $props();
+  let { onClosed, persistent = false, dismissible = true } = $props();
   let showing = $state(true);
 </script>
 {#if showing || persistent}
-  <Dialog open={showing} title="Settings" onClose={() => { showing = false; onClosed(); }}>
+  <Dialog open={showing} {dismissible} title="Settings" onClose={() => { showing = false; onClosed(); }}>
     {#snippet actions(close)}<button onclick={close}>Close</button>{/snippet}
     {#snippet children(dismiss)}<button onclick={dismiss}>Cancel</button>{/snippet}
   </Dialog>
@@ -48,6 +48,22 @@ const source = `<script>
 <button onclick={() => showing = false}>External close</button>`;
 const compiled = compile(source, { generate: "client" }).js.code;
 const component = (await import(dataModule(await resolveImports(compiled, "scripts/dialog_test_wrapper.svelte")))).default;
+
+test("a destructive operation can keep its dialog open until completion", async () => {
+  let closed = 0;
+  const instance = mount(component, { target: document.body, props: { onClosed: () => closed++, dismissible: false } });
+  try {
+    flushSync(); advanceFrame(); advanceFrame(); flushSync();
+    const dialog = document.querySelector("dialog");
+    [...dialog.querySelectorAll("button")].find(button => button.textContent === "Cancel").click();
+    dialog.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    dialog.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    flushSync();
+    assert.equal(dialog.open, true);
+    assert.equal(dialog.dataset.visible, "true");
+    assert.equal(closed, 0);
+  } finally { await unmount(instance); }
+});
 
 for (const label of ["Close", "Cancel"]) test(`${label} keeps the dialog mounted until its exit finishes`, async () => {
   let closed = 0;

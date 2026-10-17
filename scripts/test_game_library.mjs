@@ -10,7 +10,41 @@ for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputE
 }
 const { mount, unmount, flushSync } = await import("svelte");
 const { writable } = await import("svelte/store");
+globalThis.matchMedia = () => ({ matches: false });
 const settle = async () => { for (let i = 0; i < 5; i++) { await new Promise(resolve => setImmediate(resolve)); flushSync(); } };
+
+test("uninstall previews the exact directory and requires a second confirmation", async () => {
+  const calls = [];
+  globalThis.uninstallFixture = { calls };
+  const { load } = createModuleLoader({
+    "src/lib/i18n": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const language=writable("it"); export const t=value=>value;`),
+    "src/lib/services/local-state": dataModule('export const getGameUninstallTarget=async id=>{globalThis.uninstallFixture.calls.push(["preview",id]);return "/games/My Game";};'),
+    "src/lib/stores/games": dataModule('export const deleteGame=async()=>{}; export const hideSteamGame=async()=>{}; export const saveGame=async()=>{}; export const uninstallGame=async(...args)=>globalThis.uninstallFixture.calls.push(["uninstall",...args]);'),
+    "src/lib/stores/settings": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const settings=writable({data:{syncSteamGames:true}});`),
+    "src/lib/features/library/SteamGameSearch.svelte": dataModule(await createModuleLoader({}).resolveImports(compile('<div></div>', { generate: "client" }).js.code, "stub.svelte")),
+    "src/lib/components/ui/Dialog.svelte": dataModule(await createModuleLoader({}).resolveImports(compile('<script>let {open,children,onClose}=$props();</script>{#if open}<section role="dialog">{@render children(onClose)}</section>{/if}', { generate: "client" }).js.code, "stub.svelte")),
+  });
+  const Component = (await import(await load("src/lib/features/library/GameDetailsPanel.svelte"))).default;
+  const target = document.createElement("div"); document.body.append(target);
+  const instance = mount(Component, { target, props: { game: { id: "local", name: "My Game", steamAppId: 400, steamInstallPath: null, executablePath: "/games/My Game/game.exe", installationRoot: "/games/My Game", nameOverride: null, automaticName: "My Game" }, section: "danger", onRemoved: () => calls.push(["removed"]) } });
+  try {
+    await settle();
+    assert.deepEqual(calls, []);
+    const findButton = label => [...target.querySelectorAll("button")].find(button => button.textContent.trim() === label);
+    findButton("Disinstalla gioco").click(); await settle();
+    assert.deepEqual(calls, [["preview", "local"]]);
+    assert.ok(target.textContent.includes("/games/My Game"));
+    assert.ok(target.querySelector('[role="dialog"]'));
+    findButton("Annulla").click(); await settle();
+    assert.equal(target.querySelector('[role="dialog"]'), null);
+    assert.deepEqual(calls, [["preview", "local"]], "cancel never uninstalls files");
+    findButton("Disinstalla gioco").click(); await settle();
+    const button = findButton("Disinstalla definitivamente");
+    assert.ok(button);
+    button.click(); await settle();
+    assert.deepEqual(calls, [["preview", "local"], ["preview", "local"], ["uninstall", "local", "/games/My Game"], ["removed"]]);
+  } finally { await unmount(instance); target.remove(); delete globalThis.uninstallFixture; }
+});
 
 test("transfer asks only for a destination library and stays disabled while the game runs", async () => {
   const launch = writable(new Map());
@@ -78,7 +112,7 @@ test("Steam game settings offer hide and block removal while sync is enabled", a
   const mocks = {
     "src/lib/i18n": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const language=writable("it"); export const t=value=>value;`),
     "src/lib/stores/settings": dataModule("export const settings = globalThis.steamGameActions.settings;"),
-    "src/lib/stores/games": dataModule("export const deleteGame = async id => globalThis.steamGameActions.calls.push(['remove', id]); export const hideSteamGame = async id => globalThis.steamGameActions.calls.push(['hide', id]); export const saveGame = async () => {};"),
+    "src/lib/stores/games": dataModule("export const uninstallGame=async()=>{}; export const deleteGame = async id => globalThis.steamGameActions.calls.push(['remove', id]); export const hideSteamGame = async id => globalThis.steamGameActions.calls.push(['hide', id]); export const saveGame = async () => {};"),
     "src/lib/features/library/SteamGameSearch.svelte": empty,
   };
   const { load } = createModuleLoader(mocks);
@@ -89,6 +123,7 @@ test("Steam game settings offer hide and block removal while sync is enabled", a
   try {
     await settle();
     const button = label => [...target.querySelectorAll("button")].find(item => item.textContent.trim() === label);
+    assert.equal(button("Disinstalla gioco"), undefined);
     assert.equal(button("Rimuovi gioco").disabled, true);
     assert.equal(button("Nascondi dalla libreria").disabled, false);
     settings.set({ data: { syncSteamGames: false } }); await settle();

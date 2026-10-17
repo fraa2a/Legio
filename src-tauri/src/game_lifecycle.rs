@@ -1422,6 +1422,10 @@ pub(crate) fn remove_game(app: &AppHandle, id: &str) -> Result<(), String> {
     let _operation = manager.operation()?;
     manager.require_idle(id)?;
     app.state::<DatabaseState>().database()?.remove_game(id)?;
+    cleanup_removed_game(app, id)
+}
+
+pub(crate) fn cleanup_removed_game(app: &AppHandle, id: &str) -> Result<(), String> {
     let mut errors = Vec::new();
     if let Err(error) = app
         .state::<crate::game_artwork::GameArtworkStore>()

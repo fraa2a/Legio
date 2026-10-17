@@ -4,6 +4,7 @@ import {
   listGames,
   listHiddenSteamGames,
   removeGame,
+  uninstallGameFiles,
   setGameHidden,
   updateGame,
   type CreateGameInput,
@@ -46,6 +47,14 @@ export async function saveGame(input: UpdateGameInput): Promise<Game> {
 export async function deleteGame(id: string): Promise<void> {
   try {
     await removeGame(id);
+  } finally {
+    await games.reload();
+  }
+}
+
+export async function uninstallGame(id: string, installationRoot: string): Promise<void> {
+  try {
+    await uninstallGameFiles(id, installationRoot);
   } finally {
     await games.reload();
   }
