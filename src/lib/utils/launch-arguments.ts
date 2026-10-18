@@ -3,16 +3,23 @@ export function parseLaunchArguments(value: string): string[] {
   const args: string[] = [];
   let current = "";
   let quote: "'" | '"' | null = null;
-  let escaped = false;
   let active = false;
 
-  for (const character of value) {
-    if (escaped) {
-      current += character;
-      escaped = false;
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index];
+    if (character === "\\" && quote === '"') {
+      const start = index;
+      while (value[index + 1] === "\\") index++;
+      const count = index - start + 1;
+      if (value[index + 1] === '"') {
+        current += "\\".repeat(Math.floor(count / 2));
+        index++;
+        if (count % 2 === 1) current += '"';
+        else quote = null;
+      } else {
+        current += "\\".repeat(count);
+      }
       active = true;
-    } else if (character === "\\" && quote === '"') {
-      escaped = true;
     } else if (quote !== null) {
       if (character === quote) quote = null;
       else current += character;
@@ -30,8 +37,7 @@ export function parseLaunchArguments(value: string): string[] {
   }
 
   if (quote !== null) throw new Error(t("Chiudi le virgolette negli argomenti di avvio.", undefined));
-  if (escaped) current += "\\";
-  if (active || escaped) args.push(current);
+  if (active) args.push(current);
   return args;
 }
 
@@ -40,7 +46,7 @@ export function formatLaunchArguments(args: string[]): string {
     .map((argument) => {
       if (argument === "") return '""';
       if (!/[\s"'\\]/.test(argument)) return argument;
-      return `"${argument.replace(/["\\]/g, "\\$&")}"`;
+      return `"${argument.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, "$1$1")}"`;
     })
     .join(" ");
 }
