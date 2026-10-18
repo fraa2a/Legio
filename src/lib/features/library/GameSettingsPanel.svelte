@@ -365,13 +365,11 @@
     </div>
     <div class="grid gap-4 md:grid-cols-2">
       <div class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-        <span>{t("Variabili ambiente", $language)}</span>
         <Toggle label={t("Personalizza le variabili", $language)} checked={overrides.environment !== null} onChange={toggleEnvironment} />
         <TextField id="game-environmentText" type="textarea" rows={5} label={t("Variabili ambiente", $language)} bind:value={environmentText} disabled={overrides.environment === null} />
         <span class="text-xs text-zinc-500">{t("Una voce KEY=VALUE per riga. I controlli tipizzati gestiscono le variabili riservate.", $language)}</span>
       </div>
       <div class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-        <span>{t("Override DLL", $language)}</span>
         <Toggle label={t("Personalizza gli override", $language)} checked={overrides.dllOverrides !== null} onChange={toggleDllOverrides} />
         <TextField id="game-dllOverridesText" type="textarea" rows={5} label={t("Override DLL", $language)} bind:value={dllOverridesText} disabled={overrides.dllOverrides === null} />
         <span class="text-xs text-zinc-500">{t("Una voce KEY=VALUE per riga, ad esempio d3d11=n,b.", $language)}</span>
