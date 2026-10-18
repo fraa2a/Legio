@@ -69,6 +69,7 @@ PR 208 was reviewed before changing download validation: https://github.com/fraa
 - Native maintainability checks: 559 passed, 4 ignored, 8 filtered. After extracting session queries, all 42 database tests and Clippy passed again.
 - Clippy with warnings denied passed for both Rust branches.
 - Eight process tests cannot run reliably in this container because child PIDs and /proc refer to different namespaces. The four game_process failures also reproduce on unchanged main at a59b93b52260e5fc204245521f29b24d21ef93e9. The remaining process tests pass in the maintainability run.
+- Combined-branch validation passed: all 163 frontend tests, Svelte check, ESLint and production build, with no remaining merge conflicts between the three branches.
 - GitHub Actions runs the complete suites and Linux/Windows Tauri smoke builds. Check the PR checks for their current outcome.
 
 No release version was changed. These changes do not substitute for testing an installed AppImage and Windows build with actual games, desktop handlers and updater servers.
