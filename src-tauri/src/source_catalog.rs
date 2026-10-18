@@ -251,7 +251,7 @@ pub(crate) async fn validate_links(
                 let result = crate::download_selection::inspect(&client, &uri)
                     .await
                     .and_then(|size| {
-                        if expected.is_some_and(|expected| expected != size) {
+                        if !crate::download_selection::size_matches(expected, size) {
                             Err("Download does not match the size published by the source".into())
                         } else {
                             Ok(size)

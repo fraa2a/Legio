@@ -62,6 +62,8 @@ mod online_fix;
 mod overlay_update;
 mod playtime_activity;
 #[cfg(target_os = "linux")]
+mod process_output;
+#[cfg(target_os = "linux")]
 mod proton_runtime;
 mod runner_discovery;
 mod settings;

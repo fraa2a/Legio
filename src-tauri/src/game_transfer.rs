@@ -80,6 +80,13 @@ fn copy_contents(source: &Path, destination: &Path) -> Result<(), String> {
         fs::set_permissions(&to, metadata.permissions())
             .map_err(|error| format!("Could not preserve file permissions: {error}"))?;
     }
+    fs::set_permissions(
+        destination,
+        fs::metadata(source)
+            .map_err(|error| error.to_string())?
+            .permissions(),
+    )
+    .map_err(|error| format!("Could not preserve installation permissions: {error}"))?;
     finalize_install::sync_directory(destination)
 }
 
@@ -500,6 +507,7 @@ pub(crate) fn recover(database: &Database) -> Result<(), String> {
 }
 
 pub(crate) fn ensure_launchable(database: &Database, game: &str) -> Result<(), String> {
+    crate::game_uninstall::ensure_launchable(database, game)?;
     for intent in pending_transfers(database, Some(game))? {
         recover_transfer(database, &intent).map_err(|error| {
             format!("Could not recover this game's interrupted transfer: {error}")
@@ -600,6 +608,26 @@ mod tests {
         assert!(result.is_err());
         assert!(intent.source.join(&intent.relative).is_file());
         assert!(!intent.destination.exists());
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn prepared_transfer_preserves_private_root_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let (root, database, intent) = fixture("prepared");
+        fs::remove_file(intent.source.join(MARKER)).unwrap();
+        fs::set_permissions(&intent.source, fs::Permissions::from_mode(0o700)).unwrap();
+        prepare_transfer(&database, &intent).unwrap();
+        assert_eq!(
+            fs::metadata(&intent.temporary)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
         drop(database);
         fs::remove_dir_all(root).unwrap();
     }

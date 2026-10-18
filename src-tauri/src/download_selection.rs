@@ -44,6 +44,13 @@ pub(crate) fn native_cdn(uri: &str) -> bool {
         .is_ok_and(|url| url.scheme() == "https" && url.host_str() == Some("cdn.taxphobia.top"))
 }
 
+pub(crate) fn size_matches(expected: Option<u64>, actual: u64) -> bool {
+    actual > 0
+        && expected.is_none_or(|expected| {
+            expected > 0 && u128::from(expected.abs_diff(actual)) * 100 <= u128::from(expected) * 3
+        })
+}
+
 pub(crate) fn supported(uri: &str) -> bool {
     matches!(download_resolver::classify(uri), Ok(provider) if !matches!(provider, Provider::Torrent | Provider::Unsupported))
 }
@@ -129,6 +136,19 @@ async fn inspect_file(client: &reqwest::Client, uri: &str) -> Result<u64, String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_size_allows_exactly_three_percent_without_overflow() {
+        assert!(size_matches(Some(1000), 970));
+        assert!(size_matches(Some(1000), 1030));
+        assert!(!size_matches(Some(1000), 969));
+        assert!(!size_matches(Some(1000), 1031));
+        assert!(!size_matches(Some(0), 1));
+        assert!(!size_matches(None, 0));
+        assert!(size_matches(None, 10));
+        assert!(size_matches(Some(u64::MAX), u64::MAX));
+        assert!(!size_matches(Some(1), u64::MAX));
+    }
     use std::{
         io::{Read, Write},
         net::TcpListener,

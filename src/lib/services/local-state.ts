@@ -91,8 +91,8 @@ export function getGameUninstallTarget(id: string): Promise<string> {
   return invoke<string>("get_game_uninstall_target", { id });
 }
 
-export function uninstallGameFiles(id: string, installationRoot: string): Promise<void> {
-  return invoke<void>("uninstall_game", { id, installationRoot });
+export function uninstallGameFiles(id: string, installationRoot: string): Promise<{ warnings: string[] }> {
+  return invoke<{ warnings: string[] }>("uninstall_game", { id, installationRoot });
 }
 
 export function createDesktopShortcut(gameId: string): Promise<{ path: string; warning: string | null }> {

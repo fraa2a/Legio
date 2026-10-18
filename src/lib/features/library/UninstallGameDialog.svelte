@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { showToast } from "../../stores/toast";
   import { onMount } from "svelte";
   import { t, language } from "../../i18n";
   import { getGameUninstallTarget, type Game } from "../../services/local-state";
@@ -32,7 +33,8 @@
     pending = true;
     error = null;
     try {
-      await uninstallGame(game.id, directory);
+      const result = await uninstallGame(game.id, directory);
+      for (const warning of result?.warnings ?? []) showToast(warning, "info");
       onRemoved(game);
     } catch (cause) {
       error = toMessage(cause);
