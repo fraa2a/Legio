@@ -28,12 +28,23 @@ export const updateState = writable<UpdateState>({
 
 let availableUpdate: Update | null = null;
 let notifiedVersion: string | null = null;
+let checkingTask: Promise<void> | null = null;
+let installingTask: Promise<void> | null = null;
 
-export async function checkForAppUpdate(): Promise<void> {
-  availableUpdate = null;
+export function checkForAppUpdate(): Promise<void> {
+  if (installingTask !== null) return Promise.resolve();
+  checkingTask ??= performCheck().finally(() => { checkingTask = null; });
+  return checkingTask;
+}
+
+async function performCheck(): Promise<void> {
   updateState.update((state) => ({ ...state, version: null, unavailable: false, checking: true, checked: false, error: null }));
   try {
-    const [update, aur] = await Promise.all([check(), invoke<boolean>("is_aur_package")]);
+    const previous = availableUpdate;
+    availableUpdate = null;
+    if (previous !== null) await previous.close();
+    const aur = await invoke<boolean>("is_aur_package");
+    const update = await check();
     availableUpdate = update;
     let nativeNotified = update !== null && notifiedVersion === update.version;
     let notificationError: string | null = null;
@@ -56,11 +67,24 @@ export async function checkForAppUpdate(): Promise<void> {
   }
 }
 
-export async function installAppUpdate(): Promise<void> {
-  if (!availableUpdate) return;
+export function installAppUpdate(): Promise<void> {
+  installingTask ??= performInstall().finally(() => { installingTask = null; });
+  return installingTask;
+}
+
+async function performInstall(): Promise<void> {
+  await checkingTask;
+  const update = availableUpdate;
+  if (update === null) return;
   updateState.update((state) => ({ ...state, installing: true, error: null }));
   try {
-    await availableUpdate.downloadAndInstall();
+    await update.downloadAndInstall();
+    availableUpdate = null;
+    try {
+      await update.close();
+    } catch (error) {
+      updateState.update((state) => ({ ...state, error: toMessage(error) }));
+    }
     await relaunch();
   } catch (error) {
     updateState.update((state) => ({ ...state, error: toMessage(error) }));

@@ -170,6 +170,7 @@ fn open_directory(path: &Path) -> Result<(), String> {
 fn try_open(program: &str, prefix: &[&str], path: &Path) -> Result<(), String> {
     let mut request = Command::new(program);
     request.args(prefix).arg(path);
+    crate::launch_environment::apply(&mut request);
     let mut child = request
         .spawn()
         .map_err(|error| format!("{program} could not start: {error}"))?;
@@ -187,10 +188,9 @@ fn try_open(program: &str, prefix: &[&str], path: &Path) -> Result<(), String> {
 
 #[cfg(target_os = "linux")]
 fn default_handler_is_terminal() -> bool {
-    let Ok(output) = Command::new("xdg-mime")
-        .args(["query", "default", "inode/directory"])
-        .output()
-    else {
+    let mut command = Command::new("xdg-mime");
+    command.args(["query", "default", "inode/directory"]);
+    let Ok(output) = crate::process_output::capture(&mut command, OPEN_TIMEOUT) else {
         return false;
     };
     if !output.status.success() {

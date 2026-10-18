@@ -14,7 +14,6 @@ use uuid::Uuid;
 use std::os::unix::fs::PermissionsExt;
 
 const MAX_ENTRIES: usize = 100_000;
-const MAX_EXPANDED_BYTES: u64 = 64 * 1024 * 1024 * 1024;
 const MAX_EXPANSION_RATIO: u64 = 200;
 
 /// Checks an optional SHA-256 hash and extracts ordinary files into an empty staging path.
@@ -103,7 +102,7 @@ fn extract(source: File, stage: &Path, archive_bytes: u64) -> Result<(), String>
     let mut current_mode = 0u32;
     let mut seen = HashSet::new();
     let mut expanded = 0u64;
-    let limit = MAX_EXPANDED_BYTES.min(archive_bytes.saturating_mul(MAX_EXPANSION_RATIO));
+    let limit = archive_bytes.saturating_mul(MAX_EXPANSION_RATIO);
 
     for entry in entries {
         match entry {

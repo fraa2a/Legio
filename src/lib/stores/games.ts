@@ -52,9 +52,9 @@ export async function deleteGame(id: string): Promise<void> {
   }
 }
 
-export async function uninstallGame(id: string, installationRoot: string): Promise<void> {
+export async function uninstallGame(id: string, installationRoot: string): Promise<{ warnings: string[] }> {
   try {
-    await uninstallGameFiles(id, installationRoot);
+    return await uninstallGameFiles(id, installationRoot);
   } finally {
     await games.reload();
   }

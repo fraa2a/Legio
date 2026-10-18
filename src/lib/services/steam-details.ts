@@ -107,7 +107,11 @@ function beginImageTask(request: SteamImageRequest, origin: ArtworkWork["origin"
   }).finally(() => {
     const elapsed = publicationStarted === undefined ? 0 : Math.round(performance.now() - publicationStarted);
     logApplicationEvent("info", "artwork", `request_id=${work.requestId} resource=${request.asset} publication_ms=${elapsed} outcome=${outcome}`);
-    if (pendingImages.get(key) === task) pendingImages.delete(key); work.release(); });
+    if (pendingImages.get(key) === task) {
+      pendingImages.delete(key);
+      if (!imageCache.has(key)) requestsByKey.delete(key);
+    }
+    work.release(); });
   pendingImages.set(key, task); return task;
 }
 function acquirePrimary(request: SteamImageRequest, origin: ArtworkWork["origin"], policy: AssetPolicy): { image?: Generation; promise: Promise<Generation>; release(): void } {
@@ -159,6 +163,7 @@ function permanentArtwork(asset: SteamAssetKind): boolean {
   return ["hero_blur", "client_icon", "library_capsule", "library_header", "logo"].includes(asset);
 }
 async function refreshRequest(request: SteamImageRequest, policy: AssetPolicy, work?: ArtworkWork): Promise<void> {
+  if (work?.signal?.aborted) throw { kind: "cancelled", message: "Artwork request cancelled" };
   if (policy === "refresh_if_expired" && permanentArtwork(request.asset)) return;
   const pending = pendingImages.get(imageKey(request));
   if (pending && !pending.work.signal?.aborted && pending.policy !== policy) {
@@ -172,6 +177,7 @@ async function refreshRequest(request: SteamImageRequest, policy: AssetPolicy, w
   if (work?.signal?.aborted) cancel();
   try { await primary.promise; fallbackImages.delete(requestKey(request)); }
   catch (error) {
+    if (work?.signal?.aborted) throw { kind: "cancelled", message: "Artwork request cancelled" };
     if (request.fallbackAsset === null || isArtworkCancelled(error)) throw error;
     const fallbackRequest = { ...request, asset: request.fallbackAsset, fallbackAsset: null };
     fallback = acquirePrimary(fallbackRequest, "visible", policy); await fallback.promise;

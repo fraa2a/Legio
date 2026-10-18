@@ -418,19 +418,23 @@ pub(crate) fn enqueue_prepared(
     if !source_verified && !accept_unverified {
         return Err("Confirm the unverified source before downloading".to_owned());
     }
-    if let (Some(expected), Some(actual)) = (entry.download.size_bytes, resolved_size)
-        && expected != actual
+    if let Some(actual) = resolved_size
+        && !crate::download_selection::size_matches(entry.download.size_bytes, actual)
     {
         return Err("Download does not match the size published by the source".into());
     }
-    let exact_size = entry
-        .download
-        .size_bytes
-        .or(resolved_size)
+    let exact_size = resolved_size
+        .or(entry.download.size_bytes)
         .filter(|size| *size > 0)
         .ok_or("The host did not provide a download size")?;
     let size = i64::try_from(exact_size)
         .map_err(|_| "Download size exceeds local storage limits".to_owned())?;
+    let published_size = entry
+        .download
+        .size_bytes
+        .map(i64::try_from)
+        .transpose()
+        .map_err(|_| "Published download size exceeds local storage limits".to_owned())?;
     let id = Uuid::new_v4().to_string();
     let created = now()?;
     let source_rows = crate::legio_source_cache::cached_rows(database)?;
@@ -468,8 +472,8 @@ pub(crate) fn enqueue_prepared(
         connection
             .execute(
                 "INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256,
-             size_bytes, status, created_at, updated_at, source_verified, queue_position, source_id, source_entry_id, target_game_id, automatic_update, mirror_plan)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'queued', ?8, ?8, ?9, ?8, ?10, ?11, ?12, ?13, ?14)",
+             size_bytes, status, created_at, updated_at, source_verified, queue_position, source_id, source_entry_id, target_game_id, automatic_update, mirror_plan, published_size_bytes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'queued', ?8, ?8, ?9, ?8, ?10, ?11, ?12, ?13, ?14, ?15)",
                 params![
                     id,
                     app_id,
@@ -479,7 +483,7 @@ pub(crate) fn enqueue_prepared(
                     entry.download.sha256.as_deref().unwrap_or(""),
                     size,
                     created,
-                    source_verified, source_id, entry.id, update.map(|value| value.0), update.is_some_and(|value| value.1), mirror_plan
+                    source_verified, source_id, entry.id, update.map(|value| value.0), update.is_some_and(|value| value.1), mirror_plan, published_size
                 ],
             )
             .map_err(db_error)?;
@@ -1227,7 +1231,7 @@ async fn transfer(
                 result = crate::download_selection::inspect(&queue.client, &uri) => result,
             };
             match inspected {
-                Ok(size) if plan.expected_size.is_none_or(|expected| expected == size) => {
+                Ok(size) if crate::download_selection::size_matches(plan.expected_size, size) => {
                     for extension in ["part", "archive"] {
                         match tokio::fs::remove_file(queue.path(&job.id, extension)?).await {
                             Ok(()) => {}
@@ -1313,6 +1317,8 @@ async fn transfer_once(
     stopped: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), String> {
     use tokio::io::AsyncWriteExt;
+    let mut current = job.clone();
+    let job = &mut current;
     let partial = queue.path(&job.id, "part")?;
     let archive = queue.path(&job.id, "archive")?;
     if tokio::fs::symlink_metadata(&archive)
@@ -1381,6 +1387,56 @@ async fn transfer_once(
     }
     if crate::download_resolver::is_web_page(&response) {
         return Err("The download link returned a web page".into());
+    }
+    if offset == 0 {
+        let actual = response
+            .content_length()
+            .filter(|size| *size > 0)
+            .ok_or("The download host did not provide an exact archive size")?;
+        let reader = database.clone();
+        let id = job.id.clone();
+        let published: Option<i64> = tauri::async_runtime::spawn_blocking(move || {
+            reader.with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT published_size_bytes FROM downloads WHERE id=?1",
+                        [&id],
+                        |row| row.get(0),
+                    )
+                    .map_err(db_error)
+            })
+        })
+        .await
+        .map_err(|error| error.to_string())??;
+        let published = published
+            .map(u64::try_from)
+            .transpose()
+            .map_err(|_| "Invalid published download size")?;
+        if !crate::download_selection::size_matches(published, actual)
+            || (published.is_none() && actual != job.size)
+        {
+            return Err("Download does not match the size published by the source".into());
+        }
+        if actual != job.size {
+            let writer = database.clone();
+            let id = job.id.clone();
+            let size =
+                i64::try_from(actual).map_err(|_| "Download exceeds local storage limits")?;
+            tauri::async_runtime::spawn_blocking(move || {
+                writer.with_connection(|connection| {
+                    connection
+                        .execute(
+                            "UPDATE downloads SET size_bytes=?2 WHERE id=?1",
+                            params![id, size],
+                        )
+                        .map_err(db_error)?;
+                    Ok(())
+                })
+            })
+            .await
+            .map_err(|error| error.to_string())??;
+            job.size = actual;
+        }
     }
     let etag = strong_etag(response.headers())
         .or_else(|| if offset > 0 { job.etag.clone() } else { None });
@@ -2101,7 +2157,7 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute(
-                        "UPDATE downloads SET url=?2,mirror_plan=?3 WHERE id=?1",
+                        "UPDATE downloads SET url=?2,mirror_plan=?3,published_size_bytes=NULL WHERE id=?1",
                         params![job.id, first, serde_json::to_string(&plan).unwrap()],
                     )
                     .map_err(db_error)?;
@@ -2186,7 +2242,7 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute(
-                        "UPDATE downloads SET url=?2,mirror_plan=?3 WHERE id=?1",
+                        "UPDATE downloads SET url=?2,mirror_plan=?3,published_size_bytes=NULL WHERE id=?1",
                         params![job.id, first, serde_json::to_string(&plan).unwrap()],
                     )
                     .map_err(db_error)?;
@@ -2556,7 +2612,7 @@ mod tests {
         fs::write(queue.path(&job.id, "archive").unwrap(), bytes).unwrap();
         database.with_connection(|connection| {
             connection.execute(
-                "UPDATE downloads SET status = 'downloaded', sha256 = ?2, size_bytes = ?3, downloaded_bytes = ?3 WHERE id = ?1",
+                "UPDATE downloads SET status = 'downloaded', sha256 = ?2, size_bytes = ?3, published_size_bytes = ?3, downloaded_bytes = ?3 WHERE id = ?1",
                 params![job.id, hash, bytes.len() as i64],
             ).map_err(db_error)?;
             Ok(())
@@ -2983,7 +3039,7 @@ mod tests {
                 connection
                     .execute(
                         "UPDATE downloads SET mirror_plan = NULL, url = ?2, status = 'waiting', error = 'Network: unavailable',
-                         sha256 = ?3, size_bytes = ?4 WHERE id = ?1",
+                         sha256 = ?3, size_bytes = ?4, published_size_bytes = ?4 WHERE id = ?1",
                         params![job.id, url, hash, archive.len() as i64],
                     )
                     .map_err(db_error)?;
@@ -3053,7 +3109,7 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute(
-                        "UPDATE downloads SET mirror_plan = NULL, url = ?2, sha256 = ?3, size_bytes = ?4 WHERE id = ?1",
+                        "UPDATE downloads SET mirror_plan = NULL, url = ?2, sha256 = ?3, size_bytes = ?4, published_size_bytes = ?4 WHERE id = ?1",
                         params![job.id, url, hash, archive.len() as i64],
                     )
                     .map_err(db_error)?;
@@ -3135,7 +3191,7 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute(
-                        "UPDATE downloads SET mirror_plan = NULL, url = ?2, sha256 = ?3, size_bytes = ?4 WHERE id = ?1",
+                        "UPDATE downloads SET mirror_plan = NULL, url = ?2, sha256 = ?3, size_bytes = ?4, published_size_bytes = ?4 WHERE id = ?1",
                         params![job.id, url, hash, archive.len() as i64],
                     )
                     .map_err(db_error)?;
@@ -3202,6 +3258,71 @@ mod tests {
         assert!(!content_range_matches("bytes 4-9/10", 5, 10));
         assert!(!content_range_matches("bytes 5-10/10", 5, 10));
         assert!(!content_range_matches("bytes 5-9/11", 5, 10));
+    }
+
+    #[test]
+    fn published_size_tolerance_keeps_host_length_exact_and_source_size_immutable() {
+        for (actual, accepted) in [(97usize, true), (103, true), (96, false), (104, false)] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!("http://{}/archive", listener.local_addr().unwrap());
+            let server = thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while !request.ends_with(b"\r\n\r\n") {
+                    socket.read_exact(&mut byte).unwrap();
+                    request.push(byte[0]);
+                }
+                let mut payload=format!("HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Length: {actual}\r\nConnection: close\r\n\r\n").into_bytes();
+                payload.extend(vec![42; actual]);
+                socket.write_all(&payload).unwrap();
+            });
+            let (database, directory) = database_with_source();
+            let database = std::sync::Arc::new(database);
+            let job = enqueue(
+                &database,
+                400,
+                "https://example.invalid/portal.zip",
+                "1",
+                false,
+            )
+            .unwrap();
+            database.with_connection(|connection| {
+                connection.execute("UPDATE downloads SET mirror_plan=NULL,url=?2,size_bytes=100,published_size_bytes=100 WHERE id=?1",params![job.id,url]).map_err(db_error)?;
+                Ok(())
+            }).unwrap();
+            let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
+            let claimed = claim(&database).unwrap().unwrap();
+            let result =
+                tauri::async_runtime::block_on(transfer(&queue, database.clone(), &claimed));
+            assert_eq!(result.is_ok(), accepted, "size {actual}: {result:?}");
+            if accepted {
+                assert_eq!(
+                    fs::metadata(queue.path(&job.id, "archive").unwrap())
+                        .unwrap()
+                        .len(),
+                    actual as u64
+                );
+                let sizes: (i64, i64) = database
+                    .with_connection(|connection| {
+                        connection
+                            .query_row(
+                                "SELECT size_bytes,published_size_bytes FROM downloads WHERE id=?1",
+                                [&job.id],
+                                |row| Ok((row.get(0)?, row.get(1)?)),
+                            )
+                            .map_err(db_error)
+                    })
+                    .unwrap();
+                assert_eq!(sizes, (actual as i64, 100));
+            }
+            server.join().unwrap();
+            drop(database);
+            fs::remove_dir_all(directory).unwrap();
+        }
     }
 
     #[test]

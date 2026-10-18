@@ -10,7 +10,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 31;
+const SCHEMA_VERSION: i64 = 32;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1904,6 +1904,23 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         }
         transaction
             .pragma_update(None, "user_version", 31)
+            .map_err(database_error)?;
+    }
+    if version < 32 {
+        let exists: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('downloads') WHERE name='published_size_bytes')", [], |row| row.get(0)).map_err(database_error)?;
+        if !exists {
+            transaction
+                .execute_batch(
+                    "ALTER TABLE downloads ADD COLUMN published_size_bytes INTEGER;
+                UPDATE downloads SET published_size_bytes=size_bytes WHERE mirror_plan IS NULL;",
+                )
+                .map_err(database_error)?;
+        }
+        transaction
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS game_uninstalls (game_id TEXT PRIMARY KEY NOT NULL REFERENCES games(id) ON DELETE CASCADE, installation_root TEXT NOT NULL);
+            PRAGMA user_version = 32;",
+            )
             .map_err(database_error)?;
     }
     transaction.commit().map_err(database_error)

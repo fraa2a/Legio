@@ -142,3 +142,11 @@ Index execution is limited to 128 MiB and ten seconds, with at most 100,000 rele
 Offline check on the provided SteamGG file: the production parser accepts 6,654 records. Against the partial local catalogue of 559 games, exact normalization alone identifies 181 source records, and the FlexSearch candidates plus Rust guards identify 182, with no ambiguous result in that subset. A Node execution of the bundled index and production JavaScript adapter took about 50 ms for indexing and searching that subset; this is a local benchmark, not a QuickJS or full Steam catalogue performance guarantee. The earlier normalization-only count of 183 included raw records that the source parser rejects.
 
 The JavaScript test exercises the actual vendored library for added release words, word ordering, missing titles, and more than 100 results. Rust regressions cover final assignment, generic-title rejection, sequel/VR separation, ambiguous IDs, exact-match precedence and cache restoration. Full Rust verification runs in CI because the local sandbox does not have the QuickJS crate cached.
+
+## Published size tolerance
+
+Native `sizeBytes` describes the downloaded archive, not its extracted contents. Import, queueing and mirror changes accept archive sizes between 97% and 103% of that value, inclusively. The published value is persisted separately from the exact host length, so retries cannot accumulate a new 3% allowance. Completion, range totals and truncated responses are still checked against the exact host length; hashes are unchanged.
+
+Hydra's optional human-readable `fileSize` is not an exact byte count and is not used as an extraction limit. Sources without `sizeBytes` continue to require a validated exact host size. Mirror order, three retries per link, partial-byte reset and the native CDN transfer path are preserved.
+
+Extraction uses a separate expansion-ratio limit. Its previous fixed 64 GiB ceiling was removed so a valid large archive is not rejected solely because of its installed size.

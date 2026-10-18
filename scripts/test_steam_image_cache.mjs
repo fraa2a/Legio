@@ -327,3 +327,23 @@ test("opening details never refreshes permanent Library card artwork or icons", 
   await images.refreshSteamImages(7991);
   assert.equal(calls.filter(args => args.policy === "force_refresh").length, 5);
 });
+
+
+test("cancelled page refresh never starts a fallback after a late failure", async () => {
+  const req = request(8088, "hero", "header");
+  const calls = [];
+  let rejectHero;
+  globalThis.cacheInvoke = (command, args) => {
+    if (command !== "get_steam_asset") return Promise.resolve();
+    calls.push(args.asset);
+    if (args.asset === "hero" && args.policy === "refresh_if_expired") return new Promise((_resolve, reject) => { rejectHero = reject; });
+    return Promise.resolve(packet());
+  };
+  await images.loadSteamImage(req);
+  const controller = new AbortController();
+  const refresh = images.refreshSteamImagesOnOpen(8088, { requestId: "cancel-refresh", origin: "visible", signal: controller.signal, release() {} });
+  controller.abort();
+  rejectHero(new Error("late failure"));
+  await refresh;
+  assert.deepEqual(calls, ["hero", "hero"]);
+});

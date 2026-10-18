@@ -5,9 +5,11 @@ use std::fs;
 #[cfg(target_os = "linux")]
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "linux")]
-use std::process::{Command, Stdio};
+use std::process::Command;
 #[cfg(target_os = "linux")]
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(all(test, target_os = "linux"))]
+use std::time::Instant;
 
 use serde::Serialize;
 
@@ -286,94 +288,21 @@ fn discover_wine_from(
 #[cfg(target_os = "linux")]
 fn wine_version(path: &Path, timeout: Duration) -> Result<String, &'static str> {
     let mut command = Command::new(path);
-    crate::launch_environment::apply(&mut command);
-    let mut child = command
-        .arg("--version")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|_| "could not start executable")?;
-    let result = (|| {
-        let mut stdout = child.stdout.take().ok_or("version output is unavailable")?;
-        let mut stderr = child
-            .stderr
-            .take()
-            .ok_or("version error output is unavailable")?;
-        nonblocking(&stdout)?;
-        nonblocking(&stderr)?;
-        let mut output = Vec::new();
-        let mut errors = Vec::new();
-        let deadline = Instant::now() + timeout;
-        let status = loop {
-            let status = child
-                .try_wait()
-                .map_err(|_| "could not wait for executable")?;
-            read_version_output(&mut stdout, &mut output)?;
-            read_version_output(&mut stderr, &mut errors)?;
-            if output.len() + errors.len() > 4096 {
-                return Err("version output exceeds the size limit");
-            }
-            if let Some(status) = status {
-                break status;
-            }
-            if Instant::now() >= deadline {
-                return Err("version check timed out");
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        };
-        if !status.success() {
-            return Err("version check exited unsuccessfully");
-        }
-        let version_output = format!(
-            "{}\n{}",
-            String::from_utf8_lossy(&output),
-            String::from_utf8_lossy(&errors)
-        );
-        version_output
-            .lines()
-            .map(str::trim)
-            .find(|line| is_wine_version(line))
-            .map(str::to_owned)
-            .ok_or("version output was not recognized")
-    })();
-    if result.is_err() {
-        let _ = child.kill();
-        let _ = child.wait();
+    command.arg("--version");
+    let output = crate::process_output::capture(&mut command, timeout)?;
+    if !output.status.success() {
+        return Err("version check exited unsuccessfully");
     }
-    result
-}
-
-#[cfg(target_os = "linux")]
-fn nonblocking(pipe: &impl std::os::fd::AsRawFd) -> Result<(), &'static str> {
-    let fd = pipe.as_raw_fd();
-    // SAFETY: fd is borrowed from a live child pipe; these commands read and set integer flags.
-    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-        return Err("could not configure version output");
-    }
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-fn read_version_output(
-    pipe: &mut impl std::io::Read,
-    output: &mut Vec<u8>,
-) -> Result<(), &'static str> {
-    let mut buffer = [0_u8; 1024];
-    loop {
-        match pipe.read(&mut buffer) {
-            Ok(0) => return Ok(()),
-            Ok(size) => {
-                if output.len() + size > 4096 {
-                    return Err("version output exceeds the size limit");
-                }
-                output.extend_from_slice(&buffer[..size]);
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(_) => return Err("could not read version output"),
-        }
-    }
+    format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
+    .lines()
+    .map(str::trim)
+    .find(|line| is_wine_version(line))
+    .map(str::to_owned)
+    .ok_or("version output was not recognized")
 }
 
 #[cfg(target_os = "linux")]

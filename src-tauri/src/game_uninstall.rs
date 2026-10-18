@@ -1,5 +1,7 @@
 use crate::database::{Database, DatabaseState, database_error};
 use crate::game_lifecycle::GameLaunchManager;
+use rusqlite::OptionalExtension;
+use serde::Serialize;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -148,16 +150,75 @@ fn remove_installation(
     expected: &Path,
     protected: &[PathBuf],
 ) -> Result<(), String> {
-    let root = checked_target(database, id, protected)?;
+    let root = resumable_target(database, id, protected)?;
     if root != expected {
         return Err(
             "The installation directory changed. Close the dialog and confirm the new directory"
                 .into(),
         );
     }
-    fs::remove_dir_all(&root)
-        .map_err(|e| format!("Could not remove game files. The library entry was kept: {e}"))?;
+    database.with_connection(|connection| {
+        connection.execute("INSERT INTO game_uninstalls(game_id,installation_root) VALUES (?1,?2) ON CONFLICT(game_id) DO NOTHING", rusqlite::params![id,root.to_string_lossy()]).map_err(database_error)?;
+        Ok(())
+    })?;
+    match fs::remove_dir_all(&root) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(format!(
+                "Could not remove all game files. Retry uninstall to finish: {error}"
+            ));
+        }
+    }
     database.remove_game(id)
+}
+
+fn pending_root(database: &Database, id: &str) -> Result<Option<PathBuf>, String> {
+    database.with_connection(|connection| {
+        connection
+            .query_row(
+                "SELECT installation_root FROM game_uninstalls WHERE game_id=?1",
+                [id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map(|value| value.map(PathBuf::from))
+            .map_err(database_error)
+    })
+}
+
+pub(crate) fn ensure_launchable(database: &Database, id: &str) -> Result<(), String> {
+    if pending_root(database, id)?.is_some() {
+        return Err("Finish uninstalling this game before using its installation".into());
+    }
+    Ok(())
+}
+
+fn resumable_target(
+    database: &Database,
+    id: &str,
+    protected: &[PathBuf],
+) -> Result<PathBuf, String> {
+    if let Some(root) = pending_root(database, id)? {
+        let game = database.game(id)?;
+        if game.steam_install_path.is_some()
+            || game.installation_root.as_deref().map(Path::new) != Some(root.as_path())
+        {
+            return Err("The installation changed since uninstall was confirmed".into());
+        }
+        if root.is_absolute()
+            && fs::symlink_metadata(&root)
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+        {
+            return Ok(root);
+        }
+    }
+    checked_target(database, id, protected)
+}
+
+#[derive(Serialize)]
+pub struct UninstallResult {
+    warnings: Vec<String>,
 }
 
 fn protected_directories(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
@@ -196,9 +257,10 @@ pub async fn get_game_uninstall_target(app: AppHandle, id: String) -> Result<Str
     tauri::async_runtime::spawn_blocking(move || {
         crate::startup_recovery::require_ready(&app)?;
         let manager = app.state::<GameLaunchManager>();
-        let _operation = manager.operation()?;
-        manager.require_idle(&id)?;
-        checked_target(
+        let operation = manager.operation()?;
+        let _reservation = manager.reserve_transfer(&id)?;
+        drop(operation);
+        resumable_target(
             app.state::<DatabaseState>().database()?,
             &id,
             &protected_directories(&app)?,
@@ -214,20 +276,27 @@ pub async fn uninstall_game(
     app: AppHandle,
     id: String,
     installation_root: String,
-) -> Result<(), String> {
+) -> Result<UninstallResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         crate::startup_recovery::require_ready(&app)?;
         let manager = app.state::<GameLaunchManager>();
-        let _operation = manager.operation()?;
-        manager.require_idle(&id)?;
+        let operation = manager.operation()?;
+        let _reservation = manager.reserve_transfer(&id)?;
+        drop(operation);
         remove_installation(
             app.state::<DatabaseState>().database()?,
             &id,
             Path::new(&installation_root),
             &protected_directories(&app)?,
         )?;
-        crate::game_lifecycle::cleanup_removed_game(&app, &id)?;
-        crate::game_library::remove_default(&app, &id)
+        let mut warnings = Vec::new();
+        if let Err(error) = crate::game_lifecycle::cleanup_removed_game(&app, &id) {
+            warnings.push(error);
+        }
+        if let Err(error) = crate::game_library::remove_default(&app, &id) {
+            warnings.push(error);
+        }
+        Ok(UninstallResult { warnings })
     })
     .await
     .map_err(|e| format!("Game uninstall task failed: {e}"))?
@@ -288,6 +357,31 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.root);
         }
+    }
+
+    #[test]
+    fn interrupted_database_removal_can_resume_after_files_are_gone() {
+        let f = Fixture::new();
+        f.database.with_connection(|connection| {
+            connection.execute_batch("CREATE TRIGGER fail_uninstall BEFORE DELETE ON games BEGIN SELECT RAISE(ABORT,'database unavailable'); END;").map_err(database_error)
+        }).unwrap();
+        assert!(remove_installation(&f.database, &f.id, &f.directory, &[]).is_err());
+        assert!(!f.directory.exists());
+        assert!(ensure_launchable(&f.database, &f.id).is_err());
+        assert_eq!(
+            resumable_target(&f.database, &f.id, &[]).unwrap(),
+            f.directory
+        );
+        f.database
+            .with_connection(|connection| {
+                connection
+                    .execute_batch("DROP TRIGGER fail_uninstall;")
+                    .map_err(database_error)
+            })
+            .unwrap();
+        remove_installation(&f.database, &f.id, &f.directory, &[]).unwrap();
+        assert!(f.database.game(&f.id).is_err());
+        assert!(pending_root(&f.database, &f.id).unwrap().is_none());
     }
 
     #[test]
