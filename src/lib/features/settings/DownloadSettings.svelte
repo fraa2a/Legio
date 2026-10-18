@@ -1,8 +1,8 @@
 <script lang="ts">
+  import { createSaveQueue } from "../../services/save-queue";
   import { t, language } from "../../i18n";
   import LibrarySettings from "./LibrarySettings.svelte";
   import SourceSettings from "./SourceSettings.svelte";
-  import { createSaveQueue } from "../../services/save-queue";
   import { onDestroy } from "svelte";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
