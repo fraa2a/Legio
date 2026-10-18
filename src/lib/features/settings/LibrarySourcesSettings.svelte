@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
+  import SteamLibrarySettings from "./SteamLibrarySettings.svelte";
   import LibrarySettings from "./LibrarySettings.svelte";
   import SourceSettings from "./SourceSettings.svelte";
   import Button from "../../components/ui/Button.svelte";
@@ -45,5 +46,6 @@
     </SettingsRow>
   </SettingsGroup>
   <LibrarySettings />
+  <SteamLibrarySettings />
   <SourceSettings />
 </section>

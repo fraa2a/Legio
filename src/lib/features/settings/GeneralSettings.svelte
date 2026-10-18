@@ -5,19 +5,14 @@
   import SelectField from "../../components/ui/SelectField.svelte";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import ToggleSetting from "../../components/ui/ToggleSetting.svelte";
-  import Toggle from "../../components/ui/Toggle.svelte";
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
   import Button from "../../components/ui/Button.svelte";
   import type { Settings } from "../../services/local-state";
-  import { configureSteamScanInterval } from "../../stores/bootstrap";
-  import { importSteamLibrary } from "../../stores/steam-library";
   import { closeSettings } from "../../stores/navigation";
   import { defaultSettings, settings, settingsError, updateSettings } from "../../stores/settings";
   import { toMessage } from "../../utils/errors";
   import { checkForAppUpdate, installAppUpdate, updateState } from "../../services/app-updater";
 
-  const intervals = [5, 10, 15, 30, 60, 120];
-  const options = $derived(intervals.map((minutes) => ({ value: String(minutes), label: t("{0} minuti", $language, [minutes]) })));
   const behaviors: { key: keyof Settings; label: string }[] = $derived([
     { key: "closeToTray", label: t("Riduci nell'area di notifica alla chiusura", $language) },
     { key: "hideOnGameStart", label: t("Nascondi Legio nell'area di notifica quando avvii un gioco", $language) },
@@ -33,33 +28,12 @@
     await update({ language: value });
   }
 
-  async function selectInterval(value: string): Promise<void> {
-    const minutes = Number(value);
-    if (!intervals.includes(minutes) || minutes === $settings.data.steamLibraryPollMinutes) return;
-    saving = true;
-    saved = false;
-    settingsError.set(null);
-    try {
-      const updated = await updateSettings({ steamLibraryPollMinutes: minutes });
-      configureSteamScanInterval(updated.steamLibraryPollMinutes);
-      saved = true;
-    } catch (error) {
-      settingsError.set(toMessage(error));
-    } finally {
-      saving = false;
-    }
-  }
-
   async function update(changes: Partial<Settings>): Promise<boolean> {
     saving = true;
     saved = false;
     settingsError.set(null);
     try {
-      const updated = await updateSettings(changes);
-      if (changes.syncSteamGames !== undefined) {
-        configureSteamScanInterval(updated.steamLibraryPollMinutes);
-        if (updated.syncSteamGames) void importSteamLibrary();
-      }
+      await updateSettings(changes);
       if (changes.onboardingCompleted === false) closeSettings();
       saved = true;
       return true;
@@ -98,26 +72,7 @@
 
   <DiscordPresenceSettings />
 
-  <SettingsGroup
-    icon="store"
-    title={t("Controllo Steam", $language)}
-  >
-    <div class="flex items-center gap-2"><div class="min-w-0 flex-1">
-      <Toggle label={t("Sync Steam games", $language)} checked={$settings.data.syncSteamGames} disabled={saving} onChange={(checked) => void update({ syncSteamGames: checked })} />
-    </div><ResetSetting label={t("Ripristina Sync Steam games", $language)} disabled={saving || $settings.data.syncSteamGames === defaultSettings.syncSteamGames} onClick={() => void update({ syncSteamGames: defaultSettings.syncSteamGames })} /></div>
-    <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Quando è disattivato, Legio non controlla i giochi Steam all'avvio o periodicamente. I giochi già importati restano nella libreria.", $language)}</p>
-    <div class="flex max-w-64 items-end gap-2"><div class="min-w-0 flex-1">
-      <SelectField
-        id="steam-library-poll-interval"
-        label={t("Intervallo di controllo", $language)}
-        value={String($settings.data.steamLibraryPollMinutes)}
-        {options}
-        borderless
-        disabled={saving || !$settings.data.syncSteamGames || $settings.status === "loading" || $settings.status === "idle"}
-        onChange={(value) => void selectInterval(value)}
-      />
-    </div><ResetSetting label={t("Ripristina intervallo di controllo", $language)} disabled={saving || $settings.data.steamLibraryPollMinutes === defaultSettings.steamLibraryPollMinutes} onClick={() => void selectInterval(String(defaultSettings.steamLibraryPollMinutes))} /></div>
-  </SettingsGroup>
+
 
   <SettingsGroup icon="settings" title={t("Configurazione iniziale", $language)}>
     <Button label={t("Ripeti configurazione iniziale", $language)} variant="secondary" disabled={saving} onClick={() => void update({ onboardingCompleted: false })} />
