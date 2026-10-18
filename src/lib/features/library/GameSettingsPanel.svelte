@@ -334,7 +334,7 @@
       </div>
     </div>
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
-    {#if saved}<p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Percorsi salvati.", $language)}</p>{/if}
+    {#if saved}<p class="text-sm text-legio-success" role="status">{t("Percorsi salvati.", $language)}</p>{/if}
   {:else if compatibilityGame && section === "compatibility"}
     <Toggle label={t("Avvio con Steam", $language)} checked={overrides.launchViaSteam ?? (game.steamAppId !== null)} onChange={(checked) => setOverride("launchViaSteam", checked)} />
     <p class="text-xs text-zinc-500">{t("Avvia Steam e il gioco con Proton usando il prefix della sezione Posizioni. Runtime e overlay vengono applicati automaticamente quando disponibili.", $language)}</p>
@@ -363,15 +363,13 @@
     </div>
     <div class="grid gap-4 md:grid-cols-2">
       <div class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-        <span>{t("Variabili ambiente", $language)}</span>
         <Toggle label={t("Personalizza le variabili", $language)} checked={overrides.environment !== null} onChange={toggleEnvironment} />
-        <textarea bind:value={environmentText} aria-label={t("Variabili ambiente", $language)} disabled={overrides.environment === null} rows="5" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 disabled:opacity-50 light:bg-white light:text-zinc-900"></textarea>
+        <TextField id="game-environmentText" type="textarea" rows={5} label={t("Variabili ambiente", $language)} bind:value={environmentText} disabled={overrides.environment === null} />
         <span class="text-xs text-zinc-500">{t("Una voce KEY=VALUE per riga. I controlli tipizzati gestiscono le variabili riservate.", $language)}</span>
       </div>
       <div class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-        <span>{t("Override DLL", $language)}</span>
         <Toggle label={t("Personalizza gli override", $language)} checked={overrides.dllOverrides !== null} onChange={toggleDllOverrides} />
-        <textarea bind:value={dllOverridesText} aria-label={t("Override DLL", $language)} disabled={overrides.dllOverrides === null} rows="5" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 disabled:opacity-50 light:bg-white light:text-zinc-900"></textarea>
+        <TextField id="game-dllOverridesText" type="textarea" rows={5} label={t("Override DLL", $language)} bind:value={dllOverridesText} disabled={overrides.dllOverrides === null} />
         <span class="text-xs text-zinc-500">{t("Una voce KEY=VALUE per riga, ad esempio d3d11=n,b.", $language)}</span>
       </div>
     </div>
@@ -414,7 +412,7 @@
     </div>
 
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
-    {#if saved}<p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Impostazioni salvate.", $language)}</p>{/if}
+    {#if saved}<p class="text-sm text-legio-success" role="status">{t("Impostazioni salvate.", $language)}</p>{/if}
     <div class="flex flex-wrap gap-2">
       <Button label={t("Ripristina default globali", $language)} variant="secondary" disabled={saving} onClick={resetCompatibility} />
     </div>
@@ -431,22 +429,19 @@
       </div>
     </div>
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
-    {#if saved}<p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Argomenti salvati.", $language)}</p>{/if}
+    {#if saved}<p class="text-sm text-legio-success" role="status">{t("Argomenti salvati.", $language)}</p>{/if}
   {:else if !compatibilityGame && section === "launch"}
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Aggiungi argomenti di avvio. Racchiudi tra virgolette i valori che contengono spazi.", $language)}</p>
     <TextField id="native-arguments" label={t("Opzioni di avvio", $language)} value={nativeArguments} placeholder="-windowed -novid" oninput={(value) => (nativeArguments = value)} />
-    <label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("Variabili ambiente", $language)}
-      <textarea bind:value={nativeEnvironmentText} rows="4" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
-      <span class="text-xs text-zinc-500">{t("Una voce KEY=VALUE per riga. Applicate solo all'avvio di questo gioco.", $language)}</span>
-    </label>
+    <TextField id="native-environment" type="textarea" rows={4} label={t("Variabili ambiente", $language)} bind:value={nativeEnvironmentText} hint={t("Una voce KEY=VALUE per riga. Applicate solo all'avvio di questo gioco.", $language)} />
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
-    {#if saved}<p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Argomenti salvati.", $language)}</p>{/if}
+    {#if saved}<p class="text-sm text-legio-success" role="status">{t("Argomenti salvati.", $language)}</p>{/if}
   {:else if !compatibilityGame}
     {#if section === "locations"}
       <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Imposta la cartella iniziale del processo per questo gioco.", $language)}</p>
       <TextField id="native-working-directory" label={t("Cartella di lavoro", $language)} value={nativeWorkingDirectory} placeholder={t("Cartella dell'eseguibile", $language)} oninput={(value) => (nativeWorkingDirectory = value)} />
       {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
-      {#if saved}<p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Percorso salvato.", $language)}</p>{/if}
+      {#if saved}<p class="text-sm text-legio-success" role="status">{t("Percorso salvato.", $language)}</p>{/if}
     {:else}
       <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Le opzioni di compatibilità aggiuntive non sono disponibili per i runner nativi. Configura gli argomenti di avvio in Generali.", $language)}</p>
     {/if}

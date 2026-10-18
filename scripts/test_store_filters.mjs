@@ -74,8 +74,8 @@ test("store controls combine filters and reset pagination when either choice cha
     assert.deepEqual(calls.at(-1), ["portal", { sort: "name_desc", availability: "available" }]);
     globalThis.storeFilterFixture.catalog.set({ results, total: 120, status: "ready", refreshing: false, error: "Offline", nextOffset: null });
     await settle();
-    assert.equal(notifications.at(-1)?.[0], "Offline", "a failed refresh must offer retry while retaining cached games");
-    notifications.at(-1)[2].onRetry();
+    assert.match(target.querySelector('[role="alert"]')?.textContent ?? "", /Offline/, "a failed refresh must offer retry while retaining cached games");
+    target.querySelector('[role="alert"] button').click();
     assert.deepEqual(calls.at(-1), ["portal", { sort: "name_desc", availability: "available" }, true]);
     globalThis.storeFilterFixture.catalog.set({ results: results.slice(0, 15), total: 15, status: "ready", refreshing: false, error: null, nextOffset: 50 });
     await settle();
