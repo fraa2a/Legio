@@ -25,7 +25,7 @@ test("update checks share demand, close superseded resources and serialize insta
   assert.equal(checks, 1);
   response.resolve({ version: "1", close: async () => { closes++; } });
   await Promise.all([first, second]);
-  globalThis.updaterReview.check = async () => ({ version: "2", close: async () => {}, downloadAndInstall: async () => { installs++; await installation.promise; } });
+  globalThis.updaterReview.check = async () => ({ version: "2", close: async () => { closes++; }, downloadAndInstall: async () => { installs++; await installation.promise; } });
   await updater.checkForAppUpdate();
   assert.equal(closes, 1);
   const a = updater.installAppUpdate();
@@ -36,6 +36,7 @@ test("update checks share demand, close superseded resources and serialize insta
   assert.equal(get(updater.updateState).version, "2");
   installation.resolve();
   await Promise.all([a, b]);
+  assert.equal(closes, 2, "the installed update resource is also released");
 });
 
 test("Windows arguments preserve paths and round trip quoted data", async () => {

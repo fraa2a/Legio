@@ -80,6 +80,11 @@ async function performInstall(): Promise<void> {
   try {
     await update.downloadAndInstall();
     availableUpdate = null;
+    try {
+      await update.close();
+    } catch (error) {
+      updateState.update((state) => ({ ...state, error: toMessage(error) }));
+    }
     await relaunch();
   } catch (error) {
     updateState.update((state) => ({ ...state, error: toMessage(error) }));
