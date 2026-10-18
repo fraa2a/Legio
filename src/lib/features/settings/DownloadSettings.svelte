@@ -1,24 +1,16 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
-  import LibrarySettings from "./LibrarySettings.svelte";
-  import SourceSettings from "./SourceSettings.svelte";
   import { onDestroy } from "svelte";
-  import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
-  import SettingsRow from "../../components/ui/SettingsRow.svelte";
   import TextField from "../../components/ui/TextField.svelte";
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
-  import Toggle from "../../components/ui/Toggle.svelte";
-  import { pickGameDirectory } from "../../services/dialog";
+  import ToggleSetting from "../../components/ui/ToggleSetting.svelte";
   import { defaultSettings, settings, updateSettings as saveChanges } from "../../stores/settings";
   import { toMessage } from "../../utils/errors";
   import {
     bandwidthLimit,
     bandwidthLimitError,
-    browseInstalledFolder,
-    installedFolder,
-    installedFolderError,
     saveBandwidthLimit,
   } from "../../stores/downloads";
 
@@ -73,41 +65,14 @@
     }
   }
 
-  async function setDownloadPath(): Promise<void> {
-    try {
-      const path = await pickGameDirectory($settings.data.downloadPath, t("Imposta la cartella per download e installazioni", $language));
-      if (path !== null) await updateSettings({ downloadPath: path });
-    } catch (error) {
-      settingsError = toMessage(error);
-    }
-  }
-
-  let openingFolder = $state(false);
-
-  async function browseFolder(): Promise<void> {
-    openingFolder = true;
-    await browseInstalledFolder();
-    openingFolder = false;
-  }
 </script>
 
 <section class="flex flex-col gap-4">
   {#if settingsError !== null}<ErrorBanner message={settingsError} />{/if}
-  {#if $installedFolderError}<ErrorBanner message={$installedFolderError} />{/if}
   {#if $bandwidthLimit.status === "error"}<ErrorBanner message={t("Impossibile leggere il limite di banda: {0}", $language, [$bandwidthLimit.error])} onRetry={() => void bandwidthLimit.load()} />{/if}
   {#if $bandwidthLimitError}<ErrorBanner message={$bandwidthLimitError} />{/if}
 
-  <SettingsGroup icon="folder" title={t("Cartelle", $language)}>
-    <SettingsRow label={t("Cartella per download e installazioni", $language)} description={$settings.data.downloadPath ?? t("Cartella predefinita di Legio", $language)}>
-      <div class="flex flex-wrap gap-2">
-        <Button label={t("Imposta cartella...", $language)} variant="secondary" disabled={savingSettings} onClick={() => void setDownloadPath()} />
-        {#if $settings.data.downloadPath !== null}<Button label={t("Usa cartella predefinita", $language)} variant="secondary" disabled={savingSettings} onClick={() => void updateSettings({ downloadPath: null })} />{/if}
-      </div>
-    </SettingsRow>
-    <SettingsRow label={t("Cartella dei giochi installati", $language)} description={$installedFolder.data?.directory ?? undefined}>
-      <Button label={t("Apri cartella", $language)} variant="secondary" disabled={openingFolder} onClick={() => void browseFolder()} />
-    </SettingsRow>
-  </SettingsGroup>
+
 
   <SettingsGroup icon="download" title={t("Velocità di download", $language)}>
     <div class="flex flex-wrap items-end gap-3">
@@ -117,12 +82,16 @@
   </SettingsGroup>
 
   <SettingsGroup icon="check" title={t("Integrità dei download", $language)}>
-    <div class="flex items-center gap-2"><div class="min-w-0 flex-1"><Toggle label={t("Verifica SHA-256 dei giochi verified (consigliato)", $language)} checked={$settings.data.verifyVerifiedDownloads} disabled={savingSettings || $settings.status !== "ready"} onChange={(checked) => void updateSettings({ verifyVerifiedDownloads: checked })} /></div><ResetSetting label={t("Ripristina verifica dei download", $language)} disabled={savingSettings || $settings.data.verifyVerifiedDownloads === defaultSettings.verifyVerifiedDownloads} onClick={() => void updateSettings({ verifyVerifiedDownloads: defaultSettings.verifyVerifiedDownloads })} /></div>
+    <ToggleSetting label={t("Verifica SHA-256 dei giochi verified (consigliato)", $language)} checked={$settings.data.verifyVerifiedDownloads} defaultValue={defaultSettings.verifyVerifiedDownloads} disabled={savingSettings || $settings.status !== "ready"} onChange={(checked) => void updateSettings({ verifyVerifiedDownloads: checked })} />
   </SettingsGroup>
 
   <SettingsGroup icon="info" title={t("Notifiche dei download", $language)}>
-    <div class="flex items-center gap-2"><div class="min-w-0 flex-1"><Toggle label={t("Notifica di sistema al termine del download", $language)} checked={$settings.data.downloadNotifications} disabled={savingSettings} onChange={(checked) => void updateSettings({ downloadNotifications: checked })} /></div><ResetSetting label={t("Ripristina notifiche dei download", $language)} disabled={savingSettings || $settings.data.downloadNotifications === defaultSettings.downloadNotifications} onClick={() => void updateSettings({ downloadNotifications: defaultSettings.downloadNotifications })} /></div>
+    <ToggleSetting label={t("Notifica di sistema al termine del download", $language)} checked={$settings.data.downloadNotifications} defaultValue={defaultSettings.downloadNotifications} disabled={savingSettings} onChange={(checked) => void updateSettings({ downloadNotifications: checked })} />
   </SettingsGroup>
-  <LibrarySettings />
-  <SourceSettings />
+
+  <SettingsGroup icon="downloads" title={t("Download e aggiornamenti durante il gioco", $language)}>
+    <ToggleSetting label={t("Consenti download mentre un gioco è aperto", $language)} checked={$settings.data.downloadWhilePlaying} defaultValue={defaultSettings.downloadWhilePlaying} disabled={savingSettings} onChange={checked => void updateSettings({ downloadWhilePlaying: checked })} />
+    <ToggleSetting label={t("Posticipa l’estrazione automatica dei download mentre giochi", $language)} checked={$settings.data.deferExtractionWhilePlaying} defaultValue={defaultSettings.deferExtractionWhilePlaying} disabled={savingSettings} onChange={checked => void updateSettings({ deferExtractionWhilePlaying: checked })} />
+    <ToggleSetting label={t("Aggiornamenti automatici dei giochi", $language)} checked={$settings.data.automaticGameUpdates} defaultValue={defaultSettings.automaticGameUpdates} disabled={savingSettings} onChange={checked => void updateSettings({ automaticGameUpdates: checked })} />
+  </SettingsGroup>
 </section>

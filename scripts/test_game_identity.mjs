@@ -80,7 +80,7 @@ test("failed identity save retains the old ID and allows selecting the result ag
     globalThis.identityFixture.fail = true;
     choice().click(); await settle();
     assert.equal(get(f.game).steamAppId, 400);
-    assert.ok(f.errors.includes("Could not save identity"));
+    assert.match(f.target.querySelector('[role="alert"]')?.textContent ?? "", /Could not save identity/);
     globalThis.identityFixture.fail = false;
     choice().click(); await settle();
     assert.equal(get(f.game).steamAppId, 700);

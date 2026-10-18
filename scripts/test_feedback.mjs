@@ -44,16 +44,15 @@ test("notifications deduplicate messages, preserve different tones, dismiss indi
   } finally { globalThis.setTimeout = original; clearNotices(); }
 });
 
-test("an error notice is emitted outside its panel and retains its retry action", async () => {
+test("an error stays visible in its panel and retains its retry action", async () => {
   const ErrorBanner = (await import(await load("src/lib/components/ui/ErrorBanner.svelte"))).default;
   const target = document.createElement("div");
   let retried = 0;
   const instance = mount(ErrorBanner, { target, props: { message: "Failed to launch", onRetry: () => retried++ } });
   await settle();
-  assert.equal(target.querySelector('[role="alert"]'), null);
-  const notification = get(notices.toast).find(notice => notice.message === "Failed to launch");
-  assert.equal(notification.tone, "error");
-  notification.onRetry();
+  assert.match(target.querySelector('[role="alert"]')?.textContent ?? "", /Failed to launch/);
+  assert.equal(get(notices.toast).some(notice => notice.message === "Failed to launch"), false);
+  target.querySelector("button").click();
   assert.equal(retried, 1);
   await unmount(instance);
   clearNotices();

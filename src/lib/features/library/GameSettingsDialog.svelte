@@ -7,8 +7,9 @@
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import { toMessage } from "../../utils/errors";
+  import SettingsNavigation from "../../components/ui/SettingsNavigation.svelte";
+  import CloseButton from "../../components/ui/CloseButton.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
-  import Icon from "../../components/ui/Icon.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import GameArtworkPanel from "./GameArtworkPanel.svelte";
   import PlaytimePanel from "./PlaytimePanel.svelte";
@@ -38,12 +39,15 @@
     ? allCategories.filter((category) => category.id !== "compatibility")
     : allCategories);
   let active = $state("general");
+  const selectedCategory = $derived(categories.some(category => category.id === active) ? active : "general");
+  let shortcutWarning = $state<string | null>(null);
   let shortcutError = $state<string | null>(null);
   let shortcutPath = $state<string | null>(null);
   let shortcutPending = $state(false);
   const running = $derived(($launchStateByGame.get(game.id)?.status ?? "idle") !== "idle");
   let destinationDraft = $state("");
   let transferPending = $state(false);
+  let transferWarning = $state<string | null>(null);
   let transferError = $state<string | null>(null);
   let transferDone = $state(false);
 
@@ -57,11 +61,12 @@
   async function moveGame(): Promise<void> {
     transferPending = true;
     transferError = null;
+    transferWarning = null;
     transferDone = false;
     try {
       const result = await transferGame(game.id, destinationDraft.trim());
       reconcileGame(result.game);
-      transferError = result.warning;
+      transferWarning = result.warning;
       destinationDraft = "";
       transferDone = true;
     } catch (error) { transferError = toMessage(error); }
@@ -71,46 +76,34 @@
   async function addDesktopShortcut(): Promise<void> {
     shortcutPending = true;
     shortcutError = null;
+    shortcutWarning = null;
     try {
       const result = await createDesktopShortcut(game.id);
       shortcutPath = result.path;
-      shortcutError = result.warning;
+      shortcutWarning = result.warning;
     }
     catch (error) { shortcutError = toMessage(error); }
     finally { shortcutPending = false; }
   }
 
-  function categoryClass(selected: boolean): string {
-    return selected
-      ? "bg-white/10 text-white light:bg-zinc-900/10 light:text-zinc-900"
-      : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100 light:text-zinc-600 light:hover:bg-zinc-900/5 light:hover:text-zinc-900";
-  }
 </script>
 
 <Dialog open title={game.name} size="wide" flush {onClose}>
   {#snippet actions(close)}
-    <button type="button" aria-label={t("Chiudi le impostazioni del gioco", $language)} class="rounded-lg p-1.5 text-zinc-400 hover:bg-white/10 hover:text-zinc-100 light:text-zinc-500 light:hover:bg-zinc-900/10 light:hover:text-zinc-900" onclick={close}>
-      <Icon name="close" size="h-5 w-5" />
-    </button>
+    <CloseButton label={t("Chiudi le impostazioni", $language)} onClick={close} />
   {/snippet}
 
   <div class="flex min-h-0 flex-1">
-    <nav class="flex w-52 shrink-0 flex-col gap-1 overflow-y-auto border-r border-white/15 p-2 light:border-zinc-900/15" aria-label={t("Sezioni delle impostazioni del gioco", $language)}>
-      {#each categories as category (category.id)}
-        <button type="button" aria-current={active === category.id ? "page" : undefined} class="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors duration-200 {categoryClass(active === category.id)}" onclick={() => (active = category.id)}>
-          <Icon name={category.icon} size="h-4 w-4 shrink-0" />
-          {category.label}
-        </button>
-      {/each}
-    </nav>
+    <SettingsNavigation {categories} selected={selectedCategory} label={t("Sezioni delle impostazioni del gioco", $language)} onSelect={id => (active = id)} />
     <div class="min-w-0 flex-1 overflow-y-auto p-6">
-      {#if active === "general"}
+      {#if selectedCategory === "general"}
         <div class="flex flex-col gap-4">
           <GameDetailsPanel {game} {onRemoved} />
           <Panel title={t("Collegamento", $language)}>
             <Button label={shortcutPending ? t("Creazione...", $language) : t("Aggiungi collegamento desktop", $language)}
               disabled={shortcutPending} onClick={() => void addDesktopShortcut()} />
-            {#if shortcutPath}<p class="mt-2 break-all text-sm text-emerald-300" role="status">{t("Collegamento creato: ", $language)}{shortcutPath}</p>{/if}
+            {#if shortcutPath}<p class="mt-2 break-all text-sm text-legio-success" role="status">{t("Collegamento creato: ", $language)}{shortcutPath}</p>{/if}
+            {#if shortcutWarning}<ErrorBanner message={shortcutWarning} tone="warning" />{/if}
             {#if shortcutError}<ErrorBanner message={shortcutError} />{/if}
           </Panel>
           {#if steamManaged}
@@ -124,7 +117,7 @@
             </Panel>
           {/if}
         </div>
-      {:else if active === "locations"}
+      {:else if selectedCategory === "locations"}
         <div class="flex flex-col gap-4">
           {#if !steamManaged}<ExecutablePanel {game} />{:else}
             <Panel title={t("Installazione Steam", $language)}>
@@ -145,15 +138,16 @@
                 <Button label={transferPending ? t("Trasferimento...", $language) : t("Trasferisci gioco", $language)}
                   disabled={running || transferPending || destinationDraft.trim().length === 0} onClick={() => void moveGame()} />
                 {#if running}<p class="text-sm text-zinc-400">{t("Chiudi il gioco prima di trasferirlo.", $language)}</p>{/if}
-                {#if transferDone}<p class="text-sm text-emerald-300" role="status">{t("Gioco trasferito.", $language)}</p>{/if}
+                {#if transferDone}<p class="text-sm text-legio-success" role="status">{t("Gioco trasferito.", $language)}</p>{/if}
+                {#if transferWarning}<ErrorBanner message={transferWarning} tone="warning" />{/if}
                 {#if transferError}<ErrorBanner message={transferError} />{/if}
               </div>
             </Panel>
           {/if}
         </div>
-      {:else if active === "customization"}
+      {:else if selectedCategory === "customization"}
         <GameArtworkPanel {game} />
-      {:else if active === "compatibility"}
+      {:else if selectedCategory === "compatibility"}
         {#if game.executablePath !== null}
           {#key game.id}<GameSettingsPanel {game} section="compatibility" />{/key}
         {:else}

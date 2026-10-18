@@ -7,7 +7,7 @@
   import SelectField from "../../components/ui/SelectField.svelte";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import TextField from "../../components/ui/TextField.svelte";
-  import Toggle from "../../components/ui/Toggle.svelte";
+  import ToggleSetting from "../../components/ui/ToggleSetting.svelte";
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
   import {
     emptyCompatibilityDefaults,
@@ -216,12 +216,11 @@
           hint={t("Legio crea un prefix per gioco dentro questa cartella.", $language)}
           oninput={(value) => (defaults = { ...defaults, prefixRoot: value || null })}
         /></div><ResetSetting label={t("Ripristina cartella prefix", $language)} disabled={saving || defaults.prefixRoot === null} onClick={() => { defaults = { ...defaults, prefixRoot: null }; }} /></div>
-        <div class="flex items-center gap-2 self-end pb-2"><div class="min-w-0 flex-1">
-          <Toggle
-            label={t("Abilita log di debug per gli avvii", $language)}
-            checked={defaults.debugLogging}
-            onChange={(checked) => (defaults = { ...defaults, debugLogging: checked })}
-          /></div><ResetSetting label={t("Ripristina log di debug", $language)} disabled={saving || !defaults.debugLogging} onClick={() => { defaults = { ...defaults, debugLogging: false }; }} /></div>
+        <div class="self-end pb-2">
+          <ToggleSetting label={t("Abilita log di debug per gli avvii", $language)}
+            checked={defaults.debugLogging} disabled={saving}
+            onChange={(checked) => (defaults = { ...defaults, debugLogging: checked })} />
+        </div>
       </div>
       <div class="grid gap-4 md:grid-cols-2">
         <div class="flex items-end gap-2"><div class="min-w-0 flex-1"><SelectField
@@ -245,18 +244,10 @@
 
     <SettingsGroup icon="info" title={t("Argomenti e ambiente", $language)}>
       <div class="grid gap-4 md:grid-cols-2">
-        <div class="relative"><label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("\n          Argomenti prima dell'eseguibile\n          ", $language)}<textarea bind:value={argumentsBefore} rows="4" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
-          <span class="text-xs text-zinc-500">{t("Un argomento per riga. Le righe vuote rappresentano argomenti vuoti.", $language)}</span>
-        </label><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina argomenti iniziali", $language)} disabled={saving || argumentsBefore === ""} onClick={() => { argumentsBefore = ""; }} /></span></div>
-        <div class="relative"><label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("\n          Argomenti dopo l'eseguibile\n          ", $language)}<textarea bind:value={argumentsAfter} rows="4" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
-          <span class="text-xs text-zinc-500">{t("Un argomento per riga, passato senza interpretazione shell.", $language)}</span>
-        </label><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina argomenti finali", $language)} disabled={saving || argumentsAfter === ""} onClick={() => { argumentsAfter = ""; }} /></span></div>
-        <div class="relative"><label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("\n          Variabili ambiente\n          ", $language)}<textarea bind:value={environmentText} rows="5" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
-          <span class="text-xs text-zinc-500">{t("Una voce KEY=VALUE per riga. I controlli tipizzati hanno priorità.", $language)}</span>
-        </label><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina variabili ambiente", $language)} disabled={saving || environmentText === ""} onClick={() => { environmentText = ""; }} /></span></div>
-        <div class="relative"><label class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">{t("\n          Override DLL\n          ", $language)}<textarea bind:value={dllOverridesText} rows="5" class="rounded-lg bg-white/5 p-3 font-mono text-sm text-zinc-100 light:bg-white light:text-zinc-900"></textarea>
-          <span class="text-xs text-zinc-500">{t("Una voce KEY=VALUE per riga, ad esempio d3d11=n,b.", $language)}</span>
-        </label><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina override DLL", $language)} disabled={saving || dllOverridesText === ""} onClick={() => { dllOverridesText = ""; }} /></span></div>
+        <div class="relative"><TextField id="compat-argumentsBefore" label={t("Argomenti prima dell'eseguibile", $language)} type="textarea" rows={4} bind:value={argumentsBefore} hint={t("Un argomento per riga. Le righe vuote rappresentano argomenti vuoti.", $language)} /><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina argomenti iniziali", $language)} disabled={saving || argumentsBefore === ""} onClick={() => { argumentsBefore = ""; }} /></span></div>
+        <div class="relative"><TextField id="compat-argumentsAfter" label={t("Argomenti dopo l'eseguibile", $language)} type="textarea" rows={4} bind:value={argumentsAfter} hint={t("Un argomento per riga, passato senza interpretazione shell.", $language)} /><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina argomenti finali", $language)} disabled={saving || argumentsAfter === ""} onClick={() => { argumentsAfter = ""; }} /></span></div>
+        <div class="relative"><TextField id="compat-environmentText" label={t("Variabili ambiente", $language)} type="textarea" rows={5} bind:value={environmentText} hint={t("Una voce KEY=VALUE per riga. I controlli tipizzati hanno priorità.", $language)} /><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina variabili ambiente", $language)} disabled={saving || environmentText === ""} onClick={() => { environmentText = ""; }} /></span></div>
+        <div class="relative"><TextField id="compat-dllOverridesText" label={t("Override DLL", $language)} type="textarea" rows={5} bind:value={dllOverridesText} hint={t("Una voce KEY=VALUE per riga, ad esempio d3d11=n,b.", $language)} /><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina override DLL", $language)} disabled={saving || dllOverridesText === ""} onClick={() => { dllOverridesText = ""; }} /></span></div>
       </div>
     </SettingsGroup>
 
@@ -265,7 +256,7 @@
         <ErrorBanner message={saveError} />
       {/if}
       {#if saved}
-        <p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Default salvati.", $language)}</p>
+        <p class="text-sm text-legio-success" role="status">{t("Default salvati.", $language)}</p>
       {/if}
       {#if saving}<p class="text-sm text-zinc-400" role="status">{t("Salvataggio...", $language)}</p>{/if}
     </div>
