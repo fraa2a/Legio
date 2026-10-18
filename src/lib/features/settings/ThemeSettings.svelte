@@ -1,5 +1,6 @@
 <script lang="ts">
   import { get } from "svelte/store";
+  import { createSaveQueue } from "../../services/save-queue";
   import { onDestroy } from "svelte";
   import { t, language } from "../../i18n";
   import type { Theme } from "../../services/local-state";
@@ -32,7 +33,7 @@
   let draft: Appearance = $state(structuredClone(initial.appearance));
   let baseline = $state(JSON.stringify({ theme: initial.theme, appearance: initial.appearance }));
   let failedSnapshot: string | null = null;
-  let savingTask: Promise<void> | null = null;
+  const saveQueue = createSaveQueue();
   let saving = $state(false);
   let adjusting = $state(false);
   let busy = $state(false);
@@ -87,19 +88,17 @@
   onDestroy(() => {
     disposed = true;
     appearancePreview.set(null);
-    void (async () => {
-      if (savingTask !== null) await savingTask;
+    void saveQueue.flush(async () => {
       if (!busy && dirty && serialized !== failedSnapshot) await save();
       await cleanupBackgrounds();
-    })().catch((reason) => console.error("Could not finish saving appearance", reason));
+    }).catch((reason) => console.error("Could not finish saving appearance", reason));
   });
 
   function save(): Promise<void> {
-    if (savingTask !== null) return savingTask;
     const snapshot = serialized;
     const selectedTheme = theme;
     const selectedAppearance = structuredClone($state.snapshot(draft));
-    savingTask = (async () => {
+    return saveQueue.run(async () => {
       saving = true;
       error = null;
       try {
@@ -113,10 +112,8 @@
         error = toMessage(reason);
       } finally {
         saving = false;
-        savingTask = null;
       }
-    })();
-    return savingTask;
+    });
   }
 
   async function selectBackground(): Promise<void> {

@@ -186,11 +186,17 @@ pub(crate) fn save(root: &Path, library: &Library) -> Result<(), String> {
         replace(&temporary, &root.join(FILE)).map_err(|e| e.to_string())?;
         crate::finalize_install::sync_directory(root)
     })();
-    if result.is_err() && temporary.exists() {
-        fs::remove_file(&temporary)
-            .map_err(|e| format!("Could not remove library temporary file: {e}"))?;
+    if let Err(error) = result {
+        if let Err(cleanup) = fs::remove_file(&temporary)
+            && cleanup.kind() != std::io::ErrorKind::NotFound
+        {
+            return Err(format!(
+                "{error}; could not remove library temporary file: {cleanup}"
+            ));
+        }
+        return Err(error);
     }
-    result
+    Ok(())
 }
 
 #[cfg(not(windows))]

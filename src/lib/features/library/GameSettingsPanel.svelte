@@ -24,6 +24,7 @@
   import SelectField from "../../components/ui/SelectField.svelte";
   import TextField from "../../components/ui/TextField.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
+  import { createSaveQueue } from "../../services/save-queue";
   import { toMessage } from "../../utils/errors";
   import { pickGameDirectory } from "../../services/dialog";
   import { formatLaunchArguments, parseLaunchArguments } from "../../utils/launch-arguments";
@@ -52,7 +53,7 @@
   let saved = $state(false);
   let baseline = $state<string | null>(null);
   let failedSnapshot: string | null = null;
-  let savingTask: Promise<void> | null = null;
+  const saveQueue = createSaveQueue();
   let disposed = false;
 
   function compatibilityDraft() {
@@ -82,10 +83,9 @@
     const snapshot = JSON.stringify(compatibility ? compatibilityDraft() : nativeDraft());
     const shouldSave = !loading && loadError === null && baseline !== null;
     disposed = true;
-    void (async () => {
-      if (savingTask !== null) await savingTask;
+    void saveQueue.flush(async () => {
       if (shouldSave && snapshot !== baseline && snapshot !== failedSnapshot) await persist(snapshot, compatibility);
-    })();
+    });
   });
 
   async function load(): Promise<void> {
@@ -239,9 +239,7 @@
   }
 
   function persist(snapshot?: string, compatibility = compatibilityGame): Promise<void> {
-    if (savingTask !== null) return savingTask;
-    savingTask = (compatibility ? saveCompatibility(snapshot) : saveNative(snapshot)).finally(() => { savingTask = null; });
-    return savingTask;
+    return saveQueue.run(() => compatibility ? saveCompatibility(snapshot) : saveNative(snapshot));
   }
 
   async function saveCompatibility(captured?: string): Promise<void> {

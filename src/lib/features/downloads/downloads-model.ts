@@ -1,11 +1,8 @@
 import { t, type Language } from "../../i18n";
 import { type DownloadJob } from "../../services/downloads";
 
-const PROCESSING = ["downloading", "downloaded", "staging", "staged", "finalizing"];
-const FINISHED = ["installed", "cancelled"];
-const REORDERABLE = ["queued", "paused", "waiting", "failed"];
-
-export type StatusTone = "neutral" | "info" | "success" | "danger" | "warning";
+import { downloadState, type StatusTone, type ProgressTone } from "../../services/download-status";
+export type { StatusTone } from "../../services/download-status";
 
 export interface DownloadSections {
   primary: DownloadJob | null;
@@ -15,9 +12,7 @@ export interface DownloadSections {
 }
 
 function bucket(job: DownloadJob): "processing" | "queue" | "finished" {
-  if (PROCESSING.includes(job.status)) return "processing";
-  if (FINISHED.includes(job.status)) return "finished";
-  return "queue";
+  return downloadState(job.status)?.section ?? "queue";
 }
 
 export function splitDownloads(jobs: DownloadJob[]): DownloadSections {
@@ -38,7 +33,7 @@ export function splitDownloads(jobs: DownloadJob[]): DownloadSections {
 }
 
 export function isReorderable(job: DownloadJob): boolean {
-  return REORDERABLE.includes(job.status);
+  return downloadState(job.status)?.reorderable ?? false;
 }
 
 export function reorderPayload(primary: DownloadJob | null, queue: DownloadJob[]): string[] {
@@ -46,37 +41,15 @@ export function reorderPayload(primary: DownloadJob | null, queue: DownloadJob[]
 }
 
 export function statusTone(status: string): StatusTone {
-  if (status === "failed") return "danger";
-  if (status === "installed") return "success";
-  if (status === "cancelled") return "neutral";
-  if (PROCESSING.includes(status) || status === "queued" || status === "waiting") return "info";
-  if (status === "paused") return "warning";
-  return "neutral";
+  return downloadState(status)?.tone ?? "neutral";
 }
 
-export function progressTone(status: DownloadJob["status"]): "default" | "accent" | "warning" | "danger" | "success" {
-  if (status === "failed") return "danger";
-  if (status === "paused") return "warning";
-  if (status === "installed") return "success";
-  if (PROCESSING.includes(status)) return "accent";
-  return "default";
+export function progressTone(status: DownloadJob["status"]): ProgressTone {
+  return downloadState(status)?.progress ?? "default";
 }
 
 export function statusBadge(status: string, selected?: Language): string {
-  const labels: Record<string, string> = {
-    queued: "In coda",
-    downloading: "Scaricamento",
-    waiting: "In attesa",
-    paused: "In pausa",
-    failed: "Errore",
-    downloaded: "Verifica",
-    staging: "Estrazione",
-    staged: "Pronto",
-    finalizing: "Installazione",
-    installed: "Completato",
-    cancelled: "Annullato",
-  };
-  return t(labels[status] ?? status, selected);
+  return t(downloadState(status)?.badge ?? status, selected);
 }
 
 export function phaseLabel(job: DownloadJob, selected?: Language): string | null {
@@ -84,20 +57,8 @@ export function phaseLabel(job: DownloadJob, selected?: Language): string | null
   if (job.pauseReason === "playing") return t("In pausa mentre giochi", selected);
   if (job.pauseReason === "automatic_disabled") return t("Aggiornamenti automatici disattivati", selected);
   if (job.status === "downloading") return `Download ${Math.round(progressOf(job))}%`;
-  // Lo stato "in coda" è già descritto dal badge.
-  if (job.status === "queued") return null;
-  const labels: Record<string, string> = {
-    waiting: "In attesa di rete",
-    downloaded: "Verifica del file",
-    staging: "Estrazione dei file",
-    staged: "Installazione automatica in attesa",
-    finalizing: "Installazione in corso",
-    installed: "Installazione completata",
-    paused: "Download in pausa",
-    failed: "Download interrotto",
-    cancelled: "Download annullato",
-  };
-  return t(labels[job.status] ?? job.status, selected);
+  const phase = downloadState(job.status)?.phase;
+  return phase === null ? null : t(phase ?? job.status, selected);
 }
 
 export function progressOf(job: DownloadJob): number {
