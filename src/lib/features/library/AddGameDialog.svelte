@@ -158,7 +158,7 @@
         {:else if preview?.status === "unavailable"}
           <p class="text-xs text-amber-300 light:text-amber-800">{t("Rilevamento non disponibile: ", $language)}{preview.message ?? t("riprova più tardi", $language)}.</p>
         {:else if preview?.status === "matched"}
-          <p class="text-xs text-emerald-300 light:text-emerald-700">{t("Gioco Steam rilevato automaticamente. Puoi cambiarlo con la ricerca.", $language)}</p>
+          <p class="text-xs text-legio-success">{t("Gioco Steam rilevato automaticamente. Puoi cambiarlo con la ricerca.", $language)}</p>
         {/if}
         {#if preview?.status === "ambiguous"}
           <div class="flex flex-wrap gap-2" aria-label={t("Corrispondenze Steam", $language)}>

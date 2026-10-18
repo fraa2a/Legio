@@ -11,6 +11,9 @@ html[data-motion-paused="true"] *::after {
 @theme {
   --color-legio-accent: var(--legio-accent);
   --color-legio-accent-text: var(--legio-accent-text);
+  --color-legio-success: var(--legio-success);
+  --color-legio-warning: var(--legio-warning);
+  --color-legio-error: var(--legio-error);
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --color-legio-download: #2563eb;
   --color-legio-download-hover: #1d4ed8;
@@ -56,12 +59,20 @@ body {
 html, body, #app { width: 100%; height: 100%; min-width: 0; min-height: 0; }
 :root {
   --legio-background: #000000;
+  --legio-success: #6ee7b7;
+  --legio-warning: #fcd34d;
+  --legio-error: #fca5a5;
   --legio-surface: #18181b;
   --legio-text: #fafafa;
   --legio-surface-opacity: 1;
   --legio-surface-blur: none;
   --legio-dialog-opacity: 1;
   --legio-dialog-blur: none;
+}
+:root[data-theme="light"] {
+  --legio-success: #047857;
+  --legio-warning: #92400e;
+  --legio-error: #b91c1c;
 }
 .legio-backdrop {
   position: fixed; inset: 0; overflow: hidden; pointer-events: none;

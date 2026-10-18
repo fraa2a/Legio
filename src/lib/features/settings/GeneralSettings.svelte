@@ -4,6 +4,7 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
+  import ToggleSetting from "../../components/ui/ToggleSetting.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
   import Button from "../../components/ui/Button.svelte";
@@ -22,8 +23,6 @@
     { key: "hideOnGameStart", label: t("Nascondi Legio nell'area di notifica quando avvii un gioco", $language) },
     { key: "launchOnSystemStart", label: t("Avvia Legio all'accesso al sistema", $language) },
     { key: "launchMinimized", label: t("Avvia Legio ridotto nell'area di notifica", $language) },
-    { key: "downloadWhilePlaying", label: t("Consenti download mentre un gioco è aperto", $language) },
-    { key: "deferExtractionWhilePlaying", label: t("Posticipa l’estrazione automatica dei download mentre giochi", $language) },
     { key: "launchInLibrary", label: t("Apri Legio sulla Libreria", $language) },
   ]);
   let saving = $state(false);
@@ -89,15 +88,11 @@
   </SettingsGroup>
   <SettingsGroup icon="settings" title={t("Comportamento", $language)}>
     {#each behaviors as option (option.key)}
-      <div class="flex items-center gap-2"><div class="min-w-0 flex-1">
-      <Toggle
-        label={option.label}
-        checked={Boolean($settings.data[option.key])}
+      <ToggleSetting label={option.label} checked={Boolean($settings.data[option.key])}
+        defaultValue={Boolean(defaultSettings[option.key])}
         disabled={saving || (option.key === "launchMinimized" && !$settings.data.launchOnSystemStart)}
         onChange={(checked) => void update({ [option.key]: checked,
-          ...(option.key === "launchOnSystemStart" && !checked ? { launchMinimized: false } : {}) })}
-      />
-      </div><ResetSetting label={t("Ripristina {0}", $language, [option.label])} disabled={saving || $settings.data[option.key] === defaultSettings[option.key]} onClick={() => void update({ [option.key]: defaultSettings[option.key], ...(option.key === "launchOnSystemStart" && !defaultSettings.launchOnSystemStart ? { launchMinimized: false } : {}) })} /></div>
+          ...(option.key === "launchOnSystemStart" && !checked ? { launchMinimized: false } : {}) })} />
     {/each}
   </SettingsGroup>
 
@@ -129,7 +124,6 @@
   </SettingsGroup>
 
   <SettingsGroup icon="reload" title={t("Aggiornamenti", $language)}>
-    <Toggle label={t("Aggiornamenti automatici dei giochi", $language)} checked={$settings.data.automaticGameUpdates} disabled={saving} onChange={checked => void update({ automaticGameUpdates: checked })} />
     <div class="flex flex-wrap items-center gap-3">
       <Button label={$updateState.checking ? t("Controllo...", $language) : t("Controlla aggiornamenti", $language)} variant="secondary" disabled={$updateState.checking || $updateState.installing} onClick={() => void checkForAppUpdate()} />
       {#if $updateState.version}
@@ -147,6 +141,6 @@
   </SettingsGroup>
 
   {#if saved}
-    <p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Impostazioni salvate.", $language)}</p>
+    <p class="text-sm text-legio-success" role="status">{t("Impostazioni salvate.", $language)}</p>
   {/if}
 </section>

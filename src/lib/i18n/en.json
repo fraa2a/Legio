@@ -690,5 +690,7 @@
   "Elimina i file installati del gioco e rimuovi la voce dalla libreria.": "Delete the installed game files and remove its library entry.",
   "Mostra nella libreria": "Show in library",
   "Nessun gioco visibile in libreria. Puoi aggiungerne uno con + o riabilitare i giochi Steam nascosti nelle impostazioni delle librerie.": "No visible games in the library. Add one with + or restore hidden Steam games in library settings.",
-  "Nessun gioco visibile in libreria. Puoi aggiungerne uno con + o riabilitare i giochi Steam nascosti nelle impostazioni delle librerie. Sync Steam games è disattivato.": "No visible games in the library. Add one with + or restore hidden Steam games in library settings. Sync Steam games is off."
+  "Nessun gioco visibile in libreria. Puoi aggiungerne uno con + o riabilitare i giochi Steam nascosti nelle impostazioni delle librerie. Sync Steam games è disattivato.": "No visible games in the library. Add one with + or restore hidden Steam games in library settings. Sync Steam games is off.",
+  "Librerie e sorgenti": "Libraries and sources",
+  "Download e aggiornamenti durante il gioco": "Downloads and updates while playing"
 }

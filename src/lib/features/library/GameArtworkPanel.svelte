@@ -137,5 +137,5 @@
       </section>
     </div>
   {/if}
-  {#if saved}<p class="text-sm text-emerald-300 light:text-emerald-700" role="status">{t("Immagine salvata.", $language)}</p>{/if}
+  {#if saved}<p class="text-sm text-legio-success" role="status">{t("Immagine salvata.", $language)}</p>{/if}
 </Panel>

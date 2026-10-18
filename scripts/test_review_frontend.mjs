@@ -26,6 +26,7 @@ const mocks = {
  'src/lib/services/local-state': d('export const getSettings=async()=>globalThis.frontendRepro.current;export const saveSettings=value=>globalThis.frontendRepro.saveSettings(value);'),
  'src/lib/services/dialog': d('export const pickGameDirectory=async()=>globalThis.frontendRepro.pickedDirectory??null;export const pickExecutableFile=async()=>null;'),
  'src/lib/features/settings/SourceSettings.svelte': empty,
+ 'src/lib/features/settings/LibrarySettings.svelte': empty,
  'src/lib/components/ui/ErrorBanner.svelte': empty,
  'src/lib/stores/bootstrap': d('export const configureSteamScanInterval=()=>{};'),
  'src/lib/services/app-updater': d(storeImport + 'export const updateState=writable({});export const checkForAppUpdate=()=>{};export const installAppUpdate=()=>{};'),
@@ -61,6 +62,7 @@ const navigation=await import(await loader.load('src/lib/stores/navigation.ts'))
 
 const downloads=await import(await loader.load('src/lib/stores/downloads.ts'));
 const DownloadSettings=(await import(await loader.load('src/lib/features/settings/DownloadSettings.svelte'))).default;
+const LibrarySourcesSettings=(await import(await loader.load('src/lib/features/settings/LibrarySourcesSettings.svelte'))).default;
 const manual=await import(await loader.load('src/lib/stores/manual-import.ts'));
 
 test("sidebar opens the general settings category", async () => {
@@ -126,7 +128,7 @@ settings.set({...structuredClone(defaultSettings), downloadPath:null});
 downloads.bandwidthLimit.set(0);
 downloads.installedFolder.set({directory:'/old/installed',freeBytes:100,totalBytes:200});
 frontendRepro.pickedDirectory='/new';frontendRepro.saveSettings=async value=>{frontendRepro.current=value;return value;};
-target=document.createElement('div');document.body.append(target);instance=mount(DownloadSettings,{target});await settle();
+target=document.createElement('div');document.body.append(target);instance=mount(LibrarySourcesSettings,{target});await settle();
 [...target.querySelectorAll('button')].find(button=>button.textContent.includes('Imposta cartella...')).click();await settle();
 assert.equal(get(settings).data.downloadPath,'/new');assert.equal(get(downloads.installedFolder).data.directory,'/new/installed');assert.equal(get(downloads.installedFolder).data.freeBytes,300);
 assert.ok(target.textContent.includes('/new'));assert.ok(target.textContent.includes('/new/installed'));
