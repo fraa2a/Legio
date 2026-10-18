@@ -668,7 +668,7 @@ async fn load_asset(
     refresh: bool,
     hero: Option<HeroSource>,
 ) -> Result<AssetResult, String> {
-    let work = AssetWork::new(
+    let mut work = AssetWork::new(
         &cache.scheduler,
         1,
         AssetDemand {
@@ -678,6 +678,7 @@ async fn load_asset(
         },
     )
     .map_err(|error| error.to_string())?;
+    work.policy = AssetPolicy::RefreshIfExpired;
     load_asset_scheduled(cache, network, key, url, refresh, hero, &work).await
 }
 
@@ -739,13 +740,17 @@ async fn load_asset_inner(
             (None, Some(error))
         }
     };
-    if !refresh && previous.as_ref().is_some_and(|entry| !entry.stale) {
+    if !refresh
+        && previous
+            .as_ref()
+            .is_some_and(|entry| !refresh_artwork(work.policy, entry.stale))
+    {
         let entry = previous.ok_or_else(|| "Image cache entry disappeared.".to_owned())?;
         return Ok(AssetResult {
             replacement_token: None,
             bytes: entry.bytes,
             content_type: entry.content_type,
-            stale: false,
+            stale: entry.stale,
             refresh_after: entry.refresh_after,
             cache_warning: None,
         });
