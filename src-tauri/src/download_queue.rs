@@ -43,6 +43,8 @@ pub struct DownloadJob {
     target_game_id: Option<String>,
     pause_reason: Option<String>,
     automatic_update: bool,
+    source_id: Option<String>,
+    source_entry_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -107,7 +109,7 @@ impl FromSql for DownloadStatus {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Transfer {
     id: String,
     url: String,
@@ -288,6 +290,8 @@ fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DownloadJob> {
         target_game_id: row.get(13)?,
         pause_reason: row.get(14)?,
         automatic_update: row.get(15)?,
+        source_id: row.get(16)?,
+        source_entry_id: row.get(17)?,
     })
 }
 
@@ -296,7 +300,7 @@ fn list(database: &Database) -> Result<Vec<DownloadJob>, String> {
         let mut statement = connection
             .prepare(
                 "SELECT id, steam_app_id, name, release_version, size_bytes, downloaded_bytes,
-                    speed_bps, eta_seconds, status, error, sha256, url, updated_at, target_game_id, pause_reason, automatic_update
+                    speed_bps, eta_seconds, status, error, sha256, url, updated_at, target_game_id, pause_reason, automatic_update, source_id, source_entry_id
                  FROM downloads ORDER BY queue_position, created_at, id",
             )
             .map_err(db_error)?;
@@ -352,6 +356,7 @@ pub fn enqueue(
     )
 }
 
+#[cfg(test)]
 pub(crate) fn enqueue_from_source(
     database: &Database,
     app_id: u32,
@@ -380,6 +385,29 @@ pub(crate) fn enqueue_with_target(
     source_id: Option<&str>,
     update: Option<(&str, bool)>,
 ) -> Result<DownloadJob, String> {
+    enqueue_prepared(
+        database,
+        app_id,
+        download_url,
+        release_version,
+        accept_unverified,
+        source_id,
+        update,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn enqueue_prepared(
+    database: &Database,
+    app_id: u32,
+    download_url: &str,
+    release_version: &str,
+    accept_unverified: bool,
+    source_id: Option<&str>,
+    update: Option<(&str, bool)>,
+    resolved_size: Option<u64>,
+) -> Result<DownloadJob, String> {
     let (source_id, entry, source_verified) = crate::game_updates::find_download(
         database,
         app_id,
@@ -390,16 +418,58 @@ pub(crate) fn enqueue_with_target(
     if !source_verified && !accept_unverified {
         return Err("Confirm the unverified source before downloading".to_owned());
     }
-    let size = i64::try_from(entry.download.size_bytes)
+    if let (Some(expected), Some(actual)) = (entry.download.size_bytes, resolved_size)
+        && expected != actual
+    {
+        return Err("Download does not match the size published by the source".into());
+    }
+    let exact_size = entry
+        .download
+        .size_bytes
+        .or(resolved_size)
+        .filter(|size| *size > 0)
+        .ok_or("The host did not provide a download size")?;
+    let size = i64::try_from(exact_size)
         .map_err(|_| "Download size exceeds local storage limits".to_owned())?;
     let id = Uuid::new_v4().to_string();
     let created = now()?;
+    let source_rows = crate::legio_source_cache::cached_rows(database)?;
+    let source = source_rows.iter().find(|source| source.id == source_id);
+    let uris = source
+        .as_ref()
+        .and_then(|source| {
+            entry
+                .id
+                .as_ref()
+                .and_then(|id| source.catalog.candidates.get(id))
+        })
+        .cloned()
+        .unwrap_or_else(|| vec![entry.download.url.clone()]);
+    let hydra = source
+        .as_ref()
+        .is_some_and(|source| source.catalog.format == crate::source_catalog::SourceFormat::Hydra);
+    let mirror_plan =
+        if uris.len() == 1 && !hydra && crate::download_selection::native_cdn(&uris[0]) {
+            None
+        } else {
+            Some(
+                serde_json::to_string(&crate::download_selection::MirrorPlan::new(
+                    uris,
+                    if hydra {
+                        None
+                    } else {
+                        entry.download.size_bytes
+                    },
+                ))
+                .map_err(|error| error.to_string())?,
+            )
+        };
     database.with_connection(|connection| {
         connection
             .execute(
                 "INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256,
-             size_bytes, status, created_at, updated_at, source_verified, queue_position, source_id, source_entry_id, target_game_id, automatic_update)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'queued', ?8, ?8, ?9, ?8, ?10, ?11, ?12, ?13)",
+             size_bytes, status, created_at, updated_at, source_verified, queue_position, source_id, source_entry_id, target_game_id, automatic_update, mirror_plan)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'queued', ?8, ?8, ?9, ?8, ?10, ?11, ?12, ?13, ?14)",
                 params![
                     id,
                     app_id,
@@ -409,7 +479,7 @@ pub(crate) fn enqueue_with_target(
                     entry.download.sha256.as_deref().unwrap_or(""),
                     size,
                     created,
-                    source_verified, source_id, entry.id, update.map(|value| value.0), update.is_some_and(|value| value.1)
+                    source_verified, source_id, entry.id, update.map(|value| value.0), update.is_some_and(|value| value.1), mirror_plan
                 ],
             )
             .map_err(db_error)?;
@@ -422,7 +492,7 @@ pub(crate) fn enqueue_with_target(
         release_version: entry.release.version.clone(),
         sha256: entry.download.sha256.clone(),
         url: entry.download.url.clone(),
-        size_bytes: entry.download.size_bytes,
+        size_bytes: exact_size,
         downloaded_bytes: 0,
         speed_bps: 0,
         eta_seconds: None,
@@ -432,6 +502,8 @@ pub(crate) fn enqueue_with_target(
         target_game_id: update.map(|value| value.0.to_owned()),
         pause_reason: None,
         automatic_update: update.is_some_and(|value| value.1),
+        source_id: Some(source_id),
+        source_entry_id: entry.id.clone(),
     })
 }
 
@@ -1122,6 +1194,124 @@ async fn transfer(
     {
         return Err("Download was stopped".to_owned());
     }
+    let reader = database.clone();
+    let id = job.id.clone();
+    let stored: Option<String> = tauri::async_runtime::spawn_blocking(move || {
+        reader.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT mirror_plan FROM downloads WHERE id=?1",
+                    [&id],
+                    |row| row.get(0),
+                )
+                .map_err(db_error)
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    let Some(stored) = stored else {
+        return transfer_once(queue, database, job, &mut stopped).await;
+    };
+    let mut plan: crate::download_selection::MirrorPlan = serde_json::from_str(&stored)
+        .map_err(|error| format!("Invalid saved download links: {error}"))?;
+    let mut current = job.clone();
+    let mut failure = "No supported download links are available".to_owned();
+    while let Some(uri) = plan.current().map(str::to_owned) {
+        if *stopped.borrow() {
+            return Err("Download was stopped".into());
+        }
+        let result = if current.url != uri {
+            let inspected = tokio::select! {
+                biased;
+                _ = stopped.changed() => return Err("Download was stopped".into()),
+                result = crate::download_selection::inspect(&queue.client, &uri) => result,
+            };
+            match inspected {
+                Ok(size) if plan.expected_size.is_none_or(|expected| expected == size) => {
+                    for extension in ["part", "archive"] {
+                        match tokio::fs::remove_file(queue.path(&job.id, extension)?).await {
+                            Ok(()) => {}
+                            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                            Err(error) => {
+                                return Err(format!("Could not reset partial download: {error}"));
+                            }
+                        }
+                    }
+                    current.url = uri;
+                    current.size = size;
+                    current.etag = None;
+                    save_mirror_state(database.clone(), &current, &plan, true).await?;
+                    transfer_once(queue, database.clone(), &current, &mut stopped).await
+                }
+                Ok(_) => Err("Download does not match the size published by the source".into()),
+                Err(error) => Err(error),
+            }
+        } else {
+            transfer_once(queue, database.clone(), &current, &mut stopped).await
+        };
+        match result {
+            Ok(()) => return Ok(()),
+            Err(error) if *stopped.borrow() || error == "Download was stopped" => {
+                return Err(error);
+            }
+            Err(error)
+                if [
+                    "Could not open partial download",
+                    "Could not write partial download",
+                    "Could not sync download",
+                    "Could not finalize downloaded archive",
+                    "Could not inspect partial download",
+                ]
+                .iter()
+                .any(|prefix| error.starts_with(prefix))
+                    || error == "Partial download is not a regular file" =>
+            {
+                return Err(error);
+            }
+            Err(error) => failure = error,
+        }
+        plan.fail();
+        save_mirror_state(database.clone(), &current, &plan, false).await?;
+        if plan.current().is_some() {
+            tokio::select! {
+                biased;
+                _ = stopped.changed() => return Err("Download was stopped".into()),
+                () = tokio::time::sleep(Duration::from_millis(250)) => {},
+            }
+        }
+    }
+    Err(format!(
+        "All download links failed after three retries per link: {failure}"
+    ))
+}
+
+async fn save_mirror_state(
+    database: std::sync::Arc<Database>,
+    job: &Transfer,
+    plan: &crate::download_selection::MirrorPlan,
+    reset: bool,
+) -> Result<(), String> {
+    let job = job.clone();
+    let plan = serde_json::to_string(plan).map_err(|error| error.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        database.with_connection(|connection| {
+            let changed = if reset {
+                connection.execute("UPDATE downloads SET url=?2,size_bytes=?3,downloaded_bytes=0,speed_bps=0,eta_seconds=NULL,etag=NULL,mirror_plan=?4 WHERE id=?1 AND status='downloading'", params![job.id,job.url,i64::try_from(job.size).map_err(|_| "Download exceeds local storage limits")?,plan]).map_err(db_error)?
+            } else {
+                connection.execute("UPDATE downloads SET mirror_plan=?2 WHERE id=?1 AND status='downloading'", params![job.id,plan]).map_err(db_error)?
+            };
+            if changed == 0 { return Err("Download was stopped".into()); }
+            Ok(())
+        })
+    }).await.map_err(|error| error.to_string())?
+}
+
+async fn transfer_once(
+    queue: &DownloadQueueState,
+    database: std::sync::Arc<Database>,
+    job: &Transfer,
+    stopped: &mut tokio::sync::watch::Receiver<bool>,
+) -> Result<(), String> {
     use tokio::io::AsyncWriteExt;
     let partial = queue.path(&job.id, "part")?;
     let archive = queue.path(&job.id, "archive")?;
@@ -1140,17 +1330,45 @@ async fn transfer(
     if offset >= job.size {
         offset = 0;
     }
-    let mut request = queue.client.get(&job.url);
+    let mut resolved = tokio::select! {
+        biased;
+        _ = stopped.changed() => return Err("Download was stopped".into()),
+        result = crate::download_resolver::resolve(&queue.client, &job.url) => result?,
+    };
+    if resolved.files.len() != 1 {
+        return Err("Grouped downloads are not supported by this transfer yet".into());
+    }
+    let resolved = resolved
+        .files
+        .pop()
+        .ok_or("Resolved download contains no files")?;
+    let mut headers = resolved.headers.clone();
     if offset > 0 {
-        request = request.header(RANGE, format!("bytes={offset}-"));
+        headers.insert(
+            RANGE,
+            reqwest::header::HeaderValue::from_str(&format!("bytes={offset}-"))
+                .map_err(|_| "Invalid resume offset")?,
+        );
         if let Some(etag) = job.etag.as_deref() {
-            request = request.header(IF_RANGE, etag);
+            headers.insert(
+                IF_RANGE,
+                reqwest::header::HeaderValue::from_str(etag)
+                    .map_err(|_| "Invalid saved validator")?,
+            );
         }
     }
-    let mut response = interruptible_response(&mut stopped, request.send()).await?;
+    let mut response = tokio::select! {
+        biased;
+        _ = stopped.changed() => return Err("Download was stopped".into()),
+        result = crate::download_resolver::get(&queue.client, &resolved.url, headers) => result?,
+    };
     if offset > 0 && !resume_matches(&response, job, offset) {
         offset = 0;
-        response = interruptible_response(&mut stopped, queue.client.get(&job.url).send()).await?;
+        response = tokio::select! {
+            biased;
+            _ = stopped.changed() => return Err("Download was stopped".into()),
+            result = crate::download_resolver::get(&queue.client, &resolved.url, resolved.headers.clone()) => result?,
+        };
     }
     if response.status()
         != if offset > 0 {
@@ -1160,6 +1378,9 @@ async fn transfer(
         }
     {
         return Err(format!("HTTP {}", response.status()));
+    }
+    if crate::download_resolver::is_web_page(&response) {
+        return Err("The download link returned a web page".into());
     }
     let etag = strong_etag(response.headers())
         .or_else(|| if offset > 0 { job.etag.clone() } else { None });
@@ -1176,7 +1397,7 @@ async fn transfer(
     let initial = offset;
     let mut persisted = Instant::now();
     let mut limiter = BandwidthWindow::new(offset, queue.bandwidth_limit.load(Ordering::Relaxed));
-    while let Some(chunk) = interruptible_response(&mut stopped, response.chunk()).await? {
+    while let Some(chunk) = interruptible_response(stopped, response.chunk()).await? {
         if *stopped.borrow() {
             return Err("Download was stopped".to_owned());
         }
@@ -1280,21 +1501,118 @@ pub async fn queue_download(
     release_version: String,
     accept_unverified: bool,
     source_id: Option<String>,
+    preferred_uri: Option<String>,
 ) -> Result<DownloadJob, String> {
     crate::startup_recovery::wait(&app).await?;
+    let database = app.state::<DatabaseState>().shared_database()?;
+    let read_database = database.clone();
+    let lookup_url = download_url.clone();
+    let lookup_version = release_version.clone();
+    let lookup_source = source_id.clone();
+    let (selected_source, entry, mut candidates, sizes, hydra) =
+        tauri::async_runtime::spawn_blocking(move || {
+            let (origin, entry, verified) = crate::game_updates::find_download(
+                &read_database,
+                steam_app_id,
+                &lookup_url,
+                &lookup_version,
+                lookup_source.as_deref(),
+            )?;
+            if !verified && !accept_unverified {
+                return Err("Confirm the unverified source before downloading".to_owned());
+            }
+            let rows = crate::legio_source_cache::cached_rows(&read_database)?;
+            let candidates = rows
+                .iter()
+                .find(|row| row.id == origin)
+                .and_then(|row| {
+                    entry
+                        .id
+                        .as_ref()
+                        .and_then(|id| row.catalog.candidates.get(id))
+                })
+                .cloned()
+                .unwrap_or_else(|| vec![entry.download.url.clone()]);
+            let origin_catalog = rows
+                .iter()
+                .find(|row| row.id == origin)
+                .ok_or("Download source is unavailable")?;
+            Ok::<_, String>((
+                origin,
+                entry,
+                candidates,
+                origin_catalog.catalog.validated_sizes.clone(),
+                origin_catalog.catalog.format == crate::source_catalog::SourceFormat::Hydra,
+            ))
+        })
+        .await
+        .map_err(|error| error.to_string())??;
+    let mut download_url = download_url;
+    let mut resolved_size = None;
+    if let Some(preferred) = preferred_uri {
+        if !candidates.contains(&preferred) {
+            return Err("Selected link is not part of this source release".into());
+        }
+        candidates.retain(|uri| uri != &preferred);
+        candidates.insert(0, preferred);
+    }
+    candidates.retain(|uri| crate::download_selection::supported(uri));
+    let legacy_cdn =
+        !hydra && candidates.len() == 1 && crate::download_selection::native_cdn(&candidates[0]);
+    let mirror_plan = if legacy_cdn {
+        None
+    } else {
+        Some(crate::download_selection::MirrorPlan::new(
+            candidates,
+            if hydra {
+                None
+            } else {
+                entry.download.size_bytes
+            },
+        ))
+    };
+    if let Some(plan) = mirror_plan.as_ref() {
+        let uri = plan
+            .current()
+            .ok_or("No supported download links are available")?;
+        resolved_size = sizes.get(uri).copied().or(plan.expected_size);
+        if resolved_size.is_none() {
+            return Err(
+                "Refresh this source to validate its download links before downloading".into(),
+            );
+        }
+        download_url = uri.to_owned();
+    }
+    let source_id = Some(selected_source);
     let worker_app = app.clone();
     let job = tauri::async_runtime::spawn_blocking(move || {
         app.state::<DownloadQueueState>().directory()?;
         let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
         let _operation = manager.operation()?;
-        let job = enqueue_from_source(
+        let job = enqueue_prepared(
             app.state::<DatabaseState>().database()?,
             steam_app_id,
             &download_url,
             &release_version,
             accept_unverified,
             source_id.as_deref(),
+            None,
+            resolved_size,
         )?;
+        if let Some(plan) = mirror_plan {
+            let plan = serde_json::to_string(&plan).map_err(|error| error.to_string())?;
+            app.state::<DatabaseState>()
+                .database()?
+                .with_connection(|connection| {
+                    connection
+                        .execute(
+                            "UPDATE downloads SET mirror_plan=?2 WHERE id=?1",
+                            params![job.id(), plan],
+                        )
+                        .map_err(db_error)?;
+                    Ok(())
+                })?;
+        }
         crate::download_policy::manual_start(
             app.state::<DatabaseState>().database()?,
             &manager,
@@ -1391,7 +1709,31 @@ pub async fn retry_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result
             &id,
             &[DownloadStatus::Failed],
             DownloadStatus::Queued,
-        )
+        )?;
+        database.with_connection(|connection| {
+            let stored: Option<String> = connection
+                .query_row(
+                    "SELECT mirror_plan FROM downloads WHERE id=?1",
+                    [&id],
+                    |row| row.get(0),
+                )
+                .map_err(db_error)?;
+            if let Some(stored) = stored {
+                let mut plan: crate::download_selection::MirrorPlan =
+                    serde_json::from_str(&stored).map_err(|error| error.to_string())?;
+                plan.restart();
+                connection
+                    .execute(
+                        "UPDATE downloads SET mirror_plan=?2 WHERE id=?1",
+                        params![
+                            id,
+                            serde_json::to_string(&plan).map_err(|error| error.to_string())?
+                        ],
+                    )
+                    .map_err(db_error)?;
+            }
+            Ok(())
+        })
     })
     .await
     .map_err(|error| format!("Retry task failed: {error}"))??;
@@ -1672,6 +2014,203 @@ mod tests {
     };
 
     const TEST_HASH: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn ordered_mirrors_retry_three_times_then_discard_partial_bytes_before_fallback() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let first = format!("http://{}/first", listener.local_addr().unwrap());
+        let second = format!("http://{}/second", listener.local_addr().unwrap());
+        let payload = b"PK\x03\x04second-archive";
+        let server = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(12);
+            let mut requests = Vec::new();
+            for index in 0..6 {
+                let mut socket = loop {
+                    match listener.accept() {
+                        Ok((socket, _)) => break socket,
+                        Err(error)
+                            if error.kind() == std::io::ErrorKind::WouldBlock
+                                && Instant::now() < deadline =>
+                        {
+                            thread::sleep(Duration::from_millis(5))
+                        }
+                        Err(error) => panic!("Mirror request {index} was not received: {error}"),
+                    }
+                };
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while !request.ends_with(b"\r\n\r\n") {
+                    socket.read_exact(&mut byte).unwrap();
+                    request.push(byte[0]);
+                }
+                let request = String::from_utf8(request).unwrap().to_lowercase();
+                if index < 4 {
+                    assert!(request.starts_with("get /first "));
+                    let offset = request
+                        .split("range: bytes=")
+                        .nth(1)
+                        .and_then(|value| value.split('-').next())
+                        .and_then(|value| value.parse::<usize>().ok())
+                        .unwrap_or(0);
+                    let remaining = 10 - offset;
+                    let range = if offset > 0 {
+                        format!("Content-Range: bytes {offset}-9/10\r\n")
+                    } else {
+                        String::new()
+                    };
+                    let status = if offset > 0 {
+                        "206 Partial Content"
+                    } else {
+                        "200 OK"
+                    };
+                    socket.write_all(format!("HTTP/1.1 {status}\r\n{range}ETag: \"first\"\r\nContent-Length: {remaining}\r\nConnection: close\r\n\r\n").as_bytes()).unwrap();
+                    socket
+                        .write_all(&b"bad"[..remaining.saturating_sub(1).min(3)])
+                        .unwrap();
+                } else {
+                    assert!(request.starts_with("get /second "));
+                    if index == 5 {
+                        assert!(
+                            !request.contains("range:"),
+                            "a different mirror starts from byte zero"
+                        );
+                    }
+                    socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", payload.len()).as_bytes()).unwrap();
+                    socket.write_all(payload).unwrap();
+                }
+                requests.push(request);
+            }
+            requests
+        });
+        let (database, directory) = database_with_source();
+        let job = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
+        let plan =
+            crate::download_selection::MirrorPlan::new(vec![first.clone(), second.clone()], None);
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET url=?2,mirror_plan=?3 WHERE id=?1",
+                        params![job.id, first, serde_json::to_string(&plan).unwrap()],
+                    )
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+        let database = std::sync::Arc::new(database);
+        let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
+        let transfer_job = claim(&database).unwrap().unwrap();
+        tauri::async_runtime::block_on(transfer(&queue, database.clone(), &transfer_job)).unwrap();
+        assert_eq!(
+            fs::read(queue.path(&job.id, "archive").unwrap()).unwrap(),
+            payload
+        );
+        let saved = list(&database).unwrap().remove(0);
+        assert_eq!(saved.url, second);
+        assert_eq!(saved.size_bytes, payload.len() as u64);
+        assert_eq!(server.join().unwrap().len(), 6);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn exhausting_all_mirrors_marks_the_job_failed_without_an_automatic_waiting_loop() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let first = format!("http://{}/first", listener.local_addr().unwrap());
+        let second = format!("http://{}/second", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(12);
+            let mut paths = Vec::new();
+            for _ in 0..8 {
+                let mut socket = loop {
+                    match listener.accept() {
+                        Ok((socket, _)) => break socket,
+                        Err(error)
+                            if error.kind() == std::io::ErrorKind::WouldBlock
+                                && Instant::now() < deadline =>
+                        {
+                            thread::sleep(Duration::from_millis(5))
+                        }
+                        Err(error) => panic!("Expected mirror retry: {error}"),
+                    }
+                };
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while !request.ends_with(b"\r\n\r\n") {
+                    socket.read_exact(&mut byte).unwrap();
+                    request.push(byte[0]);
+                }
+                paths.push(
+                    String::from_utf8(request)
+                        .unwrap()
+                        .split_whitespace()
+                        .nth(1)
+                        .unwrap()
+                        .to_owned(),
+                );
+                socket
+                    .write_all(
+                        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    )
+                    .unwrap();
+            }
+            paths
+        });
+        let (database, directory) = database_with_source();
+        let job = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
+        let plan =
+            crate::download_selection::MirrorPlan::new(vec![first.clone(), second], Some(10));
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET url=?2,mirror_plan=?3 WHERE id=?1",
+                        params![job.id, first, serde_json::to_string(&plan).unwrap()],
+                    )
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+        let app = test_app(&directory);
+        tauri::async_runtime::block_on(run_queue(app.handle())).unwrap();
+        let saved = list(&database).unwrap().remove(0);
+        assert_eq!(saved.status, DownloadStatus::Failed);
+        assert!(
+            saved
+                .error
+                .unwrap()
+                .starts_with("All download links failed")
+        );
+        assert_eq!(
+            server.join().unwrap(),
+            [vec!["/first"; 4], vec!["/second"; 4]].concat()
+        );
+        drop(app);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn completion_notification_waits_for_installation_and_respects_settings() {
@@ -2443,7 +2982,7 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute(
-                        "UPDATE downloads SET url = ?2, status = 'waiting', error = 'Network: unavailable',
+                        "UPDATE downloads SET mirror_plan = NULL, url = ?2, status = 'waiting', error = 'Network: unavailable',
                          sha256 = ?3, size_bytes = ?4 WHERE id = ?1",
                         params![job.id, url, hash, archive.len() as i64],
                     )
@@ -2514,7 +3053,7 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute(
-                        "UPDATE downloads SET url = ?2, sha256 = ?3, size_bytes = ?4 WHERE id = ?1",
+                        "UPDATE downloads SET mirror_plan = NULL, url = ?2, sha256 = ?3, size_bytes = ?4 WHERE id = ?1",
                         params![job.id, url, hash, archive.len() as i64],
                     )
                     .map_err(db_error)?;
@@ -2596,7 +3135,7 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute(
-                        "UPDATE downloads SET url = ?2, sha256 = ?3, size_bytes = ?4 WHERE id = ?1",
+                        "UPDATE downloads SET mirror_plan = NULL, url = ?2, sha256 = ?3, size_bytes = ?4 WHERE id = ?1",
                         params![job.id, url, hash, archive.len() as i64],
                     )
                     .map_err(db_error)?;
@@ -2697,7 +3236,7 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute(
-                        "UPDATE downloads SET url = ?2, etag = '\"abc\"' WHERE id = ?1",
+                        "UPDATE downloads SET mirror_plan = NULL, url = ?2, etag = '\"abc\"' WHERE id = ?1",
                         params![job.id, url],
                     )
                     .map_err(db_error)?;
@@ -2755,7 +3294,7 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute(
-                        "UPDATE downloads SET url = ?2 WHERE id = ?1",
+                        "UPDATE downloads SET mirror_plan = NULL, url = ?2 WHERE id = ?1",
                         params![job.id, url],
                     )
                     .map_err(db_error)?;
@@ -2816,7 +3355,7 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute(
-                        "UPDATE downloads SET url = ?2, etag = '\"abc\"' WHERE id = ?1",
+                        "UPDATE downloads SET mirror_plan = NULL, url = ?2, etag = '\"abc\"' WHERE id = ?1",
                         params![job.id, url],
                     )
                     .map_err(db_error)?;
@@ -2873,7 +3412,7 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute(
-                        "UPDATE downloads SET url = ?2, etag = '\"abc\"' WHERE id = ?1",
+                        "UPDATE downloads SET mirror_plan = NULL, url = ?2, etag = '\"abc\"' WHERE id = ?1",
                         params![job.id, url],
                     )
                     .map_err(db_error)?;

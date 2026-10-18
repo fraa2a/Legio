@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
+  import Badge from "../../components/ui/Badge.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import SteamArtwork from "./SteamArtwork.svelte";
 
@@ -8,6 +9,7 @@
     name: string;
     subtitle: string;
     isSteam?: boolean;
+    sourceName?: string;
   }
 
   let {
@@ -69,6 +71,7 @@
       <span class="flex min-w-0 flex-1 flex-col gap-0.5">
         <span class="flex min-w-0 items-center gap-1.5">
           <span class="truncate text-lg leading-6 font-semibold">{selected.name}</span>
+          {#if selected.sourceName}<span class="max-w-24 truncate" title={selected.sourceName}><Badge title={selected.sourceName} /></span>{/if}
           {#if selected.isSteam}<span class="shrink-0 rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-bold leading-none text-sky-300 light:text-sky-700">STEAM</span>{/if}
         </span>
         <span class="truncate text-xs leading-4 text-zinc-400 light:text-zinc-600">{selected.subtitle}</span>
@@ -95,6 +98,7 @@
             <span class="flex min-w-0 flex-col">
               <span class="flex min-w-0 items-center gap-1.5">
                 <span class="truncate text-sm font-semibold text-zinc-100 light:text-zinc-900">{option.name}</span>
+                {#if option.sourceName}<span class="max-w-24 truncate" title={option.sourceName}><Badge title={option.sourceName} /></span>{/if}
                 {#if option.isSteam}<span class="shrink-0 rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-bold leading-none text-sky-300 light:text-sky-700">STEAM</span>{/if}
               </span>
               <span class="truncate text-xs text-zinc-400 light:text-zinc-600">{option.subtitle}</span>

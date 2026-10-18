@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+  import { observeSourceImportProgress, type SourceImportProgress } from "../../services/legio-source";
   import { t, language } from "../../i18n";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import TextField from "../../components/ui/TextField.svelte";
@@ -8,6 +10,15 @@
   import { sourceLinkRegistrationError } from "../../stores/source-links";
 
   let url = $state("");
+  let progress = $state<SourceImportProgress | null>(null);
+  onMount(() => {
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void observeSourceImportProgress(value => { progress = value; }).then(unlisten => {
+      if (disposed) unlisten(); else stop = unlisten;
+    }).catch(() => { progress = null; });
+    return () => { disposed = true; stop?.(); };
+  });
 
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
@@ -24,6 +35,7 @@
         <Button type="submit" label={t("Aggiungi sorgente", $language)} disabled={$sourceBusy || !url.trim()} />
       </div>
     </form>
+    {#if $sourceBusy && progress}<p role="status" class="text-sm text-zinc-400">{t("Identificazione giochi", $language)}: {progress.processed}/{progress.total}</p>{/if}
     {#if $sourceActionError}<ErrorBanner message={$sourceActionError} />{/if}
     {#if $source.error}<ErrorBanner message={$source.error} onRetry={() => { void source.load(); }} />{/if}
   </SettingsGroup>
@@ -35,6 +47,12 @@
       <ul class="flex flex-col gap-3">
         {#each $source.data.sources as installed (installed.id)}
           <li class="flex flex-col gap-3 rounded-lg bg-white/5 p-3 light:bg-zinc-900/5">
+            <p class="text-sm font-medium text-zinc-100 light:text-zinc-900">{installed.name ?? installed.url} {installed.format === "hydra" ? "(Hydra)" : ""}</p>
+            {#if installed.diagnostics}
+              {#if installed.diagnostics.unresolved > 0}<p class="text-xs text-amber-300 light:text-amber-800">{installed.diagnostics.unresolved} {t("titoli non identificati", $language)}</p>{/if}
+              {#if installed.diagnostics.rejected > 0}<p class="text-xs text-amber-300 light:text-amber-800">{installed.diagnostics.rejected} {t("voci non valide", $language)}</p>{/if}
+              {#if installed.diagnostics.unsupported > 0}<p class="text-xs text-zinc-400">{installed.diagnostics.unsupported} {t("link non supportati", $language)}</p>{/if}
+            {/if}
             <p class="break-all text-sm text-zinc-100 light:text-zinc-900">{installed.url}</p>
             <div class="flex flex-wrap items-center justify-between gap-3">
               <p class="text-xs text-zinc-400 light:text-zinc-600">{installed.gameCount} {t("giochi", $language)} · {t(installed.stale ? "Cache da aggiornare" : "Aggiornata", $language)}</p>
