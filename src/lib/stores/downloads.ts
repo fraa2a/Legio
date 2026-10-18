@@ -1,3 +1,4 @@
+import { downloadState } from "../services/download-status";
 import { gameUpdates } from "./game-updates";
 import { games } from "./games";
 import { windowActive } from "./window-activity";
@@ -46,24 +47,10 @@ export const finishedDownloadCount = derived(
   (state) => state.data.filter((job) => isFinishedDownloadStatus(job.status)).length,
 );
 
-const statusRank: Record<string, number> = {
-  downloading: 0,
-  staging: 0,
-  downloaded: 0,
-  finalizing: 0,
-  queued: 1,
-  waiting: 1,
-  paused: 2,
-  failed: 3,
-  staged: 4,
-  installed: 5,
-  cancelled: 6,
-};
-
 export const orderedDownloads = derived(downloads, (state) =>
   [...state.data].sort(
     (left, right) =>
-      (statusRank[left.status] ?? 4) - (statusRank[right.status] ?? 4),
+      (downloadState(left.status)?.rank ?? 4) - (downloadState(right.status)?.rank ?? 4),
   ),
 );
 

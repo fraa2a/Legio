@@ -8,7 +8,7 @@ import { t } from "../i18n";
   }
 
   export function parseMap(value: string, label: string): Record<string, string> {
-    const result: Record<string, string> = {};
+    const result: Record<string, string> = Object.create(null);
     for (const line of value.split(/\r?\n/)) {
       if (line.trim().length === 0) continue;
       const separator = line.indexOf("=");

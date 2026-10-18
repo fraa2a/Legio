@@ -19,6 +19,7 @@
     type CompatibilityRunner,
   } from "../../services/game-settings";
   import { appInfo } from "../../stores/app-info";
+  import { createSaveQueue } from "../../services/save-queue";
   import { toMessage } from "../../utils/errors";
 
   let defaults = $state<CompatibilityDefaults>({ ...emptyCompatibilityDefaults });
@@ -37,7 +38,7 @@
   let saved = $state(false);
   let baseline = $state<string | null>(null);
   let failedSnapshot: string | null = null;
-  let savingTask: Promise<void> | null = null;
+  const saveQueue = createSaveQueue();
   const serialized = $derived(JSON.stringify({ defaults, argumentsBefore, argumentsAfter, environmentText, dllOverridesText }));
 
   onMount(() => {
@@ -51,10 +52,9 @@
   });
 
   onDestroy(() => {
-    void (async () => {
-      if (savingTask !== null) await savingTask;
+    void saveQueue.flush(async () => {
       if (baseline !== null && serialized !== baseline && serialized !== failedSnapshot) await save();
-    })();
+    });
   });
 
   async function load(): Promise<void> {
@@ -101,14 +101,13 @@
   }
 
   function save(): Promise<void> {
-    if (savingTask !== null) return savingTask;
-    const snapshot = serialized;
-    const draft = structuredClone($state.snapshot(defaults));
-    const before = argumentsBefore;
-    const after = argumentsAfter;
-    const environment = environmentText;
-    const dll = dllOverridesText;
-    savingTask = (async () => {
+    return saveQueue.run(async () => {
+      const snapshot = serialized;
+      const draft = structuredClone($state.snapshot(defaults));
+      const before = argumentsBefore;
+      const after = argumentsAfter;
+      const environment = environmentText;
+      const dll = dllOverridesText;
       saving = true;
       saveError = null;
       saved = false;
@@ -136,10 +135,8 @@
         saveError = toMessage(error);
       } finally {
         saving = false;
-        savingTask = null;
       }
-    })();
-    return savingTask;
+    });
   }
 
   const runnerOptions = $derived([

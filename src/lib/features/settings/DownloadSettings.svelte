@@ -2,6 +2,7 @@
   import { t, language } from "../../i18n";
   import LibrarySettings from "./LibrarySettings.svelte";
   import SourceSettings from "./SourceSettings.svelte";
+  import { createSaveQueue } from "../../services/save-queue";
   import { onDestroy } from "svelte";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
@@ -27,6 +28,7 @@
   let limitDraft = $state<string | null>(null);
   let savingLimit = $state(false);
   let failedLimit: string | null = null;
+  const saveQueue = createSaveQueue();
 
   const savedMegabytes = $derived(
     ($bandwidthLimit.data / bytesPerMegabyte).toFixed(2).replace(/\.?0+$/, ""),
@@ -47,15 +49,28 @@
     return () => clearTimeout(timer);
   });
 
-  onDestroy(() => { if (draftChanged && !savingLimit && draftMegabytes !== failedLimit) void applyLimit(); });
-
-  async function applyLimit(): Promise<void> {
+  onDestroy(() => {
     const value = draftMegabytes;
-    savingLimit = true;
-    await saveBandwidthLimit(draftBytes);
-    if ($bandwidthLimitError === null) { limitDraft = null; failedLimit = null; }
-    else failedLimit = value;
-    savingLimit = false;
+    const bytes = draftBytes;
+    const changed = draftChanged;
+    void saveQueue.flush(async () => {
+      if (changed && value !== failedLimit && bytes !== $bandwidthLimit.data) await applyLimit(value, bytes);
+    });
+  });
+
+  function applyLimit(value = draftMegabytes, bytes = draftBytes): Promise<void> {
+    return saveQueue.run(async () => {
+      savingLimit = true;
+      try {
+        await saveBandwidthLimit(bytes);
+        if ($bandwidthLimitError === null) {
+          if (draftMegabytes === value) limitDraft = null;
+          failedLimit = null;
+        } else failedLimit = value;
+      } finally {
+        savingLimit = false;
+      }
+    });
   }
 
   let savingSettings = $state(false);

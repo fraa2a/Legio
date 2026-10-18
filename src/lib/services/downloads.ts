@@ -1,3 +1,4 @@
+import { downloadState, supportsDownloadAction, type DownloadStatus } from "./download-status";
 import { t } from "../i18n";
 import { invoke } from "./invoke";
 
@@ -28,62 +29,42 @@ export interface InstalledFolderInfo {
   totalBytes: number;
 }
 
-export type DownloadStatus = "queued" | "downloading" | "waiting" | "paused" | "failed" | "downloaded" | "staging" | "staged" | "finalizing" | "installed" | "cancelled";
-
-const statusLabels: Record<DownloadStatus, string> = {
-  queued: "in coda",
-  downloading: "download in corso",
-  waiting: "in attesa",
-  paused: "download in pausa",
-  failed: "download fallito",
-  downloaded: "download completato",
-  staging: "estrazione in corso",
-  staged: "estrazione completata",
-  finalizing: "installazione in corso",
-  installed: "installato",
-  cancelled: "download annullato",
-};
+export type { DownloadStatus } from "./download-status";
 
 export function describeDownloadStatus(status: string): string {
-  return t(statusLabels[status as DownloadStatus] ?? status);
+  return t(downloadState(status)?.description ?? status);
 }
 
 export function isActiveDownloadStatus(status: string): boolean {
-  return status === "queued" || status === "downloading" || status === "waiting" || status === "downloaded" || status === "staging" || status === "staged" || status === "finalizing";
+  return downloadState(status)?.active ?? false;
 }
 
 export function canPauseDownload(status: string): boolean {
-  return status === "queued" || status === "downloading" || status === "waiting";
+  return supportsDownloadAction(status, "pause");
 }
 
 export function canResumeDownload(status: string): boolean {
-  return status === "paused" || status === "waiting";
+  return supportsDownloadAction(status, "resume");
 }
 
 export function canRetryDownload(status: string, error?: string | null): boolean {
-  return status === "failed" || ((status === "finalizing" || status === "staged") && Boolean(error));
+  return supportsDownloadAction(status, "retry") || ((status === "finalizing" || status === "staged") && Boolean(error));
 }
 
 export function canCancelDownload(status: string): boolean {
-  return (
-    status === "queued" ||
-    status === "downloading" ||
-    status === "paused" ||
-    status === "waiting" ||
-    status === "failed"
-  );
+  return supportsDownloadAction(status, "cancel");
 }
 
 export function canFinalizeDownload(status: string): boolean {
-  return status === "staged";
+  return supportsDownloadAction(status, "finalize");
 }
 
 export function canRemoveDownload(status: string): boolean {
-  return status === "cancelled" || status === "failed" || status === "installed";
+  return supportsDownloadAction(status, "remove");
 }
 
 export function isFinishedDownloadStatus(status: string): boolean {
-  return status === "cancelled" || status === "installed";
+  return downloadState(status)?.section === "finished";
 }
 
 export function downloadProgressPercent(job: DownloadJob): number {

@@ -257,7 +257,8 @@ test("source indexing preserves verified precedence and release order", async ()
 
 
 test("download presentation labels and progress tones follow status", async () => {
-  const { statusBadge, phaseLabel, progressTone } = await loadModule("../src/lib/features/downloads/downloads-model.ts", { "../../i18n": localeUrl });
+  const { load } = createModuleLoader({ "src/lib/i18n": localeUrl });
+  const { statusBadge, phaseLabel, progressTone } = await import(await load("src/lib/features/downloads/downloads-model.ts"));
   assert.equal(statusBadge("installed", "en"), "Completed");
   assert.equal(statusBadge("installed", "it"), "Completato");
   assert.equal(phaseLabel({ status: "staged" }, "en"), "Waiting for automatic installation");
