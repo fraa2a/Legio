@@ -7,7 +7,7 @@
   import SelectField from "../../components/ui/SelectField.svelte";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import TextField from "../../components/ui/TextField.svelte";
-  import Toggle from "../../components/ui/Toggle.svelte";
+  import ToggleSetting from "../../components/ui/ToggleSetting.svelte";
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
   import {
     emptyCompatibilityDefaults,
@@ -216,12 +216,11 @@
           hint={t("Legio crea un prefix per gioco dentro questa cartella.", $language)}
           oninput={(value) => (defaults = { ...defaults, prefixRoot: value || null })}
         /></div><ResetSetting label={t("Ripristina cartella prefix", $language)} disabled={saving || defaults.prefixRoot === null} onClick={() => { defaults = { ...defaults, prefixRoot: null }; }} /></div>
-        <div class="flex items-center gap-2 self-end pb-2"><div class="min-w-0 flex-1">
-          <Toggle
-            label={t("Abilita log di debug per gli avvii", $language)}
-            checked={defaults.debugLogging}
-            onChange={(checked) => (defaults = { ...defaults, debugLogging: checked })}
-          /></div><ResetSetting label={t("Ripristina log di debug", $language)} disabled={saving || !defaults.debugLogging} onClick={() => { defaults = { ...defaults, debugLogging: false }; }} /></div>
+        <div class="self-end pb-2">
+          <ToggleSetting label={t("Abilita log di debug per gli avvii", $language)}
+            checked={defaults.debugLogging} disabled={saving}
+            onChange={(checked) => (defaults = { ...defaults, debugLogging: checked })} />
+        </div>
       </div>
       <div class="grid gap-4 md:grid-cols-2">
         <div class="flex items-end gap-2"><div class="min-w-0 flex-1"><SelectField
