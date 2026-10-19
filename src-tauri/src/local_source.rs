@@ -13,7 +13,7 @@ pub(crate) fn location(path: &str) -> Result<String, String> {
         .map_err(|_| "Invalid local source path".into())
 }
 
-fn file_path(location: &str) -> Result<std::path::PathBuf, String> {
+pub(crate) fn file_path(location: &str) -> Result<std::path::PathBuf, String> {
     let url = reqwest::Url::parse(location).map_err(|_| "Invalid local source location")?;
     if url.query().is_some() || url.fragment().is_some() || url.host_str().is_some() {
         return Err("Local sources must be files on this computer".into());

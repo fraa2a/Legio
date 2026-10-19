@@ -31,17 +31,32 @@ pub(crate) struct SourceCatalog {
 
 impl SourceCatalog {
     pub(crate) fn native(mut manifest: Manifest) -> Self {
-        manifest
-            .verified
-            .retain(|entry| crate::download_selection::supported(&entry.download.url));
-        manifest
-            .unverified
-            .retain(|entry| crate::download_selection::supported(&entry.download.url));
+        let mut candidates = BTreeMap::new();
+        for entries in [&mut manifest.verified, &mut manifest.unverified] {
+            entries.retain_mut(|entry| {
+                let mut urls = vec![entry.download.url.clone()];
+                for mirror in &entry.download.mirrors {
+                    if !urls.contains(mirror) {
+                        urls.push(mirror.clone());
+                    }
+                }
+                urls.retain(|url| crate::download_selection::supported(url));
+                let Some(first) = urls.first() else {
+                    return false;
+                };
+                entry.download.url = first.clone();
+                entry.download.mirrors = urls.iter().skip(1).cloned().collect();
+                if let Some(id) = &entry.id {
+                    candidates.insert(id.clone(), urls);
+                }
+                true
+            });
+        }
         Self {
             format: SourceFormat::Legio,
             name: None,
             manifest,
-            candidates: BTreeMap::new(),
+            candidates,
             diagnostics: ImportDiagnostics::default(),
             raw_hydra: None,
             matches: HashMap::new(),
@@ -157,6 +172,7 @@ pub(crate) fn from_hydra(
             },
             download: Download {
                 url: entry.uris[0].clone(),
+                mirrors: Vec::new(),
                 sha256: None,
                 size_bytes: None,
             },
@@ -226,6 +242,9 @@ pub(crate) async fn validate_links(
             .chain(&catalog.manifest.unverified)
         {
             links.insert(entry.download.url.clone(), entry.download.size_bytes);
+            for mirror in &entry.download.mirrors {
+                links.insert(mirror.clone(), entry.download.size_bytes);
+            }
         }
     }
     let total = links.len();
@@ -284,14 +303,26 @@ pub(crate) async fn validate_links(
         raw.downloads.retain(|entry| !entry.uris.is_empty());
         catalog = from_hydra(raw, &[], catalog.matches);
     } else {
-        catalog
-            .manifest
-            .verified
-            .retain(|entry| sizes.contains_key(&entry.download.url));
-        catalog
-            .manifest
-            .unverified
-            .retain(|entry| sizes.contains_key(&entry.download.url));
+        catalog.candidates.clear();
+        for entries in [
+            &mut catalog.manifest.verified,
+            &mut catalog.manifest.unverified,
+        ] {
+            entries.retain_mut(|entry| {
+                let mut urls = vec![entry.download.url.clone()];
+                urls.extend(entry.download.mirrors.clone());
+                urls.retain(|url| sizes.contains_key(url));
+                let Some(first) = urls.first() else {
+                    return false;
+                };
+                entry.download.url = first.clone();
+                entry.download.mirrors = urls.iter().skip(1).cloned().collect();
+                if let Some(id) = &entry.id {
+                    catalog.candidates.insert(id.clone(), urls);
+                }
+                true
+            });
+        }
     }
     catalog.validated_sizes = sizes;
     catalog.diagnostics.reasons.extend(reasons);
@@ -305,57 +336,83 @@ mod tests {
 
     #[tokio::test]
     async fn validated_links_hide_html_entries_preserve_json_order_and_survive_cache() {
-        use std::{
-            io::{Read, Write},
-            net::TcpListener,
-            thread,
-        };
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let base = format!("http://{}", listener.local_addr().unwrap());
-        let first = format!("{base}/z-good.zip");
-        let second = format!("{base}/a-good.zip");
-        let page = format!("{base}/page.zip");
-        let server = thread::spawn(move || {
-            for _ in 0..3 {
-                let (mut socket, _) = listener.accept().unwrap();
-                socket
-                    .set_read_timeout(Some(std::time::Duration::from_secs(3)))
-                    .unwrap();
-                let mut request = Vec::new();
-                let mut byte = [0];
-                while !request.ends_with(b"\r\n\r\n") {
-                    socket.read_exact(&mut byte).unwrap();
-                    request.push(byte[0]);
+        for native in [false, true] {
+            use std::{
+                io::{Read, Write},
+                net::TcpListener,
+                thread,
+            };
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let base = format!("http://{}", listener.local_addr().unwrap());
+            let first = format!("{base}/z-good.zip");
+            let second = format!("{base}/a-good.zip");
+            let page = format!("{base}/page.zip");
+            let server = thread::spawn(move || {
+                for _ in 0..3 {
+                    let (mut socket, _) = listener.accept().unwrap();
+                    socket
+                        .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+                        .unwrap();
+                    let mut request = Vec::new();
+                    let mut byte = [0];
+                    while !request.ends_with(b"\r\n\r\n") {
+                        socket.read_exact(&mut byte).unwrap();
+                        request.push(byte[0]);
+                    }
+                    let request = String::from_utf8(request).unwrap();
+                    let (kind, body): (&str, &[u8]) = if request.starts_with("GET /page") {
+                        ("text/html", b"<html>landing page</html>")
+                    } else {
+                        ("application/zip", b"PK\x03\x04abcdef")
+                    };
+                    socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",body.len()).as_bytes()).unwrap();
+                    socket.write_all(body).unwrap();
                 }
-                let request = String::from_utf8(request).unwrap();
-                let (kind, body): (&str, &[u8]) = if request.starts_with("GET /page") {
-                    ("text/html", b"<html>landing page</html>")
-                } else {
-                    ("application/zip", b"PK\x03\x04abcdef")
-                };
-                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",body.len()).as_bytes()).unwrap();
-                socket.write_all(body).unwrap();
-            }
-        });
-        let bytes=serde_json::to_vec(&serde_json::json!({"name":"Publisher","downloads":[{"title":"Portal","uris":[first,second]},{"title":"Other","uris":[page]}]})).unwrap();
-        let catalog =
-            parse_source(&bytes, &[(400, "Portal".into()), (401, "Other".into())]).unwrap();
-        let validated = validate_links(
-            catalog,
-            &crate::download_resolver::client().unwrap(),
-            |_, _| Ok(()),
-        )
-        .await
-        .unwrap();
-        server.join().unwrap();
-        assert_eq!(validated.manifest.unverified.len(), 1);
-        assert_eq!(validated.manifest.unverified[0].steam_app_id, 400);
-        let entry_id = validated.manifest.unverified[0].id.as_ref().unwrap();
-        assert_eq!(validated.candidates[entry_id], vec![first, second]);
-        let restored = decode_cache(&encode_cache(&validated).unwrap()).unwrap();
-        assert_eq!(restored.manifest.unverified.len(), 1);
-        assert_eq!(restored.candidates, validated.candidates);
-        assert_eq!(restored.validated_sizes, validated.validated_sizes);
+            });
+            let document = if native {
+                serde_json::json!({"schemaVersion":2,"supportGameUpdates":true,"generatedAt":"2026-10-19T00:00:00Z","verified":[],"unverified":[
+                    {"id":"portal","steamAppId":400,"name":"Portal","release":{"version":"1","publishedAt":"2026-10-19T00:00:00Z"},"download":{"url":page,"mirrors":[first,second],"sha256":null,"sizeBytes":null}},
+                    {"id":"other","steamAppId":401,"name":"Other","release":{"version":"1","publishedAt":"2026-10-19T00:00:00Z"},"download":{"url":page,"sha256":null,"sizeBytes":null}}
+                ]})
+            } else {
+                serde_json::json!({"name":"Publisher","downloads":[{"title":"Portal","uris":[page,first,second]},{"title":"Other","uris":[page]}]})
+            };
+            let bytes = serde_json::to_vec(&document).unwrap();
+            let catalog =
+                parse_source(&bytes, &[(400, "Portal".into()), (401, "Other".into())]).unwrap();
+            let validated = validate_links(
+                catalog,
+                &crate::download_resolver::client().unwrap(),
+                |_, _| Ok(()),
+            )
+            .await
+            .unwrap();
+            server.join().unwrap();
+            assert_eq!(validated.manifest.unverified.len(), 1);
+            assert_eq!(validated.manifest.unverified[0].steam_app_id, 400);
+            let entry_id = validated.manifest.unverified[0].id.as_ref().unwrap();
+            assert_eq!(validated.candidates[entry_id], vec![first, second]);
+            let restored = decode_cache(&encode_cache(&validated).unwrap()).unwrap();
+            assert_eq!(restored.manifest.unverified.len(), 1);
+            assert_eq!(restored.candidates, validated.candidates);
+            assert_eq!(restored.validated_sizes, validated.validated_sizes);
+        }
+    }
+
+    #[test]
+    fn converted_manifest_preserves_mirror_order_and_unknown_size_in_cache() {
+        let bytes = br#"{"schemaVersion":2,"supportGameUpdates":true,"generatedAt":"2026-10-19T00:00:00Z","verified":[],"unverified":[{"id":"portal","steamAppId":400,"name":"Portal","release":{"version":"1","publishedAt":"2026-10-19T00:00:00Z"},"download":{"url":"https://gofile.io/d/primary","mirrors":["https://example.test/mirror.zip"],"sha256":null,"sizeBytes":null}}]}"#;
+        let catalog = parse_source(bytes, &[]).unwrap();
+        assert_eq!(catalog.manifest.unverified[0].download.size_bytes, None);
+        assert_eq!(
+            catalog.candidates["portal"],
+            vec![
+                "https://gofile.io/d/primary",
+                "https://example.test/mirror.zip"
+            ]
+        );
+        let restored = decode_cache(&encode_cache(&catalog).unwrap()).unwrap();
+        assert_eq!(restored.candidates, catalog.candidates);
     }
 
     #[tokio::test]

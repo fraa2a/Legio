@@ -213,6 +213,15 @@ jobs:
         shell: bash
         run: corepack pnpm install --frozen-lockfile
 
+      - name: Test Windows local JSON sources and converted catalogs
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib local_source::tests
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib legio_source::tests
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib legio_source_cache::tests
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib source_catalog::tests
+
       - name: Test Windows game updates and executable paths
         if: runner.os == 'Windows'
         shell: bash

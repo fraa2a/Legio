@@ -760,6 +760,53 @@ mod tests {
     }
 
     #[test]
+    fn converted_native_source_can_queue_with_cached_host_size() {
+        let (directory, database) = database();
+        let mut manifest = valid(400);
+        let mut entry = manifest.verified.remove(0);
+        entry.download.sha256 = None;
+        entry.download.size_bytes = None;
+        manifest.unverified.push(entry);
+        let mut catalog = SourceCatalog::native(manifest);
+        catalog
+            .validated_sizes
+            .insert("https://example.invalid/a.zip".into(), 123);
+        let location = reqwest::Url::from_file_path(directory.join("converted.json")).unwrap();
+        insert_catalog(&database, location.as_str(), catalog, 100).unwrap();
+        let installed = snapshot(&database, 101).unwrap();
+        assert!(installed.sources[0].is_local);
+        assert_eq!(installed.sources[0].name, "converted.json");
+        let id = installed.sources[0].id.clone();
+        let job = crate::download_queue::enqueue_from_source(
+            &database,
+            400,
+            "https://example.invalid/a.zip",
+            "1",
+            true,
+            Some(&id),
+        )
+        .unwrap();
+        assert!(!job.id().is_empty());
+        let sizes = database
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT size_bytes,published_size_bytes FROM downloads WHERE id=?1",
+                        [job.id()],
+                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?)),
+                    )
+                    .map_err(db_error)
+            })
+            .unwrap();
+        assert_eq!(sizes, (123, None));
+        drop(database);
+        let reopened = Database::open(&directory).unwrap();
+        assert_eq!(snapshot(&reopened, 101).unwrap().sources[0].id, id);
+        drop(reopened);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn queues_a_resolved_hydra_mirror_without_inventing_manifest_size() {
         let (directory, database) = database();
         let source = crate::source_catalog::parse_source(br#"{"name":"SteamGG","downloads":[{"title":"Portal","uris":["https://gofile.io/d/a","https://example.test/other.zip"]}]}"#, &[(400, "Portal".to_owned())]).unwrap();

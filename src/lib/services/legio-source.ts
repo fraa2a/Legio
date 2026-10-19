@@ -7,7 +7,7 @@ export interface SourceEntry {
   steamAppId: number;
   name: string;
   release: { version: string; publishedAt: string | null };
-  download: { url: string; sha256?: string | null; sizeBytes: number | null };
+  download: { url: string; mirrors?: string[]; sha256?: string | null; sizeBytes: number | null };
 }
 
 export interface SourceManifest {
