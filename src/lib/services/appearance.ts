@@ -61,7 +61,7 @@ export function defaultAppearance(): Appearance {
   return {
     background: null, backgroundBlur: 0, backgroundOpacity: 60,
     animatedBackground: "none", animatedOpacity: 65, dither: defaultDither(),
-    surfaceOpacity: 90, surfaceBlur: 0, dialogOpacity: 90, dialogBlur: 0, transparent: false,
+    surfaceOpacity: 0, surfaceBlur: 40, dialogOpacity: 0, dialogBlur: 40, transparent: false,
   };
 }
 
