@@ -36,6 +36,13 @@ const mocks = {
 
 const { load } = createModuleLoader(mocks);
 const appearance = await import(await load("src/lib/services/appearance.ts"));
+test("default panels and dialogs are transparent with 40px blur", () => {
+  const defaults = appearance.defaultAppearance();
+  assert.equal(defaults.surfaceOpacity, 0);
+  assert.equal(defaults.dialogOpacity, 0);
+  assert.equal(defaults.surfaceBlur, 40);
+  assert.equal(defaults.dialogBlur, 40);
+});
 const settle = async () => {
   for (let index = 0; index < 6; index++) { await new Promise((resolve) => setImmediate(resolve)); flushSync(); }
 };

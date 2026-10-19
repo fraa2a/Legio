@@ -64,10 +64,10 @@ html, body, #app { width: 100%; height: 100%; min-width: 0; min-height: 0; }
   --legio-error: #fca5a5;
   --legio-surface: #18181b;
   --legio-text: #fafafa;
-  --legio-surface-opacity: 1;
-  --legio-surface-blur: none;
-  --legio-dialog-opacity: 1;
-  --legio-dialog-blur: none;
+  --legio-surface-opacity: 0;
+  --legio-surface-blur: blur(40px);
+  --legio-dialog-opacity: 0;
+  --legio-dialog-blur: blur(40px);
 }
 :root[data-theme="light"] {
   --legio-success: #047857;

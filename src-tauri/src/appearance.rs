@@ -96,10 +96,10 @@ impl Default for Appearance {
             animated_background: AnimatedBackground::None,
             animated_opacity: default_animated_opacity(),
             dither: DitherSettings::default(),
-            surface_opacity: 90,
-            surface_blur: 0,
-            dialog_opacity: 90,
-            dialog_blur: 0,
+            surface_opacity: 0,
+            surface_blur: 40,
+            dialog_opacity: 0,
+            dialog_blur: 40,
             transparent: false,
         }
     }
@@ -343,6 +343,17 @@ pub async fn cleanup_theme_backgrounds(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_panels_and_dialogs_are_transparent_and_blurred() {
+        let defaults = Appearance::default();
+        assert_eq!(defaults.surface_opacity, 0);
+        assert_eq!(defaults.dialog_opacity, 0);
+        assert_eq!(defaults.surface_blur, 40);
+        assert_eq!(defaults.dialog_blur, 40);
+        let missing: Appearance = serde_json::from_str("{}").unwrap();
+        assert_eq!(missing, defaults);
+    }
 
     #[test]
     fn legacy_appearance_fields_are_tolerated() {
