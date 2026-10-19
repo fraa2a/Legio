@@ -373,7 +373,10 @@ mod tests {
         assert!(parse(document.clone()).is_ok());
         document["name"] = json!("Legio Community");
         let named = parse(document.clone()).unwrap();
-        assert_eq!(serde_json::to_value(named).unwrap()["name"], "Legio Community");
+        assert_eq!(
+            serde_json::to_value(named).unwrap()["name"],
+            "Legio Community"
+        );
         for name in [
             json!(""),
             json!("  "),
