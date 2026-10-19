@@ -216,6 +216,8 @@ jobs:
       - name: Test Windows local JSON sources and converted catalogs
         if: runner.os == 'Windows'
         shell: bash
+        env:
+          LEGIO_WINDOWS_TESTS: "1"
         run: |
           cargo test --manifest-path src-tauri/Cargo.toml --locked --lib local_source::tests
           cargo test --manifest-path src-tauri/Cargo.toml --locked --lib legio_source::tests
