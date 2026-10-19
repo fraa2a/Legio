@@ -475,13 +475,31 @@ mod tests {
         let f = Fixture::new();
         let executable = f.directory.join("bin/game.exe");
         fs::copy("/bin/sleep", &executable).unwrap();
-        let mut process = std::process::Command::new(&executable)
-            .arg("60")
-            .spawn()
-            .unwrap();
+        struct ChildGuard(std::process::Child);
+        impl Drop for ChildGuard {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let process = ChildGuard(
+            std::process::Command::new(&executable)
+                .arg("60")
+                .spawn()
+                .unwrap(),
+        );
+        let expected = fs::canonicalize(&executable).unwrap();
+        let proc_executable = PathBuf::from(format!("/proc/{}/exe", process.0.id()));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while !fs::read_link(&proc_executable).is_ok_and(|path| path == expected) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "test process executable was not visible in procfs"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         let result = remove_installation(&f.database, &f.id, &f.directory, &[]);
-        process.kill().unwrap();
-        process.wait().unwrap();
+        drop(process);
         assert!(result.unwrap_err().contains("Close the game"));
         assert!(executable.is_file());
     }
