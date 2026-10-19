@@ -12,6 +12,8 @@ pub const MAX_MANIFEST_BYTES: usize = crate::hydra_source::MAX_BYTES;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Manifest {
     pub schema_version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     #[serde(default)]
     pub support_game_updates: bool,
     pub generated_at: String,
@@ -105,7 +107,7 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {
             "manifest exceeds the size limit",
         ));
     }
-    let manifest: Manifest = serde_json::from_slice(bytes).map_err(|error| {
+    let mut manifest: Manifest = serde_json::from_slice(bytes).map_err(|error| {
         ManifestError::new(
             ManifestErrorKind::InvalidDocument,
             "$",
@@ -118,6 +120,15 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {
             "schemaVersion",
             format!("unsupported schema version {}", manifest.schema_version),
         ));
+    }
+    if let Some(name) = &mut manifest.name {
+        if name.trim().is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
+            return Err(invalid_field(
+                "name",
+                "must be a nonempty name of at most 128 bytes without control characters",
+            ));
+        }
+        *name = name.trim().to_owned();
     }
     validate_utc_timestamp(&manifest.generated_at, "generatedAt")?;
     if manifest.support_game_updates && manifest.schema_version != 2 {
@@ -354,6 +365,28 @@ mod tests {
 
     fn parse(value: Value) -> Result<Manifest, ManifestError> {
         parse_manifest(&serde_json::to_vec(&value).unwrap())
+    }
+
+    #[test]
+    fn accepts_optional_source_names_and_rejects_invalid_names() {
+        let mut document = valid();
+        assert!(parse(document.clone()).is_ok());
+        document["name"] = json!("Legio Community");
+        let named = parse(document.clone()).unwrap();
+        assert_eq!(
+            serde_json::to_value(named).unwrap()["name"],
+            "Legio Community"
+        );
+        for name in [
+            json!(""),
+            json!("  "),
+            json!("bad\nname"),
+            json!("x".repeat(129)),
+            json!(42),
+        ] {
+            document["name"] = name;
+            assert!(parse(document.clone()).is_err());
+        }
     }
 
     #[test]

@@ -130,6 +130,7 @@ fn merge(rows: &[SourceRow]) -> Option<CachedSource> {
     }
     let mut manifest = Manifest {
         schema_version: 2,
+        name: None,
         support_game_updates: false,
         generated_at: rows[0].manifest.generated_at.clone(),
         verified: Vec::new(),

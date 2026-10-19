@@ -12,6 +12,7 @@ export interface SourceEntry {
 
 export interface SourceManifest {
   schemaVersion: number;
+  name?: string;
   supportGameUpdates?: boolean;
   generatedAt: string;
   verified: SourceEntry[];

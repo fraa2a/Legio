@@ -54,7 +54,7 @@ impl SourceCatalog {
         }
         Self {
             format: SourceFormat::Legio,
-            name: None,
+            name: manifest.name.clone(),
             manifest,
             candidates,
             diagnostics: ImportDiagnostics::default(),
@@ -93,6 +93,7 @@ pub(crate) fn from_hydra(
     raw.downloads.retain(|entry| !entry.uris.is_empty());
     let mut manifest = Manifest {
         schema_version: 2,
+        name: Some(raw.name.clone()),
         support_game_updates: false,
         generated_at: String::new(),
         verified: Vec::new(),
@@ -333,6 +334,15 @@ pub(crate) async fn validate_links(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_source_name_survives_cache_roundtrip() {
+        let bytes = br#"{"schemaVersion":2,"name":"Legio Community","generatedAt":"2026-10-19T00:00:00Z","verified":[],"unverified":[]}"#;
+        let catalog = parse_source(bytes, &[]).unwrap();
+        assert_eq!(catalog.name.as_deref(), Some("Legio Community"));
+        let restored = decode_cache(&encode_cache(&catalog).unwrap()).unwrap();
+        assert_eq!(restored.name, catalog.name);
+    }
 
     #[tokio::test]
     async fn validated_links_hide_html_entries_preserve_json_order_and_survive_cache() {
