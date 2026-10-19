@@ -6,7 +6,9 @@
   import TextField from "../../components/ui/TextField.svelte";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
-  import { source, sourceBusy, sourceActionError, sourceRefreshError, addSource, removeSource, refreshSource } from "../../stores/source";
+  import { source, sourceBusy, sourceActionError, sourceRefreshError, addLocalSource, addSource, removeSource, refreshSource } from "../../stores/source";
+  import { pickSourceFile } from "../../services/dialog";
+  import { toMessage } from "../../utils/errors";
   import { sourceLinkRegistrationError } from "../../stores/source-links";
 
   let url = $state("");
@@ -24,17 +26,27 @@
     event.preventDefault();
     if (await addSource(url)) url = "";
   }
+  async function chooseLocalSource(): Promise<void> {
+    try {
+      const path = await pickSourceFile();
+      if (path) await addLocalSource(path);
+    } catch (error) {
+      sourceActionError.set(toMessage(error));
+    }
+  }
 </script>
 
 <div class="flex flex-col gap-5">
   <SettingsGroup title={t("Sorgenti dei giochi", $language)} icon="globe">
-    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Aggiungi un catalogo HTTPS per rendere disponibili i suoi giochi nello Store.", $language)}</p>
+    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Aggiungi un catalogo HTTPS o un file JSON locale in formato Legio o Hydra.", $language)}</p>
     <form class="flex flex-col gap-3" onsubmit={submit}>
       <TextField id="source-url" label={t("URL della sorgente", $language)} bind:value={url} placeholder="https://catalogo.example/games.json" disabled={$sourceBusy} />
-      <div class="flex justify-end">
+      <div class="flex flex-wrap justify-end gap-3">
+        <Button label={t("Scegli file JSON", $language)} variant="secondary" disabled={$sourceBusy} onClick={() => { void chooseLocalSource(); }} />
         <Button type="submit" label={t("Aggiungi sorgente", $language)} disabled={$sourceBusy || !url.trim()} />
       </div>
     </form>
+    <p class="text-xs text-zinc-500">{t("I file locali vengono riletti con Aggiorna sorgenti. Se il file non è disponibile, resta utilizzabile la cache.", $language)}</p>
     {#if $sourceBusy && progress}<p role="status" class="text-sm text-zinc-400">{t("Identificazione giochi", $language)}: {progress.processed}/{progress.total}</p>{/if}
     {#if $sourceActionError}<ErrorBanner message={$sourceActionError} />{/if}
     {#if $source.error}<ErrorBanner message={$source.error} onRetry={() => { void source.load(); }} />{/if}
@@ -47,7 +59,7 @@
       <ul class="flex flex-col gap-3">
         {#each $source.data.sources as installed (installed.id)}
           <li class="flex flex-col gap-3 rounded-lg bg-white/5 p-3 light:bg-zinc-900/5">
-            <p class="text-sm font-medium text-zinc-100 light:text-zinc-900">{installed.name ?? installed.url} {installed.format === "hydra" ? "(Hydra)" : ""}</p>
+            <p class="text-sm font-medium text-zinc-100 light:text-zinc-900">{installed.name ?? installed.url} {installed.format === "hydra" ? "(Hydra)" : ""} {installed.isLocal ? t("(file locale)", $language) : ""}</p>
             {#if installed.diagnostics}
               {#if installed.diagnostics.unresolved > 0}<p class="text-xs text-amber-300 light:text-amber-800">{installed.diagnostics.unresolved} {t("titoli non identificati", $language)}</p>{/if}
               {#if installed.diagnostics.rejected > 0}<p class="text-xs text-amber-300 light:text-amber-800">{installed.diagnostics.rejected} {t("voci non valide", $language)}</p>{/if}

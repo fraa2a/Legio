@@ -423,7 +423,12 @@ pub(crate) fn enqueue_prepared(
     {
         return Err("Download does not match the size published by the source".into());
     }
+    let source_rows = crate::legio_source_cache::cached_rows(database)?;
+    let source = source_rows.iter().find(|source| source.id == source_id);
     let exact_size = resolved_size
+        .or_else(|| {
+            source.and_then(|source| source.catalog.validated_sizes.get(download_url).copied())
+        })
         .or(entry.download.size_bytes)
         .filter(|size| *size > 0)
         .ok_or("The host did not provide a download size")?;
@@ -437,8 +442,7 @@ pub(crate) fn enqueue_prepared(
         .map_err(|_| "Published download size exceeds local storage limits".to_owned())?;
     let id = Uuid::new_v4().to_string();
     let created = now()?;
-    let source_rows = crate::legio_source_cache::cached_rows(database)?;
-    let source = source_rows.iter().find(|source| source.id == source_id);
+
     let uris = source
         .as_ref()
         .and_then(|source| {

@@ -1,5 +1,5 @@
 import { gameUpdates } from "./game-updates";
-import { addDownloadSource, getLegioSource, refreshLegioSource, removeDownloadSource, type SourceSnapshot } from "../services/legio-source";
+import { addLocalDownloadSource, addDownloadSource, getLegioSource, refreshLegioSource, removeDownloadSource, type SourceSnapshot } from "../services/legio-source";
 import { toMessage } from "../utils/errors";
 import { writable } from "svelte/store";
 import { createResource } from "./resource";
@@ -46,6 +46,10 @@ function changeSource(action: () => Promise<SourceSnapshot>, errorStore: typeof 
 
 export function addSource(url: string): Promise<boolean> {
   return changeSource(() => addDownloadSource(url), sourceActionError);
+}
+
+export function addLocalSource(path: string): Promise<boolean> {
+  return changeSource(() => addLocalDownloadSource(path), sourceActionError);
 }
 
 export function removeSource(id: string): Promise<boolean> {

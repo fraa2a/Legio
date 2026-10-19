@@ -52,6 +52,7 @@ mod legio_source_cache;
 mod library_manifest;
 #[cfg(target_os = "linux")]
 mod linux_performance;
+mod local_source;
 mod locale;
 mod manual_import;
 #[cfg(target_os = "linux")]
@@ -445,6 +446,7 @@ fn run_application(
             commands::report_application_event,
             commands::get_legio_source,
             commands::add_download_source,
+            commands::add_local_download_source,
             commands::remove_download_source,
             commands::take_source_links,
             download_queue::list_downloads,

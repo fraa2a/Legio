@@ -124,7 +124,12 @@ pub(crate) fn available_target(
 
 pub(crate) fn source_hash(url: &str) -> Result<String, String> {
     use sha2::{Digest, Sha256};
-    let url = crate::legio_source::validate_manifest_url(url.trim()).map_err(|e| e.to_string())?;
+    let url = if url.starts_with("file:") {
+        reqwest::Url::from_file_path(crate::local_source::file_path(url)?)
+            .map_err(|_| "Invalid local source path".to_owned())?
+    } else {
+        crate::legio_source::validate_manifest_url(url.trim()).map_err(|e| e.to_string())?
+    };
     Ok(format!("{:x}", Sha256::digest(url.as_str().as_bytes())))
 }
 

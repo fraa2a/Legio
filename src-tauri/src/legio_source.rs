@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::network::NetworkState;
 
-pub const MAX_MANIFEST_BYTES: usize = 2 * 1024 * 1024;
+pub const MAX_MANIFEST_BYTES: usize = crate::hydra_source::MAX_BYTES;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -43,6 +43,8 @@ pub struct Release {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Download {
     pub url: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mirrors: Vec<String>,
     pub sha256: Option<String>,
     pub size_bytes: Option<u64>,
 }
@@ -171,6 +173,17 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {
                 &format!("{prefix}.release.publishedAt"),
             )?;
             validate_archive_url(&entry.download.url, &format!("{prefix}.download.url"))?;
+            if entry.download.mirrors.len() > 99
+                || !entry.download.mirrors.is_empty() && entry.id.is_none()
+            {
+                return Err(invalid_field(
+                    format!("{prefix}.download.mirrors"),
+                    "at most 99 mirrors are allowed and require a stable entry ID",
+                ));
+            }
+            for mirror in &entry.download.mirrors {
+                validate_archive_url(mirror, &format!("{prefix}.download.mirrors"))?;
+            }
             if list_name == "verified" && entry.download.sha256.is_none() {
                 return Err(invalid_field(
                     format!("{prefix}.download.sha256"),
@@ -189,7 +202,9 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {
                     "must contain 64 lowercase hexadecimal characters",
                 ));
             }
-            if entry.download.size_bytes.is_none_or(|size| size == 0) {
+            if entry.download.size_bytes == Some(0)
+                || list_name == "verified" && entry.download.size_bytes.is_none()
+            {
                 return Err(invalid_field(
                     format!("{prefix}.download.sizeBytes"),
                     "must be positive",
@@ -448,6 +463,27 @@ mod tests {
             *document.pointer_mut(path).unwrap() = value;
             assert_eq!(parse(document).unwrap_err().kind, kind, "{path}");
         }
+    }
+
+    #[test]
+    fn converted_hydra_releases_allow_unknown_unverified_size() {
+        let mut document = valid();
+        let mut entry = document["verified"][0].clone();
+        entry["download"]["sizeBytes"] = json!(null);
+        entry["download"]["sha256"] = json!(null);
+        document["verified"] = json!([]);
+        document["unverified"] = json!([entry.clone()]);
+        assert_eq!(
+            parse(document.clone()).unwrap().unverified[0]
+                .download
+                .size_bytes,
+            None
+        );
+        document["unverified"][0]["download"]["sizeBytes"] = json!(0);
+        assert!(parse(document.clone()).is_err());
+        document["unverified"] = json!([]);
+        document["verified"] = json!([entry]);
+        assert!(parse(document).is_err());
     }
 
     #[test]

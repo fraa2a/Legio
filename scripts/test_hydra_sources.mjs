@@ -4,7 +4,7 @@ import { JSDOM } from "jsdom";
 import { createModuleLoader, dataModule } from "./test_module_loader.mjs";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBeVisual: true });
-for (const key of ["window", "document", "navigator", "Node", "Text", "Comment", "Element", "HTMLElement", "Event", "KeyboardEvent", "MouseEvent"]) {
+for (const key of ["window", "document", "navigator", "Node", "Text", "Comment", "Element", "HTMLElement", "HTMLMediaElement", "HTMLInputElement", "HTMLFormElement", "Event", "KeyboardEvent", "MouseEvent"]) {
   Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
 }
 const { mount, unmount, flushSync } = await import("svelte");
@@ -47,4 +47,33 @@ test("version selector shows source badges alongside names and keeps Steam badge
     [...target.querySelectorAll("button")].find(button => button.textContent.includes("Other")).click();
     assert.equal(selected, "b");
   } finally { await unmount(instance); target.remove(); }
+});
+
+
+test("local source controls distinguish file catalogs and preserve cancellation", async () => {
+  const calls = [];
+  globalThis.localSourceControls = { chosen: null, calls };
+  const storeModule = dataModule(`import { writable } from ${JSON.stringify(import.meta.resolve("svelte/store"))};
+    export const source = writable({data:{sources:[{id:"local",url:"file:///tmp/steamrip.json",name:"SteamRIP",format:"hydra",isLocal:true,gameCount:2,stale:false}],warning:null},error:null});
+    export const sourceBusy=writable(false),sourceActionError=writable(null),sourceRefreshError=writable(null);
+    export const addSource=async()=>true,removeSource=async()=>true,refreshSource=async()=>{};
+    export const addLocalSource=async(path)=>{globalThis.localSourceControls.calls.push(path);return true;};`);
+  const { load } = createModuleLoader({
+    "src/lib/stores/source": storeModule,
+    "src/lib/services/dialog": dataModule("export const pickSourceFile=async()=>globalThis.localSourceControls.chosen;"),
+    "src/lib/services/legio-source": dataModule("export const observeSourceImportProgress=async()=>()=>{};"),
+    "src/lib/stores/source-links": dataModule(`import { writable } from ${JSON.stringify(import.meta.resolve("svelte/store"))}; export const sourceLinkRegistrationError=writable(null);`),
+    "src/lib/i18n": dataModule(`import { writable } from ${JSON.stringify(import.meta.resolve("svelte/store"))}; export const language=writable("it");export const t=value=>value;`),
+  });
+  const Component=(await import(await load("src/lib/features/settings/SourceSettings.svelte"))).default;
+  const target=document.createElement("div");document.body.append(target);
+  const instance=mount(Component,{target});
+  try {
+    await settle();
+    assert.match(target.textContent,/file locale/);
+    const button=[...target.querySelectorAll("button")].find(button=>button.textContent.includes("Scegli file JSON"));
+    button.click();await settle();assert.deepEqual(calls,[]);
+    globalThis.localSourceControls.chosen="/tmp/steamrip.json";
+    button.click();await settle();assert.deepEqual(calls,["/tmp/steamrip.json"]);
+  } finally { await unmount(instance);target.remove(); }
 });

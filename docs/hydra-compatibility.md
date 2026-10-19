@@ -150,3 +150,12 @@ Native `sizeBytes` describes the downloaded archive, not its extracted contents.
 Hydra's optional human-readable `fileSize` is not an exact byte count and is not used as an extraction limit. Sources without `sizeBytes` continue to require a validated exact host size. Mirror order, three retries per link, partial-byte reset and the native CDN transfer path are preserved.
 
 Extraction uses a separate expansion-ratio limit. Its previous fixed 64 GiB ceiling was removed so a valid large archive is not rejected solely because of its installed size.
+
+
+## Local files and TaxCloud conversion
+
+Settings accepts local JSON catalogs through a dedicated file picker. The selected absolute path is stored as a file URL and read again on source refresh. Files must be regular, readable and at most 32 MiB. Remote source links remain HTTPS-only. An unreadable or removed file preserves its independent source cache and displays a refresh warning.
+
+Native manifests also allow unknown hash/size values for Unverified entries, matching Hydra imports. Verified entries still require their original hash and positive byte size. Optional `download.mirrors` preserves up to 99 alternatives after the primary URL and requires a stable entry ID. All candidates pass through the existing supported-provider filter and archive validation; entries without a usable candidate are omitted. Only the exact validated host length is used when no byte count was published. The existing immutable published size and 3 percent tolerance are unchanged.
+
+The native manifest size limit matches the 32 MiB Hydra limit so converted source groups can be loaded without splitting their catalogs. Existing manifests remain compatible; older Legio versions cannot read the new mirrors field or unknown native sizes.

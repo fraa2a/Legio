@@ -7,7 +7,7 @@ export interface SourceEntry {
   steamAppId: number;
   name: string;
   release: { version: string; publishedAt: string | null };
-  download: { url: string; sha256?: string | null; sizeBytes: number | null };
+  download: { url: string; mirrors?: string[]; sha256?: string | null; sizeBytes: number | null };
 }
 
 export interface SourceManifest {
@@ -37,6 +37,7 @@ export function refreshLegioSource(): Promise<SourceSnapshot> {
 export interface InstalledSource {
   id: string;
   url: string;
+  isLocal?: boolean;
   cachedAt: number;
   stale: boolean;
   warning: string | null;
@@ -50,6 +51,10 @@ export interface InstalledSource {
 
 export function addDownloadSource(url: string): Promise<SourceSnapshot> {
   return invoke<SourceSnapshot>("add_download_source", { url });
+}
+
+export function addLocalDownloadSource(path: string): Promise<SourceSnapshot> {
+  return invoke<SourceSnapshot>("add_local_download_source", { path });
 }
 
 export function removeDownloadSource(id: string): Promise<SourceSnapshot> {

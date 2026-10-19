@@ -692,5 +692,10 @@
   "Nessun gioco visibile in libreria. Puoi aggiungerne uno con + o riabilitare i giochi Steam nascosti nelle impostazioni delle librerie.": "No visible games in the library. Add one with + or restore hidden Steam games in library settings.",
   "Nessun gioco visibile in libreria. Puoi aggiungerne uno con + o riabilitare i giochi Steam nascosti nelle impostazioni delle librerie. Sync Steam games è disattivato.": "No visible games in the library. Add one with + or restore hidden Steam games in library settings. Sync Steam games is off.",
   "Librerie e sorgenti": "Libraries and sources",
-  "Download e aggiornamenti durante il gioco": "Downloads and updates while playing"
+  "Download e aggiornamenti durante il gioco": "Downloads and updates while playing",
+  "Seleziona una sorgente JSON": "Select a JSON source",
+  "Scegli file JSON": "Choose JSON file",
+  "(file locale)": "(local file)",
+  "Aggiungi un catalogo HTTPS o un file JSON locale in formato Legio o Hydra.": "Add an HTTPS catalog or a local JSON file in Legio or Hydra format.",
+  "I file locali vengono riletti con Aggiorna sorgenti. Se il file non è disponibile, resta utilizzabile la cache.": "Local files are read again with Refresh sources. If a file is unavailable, its cached releases remain available."
 }

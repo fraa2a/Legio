@@ -31,3 +31,12 @@ export function pickGameArtworkFile(): Promise<string | null> {
     filters: [{ name: t("Immagini", undefined), extensions: ["png", "jpg", "jpeg", "webp"] }],
   });
 }
+
+export function pickSourceFile(): Promise<string | null> {
+  return open({
+    title: t("Seleziona una sorgente JSON", undefined),
+    directory: false,
+    multiple: false,
+    filters: [{ name: "JSON (Legio / Hydra)", extensions: ["json"] }],
+  });
+}
