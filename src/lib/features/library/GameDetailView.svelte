@@ -38,7 +38,7 @@
   import SteamArtwork from "./SteamArtwork.svelte";
   import SystemRequirements from "./SystemRequirements.svelte";
   import Icon from "../../components/ui/Icon.svelte";
-  import SelectField from "../../components/ui/SelectField.svelte";
+  import DownloadMirrorSelect from "./DownloadMirrorSelect.svelte";
   import GameVersionSelect from "./GameVersionSelect.svelte";
   import AddGameDialog from "./AddGameDialog.svelte";
   import { acquireGameArtwork, gameArtworkRevision } from "../../services/game-artwork";
@@ -62,7 +62,6 @@
   const name = $derived(storeGame !== null ? (entry?.name ?? storeGame.name) : (game?.name ?? ""));
   let selectedMirror = $state("auto");
   const mirrorUris = $derived(entry === null ? [] : ($source.data.sources.find(origin => origin.id === entry.sourceId)?.candidates?.[entry.id ?? ""] ?? [entry.download.url]));
-  const mirrorOptions = $derived([{ value: "auto", label: t("Automatico (ordine della source)", $language) }, ...mirrorUris.map((uri, index) => ({ value: uri, label: `${index + 1}. ${uri.startsWith("magnet:") ? "Torrent" : new URL(uri).hostname}` }))]);
   const job = $derived(storeGame === null || entry === null ? null : ($downloads.data.find((candidate) => candidate.steamAppId === steamAppId && (candidate.sourceId && candidate.sourceEntryId ? candidate.sourceId === entry.sourceId && candidate.sourceEntryId === entry.id : candidate.url === entry.download.url && candidate.releaseVersion === entry.release.version) && candidate.status !== "installed" && candidate.status !== "cancelled") ?? null));
   const downloadProgress = $derived(job === null || job.sizeBytes === 0 ? 0 : Math.min(100, Math.max(0, job.downloadedBytes / job.sizeBytes * 100)));
   const libraryVersions = $derived(game === null ? [] : $games.data.filter((candidate) => candidate.steamAppId === null ? candidate.id === game.id : candidate.steamAppId === game.steamAppId));
@@ -209,7 +208,7 @@
           {#if versionOptions.length > 0}
             <GameVersionSelect {steamAppId} options={versionOptions} selectedId={selectedVersionId} onSelect={selectVersion} onAdd={game !== null && libraryVersions.length === 1 && steamAppId !== null ? () => { addVersionOpen = true; } : undefined} />
           {#if storeGame !== null && entry !== null}
-            <div class="w-[260px] min-w-0"><SelectField id="download-mirror" label={t("Collegamento di download", $language)} bind:value={selectedMirror} options={mirrorOptions} disabled={queueing || confirmOpen} /></div>
+            <DownloadMirrorSelect uris={mirrorUris} bind:value={selectedMirror} disabled={queueing || confirmOpen} />
           {/if}
           {/if}
           {#if game !== null}

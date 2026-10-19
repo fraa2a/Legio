@@ -34,6 +34,7 @@ flowchart TD
 ```json
 {
   "schemaVersion": 2,
+  "name": "Legio Community",
   "supportGameUpdates": true,
   "generatedAt": "2026-10-05T12:00:00Z",
   "verified": [
@@ -77,6 +78,7 @@ All objects use `camelCase` field names and reject unknown fields. The parser ac
 | Field | Type | Rule |
 | --- | --- | --- |
 | `schemaVersion` | `u32` integer | Required; `1` or `2` |
+| Source `name` | String | Optional for compatibility; nonempty, at most 128 UTF-8 bytes, no control characters. Used for badges and source labels, like Hydra `name`. |
 | `supportGameUpdates` | Boolean | Optional, defaults to `false`; `true` requires schema 2 |
 | Entry `id` | String | Required for update sources; unique across both lists, stable across renames and releases; at most 128 UTF-8 bytes |
 | `generatedAt` | String | Required RFC 3339 timestamp with a UTC offset; both `Z` and `+00:00` are accepted |
