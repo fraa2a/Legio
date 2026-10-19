@@ -1,5 +1,6 @@
 import { get, writable } from "svelte/store";
 import { setLanguage } from "../i18n";
+import { cleanupBackgrounds } from "../services/appearance";
 import type { Settings } from "../services/local-state";
 import { pickGameDirectory } from "../services/dialog";
 import { getCompatibilityDefaults, listCompatibilityRunners, saveCompatibilityDefaults, type CompatibilityDefaults, type CompatibilityRunner } from "../services/game-settings";
@@ -88,4 +89,5 @@ export function endOnboardingPreview(): void {
   ++loadId;
   setLanguage(get(settings).data.language);
   appearancePreview.set(null);
+  void cleanupBackgrounds().catch(error => console.error("Could not clean up onboarding backgrounds", error));
 }

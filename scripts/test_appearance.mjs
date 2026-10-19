@@ -47,6 +47,92 @@ const settle = async () => {
   for (let index = 0; index < 6; index++) { await new Promise((resolve) => setImmediate(resolve)); flushSync(); }
 };
 
+test("onboarding appearance editor reports drafts without saving or clearing the preview on exit", async () => {
+  const initial = { theme: "light", appearance: { ...appearance.defaultAppearance(), surfaceOpacity: 27 } };
+  settingsStore.set({ data: { theme: "system", appearance: appearance.defaultAppearance() } });
+  const writes = [];
+  globalThis.themeSave = async value => { writes.push(value); return value; };
+  globalThis.themeInvoke = async command => { writes.push(command); };
+  const previews = [];
+  const component = (await import(await load("src/lib/features/settings/ThemeSettings.svelte"))).default;
+  const target = document.createElement("div"); document.body.append(target);
+  const instance = mount(component, { target, props: { accent: "#ff8800", preview: initial, onPreview: value => { previews.push(value); previewStore.set(value); } } });
+  try {
+    await settle();
+    const themeToggle = [...target.querySelectorAll("button[aria-expanded]")].find(button => button.textContent.includes("Tema"));
+    themeToggle.click(); await settle();
+    assert.equal(target.querySelector('input[name="theme"]:checked').value, "light");
+    const dark = target.querySelector('input[name="theme"][value="dark"]');
+    dark.checked = true; dark.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    assert.equal(previews.at(-1).theme, "dark");
+    assert.equal(previews.at(-1).appearance.surfaceOpacity, 27);
+    await new Promise(resolve => setTimeout(resolve, 650)); await settle();
+    assert.deepEqual(writes, []);
+    assert.equal(get(settingsStore).data.theme, "system");
+  } finally { await unmount(instance); target.remove(); }
+  await settle();
+  assert.equal(get(previewStore).theme, "dark");
+  assert.deepEqual(writes, []);
+});
+
+test("onboarding keeps appearance edits across steps and saves them only on completion", async () => {
+  let finishPicker;
+  const commands = [];
+  globalThis.themeChooseBackground = () => new Promise(resolve => { finishPicker = resolve; });
+  globalThis.themeInvoke = async command => { commands.push(command); return command === "import_theme_background" ? "chosen-background" : undefined; };
+  const { load: loadSetup } = createModuleLoader({
+    ...mocks,
+    "@tauri-apps/plugin-dialog": dataModule("export const open = () => globalThis.themeChooseBackground();"),
+    "src/lib/i18n": dataModule(`import { writable } from ${JSON.stringify(import.meta.resolve("svelte/store"))}; export const language = writable("it"); export const setLanguage = () => {}; export const t = value => value;`),
+    "src/lib/stores/app-info": dataModule(`import { writable } from ${JSON.stringify(import.meta.resolve("svelte/store"))}; export const appInfo = writable({data:{platform:"windows",trayAvailable:true}});`),
+    "src/lib/stores/navigation": dataModule(`import { writable } from ${JSON.stringify(import.meta.resolve("svelte/store"))}; export const activeSection = writable("home");`),
+    "src/lib/services/dialog": dataModule("export const pickGameDirectory = async () => null;"),
+  });
+  settingsStore.set({ data: { theme: "system", appearance: appearance.defaultAppearance(), language: "it", onboardingCompleted: false } });
+  const saved = [];
+  globalThis.themeSave = async value => { saved.push(value); return value; };
+  const component = (await import(await loadSetup("src/lib/features/onboarding/OnboardingView.svelte"))).default;
+  const target = document.createElement("div"); document.body.append(target);
+  const instance = mount(component, { target });
+  const click = async label => {
+    const button = [...target.querySelectorAll("button")].find(button => button.textContent.trim() === label);
+    assert.ok(button, label); button.click(); await settle();
+  };
+  try {
+    await settle(); await click("Continua");
+    assert.equal(target.querySelector("h1").textContent, "Personalizzazione / Aspetto");
+    const group = [...target.querySelectorAll("button[aria-expanded]")].find(button => button.textContent.includes("Pannelli e dialoghi"));
+    group.click(); await settle();
+    const opacity = target.querySelector("#theme-surfaceOpacity");
+    opacity.value = "35"; opacity.dispatchEvent(new Event("input", { bubbles: true })); await settle();
+    assert.equal(get(previewStore).appearance.surfaceOpacity, 35);
+    const backgrounds = [...target.querySelectorAll("button[aria-expanded]")].find(button => button.textContent.includes("Sfondo e animazioni"));
+    backgrounds.click(); await settle(); await click("Scegli uno sfondo");
+    for (const label of ["Continua", "Indietro", "Usa impostazioni attuali"]) {
+      assert.equal([...target.querySelectorAll("button")].find(button => button.textContent.trim() === label).disabled, true);
+    }
+    finishPicker("/background.png"); await settle();
+    assert.equal(get(previewStore).appearance.background, "chosen-background");
+    await click("Continua");
+    assert.equal(get(previewStore).appearance.surfaceOpacity, 35);
+    await click("Indietro");
+    const reopened = [...target.querySelectorAll("button[aria-expanded]")].find(button => button.textContent.includes("Pannelli e dialoghi"));
+    reopened.click(); await settle();
+    assert.equal(target.querySelector("#theme-surfaceOpacity").value, "35");
+    assert.deepEqual(saved, []);
+    await click("Continua"); await click("Continua"); await click("Continua");
+    assert.equal(target.querySelector("h1").textContent, "Tutto pronto");
+    await click("Inizia a giocare");
+    assert.equal(saved.length, 1);
+    assert.equal(saved[0].appearance.surfaceOpacity, 35);
+    assert.equal(saved[0].appearance.background, "chosen-background");
+    assert.equal(saved[0].onboardingCompleted, true);
+    assert.equal(get(previewStore), null);
+  } finally { await unmount(instance); target.remove(); }
+  assert.ok(commands.includes("cleanup_theme_backgrounds"));
+});
+
 test("system palette follows the OS and Hyprland alone can enable window transparency", () => {
   const dark = presetData.find((preset) => preset.id === "dark");
   const options = { ...appearance.defaultAppearance(), transparent: true, background: "image", backgroundBlur: 12, surfaceBlur: 8, dialogBlur: 16 };
