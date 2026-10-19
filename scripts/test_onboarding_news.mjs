@@ -10,6 +10,7 @@ globalThis.setupPreview = writable(null);
 globalThis.setupLanguage = writable("en");
 globalThis.setupSection = writable("home");
 const mocks = {
+  "src/lib/services/appearance": data('export const cleanupBackgrounds = () => globalThis.setupInvoke("cleanup_theme_backgrounds");'),
   "@tauri-apps/api/core": data("export const invoke = (...args) => globalThis.setupInvoke(...args);"),
   "@tauri-apps/plugin-dialog": data("export const open = () => Promise.resolve(null);"),
   "src/lib/i18n": data("export const language = globalThis.setupLanguage; export const setLanguage = value => language.set(value); export const t = value => value;"),
@@ -28,6 +29,7 @@ test("Windows onboarding previews without writes and retries failed completion",
   let fail = true;
   globalThis.setupInvoke = async (command, args) => {
     calls.push(command);
+    if (command === "cleanup_theme_backgrounds") return;
     assert.equal(command, "save_settings");
     if (fail) throw new Error("save failed");
     return args.settings;
@@ -46,6 +48,7 @@ test("Windows onboarding previews without writes and retries failed completion",
   assert.equal(get(globalThis.setupSection), "library");
   setup.endOnboardingPreview();
   assert.equal(get(globalThis.setupPreview), null);
+  assert.equal(calls.at(-1), "cleanup_theme_backgrounds");
 });
 
 test("Linux saves compatibility before marking onboarding complete", async () => {
@@ -54,6 +57,7 @@ test("Linux saves compatibility before marking onboarding complete", async () =>
   const calls = [];
   globalThis.setupInvoke = async (command, args) => {
     calls.push(command);
+    if (command === "cleanup_theme_backgrounds") return;
     if (command === "get_compatibility_defaults") return { runnerPath: null, prefixRoot: null };
     if (command === "list_compatibility_runners") return { runners: [], diagnostics: [] };
     if (command === "save_compatibility_defaults") { assert.equal(args.defaults.runnerPath, "/runner"); return args.defaults; }
@@ -66,6 +70,26 @@ test("Linux saves compatibility before marking onboarding complete", async () =>
   assert.deepEqual(calls.slice(-2), ["save_compatibility_defaults", "save_settings"]);
   assert.equal(get(store).data.onboardingCompleted, true);
   setup.endOnboardingPreview();
+});
+
+test("using current settings discards appearance edits and cleans unused backgrounds on exit", async () => {
+  const initial = { ...structuredClone(prefs), appearance: { background: "saved-background" } };
+  store.set({ data: initial });
+  globalThis.setupAppInfo.set({ data: { platform: "windows" } });
+  const calls = [];
+  globalThis.setupInvoke = async (command, args) => {
+    calls.push(command);
+    if (command === "cleanup_theme_backgrounds") return;
+    assert.equal(command, "save_settings");
+    return args.settings;
+  };
+  await setup.startOnboarding();
+  setup.changeOnboarding({ appearance: { background: "discarded-background" } });
+  await setup.completeOnboarding(true);
+  assert.deepEqual(get(store).data.appearance, initial.appearance);
+  assert.equal(get(store).data.onboardingCompleted, true);
+  setup.endOnboardingPreview();
+  assert.deepEqual(calls, ["save_settings", "cleanup_theme_backgrounds"]);
 });
 
 test("news retains the persistent feed while refreshing and when offline", async () => {

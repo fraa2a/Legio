@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { t, language } from "../../i18n";
-  import { themePresets } from "../../services/appearance";
+  import { activePalette, themePresets } from "../../services/appearance";
+  import ThemeSettings from "../settings/ThemeSettings.svelte";
   import Button from "../../components/ui/Button.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
@@ -11,8 +12,9 @@
   import { onboarding, startOnboarding, changeOnboarding, changeCompatibility, chooseOnboardingDirectory, completeOnboarding, endOnboardingPreview } from "../../stores/onboarding";
   import { appInfo } from "../../stores/app-info";
   let step = $state(0);
+  let appearanceBusy = $state(false);
   const linux = $derived($appInfo.data.platform === "linux");
-  const steps = $derived(["Benvenuto in Legio", "Il tuo stile", "I tuoi giochi", "Come vuoi usare Legio", ...(linux ? ["Compatibilità Linux"] : []), "Tutto pronto"]);
+  const steps = $derived(["Benvenuto in Legio", "Personalizzazione / Aspetto", "I tuoi giochi", "Come vuoi usare Legio", ...(linux ? ["Compatibilità Linux"] : []), "Tutto pronto"]);
   onMount(() => { void startOnboarding(); return endOnboardingPreview; });
   async function moveStep(delta: number) { step += delta; await tick(); document.getElementById("onboarding-title")?.focus(); }
 </script>
@@ -32,10 +34,12 @@
           options={[{ value: "system", label: t("Sistema", $language) }, { value: "it", label: "Italiano" }, { value: "en", label: "English" }]}
           onChange={(value) => { if (value === "system" || value === "it" || value === "en") changeOnboarding({ language: value }); }} />
       {:else if step === 1}
-        <SelectField id="onboarding-theme" label={t("Tema", $language)} value={$onboarding.draft.theme} disabled={$onboarding.saving}
-          options={[{ value: "system", label: t("Sistema", $language) }, ...themePresets.map((preset) => ({ value: preset.id, label: t(preset.name, $language) }))]}
-          onChange={(value) => { if (value === "system" || value === "dark" || value === "light") changeOnboarding({ theme: value }); }} />
-        <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Sfondi, animazioni e trasparenza sono disponibili nelle impostazioni Aspetto.", $language)}</p>
+        <ThemeSettings
+          accent={activePalette($onboarding.draft.theme, document.documentElement.dataset.theme !== "light").palette.accent}
+          preview={$onboarding.draft}
+          onPreview={(value) => changeOnboarding(value)}
+          onBusyChange={(busy) => { appearanceBusy = busy; }}
+        />
       {:else if step === 2}
         <p class="text-sm text-zinc-300 light:text-zinc-700">{t("Scegli dove salvare download e installazioni. Steam verrà rilevato automaticamente.", $language)}</p>
         <p class="break-all text-sm text-zinc-400 light:text-zinc-600">{$onboarding.draft.downloadPath ?? t("Cartella predefinita di Legio", $language)}</p>
@@ -77,12 +81,12 @@
         </dl>
       {/if}
       <footer class="flex flex-wrap items-center justify-between gap-3">
-        <Button label={t("Usa impostazioni attuali", $language)} variant="secondary" disabled={$onboarding.saving} onClick={() => void completeOnboarding(true)} />
-        <Button label={t("Indietro", $language)} variant="secondary" disabled={step === 0 || $onboarding.saving} onClick={() => void moveStep(-1)} />
+        <Button label={t("Usa impostazioni attuali", $language)} variant="secondary" disabled={$onboarding.saving || appearanceBusy} onClick={() => void completeOnboarding(true)} />
+        <Button label={t("Indietro", $language)} variant="secondary" disabled={step === 0 || $onboarding.saving || appearanceBusy} onClick={() => void moveStep(-1)} />
         {#if step === steps.length - 1}
-          <Button label={$onboarding.saving ? t("Salvataggio...", $language) : t("Inizia a giocare", $language)} disabled={$onboarding.saving || $onboarding.loading} onClick={() => void completeOnboarding()} />
+          <Button label={$onboarding.saving ? t("Salvataggio...", $language) : t("Inizia a giocare", $language)} disabled={$onboarding.saving || $onboarding.loading || appearanceBusy} onClick={() => void completeOnboarding()} />
         {:else}
-          <Button label={t("Continua", $language)} disabled={$onboarding.saving} onClick={() => void moveStep(1)} />
+          <Button label={t("Continua", $language)} disabled={$onboarding.saving || appearanceBusy} onClick={() => void moveStep(1)} />
         {/if}
       </footer>
     {/if}

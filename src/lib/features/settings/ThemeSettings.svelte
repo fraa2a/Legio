@@ -1,7 +1,7 @@
 <script lang="ts">
   import { get } from "svelte/store";
   import { createSaveQueue } from "../../services/save-queue";
-  import { onDestroy } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import { t, language } from "../../i18n";
   import type { Theme } from "../../services/local-state";
   import {
@@ -20,7 +20,13 @@
   import AppearanceSlider from "./AppearanceSlider.svelte";
   import { showToast } from "../../stores/toast";
 
-  let { accent }: { accent: string } = $props();
+  type AppearanceDraft = { theme: Theme; appearance: Appearance };
+  let { accent, preview, onPreview, onBusyChange }: {
+    accent: string;
+    preview?: AppearanceDraft;
+    onPreview?: (value: AppearanceDraft) => void;
+    onBusyChange?: (busy: boolean) => void;
+  } = $props();
 
   type SliderKey = "backgroundBlur" | "backgroundOpacity" | "animatedOpacity" | "surfaceOpacity" | "surfaceBlur" | "dialogOpacity" | "dialogBlur";
   type SliderConfig = { key: SliderKey; label: string; min: number; max: number; unit: string };
@@ -28,7 +34,7 @@
   type DitherSliderConfig = { key: DitherSliderKey; label: string; min: number; max: number; step: number; decimals: number };
   type DitherToggleKey = "disableAnimation" | "enableMouseInteraction";
 
-  const initial = get(settings).data;
+  const initial = untrack(() => preview ?? get(settings).data);
   let theme: Theme = $state(initial.theme);
   let draft: Appearance = $state(structuredClone(initial.appearance));
   let baseline = $state(JSON.stringify({ theme: initial.theme, appearance: initial.appearance }));
@@ -76,17 +82,23 @@
   ]);
 
   $effect(() => {
-    appearancePreview.set({ theme, appearance: structuredClone($state.snapshot(draft)) });
+    const value = { theme, appearance: structuredClone($state.snapshot(draft)) };
+    if (onPreview) onPreview(value);
+    else appearancePreview.set(value);
   });
 
+  $effect(() => { onBusyChange?.(busy); });
+
   $effect(() => {
-    if (!dirty || busy || saving || adjusting || serialized === failedSnapshot) return;
+    if (onPreview || !dirty || busy || saving || adjusting || serialized === failedSnapshot) return;
     const timer = setTimeout(() => void save(), 500);
     return () => clearTimeout(timer);
   });
 
   onDestroy(() => {
     disposed = true;
+    onBusyChange?.(false);
+    if (onPreview) return;
     appearancePreview.set(null);
     void saveQueue.flush(async () => {
       if (!busy && dirty && serialized !== failedSnapshot) await save();
