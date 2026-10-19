@@ -69,6 +69,7 @@ fn main() {
             "report_application_event",
             "get_legio_source",
             "add_download_source",
+            "add_local_download_source",
             "remove_download_source",
             "take_source_links",
             "list_downloads",

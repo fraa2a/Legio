@@ -20,6 +20,7 @@ const MAX_SOURCES: i64 = 16;
 pub struct InstalledSource {
     pub id: String,
     pub url: String,
+    pub is_local: bool,
     pub cached_at: i64,
     pub stale: bool,
     pub warning: Option<String>,
@@ -185,15 +186,19 @@ fn snapshot(database: &Database, current_time: i64) -> Result<SourceSnapshot, St
         .map(|row| InstalledSource {
             id: row.id.clone(),
             url: row.url.clone(),
+            is_local: row.url.starts_with("file:"),
             cached_at: row.fetched_at,
             stale: row.warning.is_some() || is_stale(row.fetched_at, current_time),
             warning: row.warning.clone(),
             game_count: row.manifest.verified.len() + row.manifest.unverified.len(),
             support_game_updates: row.manifest.support_game_updates,
             name: row.catalog.name.clone().unwrap_or_else(|| {
-                reqwest::Url::parse(&row.url)
-                    .ok()
-                    .and_then(|url| url.host_str().map(str::to_owned))
+                crate::local_source::display_name(&row.url)
+                    .or_else(|| {
+                        reqwest::Url::parse(&row.url)
+                            .ok()
+                            .and_then(|url| url.host_str().map(str::to_owned))
+                    })
                     .unwrap_or_else(|| "Source".into())
             }),
             format: row.catalog.format,
@@ -343,10 +348,17 @@ async fn fetch_catalog(
     url: &str,
     previous: Option<&SourceCatalog>,
 ) -> Result<SourceCatalog, String> {
-    let bytes = network
-        .legio_source(url)
-        .await
-        .map_err(|error| format!("Could not fetch source: {error:?}"))?;
+    let bytes = if url.starts_with("file:") {
+        let url = url.to_owned();
+        tauri::async_runtime::spawn_blocking(move || crate::local_source::read(&url))
+            .await
+            .map_err(|error| format!("Local source task failed: {error}"))??
+    } else {
+        network
+            .legio_source(url)
+            .await
+            .map_err(|error| format!("Could not fetch source: {error:?}"))?
+    };
     let games = tauri::async_runtime::spawn_blocking(move || {
         database.with_connection(|connection| {
             let mut statement = connection
@@ -467,6 +479,25 @@ pub async fn add_source(
     let url = legio_source::validate_manifest_url(url.trim())
         .map_err(|error| error.to_string())?
         .to_string();
+    install_source(app, network, url).await
+}
+
+pub async fn add_local_source(
+    app: tauri::AppHandle,
+    network: &NetworkState,
+    path: String,
+) -> Result<SourceSnapshot, String> {
+    let url = tauri::async_runtime::spawn_blocking(move || crate::local_source::location(&path))
+        .await
+        .map_err(|error| format!("Local source task failed: {error}"))??;
+    install_source(app, network, url).await
+}
+
+async fn install_source(
+    app: tauri::AppHandle,
+    network: &NetworkState,
+    url: String,
+) -> Result<SourceSnapshot, String> {
     let database = app.state::<DatabaseState>().shared_database()?;
     let check_database = database.clone();
     let check_url = url.clone();

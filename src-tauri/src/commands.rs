@@ -996,6 +996,15 @@ pub async fn add_download_source(
 }
 
 #[tauri::command]
+pub async fn add_local_download_source(
+    app: tauri::AppHandle,
+    state: State<'_, NetworkState>,
+    path: String,
+) -> Result<legio_source_cache::SourceSnapshot, String> {
+    legio_source_cache::add_local_source(app, state.inner(), path).await
+}
+
+#[tauri::command]
 pub async fn remove_download_source(
     app: tauri::AppHandle,
     id: String,

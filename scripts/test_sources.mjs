@@ -105,3 +105,19 @@ test("invalid external links display an error without adding a source", async ()
   assert.equal(get(store.sourceActionError), "Invalid source link");
   assert.equal(get(links.sourceLinkRegistrationError), "Protocol registration failed");
 });
+
+
+test("local source installation uses its dedicated command and shares mutation state", async () => {
+  const calls = [];
+  const { load } = fixture("localSource", async (command, args) => {
+    calls.push({ command, args });
+    if (command === "add_local_download_source") return installed;
+    throw new Error(command);
+  });
+  const store = await import(await load("src/lib/stores/source.ts"));
+  assert.equal(typeof store.addLocalSource, "function");
+  assert.equal(await store.addLocalSource("/tmp/Fonti locali/steamrip.json"), true);
+  assert.deepEqual(calls, [{ command: "add_local_download_source", args: { path: "/tmp/Fonti locali/steamrip.json" } }]);
+  assert.equal(get(store.source).data.sources.length, 1);
+  assert.equal(get(store.sourceBusy), false);
+});
