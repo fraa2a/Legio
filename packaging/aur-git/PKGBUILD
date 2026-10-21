@@ -6,7 +6,7 @@ pkgdesc='Legio desktop game launcher (development sources)'
 arch=('x86_64')
 url='https://github.com/fraa2a/Legio'
 license=('LicenseRef-SA-NC-PD-1.0')
-depends=('glibc' 'gcc-libs' 'gtk3' 'webkit2gtk-4.1' 'libayatana-appindicator' 'libarchive' 'librsvg' 'libxdo' 'umu-launcher' 'xdg-utils' 'desktop-file-utils')
+depends=('glibc' 'gcc-libs' 'gtk3' 'webkit2gtk-4.1' 'libayatana-appindicator' 'libarchive' 'librsvg' 'xdotool' 'umu-launcher' 'xdg-utils' 'desktop-file-utils')
 makedepends=('git' 'rust>=1.98.1' 'nodejs>=22' 'pnpm' 'python' 'pkgconf')
 provides=('legio-launcher')
 conflicts=('legio-launcher')
