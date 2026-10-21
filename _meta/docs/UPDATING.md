@@ -13,4 +13,4 @@ The AUR package declares `umu-launcher` as a runtime dependency, so AUR helpers 
 - `TAURI_SIGNING_PRIVATE_KEY` contains the private Tauri key used to sign installers. The public key is in `src-tauri/tauri.conf.json`. Keep a secure private backup: losing it prevents updates to existing installations.
 - `AUR_SSH_PRIVATE_KEY` contains a dedicated SSH key. Its public key must be added to the AUR profile that publishes `legio-launcher-bin`.
 
-Both keys are stored in the repository's GitHub secrets. The local Tauri key copy is at `~/.config/legio-release/updater.key`; the AUR key is at `~/.ssh/AUR_Github`. They must not be committed.
+Configure both values as GitHub Actions secrets for the release workflow. Keep encrypted backups under the maintainers' credential-management policy. Local key locations are private operator configuration, not repository conventions. Never commit private keys or their backups.
