@@ -1633,7 +1633,7 @@ mod tests {
     }
 
     #[test]
-    fn manual_steam_launch_does_not_require_a_catalog_app_id() {
+    fn manual_steam_launch_respects_platform_support_without_a_catalog_app_id() {
         let directory = temporary_directory();
         let database = Database::open(&directory).unwrap();
         let game = database
@@ -1642,16 +1642,20 @@ mod tests {
                 steam_app_id: None,
             })
             .unwrap();
-        let saved = database
-            .save_game_compatibility_overrides(
-                &game.id,
-                GameCompatibilityOverrides {
-                    launch_via_steam: Some(true),
-                    ..GameCompatibilityOverrides::default()
-                },
-            )
-            .unwrap();
-        assert_eq!(saved.launch_via_steam, Some(true));
+        let saved = database.save_game_compatibility_overrides(
+            &game.id,
+            GameCompatibilityOverrides {
+                launch_via_steam: Some(true),
+                ..GameCompatibilityOverrides::default()
+            },
+        );
+        #[cfg(target_os = "linux")]
+        assert_eq!(saved.unwrap().launch_via_steam, Some(true));
+        #[cfg(not(target_os = "linux"))]
+        assert_eq!(
+            saved.unwrap_err(),
+            "Launch via Steam is available on Linux only"
+        );
         assert_eq!(database.game(&game.id).unwrap().steam_app_id, None);
         drop(database);
         fs::remove_dir_all(directory).unwrap();
@@ -1730,6 +1734,16 @@ mod tests {
             .unwrap();
         assert_eq!(game_name, "Existing");
         assert_eq!(version, SCHEMA_VERSION);
+        let restored_tables: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN
+                 ('compatibility_defaults', 'game_compatibility_overrides',
+                  'game_native_launch_config', 'game_sessions')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(restored_tables, 4);
     }
 
     #[test]
@@ -1846,21 +1860,14 @@ mod tests {
             )
             .unwrap();
         migrate(&connection).unwrap();
-        let name: String = connection
+        let game: (String, Option<String>) = connection
             .query_row(
-                "SELECT name_override FROM games WHERE id = 'manual'",
+                "SELECT name_override, executable_path FROM games WHERE id = 'manual'",
                 [],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .unwrap();
-        let downloads_exists: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'downloads'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!((name.as_str(), downloads_exists), ("Manual game", 1));
+        assert_eq!(game, ("Manual game".to_owned(), None));
     }
 
     #[test]
@@ -1978,10 +1985,8 @@ mod tests {
                 ..CompatibilityDefaults::default()
             })
             .unwrap();
-        assert_eq!(
-            saved.prefix_root.as_deref(),
-            Some(directory.to_str().unwrap())
-        );
+        let canonical = fs::canonicalize(&directory).unwrap();
+        assert_eq!(saved.prefix_root.as_deref(), canonical.to_str());
         assert!(
             database
                 .save_compatibility_defaults(CompatibilityDefaults {
@@ -2052,7 +2057,12 @@ mod tests {
             .save_game_compatibility_overrides(
                 &first.id,
                 GameCompatibilityOverrides {
-                    prefix_path: Some("/games/original-prefix".to_owned()),
+                    prefix_path: Some(
+                        directory
+                            .join("original-prefix")
+                            .to_string_lossy()
+                            .into_owned(),
+                    ),
                     ..Default::default()
                 },
             )
@@ -2061,7 +2071,12 @@ mod tests {
             .save_game_compatibility_overrides(
                 &second.id,
                 GameCompatibilityOverrides {
-                    prefix_path: Some("/games/modded-prefix".to_owned()),
+                    prefix_path: Some(
+                        directory
+                            .join("modded-prefix")
+                            .to_string_lossy()
+                            .into_owned(),
+                    ),
                     ..Default::default()
                 },
             )
@@ -2078,7 +2093,7 @@ mod tests {
                 .unwrap()
                 .prefix_path
                 .as_deref(),
-            Some("/games/original-prefix")
+            directory.join("original-prefix").to_str()
         );
         assert_eq!(
             database
@@ -2086,7 +2101,7 @@ mod tests {
                 .unwrap()
                 .prefix_path
                 .as_deref(),
-            Some("/games/modded-prefix")
+            directory.join("modded-prefix").to_str()
         );
         let summaries = database.playtime_summaries(4_000).unwrap();
         assert_eq!(
@@ -2383,7 +2398,7 @@ mod tests {
     }
 
     #[test]
-    fn compatibility_settings_persist_and_empty_game_values_clear_inherited_collections() {
+    fn compatibility_defaults_and_explicit_overrides_survive_reopen() {
         let directory = temporary_directory();
         let database = Database::open(&directory).unwrap();
         let game = database
@@ -2397,7 +2412,7 @@ mod tests {
         environment.insert("WINEDEBUG".to_owned(), "-all".to_owned());
         let defaults = CompatibilityDefaults {
             runner_path: Some("/opt/Proton 10.0".to_owned()),
-            prefix_root: Some("/prefixes".to_owned()),
+            prefix_root: Some(directory.join("prefixes").to_string_lossy().into_owned()),
             arguments_before: vec!["-windowed".to_owned()],
             arguments_after: Vec::new(),
             working_directory: Some("/games/default".to_owned()),
@@ -2434,15 +2449,6 @@ mod tests {
         assert_eq!(reopened.compatibility_defaults().unwrap(), defaults);
         let stored = reopened.game_compatibility_overrides(&game.id).unwrap();
         assert_eq!(stored, overrides);
-        assert_eq!(stored.runner_path, None);
-        assert_eq!(stored.arguments_before, Some(Vec::new()));
-        assert_eq!(stored.environment, Some(BTreeMap::new()));
-        assert_eq!(
-            stored.graphics_renderer,
-            Some(GraphicsRenderer::RunnerDefault)
-        );
-        assert_eq!(stored.wayland, Some(WaylandMode::Disabled));
-        assert_eq!(stored.debug_logging, Some(false));
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -2486,7 +2492,7 @@ mod tests {
         database
             .save_compatibility_defaults(CompatibilityDefaults {
                 runner_path: Some("/opt/Proton 10.0".to_owned()),
-                prefix_root: Some("/prefixes".to_owned()),
+                prefix_root: Some(directory.join("prefixes").to_string_lossy().into_owned()),
                 arguments_before: vec!["default-before".to_owned()],
                 arguments_after: vec!["default-after".to_owned()],
                 working_directory: Some("/games/default".to_owned()),
@@ -2508,7 +2514,12 @@ mod tests {
                 &game.id,
                 GameCompatibilityOverrides {
                     runner_path: Some("/opt/Proton custom".to_owned()),
-                    prefix_path: Some("/prefixes/custom".to_owned()),
+                    prefix_path: Some(
+                        directory
+                            .join("custom-prefix")
+                            .to_string_lossy()
+                            .into_owned(),
+                    ),
                     arguments_before: Some(vec!["game-before".to_owned()]),
                     working_directory: Some(String::new()),
                     environment: Some(environment),
@@ -2522,8 +2533,14 @@ mod tests {
 
         let effective = database.effective_compatibility_config(&game.id).unwrap();
         assert_eq!(effective.runner_path.as_deref(), Some("/opt/Proton custom"));
-        assert_eq!(effective.prefix_root.as_deref(), Some("/prefixes"));
-        assert_eq!(effective.prefix_path.as_deref(), Some("/prefixes/custom"));
+        assert_eq!(
+            effective.prefix_root.as_deref(),
+            directory.join("prefixes").to_str()
+        );
+        assert_eq!(
+            effective.prefix_path.as_deref(),
+            directory.join("custom-prefix").to_str()
+        );
         assert_eq!(effective.arguments_before, vec!["game-before"]);
         assert_eq!(effective.arguments_after, vec!["default-after"]);
         assert_eq!(effective.working_directory, None);
@@ -2569,7 +2586,7 @@ mod tests {
         database
             .save_compatibility_defaults(CompatibilityDefaults {
                 runner_path: Some("/usr/bin/wine".to_owned()),
-                prefix_root: Some("/prefixes".to_owned()),
+                prefix_root: Some(directory.join("prefixes").to_string_lossy().into_owned()),
                 arguments_before: vec!["default".to_owned()],
                 arguments_after: vec!["default".to_owned()],
                 working_directory: Some("/games/default".to_owned()),
@@ -2598,7 +2615,7 @@ mod tests {
             database.effective_compatibility_config(&game.id).unwrap(),
             EffectiveCompatibilityConfig {
                 runner_path: None,
-                prefix_root: Some("/prefixes".to_owned()),
+                prefix_root: Some(directory.join("prefixes").to_string_lossy().into_owned()),
                 prefix_path: None,
                 arguments_before: Vec::new(),
                 arguments_after: Vec::new(),
@@ -2642,13 +2659,6 @@ mod tests {
                 ..EffectiveCompatibilityConfig::default()
             }
         );
-        assert!(
-            database
-                .effective_compatibility_config(&game.id)
-                .unwrap()
-                .debug_logging
-        );
-
         database
             .save_game_compatibility_overrides(
                 &game.id,

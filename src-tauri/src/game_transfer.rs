@@ -788,12 +788,15 @@ mod tests {
         assert!(pending_transfers(&database, None).unwrap().is_empty());
         assert!(!intent.source.exists());
         assert_eq!(
-            database
-                .game(&intent.game_id)
-                .unwrap()
-                .installation_root
-                .as_deref(),
-            intent.destination.to_str()
+            dunce::canonicalize(
+                database
+                    .game(&intent.game_id)
+                    .unwrap()
+                    .installation_root
+                    .unwrap()
+            )
+            .unwrap(),
+            dunce::canonicalize(&intent.destination).unwrap()
         );
         drop(database);
         fs::remove_dir_all(root).unwrap();
