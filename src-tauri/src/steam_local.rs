@@ -1413,9 +1413,9 @@ mod tests {
             root.join("steamapps/libraryfolders.vdf"),
             format!(
                 r#""libraryfolders" {{ "0" {{ "path" "{}" }} "1" {{ "path" "{}" }} "2" "{}" }}"#,
-                root.display(),
-                external.display(),
-                duplicate.display()
+                root.to_string_lossy().replace('\\', "\\\\"),
+                external.to_string_lossy().replace('\\', "\\\\"),
+                duplicate.to_string_lossy().replace('\\', "\\\\")
             ),
         )
         .unwrap();
@@ -1460,7 +1460,11 @@ mod tests {
             root.join("steamapps/libraryfolders.vdf"),
             format!(
                 r#""libraryfolders" {{ "1" "{}" }}"#,
-                fixture.0.join("missing-private-disk").display()
+                fixture
+                    .0
+                    .join("missing-private-disk")
+                    .to_string_lossy()
+                    .replace('\\', "\\\\")
             ),
         )
         .unwrap();
@@ -1477,12 +1481,12 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![1]
         );
-        assert_eq!(scan.diagnostics.len(), 2);
-        assert_ne!(scan.diagnostics[0], scan.diagnostics[1]);
-        assert!(
-            scan.diagnostics
-                .iter()
-                .all(|message| !message.contains("missing-private-disk"))
+        assert_eq!(
+            scan.diagnostics,
+            vec![
+                "could not access a configured Steam library: NotFound",
+                "could not read a Steam app manifest: InvalidData",
+            ]
         );
     }
 
