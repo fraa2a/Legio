@@ -375,30 +375,35 @@ mod tests {
     #[test]
     fn rotates_complete_records_with_bounded_retention() {
         let directory = std::env::temp_dir().join(format!("legio-logs-{}", uuid::Uuid::new_v4()));
-        let record = Record {
-            timestamp_ms: 1,
-            category: "network",
-            operation: Operation::HydraSearch,
-            outcome: Outcome::Timeout,
-            elapsed_ms: 10,
-            status: None,
-            response_bytes: None,
-        };
-        for _ in 0..4000 {
+        fs::create_dir(&directory).unwrap();
+        let current = directory.join("network.jsonl");
+        let previous = directory.join("network.previous.jsonl");
+        fs::write(&previous, b"obsolete generation").unwrap();
+        for (outcome, expected) in [(Outcome::Timeout, "timeout"), (Outcome::Success, "success")] {
+            let record = Record {
+                timestamp_ms: 1,
+                category: "network",
+                operation: Operation::HydraSearch,
+                outcome,
+                elapsed_ms: 10,
+                status: None,
+                response_bytes: None,
+            };
+            let mut line = serde_json::to_vec(&record).unwrap();
+            line.push(b'\n');
+            let seed = line.repeat(MAX_LOG_BYTES as usize / line.len());
+            fs::write(&current, &seed).unwrap();
             append(&directory, &record).unwrap();
-        }
-        let entries = fs::read_dir(&directory)
-            .unwrap()
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
-        assert_eq!(entries.len(), 2);
-        for entry in entries {
-            assert!(entry.metadata().unwrap().len() <= MAX_LOG_BYTES);
-            for line in fs::read_to_string(entry.path()).unwrap().lines() {
-                let parsed: serde_json::Value = serde_json::from_str(line).unwrap();
-                assert_eq!(parsed["outcome"], "timeout");
+            assert_eq!(fs::read(&previous).unwrap(), seed);
+            assert_eq!(fs::read(&current).unwrap(), line);
+            let parsed: serde_json::Value =
+                serde_json::from_slice(&fs::read(&current).unwrap()).unwrap();
+            assert_eq!(parsed["outcome"], expected);
+            for path in [&current, &previous] {
+                assert!(fs::metadata(path).unwrap().len() <= MAX_LOG_BYTES);
             }
         }
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 2);
         fs::remove_dir_all(directory).unwrap();
     }
 

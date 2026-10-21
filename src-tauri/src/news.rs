@@ -219,7 +219,7 @@ mod tests {
         assert!(parse(&vec![b' '; MAX_BYTES + 1]).is_err());
     }
     #[test]
-    fn cache_survives_database_reopen() {
+    fn cached_feed_survives_reopen_and_is_revalidated() {
         let root = std::env::temp_dir().join(format!("legio-news-{}", uuid::Uuid::new_v4()));
         let state = DatabaseState::new(Ok(root.clone()));
         let snapshot = Snapshot {
@@ -242,15 +242,27 @@ mod tests {
             .unwrap();
         drop(state);
         let reopened = DatabaseState::new(Ok(root.clone()));
+        let cached = read_cache(reopened.database().unwrap()).unwrap();
         assert_eq!(
-            read_cache(reopened.database().unwrap())
-                .unwrap()
-                .feed
-                .unwrap()
-                .items[0]
-                .id,
-            "welcome"
+            serde_json::to_value(cached).unwrap(),
+            serde_json::to_value(&snapshot).unwrap()
         );
+        let mut corrupted = serde_json::to_value(&snapshot).unwrap();
+        corrupted["feed"]["schemaVersion"] = 2.into();
+        reopened
+            .database()
+            .unwrap()
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE settings SET value = ?1 WHERE key = 'news_cache'",
+                        [serde_json::to_string(&corrupted).unwrap()],
+                    )
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            })
+            .unwrap();
+        assert!(read_cache(reopened.database().unwrap()).is_err());
         drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
     }

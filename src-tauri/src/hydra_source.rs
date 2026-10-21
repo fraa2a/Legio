@@ -160,7 +160,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_named_source_and_keeps_mirrors_without_claiming_trust() {
+    fn parses_source_name_mirrors_and_optional_metadata() {
         let source = parse(br#"{"name":"SteamGG","downloads":[{"title":"Portal v1.0 [SteamGG]","uris":["https://gofile.io/d/example","https://pixeldrain.com/u/example"],"uploadDate":"2026-10-17T00:00:00Z","fileSize":"1.2 GB","verified":true}]}"#).unwrap();
         assert_eq!(source.name, "SteamGG");
         assert_eq!(source.downloads.len(), 1);
@@ -177,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_bad_shape_and_duplicate_or_unbounded_content() {
+    fn rejects_invalid_document_shapes() {
         assert!(parse(br#"{"name":"","downloads":[]}"#).is_err());
         assert!(parse(br#"{"schemaVersion":1,"downloads":[]}"#).is_err());
         assert!(parse(br#"{"name":"Public","downloads":"wrong"}"#).is_err());

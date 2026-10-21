@@ -785,6 +785,11 @@ mod tests {
         finalize(&database, &data_dir, &id, "Wrapper/Game/Game.exe").unwrap();
         let game = database.game(&id).unwrap();
         let root = data_dir.join("installed/Test Game");
+        assert_eq!(fs::read(root.join("Game.exe")).unwrap(), b"play");
+        assert_eq!(state(&database, &id).0, "installed");
+        assert!(!stage.exists());
+        assert_eq!(database.games().unwrap().len(), 1);
+        assert_eq!(game.steam_app_id, Some(42));
         assert_eq!(
             Path::new(game.executable_path.as_ref().unwrap()),
             root.join("Game.exe")
@@ -874,6 +879,18 @@ mod tests {
             })
             .unwrap();
         assert!(staged_download_directory(&database, &data_dir, &id).is_err());
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET status = 'staged', staged_path = ?2 WHERE id = ?1",
+                        params![id, data_dir.to_string_lossy()],
+                    )
+                    .map_err(database_error)?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(staged_download_directory(&database, &data_dir, &id).is_err());
         drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
@@ -885,33 +902,6 @@ mod tests {
         assert_eq!(state(&database, &id).0, "installed");
         let game = database.game(&id).unwrap();
         assert!(Path::new(game.executable_path.as_deref().unwrap()).is_file());
-        drop(database);
-        fs::remove_dir_all(data_dir).unwrap();
-    }
-
-    #[test]
-    fn finalizes_and_commits_game_and_download() {
-        let (database, data_dir, id) = fixture();
-        let (stage, name) = staged_download_directory(&database, &data_dir, &id).unwrap();
-        let scan = manual_import::scan_staged_directory(&stage, Some(&name)).unwrap();
-        let executable = scan.selected_relative_path.unwrap();
-        finalize(&database, &data_dir, &id, &executable).unwrap();
-        let target = data_dir.join("installed/Test Game");
-        assert_eq!(fs::read(target.join("game.exe")).unwrap(), b"game");
-        assert_eq!(state(&database, &id).0, "installed");
-        assert!(
-            !data_dir
-                .join("downloads")
-                .join(format!("{id}.stage"))
-                .exists()
-        );
-        let games = database.games().unwrap();
-        assert_eq!(games.len(), 1);
-        assert_eq!(games[0].steam_app_id, Some(42));
-        assert_eq!(
-            games[0].executable_path.as_deref().map(Path::new),
-            Some(target.join("game.exe").as_path())
-        );
         drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
@@ -966,34 +956,16 @@ mod tests {
         let target = intent.target.clone();
         fs::create_dir_all(&target).unwrap();
         fs::write(target.join("foreign"), b"keep").unwrap();
-        assert!(finish(&database, &intent).is_err());
+        let error = finish(&database, &intent).unwrap_err();
+        assert!(error.contains("already exists"));
+        assert_eq!(state(&database, &id).0, "finalizing");
+        assert!(intent.stage.is_dir());
         record_error(&database, &id, "conflict").unwrap();
         assert_eq!(fs::read(target.join("foreign")).unwrap(), b"keep");
         fs::remove_dir_all(&target).unwrap();
         finalize(&database, &data_dir, &id, "bin/game.exe").unwrap();
         assert_eq!(state(&database, &id).0, "installed");
         assert_eq!(fs::read(target.join("game.exe")).unwrap(), b"game");
-        drop(database);
-        fs::remove_dir_all(data_dir).unwrap();
-    }
-
-    #[test]
-    fn refuses_existing_target_and_keeps_evidence() {
-        let (database, data_dir, id) = fixture();
-        let intent = claim(&database, &data_dir, &id, "bin/game.exe").unwrap();
-        let target = intent.target.clone();
-        fs::create_dir_all(&target).unwrap();
-        fs::write(target.join("foreign"), b"keep").unwrap();
-        let error = finish(&database, &intent).unwrap_err();
-        assert!(error.contains("already exists"));
-        assert_eq!(state(&database, &id).0, "finalizing");
-        assert_eq!(fs::read(target.join("foreign")).unwrap(), b"keep");
-        assert!(
-            data_dir
-                .join("downloads")
-                .join(format!("{id}.stage"))
-                .exists()
-        );
         drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }

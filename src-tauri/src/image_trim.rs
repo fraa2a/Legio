@@ -342,5 +342,9 @@ mod tests {
         let trimmed = webp_asset(&bytes).unwrap();
         let decoded = image::load_from_memory(&trimmed).unwrap();
         assert_eq!(decoded.dimensions(), (6, 6));
+        let pixels = decoded.to_rgba8();
+        assert_eq!(pixels.get_pixel(0, 0)[3], 255);
+        assert_eq!(pixels.get_pixel(5, 5)[3], 255);
+        assert_eq!(pixels.get_pixel(2, 2)[3], 0);
     }
 }
