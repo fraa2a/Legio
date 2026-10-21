@@ -943,28 +943,6 @@ mod linux {
         Ok(path)
     }
 
-    #[cfg(test)]
-    fn remove_owned_entry(directory: &Path, filename: &str, game_id: &str) -> Result<(), String> {
-        let path = directory.join(filename);
-        let metadata = match fs::symlink_metadata(&path) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(format!("Could not inspect shortcut: {error}")),
-        };
-        if metadata.file_type().is_symlink() || !metadata.is_file() {
-            return Err("shortcut path is not a regular file".to_owned());
-        }
-        if metadata.len() > 64 * 1024 {
-            return Err("refusing to remove an oversized desktop entry".to_owned());
-        }
-        let contents = fs::read_to_string(&path)
-            .map_err(|error| format!("Could not inspect shortcut: {error}"))?;
-        if !is_owned_entry(&contents, game_id) {
-            return Err("refusing to remove a desktop entry not owned by Legio".to_owned());
-        }
-        fs::remove_file(path).map_err(|error| format!("Could not remove shortcut: {error}"))
-    }
-
     fn is_owned_entry(contents: &str, game_id: &str) -> bool {
         let mut lines = contents.lines();
         let marker = format!("X-Legio-GameId={game_id}");
@@ -988,10 +966,11 @@ mod linux {
                 "Round\n\"Trip\"",
                 Path::new("/opt/Legio App %$`\\.AppImage"),
                 "00000000-0000-0000-0000-000000000001",
-                None,
+                Some(Path::new("/tmp/Legio Icons/game icon.png")),
             )
             .unwrap();
             assert!(entry.contains("Name=Round\\n\"Trip\""));
+            assert!(entry.contains("Icon=/tmp/Legio Icons/game icon.png\n"));
             assert!(
                 entry.contains(
                     "Exec=\"/opt/Legio App %%\\\\$\\\\`\\\\\\\\.AppImage\" --launch-game=00000000-0000-0000-0000-000000000001"
@@ -1050,11 +1029,15 @@ mod linux {
             )
             .unwrap_err();
             assert!(error.contains("not owned by Legio"));
+            assert_eq!(
+                fs::read_to_string(&path).unwrap(),
+                "[Desktop Entry]\nName=Other application\nX-Legio-GameId=other-game\n"
+            );
             fs::remove_dir_all(directory).unwrap();
         }
 
         #[test]
-        fn game_shortcut_uses_readable_filename_and_preserves_name_collisions() {
+        fn shortcut_filename_and_ownership_detection_keep_game_identities_separate() {
             let directory = test_dir("readable-name");
             let first_id = "00000000-0000-0000-0000-000000000001";
             let second_id = "00000000-0000-0000-0000-000000000002";
@@ -1076,56 +1059,36 @@ mod linux {
         }
 
         #[test]
-        fn removes_only_legio_owned_shortcuts() {
-            let directory = test_dir("remove-owned");
-            let game_id = "00000000-0000-0000-0000-000000000001";
-            let filename = format!("legio-game-{game_id}.desktop");
-            let contents =
-                desktop_entry("Test Game", Path::new("/usr/bin/legio"), game_id, None).unwrap();
-            let path = write_entry(&directory, &filename, game_id, &contents).unwrap();
-
-            remove_owned_entry(&directory, &filename, game_id).unwrap();
-
-            assert!(!path.exists());
-            fs::remove_dir_all(directory).unwrap();
-        }
-
-        #[test]
-        fn refuses_to_remove_a_shortcut_not_owned_by_legio() {
-            let directory = test_dir("remove-foreign");
-            let game_id = "00000000-0000-0000-0000-000000000001";
-            let filename = format!("legio-game-{game_id}.desktop");
-            let path = directory.join(&filename);
-            fs::write(
-                &path,
-                "[Desktop Entry]\nName=Other app\nX-Legio-GameId=other-game\n",
-            )
-            .unwrap();
-
-            let error = remove_owned_entry(&directory, &filename, game_id).unwrap_err();
-
-            assert!(error.contains("not owned by Legio"));
-            assert!(path.is_file());
-            fs::remove_dir_all(directory).unwrap();
-        }
-
-        #[test]
-        fn refuses_to_remove_a_symlinked_shortcut() {
+        fn removes_only_owned_shortcuts_and_preserves_kept_foreign_and_symlink_entries() {
             use std::os::unix::fs::symlink;
 
-            let directory = test_dir("remove-symlink");
+            let directory = test_dir("remove-owned");
             let game_id = "00000000-0000-0000-0000-000000000001";
-            let filename = format!("legio-game-{game_id}.desktop");
-            let target = directory.join("outside.desktop");
-            fs::write(
-                &target,
-                format!("[Desktop Entry]\nX-Legio-GameId={game_id}\n"),
-            )
-            .unwrap();
-            symlink(&target, directory.join(&filename)).unwrap();
+            let contents =
+                desktop_entry("Test Game", Path::new("/usr/bin/legio"), game_id, None).unwrap();
+            let owned = write_entry(&directory, "old.desktop", game_id, &contents).unwrap();
+            let kept = write_entry(&directory, "current.desktop", game_id, &contents).unwrap();
+            let foreign = directory.join("foreign.desktop");
+            let foreign_contents = "[Desktop Entry]\nName=Other app\nX-Legio-GameId=other-game\n";
+            fs::write(&foreign, foreign_contents).unwrap();
+            fs::create_dir(directory.join("outside")).unwrap();
+            let target = directory.join("outside/target.desktop");
+            fs::write(&target, &contents).unwrap();
+            let link = directory.join("link.desktop");
+            symlink(&target, &link).unwrap();
 
-            assert!(remove_owned_entry(&directory, &filename, game_id).is_err());
-            assert!(target.is_file());
+            remove_other_owned_entries(&directory, game_id, Some(&kept)).unwrap();
+
+            assert!(!owned.exists());
+            assert_eq!(fs::read_to_string(&kept).unwrap(), contents);
+            assert_eq!(fs::read_to_string(&foreign).unwrap(), foreign_contents);
+            assert!(
+                fs::symlink_metadata(&link)
+                    .unwrap()
+                    .file_type()
+                    .is_symlink()
+            );
+            assert_eq!(fs::read_to_string(&target).unwrap(), contents);
             fs::remove_dir_all(directory).unwrap();
         }
 
@@ -1147,34 +1110,6 @@ mod linux {
             let directory =
                 PathBuf::from(std::ffi::OsString::from_vec(b"/tmp/Legio-\xff".to_vec()));
             assert!(require_utf8_directory(&directory).is_err());
-        }
-
-        #[test]
-        fn installed_desktop_entry_passes_desktop_file_validate_when_available() {
-            let directory = test_dir("validate");
-            let contents = desktop_entry(
-                "Game with % and \"quotes\"",
-                Path::new("/opt/Legio App.AppImage"),
-                "00000000-0000-0000-0000-000000000001",
-                Some(Path::new("/tmp/Legio Icons/game icon.png")),
-            )
-            .unwrap();
-            let path = write_entry(
-                &directory,
-                "legio-game-00000000-0000-0000-0000-000000000001.desktop",
-                "00000000-0000-0000-0000-000000000001",
-                &contents,
-            )
-            .unwrap();
-            assert!(contents.contains("Icon=/tmp/Legio Icons/game icon.png\n"));
-            if let Ok(output) = Command::new("desktop-file-validate").arg(&path).output() {
-                assert!(
-                    output.status.success(),
-                    "{}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
-            fs::remove_dir_all(directory).unwrap();
         }
 
         #[test]

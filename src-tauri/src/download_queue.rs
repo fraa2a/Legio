@@ -873,20 +873,6 @@ fn recover_staging(queue: &DownloadQueueState, database: &Database) -> Result<()
     Ok(())
 }
 
-#[cfg(test)]
-fn downloaded_ids(database: &Database) -> Result<Vec<String>, String> {
-    database.with_connection(|connection| {
-        let mut statement = connection
-            .prepare("SELECT id FROM downloads WHERE status = 'downloaded' ORDER BY queue_position, created_at, id")
-            .map_err(db_error)?;
-        statement
-            .query_map([], |row| row.get(0))
-            .map_err(db_error)?
-            .collect::<Result<_, _>>()
-            .map_err(db_error)
-    })
-}
-
 fn remove_partial(path: &Path) -> std::io::Result<()> {
     match fs::remove_file(path) {
         Ok(()) => Ok(()),
@@ -2283,6 +2269,9 @@ mod tests {
             false,
         )
         .unwrap();
+        let mut settings = database.settings().unwrap();
+        settings.download_notifications = true;
+        database.save_settings(settings.clone()).unwrap();
         for state in [
             "downloading",
             "downloaded",
@@ -2320,9 +2309,6 @@ mod tests {
                 Ok(())
             })
             .unwrap();
-        let mut settings = database.settings().unwrap();
-        settings.download_notifications = true;
-        database.save_settings(settings.clone()).unwrap();
         assert_eq!(
             completion_notification(&database, &job.id)
                 .unwrap()
@@ -2542,7 +2528,11 @@ mod tests {
     fn changing_bandwidth_does_not_charge_previous_bytes() {
         let mut window = BandwidthWindow::new(0, 0);
         assert!(window.delay(100 * 1024 * 1024, 1024 * 1024).is_zero());
-        assert!(window.delay(101 * 1024 * 1024, 1024 * 1024) <= Duration::from_secs(1));
+        let before = window.started.elapsed();
+        let delay = window.delay(101 * 1024 * 1024, 1024 * 1024);
+        let after = window.started.elapsed();
+        assert!(delay >= Duration::from_secs(1).saturating_sub(after));
+        assert!(delay <= Duration::from_secs(1).saturating_sub(before));
         assert!(window.delay(101 * 1024 * 1024, 0).is_zero());
     }
 
@@ -2730,7 +2720,9 @@ mod tests {
         let first = enqueue(&database, 400, url, "1", true).unwrap();
         let second = enqueue(&database, 400, url, "2", true).unwrap();
         assert_eq!(first.sha256, None);
+        assert_eq!(first.release_version, "1");
         assert_eq!(second.release_version, "2");
+        assert_ne!(first.id, second.id);
         let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
         fs::write(
             queue.path(&first.id, "archive").unwrap(),
@@ -2904,8 +2896,17 @@ mod tests {
     }
 
     #[test]
-    fn startup_staging_covers_only_completed_downloads() {
-        let (database, _queue, completed, directory) = downloaded_fixture();
+    fn startup_schedules_completed_downloads_and_preserves_queued_and_failed_jobs() {
+        let (database, queue, completed, directory) = downloaded_fixture();
+        let (archive, hash) = install_archive_fixture();
+        fs::write(queue.path(&completed.id, "archive").unwrap(), archive).unwrap();
+        database.with_connection(|connection| {
+            connection.execute(
+                "UPDATE downloads SET sha256 = ?2, size_bytes = ?3, published_size_bytes = ?3, downloaded_bytes = ?3 WHERE id = ?1",
+                params![completed.id, hash, archive.len() as i64],
+            ).map_err(db_error)?;
+            Ok(())
+        }).unwrap();
         let queued = enqueue(
             &database,
             400,
@@ -2914,7 +2915,7 @@ mod tests {
             false,
         )
         .unwrap();
-        let staged = enqueue(
+        let failed = enqueue(
             &database,
             400,
             "https://example.invalid/portal.zip",
@@ -2922,10 +2923,20 @@ mod tests {
             false,
         )
         .unwrap();
-        set_status(&database, &staged.id, "staged");
+        set_status(&database, &failed.id, "failed");
+        let app = test_app(&directory);
 
-        assert_eq!(downloaded_ids(&database).unwrap(), vec![completed.id]);
+        schedule_installations(app.handle());
+        wait_for_installation(&app, &database, &completed.id);
+
+        let game = database.game(&completed.id).unwrap();
+        assert_eq!(
+            fs::read(game.executable_path.unwrap()).unwrap(),
+            b"#!/bin/sh\nexit 0\n"
+        );
         assert_eq!(status_of(&database, &queued.id).as_deref(), Some("queued"));
+        assert_eq!(status_of(&database, &failed.id).as_deref(), Some("failed"));
+        drop(app);
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
@@ -3628,7 +3639,6 @@ mod tests {
         let (database, queue, job, directory) = downloaded_fixture();
         set_status(&database, &job.id, "failed");
 
-        assert!(REMOVABLE.contains(&DownloadStatus::Failed));
         remove_entry(&queue, &database, &job.id).unwrap();
 
         assert_eq!(status_of(&database, &job.id), None);
@@ -3729,7 +3739,8 @@ mod tests {
         let error = remove_entry(&queue, &database, &job.id).unwrap_err();
         assert!(error.contains("preserved for inspection"), "{error}");
 
-        assert!(outside.join("keep.bin").exists());
+        assert_eq!(fs::read(outside.join("keep.bin")).unwrap(), b"keep");
+        assert_eq!(status_of(&database, &job.id).as_deref(), Some("cancelled"));
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }

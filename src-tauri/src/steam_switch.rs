@@ -532,6 +532,7 @@ mod tests {
             updated: b"selected account".to_vec(),
         };
         write_atomic(&path, &patch.updated).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"selected account");
         restore_files(&[patch]).unwrap();
         assert_eq!(fs::read(&path).unwrap(), original);
 

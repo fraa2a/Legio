@@ -291,22 +291,22 @@ mod tests {
             .with_connection(|connection| {
                 connection
                     .execute(
-                        "UPDATE games SET executable_path = ?2 WHERE id = ?1",
-                        params![manual.id, "/games/Portal.exe"],
+                        "UPDATE games SET executable_path = ?2, steam_install_path = ?3 WHERE id = ?1",
+                        params![manual.id, "/games/Portal.exe", fs::canonicalize(fixture.0.join("steam/steamapps/common/Portal")).unwrap().to_string_lossy()],
                     )
                     .map_err(database_error)?;
                 Ok(())
             })
             .unwrap();
+        let original = database.game(&manual.id).unwrap();
         let result = import_scan(&database, fixture.scan()).unwrap();
         assert_eq!((result.inserted, result.updated), (1, 0));
-        assert!(
-            database
-                .game(&manual.id)
-                .unwrap()
-                .steam_install_path
-                .is_none()
-        );
+        assert_eq!(database.game(&manual.id).unwrap(), original);
+        let games = database.games().unwrap();
+        assert_eq!(games.len(), 2);
+        let installed = games.iter().find(|game| game.id != manual.id).unwrap();
+        assert_eq!(installed.steam_install_path, original.steam_install_path);
+        assert_eq!(installed.executable_path, None);
     }
 
     #[test]

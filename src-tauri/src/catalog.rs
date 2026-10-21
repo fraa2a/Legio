@@ -950,7 +950,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_remote_pages_before_cache_mutation() {
+    fn rejects_invalid_remote_pages() {
         for bytes in [
             br#"{"count":1,"edges":[{"objectId":"0","title":"Game","shop":"steam"}]}"#.as_slice(),
             br#"{"count":1,"edges":[{"objectId":"1","title":" ","shop":"steam"}]}"#.as_slice(),

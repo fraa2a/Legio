@@ -400,10 +400,9 @@ mod tests {
         })
         .await;
         let (saved, stale) = read_cache(&path).await.unwrap().unwrap();
-        assert_eq!(
-            saved.url(4656000, "logo.png"),
-            assets.unwrap().url(4656000, "logo.png")
-        );
+        let expected = Some(format!("{CDN}/4656000/{HASH}/logo.png"));
+        assert_eq!(saved.url(4656000, "logo.png"), expected);
+        assert_eq!(assets.unwrap().url(4656000, "logo.png"), expected);
         assert!(!stale);
         assert!(warning.is_none());
         tokio::fs::remove_dir_all(path.parent().unwrap())
@@ -531,8 +530,9 @@ mod tests {
             Ok(logo_assets(HASH))
         })
         .await;
-        assert!(
-            assets.is_some(),
+        assert_eq!(
+            assets.unwrap().url(4656000, "logo.png"),
+            Some(format!("{CDN}/4656000/{HASH}/logo.png")),
             "Cancellation must not be reused as a cached metadata failure"
         );
         assert!(warning.is_none());
@@ -557,7 +557,7 @@ mod tests {
             "library_header_2x.jpg",
             "header.jpg",
             "capsule_231x87.jpg",
-            "clienticon.jpg",
+            "clienticon.ico",
         ] {
             assert!(
                 assets.url(4656000, filename).is_some(),

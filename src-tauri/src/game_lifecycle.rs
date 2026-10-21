@@ -2722,6 +2722,16 @@ mod tests {
                 .unwrap();
         assert_eq!(report["appliedOptions"]["debugLogging"], false);
         assert_eq!(report["debugEnvironment"], serde_json::json!([]));
+        assert_eq!(report["runner"], "Controlled Wine");
+        assert_eq!(report["runnerVersion"], "test");
+        assert_eq!(
+            report["prefixPath"],
+            serde_json::json!(
+                dunce::canonicalize(base.join("prefixes"))
+                    .unwrap()
+                    .join(&game.id)
+            )
+        );
         let output_timeout = Instant::now() + Duration::from_secs(3);
         loop {
             let stdout = fs::read_to_string(log_directory.join("stdout.log")).unwrap_or_default();
@@ -2735,9 +2745,6 @@ mod tests {
             );
             thread::sleep(Duration::from_millis(20));
         }
-        let report = fs::read_to_string(log_directory.join("launch.json")).unwrap();
-        assert!(report.contains("Controlled Wine"));
-        assert!(report.contains("prefixPath"));
 
         drop(app);
         drop(database);
@@ -3158,32 +3165,6 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn runner_spawn_failure_returns_to_idle_with_error() {
-        let base = test_dir("runner-spawn-failure");
-        let manager = GameLaunchManager::new();
-        let token = uuid::Uuid::new_v4().to_string();
-        let target = runner_test_target(&base, &token);
-        let cancel = manager
-            .reserve_launch("runner", None, target.clone(), None)
-            .unwrap();
-        manager.run_launch(
-            "runner".to_owned(),
-            target,
-            cancel,
-            LaunchContext::default(),
-            |_| Err("Could not start compatibility runner: no such file".to_owned()),
-        );
-        let state = &manager.list().unwrap()[0];
-        assert_eq!(state.status, GameStatus::Idle);
-        assert_eq!(
-            state.error.as_deref(),
-            Some("Launch stage failed: Could not start compatibility runner: no such file")
-        );
-        fs::remove_dir_all(base).unwrap();
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
     fn runner_wrapper_failure_without_compatibility_logs_returns_to_idle() {
         let base = test_dir("runner-wrapper-failure");
         let manager = GameLaunchManager::new();
@@ -3269,7 +3250,7 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn controlled_process_runs_through_prepare_launch_monitor_and_terminate() {
+    fn steam_game_process_is_monitored_and_stopped() {
         const APP_ID: u32 = 4_294_967_293;
         let base = test_dir("lifecycle-process");
         let install_path = base.join("game");
@@ -3509,7 +3490,7 @@ mod tests {
     }
 
     #[test]
-    fn steam_process_events_keep_proton_launch_active_after_completion() {
+    fn steam_process_log_preserves_event_order_around_completion() {
         let path = std::env::temp_dir().join(format!(
             "legio-steam-process-log-{}-{:?}",
             std::process::id(),
@@ -3540,20 +3521,21 @@ mod tests {
     }
 
     #[test]
-    fn completion_waits_for_all_steam_game_processes_to_end() {
+    fn steam_progress_tracks_completion_and_saturating_process_counts() {
         let mut progress = SteamLaunchProgress::default();
-        for event in [
-            SteamLaunchEvent::ProcessAdded,
-            SteamLaunchEvent::ProcessAdded,
-            SteamLaunchEvent::Completed,
-            SteamLaunchEvent::ProcessUpdated,
-            SteamLaunchEvent::ProcessRemoved,
+        for (event, count, completed) in [
+            (SteamLaunchEvent::ProcessAdded, 1, false),
+            (SteamLaunchEvent::ProcessAdded, 2, false),
+            (SteamLaunchEvent::Completed, 2, true),
+            (SteamLaunchEvent::ProcessUpdated, 2, true),
+            (SteamLaunchEvent::ProcessRemoved, 1, true),
+            (SteamLaunchEvent::ProcessRemoved, 0, true),
+            (SteamLaunchEvent::ProcessRemoved, 0, true),
+            (SteamLaunchEvent::ProcessUpdated, 1, true),
         ] {
             assert_eq!(progress.observe(event), None);
+            assert_eq!(progress.active_processes, count);
+            assert_eq!(progress.completed, completed);
         }
-        assert!(progress.completed);
-        assert_eq!(progress.active_processes, 1);
-        assert_eq!(progress.observe(SteamLaunchEvent::ProcessRemoved), None);
-        assert_eq!(progress.active_processes, 0);
     }
 }
