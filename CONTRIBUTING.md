@@ -1,34 +1,32 @@
 # Contributing to Legio
 
-## Branches
+## Get started
 
-Keep `main` buildable and releasable. Use a short-lived `feat/*`, `fix/*`, `refactor/*`, or `chore/*` branch for normal development. Keep each branch and pull request focused on one coherent change.
+- Follow [Development setup](_meta/docs/DEVELOPMENT.md).
+- Check [Known issues](_meta/docs/KNOWN-ISSUES.md) before reporting a bug. Include reproduction steps and platform details.
+- Discuss substantial changes in an issue first.
+- Report vulnerabilities privately through [SECURITY.md](SECURITY.md).
 
-## Commits and pull requests
+## License
 
-Use Conventional Commit prefixes such as `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`, `test:`, `build:`, and `perf:`. Required checks must pass before merge. Update from `main` when necessary, squash merge, and delete the branch after merge.
+Legio uses source-available SA-NC-PD 1.0, not an open-source license. Read [LICENSE](LICENSE), especially section 5: contributions are permitted, but general distribution of modified versions is restricted. Submitting a contribution grants the rights described there. Only submit material you have the right to contribute.
 
-## Required checks
+## Pull requests
 
-Run the relevant local commands before opening a pull request:
+1. Create a short-lived `feat/*`, `fix/*`, `refactor/*` or `chore/*` branch. Keep `main` releasable.
+2. Keep one coherent change per PR and add regression tests for fixes.
+3. Use Conventional Commits, such as `feat:`, `fix:`, `docs:` or `test:`.
+4. Run the relevant [checks and tests](_meta/docs/TESTING.md). The `frontend`, `rust` and `tauri-smoke` CI jobs must pass.
+5. Update from `main` when needed, squash merge, then delete the branch.
 
-```sh
-corepack pnpm install --frozen-lockfile
-corepack pnpm check
-corepack pnpm lint
-corepack pnpm build
-cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --locked -- -D warnings
-cargo test --manifest-path src-tauri/Cargo.toml --all-features --locked
-corepack pnpm tauri build --debug --no-bundle
-```
+## Code and documentation
 
-Pull requests are expected to pass the `frontend`, `rust`, and `tauri-smoke` CI jobs.
+- Rust owns business logic and native integration. Keep Tauri commands thin and frontend IPC in service modules.
+- Keep Svelte components focused on UI; reuse existing primitives.
+- Prefer focused changes over speculative abstractions. Handle errors and remove dead code.
+- Keep current documentation in `_meta/docs` and images in `_meta/screenshots`.
+- Put review results in PRs and release notes in GitHub Releases. Update known issues when taking ownership or resolving them.
 
-## Version ownership
+## Versioning
 
-`src-tauri/Cargo.toml` is the single source of truth for the application version. Do not bump the version during normal work. A version increase explicitly requests a release and must follow Semantic Versioning. Never decrease or reuse a released version, and do not create release tags manually outside release recovery.
-
-## Engineering expectations
-
-Follow `AGENTS.md` and the documentation in `_meta/docs`. Keep Tauri commands thin, put application logic in focused Rust modules when real behavior requires them, and keep business logic out of Svelte components. Make the smallest coherent change, reuse existing conventions, and do not leave dead code or ignored failures.
+`src-tauri/Cargo.toml` owns the version. Do not bump it during normal work: an increase requests a release. Follow Semantic Versioning; never reuse or decrease released versions. Create tags manually only for release recovery. See [Releases and updates](_meta/docs/UPDATING.md).

@@ -1,4 +1,4 @@
-# Linux Skia transition and acceptance
+# Linux rendering diagnostics
 
 WebKitGTK 2.54 and newer use Skia composition by default in Legio, including Hyprland. Legio no longer changes the process environment to select TextureMapper. Transparent native windows, blur, artwork, WebGL backgrounds and foreground fades remain supported.
 
@@ -21,9 +21,9 @@ Use the same binary, game, cached artwork, settings, display scaling and driver 
 
 For Legio, compare explicit native Wayland (`GDK_BACKEND=wayland`) with XWayland (`GDK_BACKEND=x11`) while using the same Skia default. Explicit `WEBKIT_USE_SKIA_FOR_COMPOSITION=0` remains an engine-level compatibility comparison where TextureMapper is still available. Clear that switch for normal Skia use.
 
-Do not use a live feature setter to test damage composition: WebKit 2.54 latches compositor settings when it constructs the renderer. A getter can report an updated preference without changing the already-created compositor. Legio's diagnostics therefore read settings without writing them. The former proposed `LEGIO_WEBKIT_DAMAGE_COMPOSITING` switch is unsupported and produces a warning if supplied.
+Do not use a live feature setter to test damage composition: WebKit 2.54 latches compositor settings when it constructs the renderer. A getter can report an updated preference without changing the already-created compositor. Legio's diagnostics therefore read settings without writing them. `LEGIO_WEBKIT_DAMAGE_COMPOSITING` is unsupported and produces a warning if supplied.
 
-For damage, transport and native alpha comparisons, use the standalone probe in `tools/linux-rendering/probe.c`. It constructs an ephemeral WebView with preferences set before WebPage creation, uses local synthetic artwork and blur, and does not load a Legio profile. Build with WebKitGTK 2.54+ development headers:
+For damage, transport and native alpha comparisons, use the [standalone probe](../../tools/linux-rendering/README.md) in `tools/linux-rendering/probe.c`. It constructs an ephemeral WebView with preferences set before WebPage creation, uses local synthetic artwork and blur, and does not load a Legio profile. Build with WebKitGTK 2.54+ development headers:
 
 ```sh
 cc -std=c11 -Wall -Wextra -Werror tools/linux-rendering/probe.c -o /tmp/legio-rendering-probe $(pkg-config --cflags --libs webkit2gtk-4.1)
@@ -50,21 +50,4 @@ No additional startup navigation or process restart is added to Legio. Its norma
 
 The current deb/rpm/AppImage release pipeline builds on Ubuntu 22.04 and does not establish a controlled WebKitGTK 2.54 runtime. Upgrading application code or shipping an ordinary package does not upgrade a user's system engine. Legacy engines continue to start and are identified in the log.
 
-A controlled runtime must pin the engine and required libraries, include its matching WebProcess/network helpers, and be tested as an assembled package. It must use a maintained 2.54+ version with an update/backport policy, verify the actual loaded version and pass the comparisons above on affected hardware. Do not mix an arbitrary WebKit library with host helpers or describe an LD_LIBRARY_PATH override alone as isolation. Building and distributing that package remains separate from this application transition; no existing release packaging was silently replaced.
-
-## Verification limits
-
-Policy tests cover version boundaries, native alpha and explicit compatibility requests. The native snapshot test exercises the installed WebKit API directly, including missing-feature handling. Probe initialization checks cover Skia, full composition and explicit TextureMapper preferences set before view creation. They do not establish that the Hyprland rendering defect is fixed. Acceptance on the affected machine remains required before release.
-
-## Implementation verification, 2026-10-12
-
-- `cargo test --all-features --locked`: 456 passed, 0 failed, 4 ignored. The ignored native feature test was then run explicitly and passed; the other ignored tests predate this change.
-- Native preference snapshot on loaded WebKitGTK 2.54.1: passed with GTK initialized.
-- `cargo clippy --all-targets --all-features --locked -- -D warnings`: passed.
-- Build with `tauri/custom-protocol`, embedding the existing frontend: passed.
-- Probe compiled with C11, `-Wall -Wextra -Werror`. Initialization passed for Skia/default damage, Skia/full composition, and explicit TextureMapper on XWayland; Skia/full composition also passed on native Wayland. Conflicting composition override rejection passed.
-- Final review found that live feature writes could misreport renderer behavior. Those writes were removed. The added rejection test failed before the correction and passed afterward; the complete suite was rerun after that correction.
-
-The first sandboxed suite run could not bind localhost fixture servers, and the first native test lacked GTK initialization. Neither result is used as successful verification. The final suite had access to its local fixtures and isolated test profiles; the final native test initialized GTK and had display access.
-
-These checks verify code and initialization, not the disappearance symptom under repeated focus changes on affected hardware. No release merge or production runtime update is implied by this verification.
+A controlled runtime must pin the engine and required libraries, include its matching WebProcess/network helpers, and be tested as an assembled package. It must use a maintained 2.54+ version with an update/backport policy, verify the actual loaded version and pass the comparisons above on affected hardware. Do not mix an arbitrary WebKit library with host helpers or describe an LD_LIBRARY_PATH override alone as isolation. A package that claims a controlled runtime must satisfy these requirements independently of application code changes.

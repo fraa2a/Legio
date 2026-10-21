@@ -31,35 +31,11 @@ Get the latest version from [Releases](https://github.com/fraa2a/Legio/releases)
 Steam must be installed for Steam integration and for games that require it.
 
 Linux uses WebKitGTK's Skia compositor on runtime versions 2.54 and newer.
-See [Linux rendering diagnostics and acceptance](docs/releases/0.2.0-linux-skia-test.md)
-for backend verification, focused comparisons and runtime packaging limits.
+See [Linux rendering diagnostics](_meta/docs/LINUX-RENDERING.md)
+for backend comparisons and runtime packaging requirements.
 
-Manual Proton and GE-Proton games without Online Fix use [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher).
-umu is a runtime dependency for these games, not for native Linux games, Wine
-launches or games launched through Steam.
-
-- **Standalone Linux downloads (AppImage, .deb and .rpm):** umu is not bundled.
-  Install `umu-launcher` separately and make `umu-run` available on your PATH or
-  in `~/.local/bin`.
-- **Arch Linux / AUR (`legio-launcher-bin`):** `umu-launcher` is declared as a
-  package dependency, so an AUR helper such as yay or paru installs it alongside
-  Legio. Enable the `multilib` repository, which provides `umu-launcher`.
-
-umu manages and downloads the required Steam Linux Runtime. A compatible Proton
-or GE-Proton runner must still be installed separately.
-Online Fix games using Proton launch through the Steam Linux Runtime declared by
-the runner's manifest, installed in a Steam library. Install the required runtime
-in Steam when prompted. These launches do not require umu; Proton manages the
-Steam files in the existing prefix.
-Steam-managed games continue to launch through Steam. Manual games only need Steam
-when Steam integration or Online Fix is enabled. Existing Wine and Proton prefixes
-are reused without moving save files. A shared prefix can run one game at a time.
-
-The runner's graphics and Wayland defaults clear inherited overrides for those two
-options. Explicit environment overrides for shader caching are preserved. vkd3d
-shader caches use a separate per-game cache directory. Game-specific umu fixes can
-be selected with the documented `GAMEID` and `STORE` environment variables; Legio
-does not infer an umu ID from a Steam App ID.
+See [Linux runners and performance controls](_meta/docs/LINUX.md) for umu setup,
+Proton/Wine requirements, prefixes, GameMode and gamescope.
 
 ## Download sources
 
@@ -75,33 +51,24 @@ keep the AppImage at a stable path, or run it again after moving it.
 
 ## Development
 
-Run `corepack pnpm install` and `corepack pnpm tauri dev` for local development.
-Tauri development runs use the `dev.fraa2a.legio.dev` application identifier,
-with a separate persistent database, settings, cache and logs. The first dev run
-starts with an empty library; subsequent dev runs reuse their own data.
-On Linux, the dev database is stored at
-`$XDG_DATA_HOME/dev.fraa2a.legio.dev/legio.sqlite3`, using `~/.local/share` when
-`XDG_DATA_HOME` is not set.
-Installed builds keep using `dev.fraa2a.legio`. Existing installed data is not
-copied, migrated or reset by development runs.
+Follow [Development setup](_meta/docs/DEVELOPMENT.md) for Linux and Windows
+prerequisites, then run `corepack pnpm install --frozen-lockfile` and
+`corepack pnpm tauri dev`. Development runs use a separate application profile
+and do not modify the installed launcher's data. See [Contributing](CONTRIBUTING.md)
+for checks and the pull request workflow.
 
 ## Documentation
 
+- [Documentation index](_meta/docs/README.md)
+- [Development setup](_meta/docs/DEVELOPMENT.md) and [contributing](CONTRIBUTING.md)
+- [Known issues and limitations](_meta/docs/KNOWN-ISSUES.md)
 - [Source schemas and download flow](_meta/docs/SCHEMA.md)
 - [Releases and updates](_meta/docs/UPDATING.md)
 
 ## License
 
-See [LICENSE](LICENSE) for the terms of use and distribution.
-
-### Optional Linux performance controls
-
-The compatibility panel of each manually imported game offers GameMode and gamescope. They are disabled by default and require the corresponding executable in PATH or ~/.local/bin. Install the distribution packages and reopen the panel to refresh availability. GameMode also needs a working user service and its preload libraries; Legio does not change its system configuration.
-
-With gamescope enabled, choose a native or explicit internal resolution and an optional frame cap. Commands use the structured order `gamescope [numeric options] -- gamemoderun umu-run game.exe [game arguments]`; disabled wrappers are omitted. Online Fix uses `runtime/run -- proton run` in place of `umu-run`, and Wine uses its own executable. Steam-managed games keep their existing client launch path. Resolution and FPS are validated before saving and launching. A lower internal resolution changes visual quality, and the additional compositor can change latency. GameMode, gamescope and native Wine Wayland are independent controls. Compare each change against the default for the same game; no FPS gain is guaranteed.
-
-References: [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher), [vkd3d-proton shader cache](https://github.com/HansKristian-Work/vkd3d-proton), [GameMode](https://github.com/FeralInteractive/gamemode) and [gamescope](https://github.com/ValveSoftware/gamescope).
-
-Transfer recovery runs on a blocking worker during startup. Application hydration and desktop shortcuts wait asynchronously for recovery. Launching, removal, transfers, import, finalization and download mutations cannot race incomplete recovery, and a recovery failure remains visible in the launch error banner. Download recovery retains its existing dedicated worker.
-
-UI refresh timers for playtime, monthly activity and news stop while the window is inactive and refresh on focus restore. Download progress polling and the event-backed launch recovery poll also stop while hidden; downloads and native lifecycle monitoring keep running. The launch polling fallback remains active if native event subscription fails. Steam artwork refresh timers wait until the window is active.
+Legio is source-available under SA-NC-PD 1.0, not an open-source license.
+The license restricts commercial use and distribution of modified versions,
+with a specific exception for proposing contributions. Read [LICENSE](LICENSE)
+for the complete terms and [Contributing](CONTRIBUTING.md) before submitting changes.
+Third-party material retains its own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
