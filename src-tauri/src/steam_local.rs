@@ -1280,8 +1280,17 @@ mod tests {
         let first = cached_appinfo_types(&path).unwrap().unwrap();
         let second = cached_appinfo_types(&path).unwrap().unwrap();
         assert!(std::sync::Arc::ptr_eq(&first, &second));
+        let modified = fs::metadata(&path).unwrap().modified().unwrap();
         fs::remove_file(&path).unwrap();
         fs::write(&path, appinfo_fixture(&[(1, "Tool")])).unwrap();
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new().set_modified(modified + std::time::Duration::from_secs(2)),
+            )
+            .unwrap();
         assert_eq!(
             cached_appinfo_types(&path).unwrap().unwrap().get(&1),
             Some(&false)
