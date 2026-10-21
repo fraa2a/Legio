@@ -340,7 +340,9 @@ jobs:
         shell: bash
         env:
           LEGIO_WINDOWS_TESTS: "1"
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib steam_local::tests::windows_default_roots
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib steam_local::tests::
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib steam_import::tests::
 
       - name: Test Windows game process control
         if: runner.os == 'Windows'
