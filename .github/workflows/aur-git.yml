@@ -1,0 +1,98 @@
+name: AUR development package
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - packaging/aur-git/PKGBUILD
+      - packaging/aur-git/legio-launcher
+      - .github/workflows/aur-git.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - packaging/aur-git/PKGBUILD
+      - packaging/aur-git/legio-launcher
+      - .github/workflows/aur-git.yml
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: aur-git-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  package:
+    name: Build Arch source package
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install packaging tools
+        run: |
+          printf '\n[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' >> /etc/pacman.conf
+          pacman -Syu --noconfirm --needed git openssh sudo
+          useradd -m builder
+          printf 'builder ALL=(ALL:ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/builder
+
+      - name: Check out recipe
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build and generate metadata
+        run: |
+          cp -r packaging/aur-git /tmp/aur-package
+          chown -R builder:builder /tmp/aur-package
+          bash -n /tmp/aur-package/PKGBUILD
+          su builder -c 'cd /tmp/aur-package && makepkg --syncdeps --noconfirm'
+          su builder -c 'cd /tmp/aur-package && makepkg --printsrcinfo > .SRCINFO'
+          mkdir aur-files
+          cp /tmp/aur-package/{PKGBUILD,.SRCINFO,legio-launcher} aur-files/
+
+      - name: Upload validated recipe
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: aur-git-recipe
+          path: aur-files/
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    name: Publish AUR recipe
+    needs: package
+    if: github.event_name == 'workflow_dispatch' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download validated recipe
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: aur-git-recipe
+          path: aur-files
+
+      - name: Create or update AUR package base
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          AUR_KNOWN_HOSTS: ${{ vars.AUR_KNOWN_HOSTS }}
+        run: |
+          test -n "$AUR_SSH_PRIVATE_KEY" || { echo "Missing AUR_SSH_PRIVATE_KEY"; exit 1; }
+          test -n "$AUR_KNOWN_HOSTS" || { echo "Missing verified AUR_KNOWN_HOSTS"; exit 1; }
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          printf '%s\n' "$AUR_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+          git clone ssh://aur@aur.archlinux.org/legio-launcher-git.git aur-repo
+          cp aur-files/{PKGBUILD,.SRCINFO,legio-launcher} aur-repo/
+          cd aur-repo
+          git config user.name 'Legio release bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add PKGBUILD .SRCINFO legio-launcher
+          if ! git diff --cached --quiet; then
+            git commit -m "Update development package recipe"
+            git push origin HEAD:master
+          fi

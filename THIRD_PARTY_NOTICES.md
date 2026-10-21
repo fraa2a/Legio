@@ -1,5 +1,21 @@
 # Third-party notices
 
+Third-party code and assets retain their own license terms. Legio's SA-NC-PD license does not replace those terms. MIT-licensed adaptations may be included in a differently licensed application, but their copyright and permission notices must be preserved.
+
+## Inter
+
+Legio bundles the unmodified Inter variable fonts, including italics.
+
+- Source: https://github.com/rsms/inter
+- Copyright (c) 2016 The Inter Project Authors.
+- License: SIL Open Font License 1.1. The full text is in `src/assets/fonts/OFL.txt`, distributed as `licenses/Inter-OFL.txt` in application bundles.
+
+## Glow icons
+
+- Source: https://github.com/glow-ui/glow-icons
+- Copyright (c) 2025 glow-ui.
+- License: MIT. The full notice is in `_meta/licenses/glow-icons.txt`, distributed as `licenses/glow-icons.txt` in application bundles.
+
 ## Hydra Launcher
 
 The free-host resolution behavior in `src-tauri/src/download_resolver.rs`, `src-tauri/src/gofile.rs`, `src-tauri/src/gofile_probe.js` and `src-tauri/src/gofile_capture.js` is adapted from the Hydra Launcher hoster implementations at commit `a22ec02201e73db8ca2ee214c2b37cd2d6a27374`.
@@ -93,5 +109,5 @@ Source title indexing embeds the upstream FlexSearch distribution from the `0.7.
 
 - Source: https://github.com/nextapps-de/flexsearch
 - Author and Copyright: Thomas Wilkerling, hosted by Nextapps GmbH.
-- License: Apache-2.0. The complete license is in `src-tauri/vendor/flexsearch.LICENSE` and is included in application bundles.
+- License: Apache-2.0. The complete license is in `src-tauri/vendor/flexsearch.LICENSE`, distributed as `licenses/flexsearch.LICENSE` in application bundles.
 - The upstream distribution banner says `v0.7.41`; the package metadata at the pinned commit says `0.7.43`. The distribution file is vendored unchanged.

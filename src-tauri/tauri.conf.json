@@ -31,7 +31,13 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
-    "resources": ["../src/assets/fonts/OFL.txt", "vendor/flexsearch.LICENSE"],
+    "resources": {
+      "../LICENSE": "LICENSE",
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../src/assets/fonts/OFL.txt": "licenses/Inter-OFL.txt",
+      "../_meta/licenses/glow-icons.txt": "licenses/glow-icons.txt",
+      "vendor/flexsearch.LICENSE": "licenses/flexsearch.LICENSE"
+    },
     "icon": [
       "icons/icon.png",
       "icons/icon.ico"
