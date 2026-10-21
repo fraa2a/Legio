@@ -273,16 +273,16 @@ mod tests {
     fn hero_cache_caps_resolution_and_cards_keep_65_percent_without_upscaling() {
         let source = DynamicImage::ImageRgba8(RgbaImage::from_pixel(
             3840,
-            1240,
+            124,
             image::Rgba([20, 40, 60, 255]),
         ));
         let mut input = Cursor::new(Vec::new());
         source.write_to(&mut input, ImageFormat::Png).unwrap();
         for (width, sharp_size, card_size) in [
-            (1280, (1280, 413), (832, 268)),
-            (1920, (1920, 620), (1248, 403)),
-            (2560, (2560, 826), (1664, 536)),
-            (3840, (3840, 1240), (2496, 806)),
+            (1280, (1280, 41), (832, 26)),
+            (1920, (1920, 62), (1248, 40)),
+            (2560, (2560, 82), (1664, 53)),
+            (3840, (3840, 124), (2496, 80)),
         ] {
             let sharp = hero_webp(input.get_ref(), width, false).unwrap();
             let image = image::load_from_memory(&sharp).unwrap();
@@ -297,7 +297,7 @@ mod tests {
         let unchanged = hero_webp(&small, 3840, false).unwrap();
         assert_eq!(
             image::load_from_memory(&unchanged).unwrap().dimensions(),
-            (1280, 413)
+            (1280, 41)
         );
         assert!(hero_webp(input.get_ref(), 0, false).is_err());
         assert!(hero_webp(input.get_ref(), 5000, false).is_err());
@@ -305,7 +305,7 @@ mod tests {
 
     #[test]
     fn card_processing_blurs_pixels_and_keeps_the_sharp_banner_separate() {
-        let source = DynamicImage::ImageRgba8(RgbaImage::from_fn(1920, 620, |x, _| {
+        let source = DynamicImage::ImageRgba8(RgbaImage::from_fn(1920, 32, |x, _| {
             let value = if x < 960 { 0 } else { 255 };
             image::Rgba([value, value, value, 255])
         }));
@@ -317,14 +317,14 @@ mod tests {
         let card = image::load_from_memory(&hero_webp(input.get_ref(), 1920, true).unwrap())
             .unwrap()
             .to_rgba8();
-        assert_eq!(sharp.dimensions(), (1920, 620));
-        assert_eq!(card.dimensions(), (1248, 403));
-        assert!(sharp.get_pixel(959, 310)[0] < 10);
+        assert_eq!(sharp.dimensions(), (1920, 32));
+        assert_eq!(card.dimensions(), (1248, 20));
+        assert!(sharp.get_pixel(959, 16)[0] < 10);
         assert!(
-            card.get_pixel(611, 201)[0] > 10,
+            card.get_pixel(611, 10)[0] > 10,
             "card blur must extend beyond a barely softened edge"
         );
-        assert_eq!(card.get_pixel(623, 201)[3], 255);
+        assert_eq!(card.get_pixel(623, 10)[3], 255);
     }
 
     #[test]

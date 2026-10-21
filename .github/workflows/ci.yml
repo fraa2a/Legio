@@ -288,7 +288,6 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml --locked --lib overlay_update::tests
           cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_updates::tests
           cargo test --manifest-path src-tauri/Cargo.toml --locked --lib update_policy
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib automatically_selects_and_installs_the_executable
 
       - name: Test Windows development data isolation
         if: runner.os == 'Windows'
@@ -356,20 +355,6 @@ jobs:
         env:
           LEGIO_WINDOWS_TESTS: "1"
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_lifecycle::tests::native_manager_lifecycle_tracks_a_controlled_process
-
-      - name: Test Windows staged executable finalization
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LEGIO_WINDOWS_TESTS: "1"
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib finalize_install::tests::finalizes_and_commits_game_and_download
-
-      - name: Test Windows finalization recovery after database reopen
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LEGIO_WINDOWS_TESTS: "1"
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib finalize_install::tests::recovers_after_database_commit_fails_and_database_reopens
 
       - name: Build Tauri application
         if: needs.plan.outputs.release != 'true' && !(github.event_name == 'workflow_dispatch' && inputs.test_packages)

@@ -1505,11 +1505,17 @@ mod tests {
     }
 
     #[test]
-    fn new_install_requires_onboarding_and_existing_preferences_skip_it() {
+    fn new_install_and_legacy_preferences_have_compatible_defaults() {
         assert!(!Settings::default().onboarding_completed);
         let existing: Settings =
             serde_json::from_value(serde_json::json!({"theme":"system"})).unwrap();
-        assert!(existing.onboarding_completed);
+        assert_eq!(
+            existing,
+            Settings {
+                onboarding_completed: true,
+                ..Settings::default()
+            }
+        );
     }
 
     #[test]
@@ -1622,45 +1628,6 @@ mod tests {
         drop(database);
         let reopened = Database::open(&directory).unwrap();
         assert_eq!(reopened.settings().unwrap(), settings);
-        drop(reopened);
-        fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
-    fn library_portrait_defaults_to_false_and_survives_reopen() {
-        let defaults: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
-        assert!(!defaults.library_portrait);
-        let directory = temporary_directory();
-        let database = Database::open(&directory).unwrap();
-        for portrait in [true, false] {
-            database
-                .save_settings(Settings {
-                    library_portrait: portrait,
-                    ..Settings::default()
-                })
-                .unwrap();
-            let reopened = Database::open(&directory).unwrap();
-            assert_eq!(reopened.settings().unwrap().library_portrait, portrait);
-        }
-        drop(database);
-        fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
-    fn sidebar_collapsed_defaults_to_true_and_survives_reopen() {
-        let defaults: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
-        assert!(defaults.sidebar_collapsed);
-        let directory = temporary_directory();
-        let database = Database::open(&directory).unwrap();
-        database
-            .save_settings(Settings {
-                sidebar_collapsed: false,
-                ..Settings::default()
-            })
-            .unwrap();
-        drop(database);
-        let reopened = Database::open(&directory).unwrap();
-        assert!(!reopened.settings().unwrap().sidebar_collapsed);
         drop(reopened);
         fs::remove_dir_all(directory).unwrap();
     }
@@ -2206,7 +2173,8 @@ mod tests {
     }
 
     #[test]
-    fn verified_hash_check_defaults_on_and_persists_when_disabled() {
+    fn verified_hash_check_defaults_on_for_fresh_and_legacy_preferences() {
+        assert!(Settings::default().verify_verified_downloads);
         let mut preferences = serde_json::to_value(Settings::default()).unwrap();
         preferences
             .as_object_mut()
@@ -2217,20 +2185,6 @@ mod tests {
                 .unwrap()
                 .verify_verified_downloads
         );
-        let directory = temporary_directory();
-        let database = Database::open(&directory).unwrap();
-        assert!(database.settings().unwrap().verify_verified_downloads);
-        database
-            .save_settings(Settings {
-                verify_verified_downloads: false,
-                ..Settings::default()
-            })
-            .unwrap();
-        drop(database);
-        let database = Database::open(&directory).unwrap();
-        assert!(!database.settings().unwrap().verify_verified_downloads);
-        drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -2238,13 +2192,18 @@ mod tests {
         let directory = temporary_directory();
         let database = Database::open(&directory).unwrap();
         assert_eq!(database.settings().unwrap(), Settings::default());
-        database
-            .save_settings(Settings {
-                theme: Theme::Light,
-                steam_library_poll_minutes: 15,
-                ..Settings::default()
-            })
-            .unwrap();
+        let settings = Settings {
+            theme: Theme::Light,
+            steam_library_poll_minutes: 15,
+            library_portrait: true,
+            sidebar_collapsed: false,
+            sync_steam_games: false,
+            store_sort: "name_desc".to_owned(),
+            store_availability: "verified".to_owned(),
+            verify_verified_downloads: false,
+            ..Settings::default()
+        };
+        database.save_settings(settings.clone()).unwrap();
         let game = database
             .create_game(CreateGameInput {
                 name: "My manual title".to_owned(),
@@ -2263,14 +2222,7 @@ mod tests {
 
         drop(database);
         let reopened = Database::open(&directory).unwrap();
-        assert_eq!(
-            reopened.settings().unwrap(),
-            Settings {
-                theme: Theme::Light,
-                steam_library_poll_minutes: 15,
-                ..Settings::default()
-            }
-        );
+        assert_eq!(reopened.settings().unwrap(), settings);
         assert_eq!(reopened.games().unwrap(), vec![enriched]);
         fs::remove_dir_all(directory).unwrap();
     }
@@ -2958,28 +2910,6 @@ mod tests {
             )
             .unwrap();
         assert_eq!(theme, "light");
-        fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
-    fn store_filters_and_steam_sync_survive_reopen() {
-        let legacy: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
-        assert!(legacy.sync_steam_games);
-        assert_eq!(legacy.store_sort, "relevance");
-        assert_eq!(legacy.store_availability, "all");
-        let directory = temporary_directory();
-        let database = Database::open(&directory).unwrap();
-        assert!(database.settings().unwrap().sync_steam_games);
-        let mut settings = database.settings().unwrap();
-        settings.store_sort = "name_desc".to_owned();
-        settings.store_availability = "verified".to_owned();
-        settings.sync_steam_games = false;
-        database.save_settings(settings.clone()).unwrap();
-        drop(database);
-
-        let reopened = Database::open(&directory).unwrap();
-        assert_eq!(reopened.settings().unwrap(), settings);
-        drop(reopened);
         fs::remove_dir_all(directory).unwrap();
     }
 

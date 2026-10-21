@@ -2249,15 +2249,7 @@ mod tests {
             .manage(cache.clone())
             .build(context)
             .unwrap();
-        let mut png = std::io::Cursor::new(Vec::new());
-        image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
-            1920,
-            620,
-            image::Rgba([20, 40, 60, 255]),
-        ))
-        .write_to(&mut png, image::ImageFormat::Png)
-        .unwrap();
-        let sharp = crate::image_trim::hero_webp(png.get_ref(), 1920, false).unwrap();
+        let sharp = crate::image_trim::hero_webp(PNG, 1920, false).unwrap();
         cache
             .write("400-hero-display-v1-1920", "test", &sharp, "image/webp")
             .unwrap();
@@ -2288,7 +2280,7 @@ mod tests {
         .await
         .unwrap();
         let decoded = image::load_from_memory(&first.bytes).unwrap();
-        assert_eq!((decoded.width(), decoded.height()), (1248, 403));
+        assert_eq!((decoded.width(), decoded.height()), (1, 1));
         assert_eq!(
             cache
                 .read_cached("400-hero-blur-display-v2-1920", None)

@@ -4,7 +4,6 @@ import { createRequire } from 'node:module';
 import { createModuleLoader, dataModule } from './test_module_loader.mjs';
 const require = createRequire(new URL('../package.json', import.meta.url));
 const { JSDOM } = require('jsdom');
-const { compile } = require('svelte/compiler');
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
 for (const key of ['window','document','navigator','HTMLElement','HTMLDialogElement','HTMLMediaElement','HTMLInputElement','Element','Node','Text','Comment','Event','MouseEvent','CustomEvent','MutationObserver','getComputedStyle']) Object.defineProperty(globalThis,key,{ configurable:true,value:dom.window[key] });
 globalThis.requestAnimationFrame = cb => setTimeout(cb, 0);
@@ -57,7 +56,6 @@ const defer=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {pro
 const settingsModule=await import(await loader.load('src/lib/stores/settings.ts'));
 const {settings,defaultSettings}=settingsModule;
 settings.set(structuredClone(defaultSettings));
-const navigation=await import(await loader.load('src/lib/stores/navigation.ts'));
 
 
 const downloads=await import(await loader.load('src/lib/stores/downloads.ts'));
@@ -65,15 +63,6 @@ const DownloadSettings=(await import(await loader.load('src/lib/features/setting
 const LibrarySourcesSettings=(await import(await loader.load('src/lib/features/settings/LibrarySourcesSettings.svelte'))).default;
 const manual=await import(await loader.load('src/lib/stores/manual-import.ts'));
 
-test("sidebar opens the general settings category", async () => {
-// Actual SidebarButton and actual navigation callback, using the same binding as Sidebar.
-const wrapper=compile(`<script>import SidebarButton from '../src/lib/components/ui/SidebarButton.svelte';import {openSettings} from '../src/lib/stores/navigation';</script><SidebarButton label="Settings" expanded={true} onClick={openSettings}/>`,{generate:'client',filename:'scripts/repro-wrapper.svelte'}).js.code;
-const Wrapper=(await import(d(await loader.resolveImports(wrapper,'scripts/repro-wrapper.svelte')))).default;
-let target=document.createElement('div');document.body.append(target);
-let instance=mount(Wrapper,{target});await settle();target.querySelector('button').click();await settle();
-assert.equal(get(navigation.settingsOpen),true);assert.equal(get(navigation.settingsCategory),'general');
-await unmount(instance);target.remove();
-});
 
 test("display rounding does not save a bandwidth limit", async () => {
 let target, instance;

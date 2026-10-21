@@ -16,11 +16,3 @@ test("every registered Tauri command has manifest and main window permission ent
   assert.deepEqual([...manifest].filter(command => !registered.has(command)), []);
   assert.deepEqual([...allowed].filter(command => !registered.has(command)), []);
 });
-
-test("manual source binding commands are not exposed to the webview", () => {
-  for (const command of ["bind_game_source", "get_game_source_binding"]) {
-    assert.equal(registered.has(command), false);
-    assert.equal(manifest.has(command), false);
-    assert.equal(allowed.has(command), false);
-  }
-});

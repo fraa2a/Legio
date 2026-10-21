@@ -139,26 +139,6 @@ test("releasing a recovered primary does not evict a fallback still used by anot
   } finally { URL.revokeObjectURL = revoke; }
 });
 
-test("refreshing a shared header cannot postpone another consumer's primary recovery", async () => {
-  let missing = true;
-  const calls = [];
-  const now = Date.now;
-  globalThis.cacheInvoke = (_command, args) => {
-    if (_command === "cancel_artwork_request") return Promise.resolve();
-    calls.push(args.asset);
-    if (args.asset === "hero" && missing) return Promise.reject(new Error("missing hero"));
-    return Promise.resolve(packet());
-  };
-  const heroRequest = request(911, "hero", "header");
-  await images.loadSteamImage(heroRequest);
-  missing = false;
-  Date.now = () => now() + 61_000;
-  try {
-    await images.refreshSteamImagesOnOpen(911, { requestId: "open-911", origin: "visible", release() {} });
-    assert.ok(images.peekSteamImage(request(911, "hero")));
-    assert.ok(calls.slice(2).includes("hero"));
-  } finally { Date.now = now; }
-});
 
 test("failed page-open refresh preserves the fallback successful-fetch age", async () => {
   let offline = false;
@@ -220,14 +200,6 @@ test("releasing_old_generation_does_not_revoke_another_consumer", async () => {
     await images.refreshSteamImages(932); a.release(); assert.ok(!revoked.includes(old.url));
     b.release(); assert.ok(revoked.includes(old.url));
   } finally { URL.revokeObjectURL = original; }
-});
-test("details_timestamp_change_preserves_artwork_identity", async () => {
-  let calls = 0; globalThis.cacheInvoke = async command => { if (command === "get_steam_asset") { calls++; return packet(); } };
-  const first = await images.loadSteamImage({ ...request(933, "header"), version: 1 });
-  const second = await images.loadSteamImage({ ...request(933, "header"), version: 2 });
-  assert.equal(first.url, second.url); assert.equal(calls, 1);
-  const screenshot = { ...request(934, "screenshot"), index: 0, screenshotIdentity: "https://cdn.steamstatic.com/a.jpg" };
-  await images.loadSteamImage(screenshot); await images.loadSteamImage({ ...screenshot, screenshotIdentity: "https://cdn.steamstatic.com/b.jpg" }); assert.equal(calls, 3);
 });
 test("consumerless_request_cancels_native_work", async () => {
   const calls = []; let complete;

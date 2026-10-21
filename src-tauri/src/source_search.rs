@@ -69,7 +69,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn searches_release_index_without_assigning_generic_title_subsets() {
+    fn searches_all_releases_without_assigning_generic_title_subsets() {
         let releases = vec![
             "Machine Human Resource SteamGG Repack".into(),
             "Free Download SIMULACRA".into(),
@@ -89,6 +89,11 @@ mod tests {
                 MatchResult::Unresolved,
                 MatchResult::Unresolved,
             ]
+        );
+        let repeated = vec!["Same Game Release".into(); 160];
+        assert_eq!(
+            find_matches(&repeated, &[(5, "Same Game Release".into())]).unwrap(),
+            vec![MatchResult::Matched(5); 160]
         );
     }
 
