@@ -10,6 +10,8 @@ depends=('glibc' 'gcc-libs' 'gtk3' 'webkit2gtk-4.1' 'libayatana-appindicator' 'l
 makedepends=('git' 'rust>=1.98.1' 'nodejs>=22' 'pnpm' 'python' 'pkgconf')
 provides=('legio-launcher')
 conflicts=('legio-launcher')
+# GCC LTO objects from bundled C libraries cannot be linked by Rust's LLD.
+options=('!lto')
 source=('legio::git+https://github.com/fraa2a/Legio.git#branch=main' 'legio-launcher')
 sha256sums=('SKIP' 'e4749475518da35cf046c273c7802802d263f3018760c565c262cc838b9361df')
 
