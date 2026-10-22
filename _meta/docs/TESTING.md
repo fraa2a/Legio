@@ -19,13 +19,14 @@ corepack pnpm tauri build --debug --no-bundle
 Also run the relevant `test:*` suites in [package.json](../../package.json), for example:
 
 ```sh
+corepack pnpm test:docs
 corepack pnpm test:regressions
 corepack pnpm test:review
 corepack pnpm test:feedback
 corepack pnpm test:sources
 ```
 
-The [CI workflow](../../.github/workflows/ci.yml) lists required suites. [Scripts](../../scripts/README.md) describes fixtures and test support. JSDOM and mock graphics tests do not validate native rendering.
+The [CI workflow](../../.github/workflows/ci.yml) checks documentation on every run. Documentation-only changes skip native builds and application tests; code changes run frontend, Rust and Linux/Windows native checks. New PR pushes cancel superseded runs. Release commits use the production build instead of an additional smoke build. [Scripts](../../scripts/README.md) describes fixtures and test support. JSDOM and mock graphics tests do not validate native rendering.
 
 Native tests need platform dependencies, localhost sockets and access to their child processes. Run relevant ignored or interactive tests explicitly; a passing subset does not replace required CI checks.
 
@@ -45,7 +46,7 @@ Record reproduction details and results in the issue or PR, including build, OS,
 
 ## PR test packages
 
-CI publishes Linux and Windows packages for pull requests. Check `build-info.txt` against the PR revision and verify `SHA256SUMS.txt`. Windows symbols are a separate artifact.
+Run **CI** manually in Actions with **Build downloadable Linux and Windows test packages** enabled. Select the branch to test. Check `build-info.txt` against that revision and verify `SHA256SUMS.txt`. Windows symbols are a separate artifact.
 
 **These are unsigned-updater test packages, not releases. Installers use production data; back it up first.** Development runs use a separate profile.
 
