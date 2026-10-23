@@ -49,6 +49,18 @@
 - Keep equivalent controls visually and behaviorally consistent.
 - Avoid unnecessary animation and respect reduced-motion preferences where relevant.
 
+## Naming
+
+- Keep function and test names short, concrete and clear in their module context; do not turn names into sentences or enumerate every fixture detail.
+- Name functions for the operation they actually perform. Reserve predicate-style names such as `is_*`, `has_*` and `can_*` for functions returning a boolean, not tests that assert behavior.
+- Explain non-obvious platform constraints, exceptions and relevant fixture details in a short local comment instead of appending them to the name. Comments do not replace a clear name.
+
+Example: prefer `manual_steam_launch` over `manual_steam_launch_respects_platform_support_without_a_catalog_app_id`, with a local comment:
+
+```rust
+// Saving the Steam launch option is supported only on Linux, even without an App ID.
+```
+
 ## Comments
 
 - Comments are short factual notes, not explanations of how or why code supposedly works.
