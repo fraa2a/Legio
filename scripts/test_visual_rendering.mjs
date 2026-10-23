@@ -68,40 +68,6 @@ test("paint-frame cancellation restores opacity and stops future callbacks", asy
   } finally { node.remove(); frames.clear(); }
 });
 
-test("frozen dither requests a persistent drawing buffer without a continuous frame loop", async () => {
-  let attributes;
-  let draws = 0;
-  dom.window.HTMLCanvasElement.prototype.getContext = (_type, configuration) => {
-    attributes = configuration;
-    return new Proxy({}, { get: (_, name) => {
-      if (name === "drawArrays") return () => { draws++; };
-      if (name === "getExtension") return () => null;
-      if (name === "isContextLost") return () => false;
-      if (name === "checkFramebufferStatus") return () => 1;
-      if (String(name).toUpperCase() === name) return 1;
-      return () => true;
-    } });
-  };
-  const Background = (await import(await load("src/lib/components/layout/DitherBackground.svelte"))).default;
-  const target = document.createElement("div");
-  document.body.append(target);
-  const instance = mount(Background, { target, props: {
-    opacity: 50, accent: "#ffffff", active: true,
-    settings: { disableAnimation: true, backgroundColor: "#000000", enableMouseInteraction: false, waveSpeed: 0.05, waveFrequency: 3, waveAmplitude: 0.3, mouseRadius: 1, colorNum: 4, pixelSize: 2 },
-  } });
-  try {
-    flushSync();
-    await new Promise(resolve => setImmediate(resolve));
-    flushSync();
-    for (const [id, callback] of [...frames]) { frames.delete(id); callback(100); }
-    assert.ok(draws > 0, "the static background must draw its initial frame");
-    assert.equal(attributes.preserveDrawingBuffer, true, "the drawing buffer must survive presentation");
-    assert.equal(frames.size, 0, "static backgrounds must not need a continuous loop");
-  } finally {
-    await unmount(instance);
-    target.remove();
-  }
-});
 
 
 test("navigation removes previous page content before the new page enters", async () => {

@@ -733,7 +733,10 @@ mod tests {
             serde_json::json!(["SteamGameId", "0"])
         );
         let path = directory.join("steam-0.log");
-        fs::write(&path, vec![b'x'; MAX_PROTON_LOG_BYTES as usize + 1]).unwrap();
+        File::create(&path)
+            .unwrap()
+            .set_len(MAX_PROTON_LOG_BYTES + 1)
+            .unwrap();
         logs.cap_runner_log();
         assert_eq!(fs::metadata(path).unwrap().len(), MAX_PROTON_LOG_BYTES);
         drop(logs);
@@ -746,13 +749,14 @@ mod tests {
         let config = EffectiveCompatibilityConfig::default();
         let mut logs = test_log(&root, &config);
         let mut child = std::process::Command::new("/bin/sh")
-            .args(["-c", "printf runner-out; printf runner-err >&2"])
+            .args(["-c", "printf runner-out; printf runner-err >&2; exit 7"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
         logs.capture_output(&mut child).unwrap();
         let status = child.wait().unwrap();
+        assert_eq!(status.code(), Some(7));
         logs.record_exit_code(status.code().unwrap());
         logs.wait_for_readers();
         let directory = logs.state().directory().to_path_buf();
@@ -766,7 +770,7 @@ mod tests {
         );
         assert_eq!(
             fs::read_to_string(directory.join("runner-exit-code.txt")).unwrap(),
-            "0\n"
+            "7\n"
         );
         fs::remove_dir_all(root).unwrap();
     }
@@ -828,7 +832,10 @@ mod tests {
         let config = EffectiveCompatibilityConfig::default();
         let logs = test_log(&root, &config);
         let path = logs.state().directory().join("steam-default.log");
-        fs::write(&path, vec![b'x'; MAX_PROTON_LOG_BYTES as usize + 1]).unwrap();
+        File::create(&path)
+            .unwrap()
+            .set_len(MAX_PROTON_LOG_BYTES + 1)
+            .unwrap();
         logs.cap_runner_log();
         assert_eq!(fs::metadata(path).unwrap().len(), MAX_PROTON_LOG_BYTES);
         assert!(logs.state().truncated());

@@ -442,6 +442,29 @@ mod tests {
         queue_automatic(&database).unwrap();
         queue_automatic(&database).unwrap();
         assert_eq!(count(), 1);
+        let queued = database
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT target_game_id, source_id, source_entry_id, release_version FROM downloads",
+                        [],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, String>(2)?,
+                                row.get::<_, String>(3)?,
+                            ))
+                        },
+                    )
+                    .map_err(database_error)
+            })
+            .unwrap();
+        assert_eq!(queued.0, game.id);
+        assert_eq!(
+            (queued.1.as_str(), queued.2.as_str(), queued.3.as_str()),
+            ("source", "portal-onlinefix", "2")
+        );
         let mut other = manifest.clone();
         other["verified"][0]["id"] = serde_json::json!("other-variant");
         database

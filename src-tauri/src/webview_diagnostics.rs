@@ -263,9 +263,12 @@ mod tests {
         record_browser_exit(&log, Some(0));
         record_browser_exit(&log, Some(1));
         let records = records(&directory);
-        assert!(records.contains("INFO webview_browser_exited"));
-        assert!(records.contains("ERROR webview_browser_exited"));
-        assert!(records.contains("kind: 1"));
+        let events = records.trim_end().split("\n\n").collect::<Vec<_>>();
+        assert_eq!(events.len(), 2);
+        assert!(events[0].contains("INFO webview_browser_exited"));
+        assert!(events[0].contains("kind: 0"));
+        assert!(events[1].contains("ERROR webview_browser_exited"));
+        assert!(events[1].contains("kind: 1"));
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -276,7 +279,8 @@ mod tests {
         record_runtime(&log, "135.0.1.2");
         record_runtime(&log, "https://PRIVATE_USER/private-profile");
         let records = records(&directory);
-        assert!(records.contains("135.0.1.2"));
+        assert!(records.contains("WebView2 version: 135.0.1.2"));
+        assert!(records.contains("WebView2 version: unavailable"));
         assert!(!records.contains("PRIVATE_USER"));
         std::fs::remove_dir_all(directory).unwrap();
     }

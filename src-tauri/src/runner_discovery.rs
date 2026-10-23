@@ -415,11 +415,11 @@ mod tests {
         let root = temp_dir();
         let tools = root.join("compatibilitytools.d");
         fs::create_dir_all(&tools).unwrap();
-        let ge = make_runner(&tools, "GE-Proton9-1", Some("GE-Proton9-1-custom\n"));
-        let proton = make_runner(&tools, "Proton 9.0", None);
+        make_runner(&tools, "GE-Proton9-1", Some("GE-Proton9-1-custom\n"));
+        make_runner(&tools, "Proton 9.0", None);
         let fake_game = make_runner(&tools, "Proton Game", None);
         fs::remove_file(fake_game.join("proton")).unwrap();
-        let unrelated = make_runner(&tools, "OtherTool", None);
+        make_runner(&tools, "OtherTool", None);
 
         let mut entries = fs::read_dir(&tools)
             .unwrap()
@@ -431,10 +431,13 @@ mod tests {
             .filter_map(|entry| classify_proton_dir(&entry.path()))
             .collect::<Vec<_>>();
 
-        assert_eq!(found.len(), 2);
-        assert_eq!(found[0].0, RunnerKind::GeProton);
-        assert_eq!(found[1].0, RunnerKind::Proton);
-        assert!(ge.exists() && proton.exists() && unrelated.exists());
+        assert_eq!(
+            found,
+            vec![
+                (RunnerKind::GeProton, "GE-Proton9-1".to_owned()),
+                (RunnerKind::Proton, "Proton 9.0".to_owned()),
+            ]
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

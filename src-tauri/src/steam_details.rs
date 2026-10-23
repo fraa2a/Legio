@@ -1019,7 +1019,12 @@ mod tests {
             Some("A <b>puzzle</b> game")
         );
         assert_eq!(details.release_date.unwrap().date, "10 Oct, 2007");
-        assert!(details.assets.header.is_some());
+        assert_eq!(
+            details.assets.header.as_deref(),
+            Some(
+                "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/400/header.jpg"
+            )
+        );
         assert_eq!(details.assets.capsule, None);
         assert_eq!(details.assets.background, None);
         assert_eq!(
@@ -1138,15 +1143,9 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
-        assert!(result.details.unwrap().assets.header.is_some());
-        assert!(
-            cached_details(&database, 400)
-                .unwrap()
-                .unwrap()
-                .assets
-                .header
-                .is_some()
-        );
+        let recovered = result.details.unwrap();
+        assert_eq!(recovered, decode(&fixture(400), 400).unwrap());
+        assert_eq!(cached_details(&database, 400).unwrap(), Some(recovered));
         drop(database);
         std::fs::remove_dir_all(path).unwrap();
     }

@@ -451,11 +451,9 @@ mod tests {
         let mut command = Command::new("/usr/bin/env");
         prepared.apply(&mut command, &config).unwrap();
         PreparedOptions::apply_debug_logging(&mut command, &config, &runner, Path::new("/logs"));
-        assert!(
-            command
-                .get_envs()
-                .any(|(key, value)| { key == "WINEDEBUG" && value == Some(WINE_DEBUG.as_ref()) })
-        );
+        assert!(command.get_envs().any(|(key, value)| {
+            key == "WINEDEBUG" && value == Some("+timestamp,+pid,+tid,+seh".as_ref())
+        }));
 
         config
             .environment
@@ -519,8 +517,13 @@ mod tests {
                 .is_some_and(|value| value == "480")
         );
         let preload = environment.get("LD_PRELOAD").unwrap();
-        assert!(preload.contains("ubuntu12_32/gameoverlayrenderer.so"));
-        assert!(preload.contains("ubuntu12_64/gameoverlayrenderer.so"));
+        let libraries = std::env::split_paths(preload).collect::<Vec<_>>();
+        for architecture in ["ubuntu12_32", "ubuntu12_64"] {
+            let expected =
+                fs::canonicalize(steam_root.join(architecture).join("gameoverlayrenderer.so"))
+                    .unwrap();
+            assert!(libraries.contains(&expected));
+        }
         fs::remove_dir_all(steam_root).unwrap();
     }
 

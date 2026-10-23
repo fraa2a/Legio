@@ -399,9 +399,28 @@ mod tests {
     }
 
     #[test]
-    fn gofile_folder_resolution_requires_all_files_and_safe_names() {
-        let contents = serde_json::json!({"type":"folder","children":{"a":{"type":"file","name":"part1.zip","link":"https://store1.gofile.io/download/a/part1.zip"},"b":{"type":"file","name":"part2.zip","link":"https://store1.gofile.io/download/b/part2.zip"}}});
-        assert_eq!(gofile_files(&contents).unwrap().len(), 2);
-        assert!(gofile_files(&serde_json::json!({"type":"file","name":"../escape","link":"https://gofile.io/file"})).is_err());
+    fn gofile_file_resolution_requires_safe_names_and_hosts() {
+        let url = "https://store1.gofile.io/download/game.zip";
+        let file = serde_json::json!({"name": "game.zip", "link": url});
+        assert_eq!(
+            gofile_files(&file).unwrap(),
+            vec![("game.zip".to_owned(), url.to_owned())]
+        );
+        for (key, value) in [
+            ("name", serde_json::json!("../escape")),
+            (
+                "link",
+                serde_json::json!("https://gofile.io.attacker.test/game.zip"),
+            ),
+            (
+                "link",
+                serde_json::json!("http://store1.gofile.io/game.zip"),
+            ),
+            ("canAccess", serde_json::json!(false)),
+        ] {
+            let mut invalid = file.clone();
+            invalid[key] = value;
+            assert!(gofile_files(&invalid).is_err(), "{key}: {invalid}");
+        }
     }
 }

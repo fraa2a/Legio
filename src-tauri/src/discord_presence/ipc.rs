@@ -176,8 +176,13 @@ mod tests {
         for ready in [true, false] {
             let (mut client, mut server) = tokio::io::duplex(4096);
             let peer = tokio::spawn(async move {
-                let (opcode, request) = read_frame(&mut server).await.unwrap();
-                assert_eq!(opcode, 0);
+                assert_eq!(server.read_u32_le().await.unwrap(), 0);
+                let length = server.read_u32_le().await.unwrap() as usize;
+                assert!(length <= 4096);
+                let mut bytes = vec![0; length];
+                server.read_exact(&mut bytes).await.unwrap();
+                let request: Value = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(request["v"], 1);
                 assert_eq!(request["client_id"], "123456789012345678");
                 write_frame(
                     &mut server,
@@ -205,11 +210,21 @@ mod tests {
             for expected in [Some(json!({"details": "A game"})), None] {
                 let (opcode, request) = read_frame(&mut server).await.unwrap();
                 assert_eq!(opcode, 1);
+                assert_eq!(request["cmd"], "SET_ACTIVITY");
+                assert_eq!(request["args"]["pid"], std::process::id());
+                assert!(
+                    request["nonce"]
+                        .as_str()
+                        .is_some_and(|nonce| !nonce.is_empty())
+                );
                 assert_eq!(request["args"]["activity"], json!(expected));
                 write_frame(&mut server, 3, &json!({"ping": true}))
                     .await
                     .unwrap();
-                assert_eq!(read_frame(&mut server).await.unwrap().0, 4);
+                assert_eq!(
+                    read_frame(&mut server).await.unwrap(),
+                    (4, json!({"ping": true}))
+                );
                 write_frame(
                     &mut server,
                     1,

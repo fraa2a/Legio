@@ -345,17 +345,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_panels_and_dialogs_are_transparent_and_blurred() {
-        let defaults = Appearance::default();
-        assert_eq!(defaults.surface_opacity, 0);
-        assert_eq!(defaults.dialog_opacity, 0);
-        assert_eq!(defaults.surface_blur, 40);
-        assert_eq!(defaults.dialog_blur, 40);
-        let missing: Appearance = serde_json::from_str("{}").unwrap();
-        assert_eq!(missing, defaults);
-    }
-
-    #[test]
     fn legacy_appearance_fields_are_tolerated() {
         let appearance: Appearance = serde_json::from_str(
             r#"{

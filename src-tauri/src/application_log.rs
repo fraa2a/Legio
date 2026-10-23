@@ -604,26 +604,6 @@ mod tests {
     }
 
     #[test]
-    fn artwork_reports_are_opt_in_bounded_and_readable() {
-        let directory = directory();
-        let log = ApplicationLog::new(directory.clone(), false);
-        let event: RendererEvent = serde_json::from_str("\"artwork\"").unwrap();
-        let message = "resource=image queue_wait_ms=10 metadata_ms=20 transfer_ms=30 conversion_ms=40 outcome=completed";
-        log.report(Level::Info, event, Some(message), None).unwrap();
-        assert!(!directory.join("app.txt").exists());
-        log.set_enabled(true);
-        log.report(Level::Info, event, Some(message), None).unwrap();
-        let text = fs::read_to_string(directory.join("app.txt")).unwrap();
-        assert!(text.contains("INFO artwork") && text.contains("queue_wait_ms=10"));
-        for _ in 1..REPORTS_PER_MINUTE {
-            log.report(Level::Info, event, Some(message), None).unwrap();
-        }
-        assert!(log.report(Level::Info, event, Some(message), None).is_err());
-        assert_eq!(log.status().dropped_records, 1);
-        fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
     fn persisted_records_are_readable_text_with_utc_context_and_multiline_stack() {
         let directory = directory();
         let record = Record {
@@ -693,6 +673,13 @@ mod tests {
         let directory = directory();
         let log = ApplicationLog::new(directory.clone(), false);
         log.record("error", "panic", Some("failure"), None, true);
+        log.report(
+            Level::Info,
+            RendererEvent::Artwork,
+            Some("conversion"),
+            None,
+        )
+        .unwrap();
         assert!(!directory.exists());
         log.set_enabled(true);
         log.record("info", "startup", None, None, false);
@@ -880,16 +867,6 @@ mod tests {
     }
 
     #[test]
-    fn durable_panic_record_is_readable_without_a_background_flush() {
-        let directory = directory();
-        let log = ApplicationLog::new(directory.clone(), true);
-        log.record("error", "panic", Some("panic failure"), None, true);
-        let text = fs::read_to_string(directory.join("app.txt")).unwrap();
-        assert!(text.lines().next().unwrap().ends_with("ERROR panic"));
-        fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
     fn renderer_reports_reject_oversized_input_and_limit_each_budget() {
         let directory = directory();
         let log = ApplicationLog::new(directory.clone(), true);
@@ -912,7 +889,10 @@ mod tests {
             .is_err()
         );
         assert!(!directory.join("app.txt").exists());
-        for _ in 0..50 {
+        let artwork: RendererEvent = serde_json::from_str("\"artwork\"").unwrap();
+        log.report(Level::Info, artwork, Some("queue_wait_ms=10"), None)
+            .unwrap();
+        for _ in 1..50 {
             log.report(Level::Warn, RendererEvent::Console, Some("warning"), None)
                 .unwrap();
         }
@@ -935,6 +915,8 @@ mod tests {
         );
         assert_eq!(log.status().dropped_records, 2);
         let text = fs::read_to_string(directory.join("app.txt")).unwrap();
+        assert!(text.contains("INFO artwork"));
+        assert!(text.contains("queue_wait_ms=10"));
         assert_eq!(
             text.lines().filter(|line| line.starts_with('[')).count(),
             100

@@ -97,25 +97,34 @@ mod tests {
     fn journal_records_stages_and_exit_codes_with_bounded_retention() {
         let directory =
             std::env::temp_dir().join(format!("legio-launch-journal-{}", uuid::Uuid::new_v4()));
-        let event = Event {
-            timestamp_ms: 1,
-            game_id: "game",
-            stage: "runner_exit",
-            failed: true,
-            exit_code: Some(127),
-        };
-        for _ in 0..6000 {
+        fs::create_dir(&directory).unwrap();
+        let current = directory.join("game-launches.jsonl");
+        let previous = directory.join("game-launches.previous.jsonl");
+        fs::write(&previous, b"obsolete generation").unwrap();
+        for (stage, exit_code) in [("runner_exit", 127), ("second_exit", 126)] {
+            let event = Event {
+                timestamp_ms: 1,
+                game_id: "game",
+                stage,
+                failed: true,
+                exit_code: Some(exit_code),
+            };
+            let mut line = serde_json::to_vec(&event).unwrap();
+            line.push(b'\n');
+            let seed = line.repeat(MAX_BYTES as usize / line.len());
+            fs::write(&current, &seed).unwrap();
             append(&directory, &event).unwrap();
-        }
-        for filename in ["game-launches.jsonl", "game-launches.previous.jsonl"] {
-            let path = directory.join(filename);
-            assert!(fs::metadata(&path).unwrap().len() <= MAX_BYTES);
-            for line in fs::read_to_string(path).unwrap().lines() {
-                let record: serde_json::Value = serde_json::from_str(line).unwrap();
-                assert_eq!(record["exit_code"], 127);
-                assert_eq!(record["stage"], "runner_exit");
+            assert_eq!(fs::read(&previous).unwrap(), seed);
+            assert_eq!(fs::read(&current).unwrap(), line);
+            let record: serde_json::Value =
+                serde_json::from_slice(&fs::read(&current).unwrap()).unwrap();
+            assert_eq!(record["exit_code"], exit_code);
+            assert_eq!(record["stage"], stage);
+            for path in [&current, &previous] {
+                assert!(fs::metadata(path).unwrap().len() <= MAX_BYTES);
             }
         }
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 2);
         fs::remove_dir_all(directory).unwrap();
     }
 }

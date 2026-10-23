@@ -699,6 +699,7 @@ mod tests {
         recover(&database).unwrap();
         assert!(intent.destination.join(&intent.relative).is_file());
         assert!(!intent.destination.join(MARKER).exists());
+        assert!(pending_transfers(&database, None).unwrap().is_empty());
         recover(&database).unwrap();
         drop(database);
         fs::remove_dir_all(root).unwrap();
@@ -738,6 +739,8 @@ mod tests {
         recover(&database).unwrap();
         assert!(intent.source.join(&intent.relative).exists());
         assert!(!intent.temporary.exists());
+        assert!(!intent.source.join(MARKER).exists());
+        assert!(pending_transfers(&database, None).unwrap().is_empty());
         assert_eq!(
             database
                 .game(&intent.game_id)
@@ -762,7 +765,9 @@ mod tests {
         database.with_connection(|connection| {
             connection.execute_batch("CREATE TRIGGER fail_transfer BEFORE UPDATE ON games BEGIN SELECT RAISE(ABORT, 'injected'); END;").map_err(database_error)
         }).unwrap();
+        let before = database.game(&intent.game_id).unwrap();
         assert!(commit_transfer(&database, &intent).is_err());
+        assert_eq!(database.game(&intent.game_id).unwrap(), before);
         assert_eq!(
             database
                 .native_launch_config(&intent.game_id)
@@ -780,6 +785,19 @@ mod tests {
             })
             .unwrap();
         recover(&database).unwrap();
+        assert!(pending_transfers(&database, None).unwrap().is_empty());
+        assert!(!intent.source.exists());
+        assert_eq!(
+            dunce::canonicalize(
+                database
+                    .game(&intent.game_id)
+                    .unwrap()
+                    .installation_root
+                    .unwrap()
+            )
+            .unwrap(),
+            dunce::canonicalize(&intent.destination).unwrap()
+        );
         drop(database);
         fs::remove_dir_all(root).unwrap();
     }
@@ -801,23 +819,19 @@ mod tests {
 
     #[test]
     fn remaps_equivalent_source_paths() {
-        let (root, database, intent) = fixture("prepared");
+        let root = std::env::temp_dir().join(format!("legio-remap-{}", Uuid::new_v4()));
+        let source = root.join("source");
+        let destination = root.join("target");
+        fs::create_dir_all(source.join("bin")).unwrap();
         assert_eq!(
             remap(
-                Some(
-                    intent
-                        .source
-                        .join("../source/bin")
-                        .to_string_lossy()
-                        .into_owned()
-                ),
-                &dunce::canonicalize(&intent.source).unwrap(),
-                &intent.destination
+                Some(source.join("../source/bin").to_string_lossy().into_owned()),
+                &dunce::canonicalize(&source).unwrap(),
+                &destination
             )
             .map(PathBuf::from),
-            Some(intent.destination.join("bin"))
+            Some(destination.join("bin"))
         );
-        drop(database);
         fs::remove_dir_all(root).unwrap();
     }
 }

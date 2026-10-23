@@ -191,5 +191,7 @@ mod tests {
         assert!(!enabled(true, Some(true), true));
         assert!(!enabled(false, Some(false), true));
         assert!(enabled(false, None, true));
+        assert!(enabled(false, Some(true), false));
+        assert!(!enabled(false, None, false));
     }
 }

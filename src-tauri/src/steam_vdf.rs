@@ -664,11 +664,10 @@ mod tests {
             SAMPLE.replace("\"RememberPassword\" \"1\"", "\"RememberPassword\" \"0\"");
         let patched =
             patch_account_selection(disabled_password.as_bytes(), "76561198000000001").unwrap();
-        assert!(
-            std::str::from_utf8(&patched)
-                .unwrap()
-                .contains("\"RememberPassword\" \"1\"")
-        );
+        let users = parse_loginusers(&patched).unwrap();
+        assert_eq!(users[0].steam_id, "76561198000000001");
+        assert_eq!(users[0].remember_password.as_deref(), Some("1"));
+        assert_eq!(users[1].remember_password.as_deref(), Some("0"));
     }
 
     #[test]

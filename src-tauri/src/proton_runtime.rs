@@ -314,12 +314,12 @@ mod tests {
         install_runtime(&steam, 1628350, "sniper");
         let prefix = data.join("pfx");
         prepare(&runner, &steam, &prefix, &prefix).unwrap();
+        prepare(&runner, &steam, &prefix, &prefix).unwrap();
         assert_eq!(fs::read_link(prefix.join("pfx")).unwrap(), Path::new("."));
         assert_eq!(
             fs::read(prefix.join("drive_c/save.dat")).unwrap(),
             b"saved game"
         );
-        prepare(&runner, &steam, &prefix, &prefix).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 

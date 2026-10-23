@@ -423,10 +423,9 @@ mod tests {
             "safe.7z",
         );
         let stage = result.unwrap();
-        assert!(
-            stage
-                .join("src-tauri/test-fixtures/archive/safe.zip")
-                .exists()
+        assert_eq!(
+            fs::read(stage.join("src-tauri/test-fixtures/archive/safe.zip")).unwrap(),
+            include_bytes!("../test-fixtures/archive/safe.zip")
         );
         fs::remove_dir_all(root).unwrap();
     }
@@ -496,10 +495,13 @@ mod tests {
             ),
         ] {
             let (root, archive) = fixture(bytes, "archive.zip");
-            assert_eq!(
-                verify_and_stage(&archive, None, &root.join("staging")).is_ok(),
-                allowed
-            );
+            let stage = root.join("staging");
+            assert_eq!(verify_and_stage(&archive, None, &stage).is_ok(), allowed);
+            if allowed {
+                assert_eq!(fs::read(stage.join("Game/data.bin")).unwrap(), b"hello");
+            } else {
+                assert!(!stage.exists());
+            }
             fs::remove_dir_all(root).unwrap();
         }
     }

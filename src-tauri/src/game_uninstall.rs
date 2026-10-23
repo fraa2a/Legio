@@ -514,6 +514,7 @@ mod tests {
         std::os::unix::fs::symlink(&outside, f.directory.join("linked")).unwrap();
         let target = checked_target(&f.database, &f.id, &[]).unwrap();
         remove_installation(&f.database, &f.id, &target, &[]).unwrap();
-        assert!(outside.join("keep.txt").is_file());
+        assert!(!f.directory.exists());
+        assert_eq!(fs::read(outside.join("keep.txt")).unwrap(), b"keep");
     }
 }

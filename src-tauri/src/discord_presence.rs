@@ -289,6 +289,8 @@ mod tests {
     fn activity_limits_utf8_and_preserves_session_time() {
         let name = limit_text(&"🦈".repeat(100));
         assert_eq!(name.len(), 128);
+        let prefix = "a".repeat(127);
+        assert_eq!(limit_text(&format!("{prefix}é")), prefix);
         let activity = Activity {
             name: Some(name.clone()),
             started_at: Some(1234),

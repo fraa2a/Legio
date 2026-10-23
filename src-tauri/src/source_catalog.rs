@@ -335,15 +335,6 @@ pub(crate) async fn validate_links(
 mod tests {
     use super::*;
 
-    #[test]
-    fn native_source_name_survives_cache_roundtrip() {
-        let bytes = br#"{"schemaVersion":2,"name":"Legio Community","generatedAt":"2026-10-19T00:00:00Z","verified":[],"unverified":[]}"#;
-        let catalog = parse_source(bytes, &[]).unwrap();
-        assert_eq!(catalog.name.as_deref(), Some("Legio Community"));
-        let restored = decode_cache(&encode_cache(&catalog).unwrap()).unwrap();
-        assert_eq!(restored.name, catalog.name);
-    }
-
     #[tokio::test]
     async fn validated_links_hide_html_entries_preserve_json_order_and_survive_cache() {
         for native in [false, true] {
@@ -410,8 +401,8 @@ mod tests {
     }
 
     #[test]
-    fn converted_manifest_preserves_mirror_order_and_unknown_size_in_cache() {
-        let bytes = br#"{"schemaVersion":2,"supportGameUpdates":true,"generatedAt":"2026-10-19T00:00:00Z","verified":[],"unverified":[{"id":"portal","steamAppId":400,"name":"Portal","release":{"version":"1","publishedAt":"2026-10-19T00:00:00Z"},"download":{"url":"https://gofile.io/d/primary","mirrors":["https://example.test/mirror.zip"],"sha256":null,"sizeBytes":null}}]}"#;
+    fn native_manifest_preserves_name_mirror_order_and_unknown_size_in_cache() {
+        let bytes = br#"{"schemaVersion":2,"name":"Legio Community","supportGameUpdates":true,"generatedAt":"2026-10-19T00:00:00Z","verified":[],"unverified":[{"id":"portal","steamAppId":400,"name":"Portal","release":{"version":"1","publishedAt":"2026-10-19T00:00:00Z"},"download":{"url":"https://gofile.io/d/primary","mirrors":["https://example.test/mirror.zip"],"sha256":null,"sizeBytes":null}}]}"#;
         let catalog = parse_source(bytes, &[]).unwrap();
         assert_eq!(catalog.manifest.unverified[0].download.size_bytes, None);
         assert_eq!(
@@ -422,6 +413,8 @@ mod tests {
             ]
         );
         let restored = decode_cache(&encode_cache(&catalog).unwrap()).unwrap();
+        assert_eq!(catalog.name.as_deref(), Some("Legio Community"));
+        assert_eq!(restored.name, catalog.name);
         assert_eq!(restored.candidates, catalog.candidates);
     }
 
@@ -465,22 +458,6 @@ mod tests {
     }
 
     #[test]
-    fn steamgg_titles_match_without_changing_release_display_or_trust() {
-        let title = "Beyond These Stars Free Download [v1.0.2244/Build-25972788]";
-        let bytes = serde_json::to_vec(&serde_json::json!({
-            "name": "SteamGG", "downloads": [{"title": title, "uris": ["https://gofile.io/d/example"]}]
-        })).unwrap();
-        let source = parse_source(&bytes, &[(123, "Beyond These Stars".into())]).unwrap();
-        assert!(source.manifest.verified.is_empty());
-        assert_eq!(source.diagnostics.unresolved, 0);
-        assert_eq!(source.manifest.unverified[0].steam_app_id, 123);
-        assert_eq!(source.manifest.unverified[0].name, title);
-        let cached = decode_cache(&encode_cache(&source).unwrap()).unwrap();
-        assert_eq!(cached.manifest.unverified[0].steam_app_id, 123);
-        assert_eq!(cached.manifest.unverified[0].name, title);
-    }
-
-    #[test]
     fn cache_roundtrip_preserves_unverified_origin_and_unknown_metadata() {
         let bytes = br#"{"name":"SteamGG","downloads":[{"title":"Portal v1.0","uris":["https://gofile.io/d/test","https://example.test/file.zip"]}]}"#;
         let games = vec![(400, "Portal".to_owned())];
@@ -492,6 +469,9 @@ mod tests {
         assert_eq!(source.manifest.unverified[0].release.published_at, None);
         let cached = decode_cache(&encode_cache(&source).unwrap()).unwrap();
         assert_eq!(cached.name.as_deref(), Some("SteamGG"));
+        assert_eq!(source.diagnostics.unresolved, 0);
+        assert_eq!(cached.manifest.unverified[0].steam_app_id, 400);
+        assert_eq!(cached.manifest.unverified[0].name, "Portal v1.0");
         assert_eq!(cached.candidates.values().next().unwrap().len(), 2);
         assert!(cached.manifest.verified.is_empty());
     }

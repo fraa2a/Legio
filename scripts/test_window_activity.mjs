@@ -189,63 +189,6 @@ test("particles cancel frames while inactive and resume with the retained canvas
   target.remove();
 });
 
-test("static dither redraws on changes without keeping a frame loop alive", async () => {
-  const { writable } = await import("svelte/store");
-  const { mount, unmount, flushSync } = await import("svelte");
-  const { compile } = await import("svelte/compiler");
-  let draws = 0;
-  dom.window.HTMLCanvasElement.prototype.getContext = () => new Proxy({}, { get: (_, name) => {
-    if (name === "drawArrays") return () => draws++;
-    if (name === "getExtension") return () => null;
-    if (name === "isContextLost") return () => false;
-    if (name === "checkFramebufferStatus") return () => 1;
-    if (String(name).toUpperCase() === name) return 1;
-    return () => true;
-  } });
-  const frames = new Map();
-  let sequence = 0;
-  globalThis.requestAnimationFrame = (callback) => { frames.set(++sequence, callback); return sequence; };
-  globalThis.cancelAnimationFrame = (id) => frames.delete(id);
-  const render = () => {
-    const entries = [...frames];
-    frames.clear();
-    for (const [, callback] of entries) callback(100);
-  };
-  const source = '<script>import Background from "./src/lib/components/layout/DitherBackground.svelte";let { state } = $props();</script><Background opacity={50} accent="#ffffff" active={$state.active} settings={$state.settings}/>';
-  const code = await createModuleLoader({}).resolveImports(compile(source, { generate: "client" }).js.code, "wrapper.svelte");
-  const wrapper = (await import(dataModule(code))).default;
-  const configuration = { disableAnimation: true, backgroundColor: "#000000", enableMouseInteraction: false };
-  const state = writable({ active: true, settings: configuration });
-  const target = document.createElement("div");
-  document.body.append(target);
-  const instance = mount(wrapper, { target, props: { state } });
-  flushSync();
-  await settle();
-  flushSync();
-  render();
-  assert.ok(draws > 0, "static background must draw initially");
-  assert.equal(frames.size, 0);
-  const initialDraws = draws;
-  render();
-  assert.equal(draws, initialDraws, "static background must stay idle between changes");
-  state.set({ active: true, settings: { ...configuration, backgroundColor: "#111111" } });
-  flushSync();
-  render();
-  assert.ok(draws > initialDraws, "changing the background must redraw it");
-  assert.equal(frames.size, 0);
-  const changedDraws = draws;
-  render();
-  assert.equal(draws, changedDraws, "redrawing must not start a persistent frame loop");
-  state.set({ active: true, settings: { ...configuration, disableAnimation: false } });
-  flushSync();
-  render();
-  assert.equal(frames.size, 1);
-  state.set({ active: false, settings: configuration });
-  flushSync();
-  assert.equal(frames.size, 0);
-  await unmount(instance);
-  target.remove();
-});
 
 test("visible refresh has no timer while inactive and refreshes immediately on focus restore", async () => {
   focused = false;

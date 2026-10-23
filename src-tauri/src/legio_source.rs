@@ -433,7 +433,9 @@ mod tests {
         );
 
         let mut document = valid();
-        let duplicate = document["verified"][0].clone();
+        let mut duplicate = document["verified"][0].clone();
+        duplicate["release"]["version"] = json!("2.0.0");
+        duplicate["download"]["url"] = json!("https://downloads.example.invalid/other.zip");
         document["verified"].as_array_mut().unwrap().push(duplicate);
         assert_eq!(
             parse(document).unwrap_err().kind,

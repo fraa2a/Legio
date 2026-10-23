@@ -46,11 +46,12 @@ mod tests {
             .open(&copied)
             .unwrap();
         assert_eq!(copy(&mut source, &mut destination).unwrap(), 8);
+        assert_eq!(std::fs::read(&copied).unwrap(), b"original");
         destination.seek(SeekFrom::Start(0)).unwrap();
         destination.write_all(b"new data").unwrap();
-        assert_eq!(std::fs::read(original).unwrap(), b"original");
-        std::fs::write(&copied, b"changed").unwrap();
-        assert_eq!(std::fs::read(copied).unwrap(), b"changed");
+        assert_eq!(std::fs::read(&original).unwrap(), b"original");
+        std::fs::write(&original, b"changed!").unwrap();
+        assert_eq!(std::fs::read(&copied).unwrap(), b"new data");
         drop(source);
         drop(destination);
         std::fs::remove_dir_all(root).unwrap();

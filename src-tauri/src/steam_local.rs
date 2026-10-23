@@ -1098,12 +1098,13 @@ mod tests {
             "76561198000000001" { "AccountName" "secret-login" "PersonaName" "Same name" "RememberPassword" "1" }
             "76561198000000002" { "PersonaName" "Same name" "Token" { "value" "secret-token" } }
         }"#).unwrap();
-        assert_eq!(accounts.len(), 2);
-        assert_eq!(accounts[0].display_name, "Same name");
-        assert_eq!(accounts[1].display_name, "Same name");
-        let output = serde_json::to_string(&accounts).unwrap();
-        assert!(!output.contains("secret-login"));
-        assert!(!output.contains("secret-token"));
+        assert_eq!(
+            serde_json::to_value(&accounts).unwrap(),
+            serde_json::json!([
+                {"steamId": "76561198000000001", "displayName": "Same name"},
+                {"steamId": "76561198000000002", "displayName": "Same name"}
+            ])
+        );
     }
 
     #[test]
@@ -1279,8 +1280,17 @@ mod tests {
         let first = cached_appinfo_types(&path).unwrap().unwrap();
         let second = cached_appinfo_types(&path).unwrap().unwrap();
         assert!(std::sync::Arc::ptr_eq(&first, &second));
+        let modified = fs::metadata(&path).unwrap().modified().unwrap();
         fs::remove_file(&path).unwrap();
         fs::write(&path, appinfo_fixture(&[(1, "Tool")])).unwrap();
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new().set_modified(modified + std::time::Duration::from_secs(2)),
+            )
+            .unwrap();
         assert_eq!(
             cached_appinfo_types(&path).unwrap().unwrap().get(&1),
             Some(&false)
@@ -1308,42 +1318,71 @@ mod tests {
 
     #[test]
     fn parses_modern_and_legacy_libraries_without_confusing_nested_paths() {
+        let root = if cfg!(windows) { "C:" } else { "" };
+        let text = format!(
+            r#"// library metadata
+            "LibraryFolders" {{
+                "TimeNextStatsReport" "1234"
+                "0" {{ "path" "{root}/games/日本語" "apps" {{ "570" "100" }}
+                      "extra" {{ "path" "{root}/ignored" }} }}
+                "1" "{root}/other games"
+            }}"#
+        );
         assert_eq!(
-            parse_library_folders(
-                r#"// library metadata
-                "LibraryFolders" {
-                    "TimeNextStatsReport" "1234"
-                    "0" { "path" "/games/日本語" "apps" { "570" "100" }
-                          "extra" { "path" "/ignored" } }
-                    "1" "/other games"
-                }"#
-                .as_bytes()
-            ),
+            parse_library_folders(text.as_bytes()),
             Ok(vec![
-                PathBuf::from("/games/日本語"),
-                PathBuf::from("/other games")
+                PathBuf::from(format!("{root}/games/日本語")),
+                PathBuf::from(format!("{root}/other games"))
             ])
         );
     }
 
     #[test]
     fn rejects_unsafe_or_ambiguous_library_paths() {
-        for entry in [
-            r#""0" "relative""#,
-            r#""0" "/games/../outside""#,
-            r#""0" "/games\nprivate""#,
-            r#""0" { "apps" { "path" "/nested" } }"#,
-            r#""0" { "path" "/one" "PATH" "/two" }"#,
-            r#""0" "/one" "00" "/two""#,
-            r#""0" { "path" {} }"#,
+        let root = if cfg!(windows) { "C:" } else { "" };
+        for (entry, expected) in [
+            (
+                r#""0" "relative""#,
+                ManifestDiagnostic::InvalidField("library path"),
+            ),
+            (
+                r#""0" "/games/../outside""#,
+                ManifestDiagnostic::InvalidField("library path"),
+            ),
+            (
+                r#""0" "/games\nprivate""#,
+                ManifestDiagnostic::InvalidField("library path"),
+            ),
+            (
+                r#""0" { "apps" { "path" "/nested" } }"#,
+                ManifestDiagnostic::MissingField("library path"),
+            ),
+            (
+                r#""0" { "path" "/one" "PATH" "/two" }"#,
+                ManifestDiagnostic::DuplicateField("library path"),
+            ),
+            (
+                r#""0" "/one" "00" "/two""#,
+                ManifestDiagnostic::DuplicateField("library index"),
+            ),
+            (
+                r#""0" { "path" {} }"#,
+                ManifestDiagnostic::InvalidField("library path"),
+            ),
         ] {
+            let entry = entry.replace("\"/", &format!("\"{root}/"));
             let text = format!(r#""libraryfolders" {{ {entry} }}"#);
-            assert!(parse_library_folders(text.as_bytes()).is_err());
+            assert_eq!(
+                parse_library_folders(text.as_bytes()),
+                Err(expected),
+                "{entry}"
+            );
         }
     }
 
     #[test]
     fn library_metadata_is_bounded_and_requires_a_complete_document() {
+        let root = if cfg!(windows) { "C:" } else { "" };
         assert_eq!(
             parse_library_folders(&vec![b' '; MAX_MANIFEST_BYTES + 1]),
             Err(ManifestDiagnostic::InputTooLarge)
@@ -1356,13 +1395,14 @@ mod tests {
             r#""libraryfolders" { "0" "/games""#,
             r#""libraryfolders" { } "extra" "data""#,
         ] {
+            let text = text.replace("\"/", &format!("\"{root}/"));
             assert!(matches!(
                 parse_library_folders(text.as_bytes()),
                 Err(ManifestDiagnostic::Malformed { .. })
             ));
         }
         let text = format!(
-            r#""libraryfolders" {{ "0" {{ "path" "/games" {}{} }} }}"#,
+            r#""libraryfolders" {{ "0" {{ "path" "{root}/games" {}{} }} }}"#,
             "\"nested\" {".repeat(MAX_OBJECT_DEPTH),
             "}".repeat(MAX_OBJECT_DEPTH)
         );
@@ -1382,9 +1422,9 @@ mod tests {
             root.join("steamapps/libraryfolders.vdf"),
             format!(
                 r#""libraryfolders" {{ "0" {{ "path" "{}" }} "1" {{ "path" "{}" }} "2" "{}" }}"#,
-                root.display(),
-                external.display(),
-                duplicate.display()
+                root.to_string_lossy().replace('\\', "\\\\"),
+                external.to_string_lossy().replace('\\', "\\\\"),
+                duplicate.to_string_lossy().replace('\\', "\\\\")
             ),
         )
         .unwrap();
@@ -1429,7 +1469,11 @@ mod tests {
             root.join("steamapps/libraryfolders.vdf"),
             format!(
                 r#""libraryfolders" {{ "1" "{}" }}"#,
-                fixture.0.join("missing-private-disk").display()
+                fixture
+                    .0
+                    .join("missing-private-disk")
+                    .to_string_lossy()
+                    .replace('\\', "\\\\")
             ),
         )
         .unwrap();
@@ -1446,12 +1490,12 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![1]
         );
-        assert_eq!(scan.diagnostics.len(), 2);
-        assert_ne!(scan.diagnostics[0], scan.diagnostics[1]);
-        assert!(
-            scan.diagnostics
-                .iter()
-                .all(|message| !message.contains("missing-private-disk"))
+        assert_eq!(
+            scan.diagnostics,
+            vec![
+                "could not access a configured Steam library: NotFound",
+                "could not read a Steam app manifest: InvalidData",
+            ]
         );
     }
 

@@ -1922,7 +1922,7 @@ mod tests {
                     prefetch
                         .scheduler
                         .run_metadata(&prefetch.handle, || async {
-                            Ok(serde_json::from_str("{}").unwrap())
+                            Ok(serde_json::from_str(r#"{"logo.png":"0123456789abcdef0123456789abcdef01234567/logo.png"}"#).unwrap())
                         })
                         .await
                         .map_err(|error| error.to_string())
@@ -1959,8 +1959,10 @@ mod tests {
                 .await
         });
         let result = tokio::time::timeout(Duration::from_secs(1), async {
-            first.await.unwrap().unwrap();
-            second.await.unwrap().unwrap();
+            for (assets, warning) in [first.await.unwrap().unwrap(), second.await.unwrap().unwrap()] {
+                assert_eq!(warning, None);
+                assert_eq!(assets.unwrap().url(400, "logo.png").as_deref(), Some("https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/400/0123456789abcdef0123456789abcdef01234567/logo.png"));
+            }
         })
         .await;
         assert!(
@@ -2190,9 +2192,18 @@ mod tests {
             requests.next().unwrap()
         );
         server.join().unwrap();
-        let first = first.unwrap();
-        assert_eq!(second.unwrap().bytes, first.bytes);
-        assert_eq!(third.unwrap().bytes, first.bytes);
+        let results = [first.unwrap(), second.unwrap(), third.unwrap()];
+        let decoded = image::load_from_memory(&results[0].bytes).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (2, 2));
+        for result in &results {
+            assert_eq!(result.bytes, results[0].bytes);
+            assert!(
+                result
+                    .cache_warning
+                    .as_deref()
+                    .is_some_and(|warning| warning.contains("could not be saved locally"))
+            );
+        }
         fs::remove_dir_all(cache.directory().unwrap().parent().unwrap()).unwrap();
     }
 
@@ -2249,15 +2260,7 @@ mod tests {
             .manage(cache.clone())
             .build(context)
             .unwrap();
-        let mut png = std::io::Cursor::new(Vec::new());
-        image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
-            1920,
-            620,
-            image::Rgba([20, 40, 60, 255]),
-        ))
-        .write_to(&mut png, image::ImageFormat::Png)
-        .unwrap();
-        let sharp = crate::image_trim::hero_webp(png.get_ref(), 1920, false).unwrap();
+        let sharp = crate::image_trim::hero_webp(PNG, 1920, false).unwrap();
         cache
             .write("400-hero-display-v1-1920", "test", &sharp, "image/webp")
             .unwrap();
@@ -2288,7 +2291,7 @@ mod tests {
         .await
         .unwrap();
         let decoded = image::load_from_memory(&first.bytes).unwrap();
-        assert_eq!((decoded.width(), decoded.height()), (1248, 403));
+        assert_eq!((decoded.width(), decoded.height()), (1, 1));
         assert_eq!(
             cache
                 .read_cached("400-hero-blur-display-v2-1920", None)
@@ -2889,7 +2892,7 @@ mod tests {
     }
 
     #[test]
-    fn screenshot_download_keeps_validated_identity_after_metadata_reordering() {
+    fn explicit_screenshot_url_survives_metadata_reordering() {
         let mut details: SteamDetails = serde_json::from_value(serde_json::json!({
             "steamAppId":400,"name":"Portal","appType":"game","developers":[],"publishers":[],"genres":[],
             "assets":{"header":null,"capsule":null,"background":null,"screenshots":[
@@ -2906,7 +2909,7 @@ mod tests {
             Some(&validated),
         )
         .unwrap();
-        assert_eq!(selected, validated);
+        assert_eq!(selected, "https://cdn.steamstatic.com/400/a.jpg");
     }
 
     #[test]
@@ -3001,7 +3004,7 @@ mod tests {
     }
 
     #[test]
-    fn cache_is_limited_to_128_files() {
+    fn cache_limits_transient_asset_files() {
         let cache = cache();
         for index in 0..=CACHE_FILES {
             cache
@@ -3140,7 +3143,12 @@ mod tests {
             .unwrap();
             server.join().unwrap();
             assert_eq!(result.content_type, "image/webp");
-            assert!(cache.read("400-header", &url).unwrap().is_some());
+            let decoded = image::load_from_memory(&result.bytes).unwrap();
+            assert_eq!((decoded.width(), decoded.height()), (2, 2));
+            assert_eq!(
+                cache.read("400-header", &url).unwrap().unwrap().bytes,
+                result.bytes
+            );
             fs::remove_dir_all(cache.directory().unwrap()).unwrap();
         }
     }
@@ -3198,6 +3206,8 @@ mod tests {
         .unwrap();
         server.join().unwrap();
         assert_eq!(result.content_type, "image/webp");
+        let decoded = image::load_from_memory(&result.bytes).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (2, 2));
         assert!(
             result
                 .cache_warning

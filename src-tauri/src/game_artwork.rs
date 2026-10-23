@@ -488,10 +488,14 @@ mod tests {
         assert_eq!(store.shortcut_icon_path(&game).unwrap(), None);
         assert!(!root.join("app-data/game-shortcut-icons").exists());
         store.set(&game.id, ArtworkKind::Icon, &source).unwrap();
+        let expected = root
+            .join("app-data/game-icons")
+            .join(format!("{}.png", game.id));
         assert_eq!(
             store.shortcut_icon_path(&game).unwrap(),
-            store.path(&game.id, ArtworkKind::Icon).unwrap()
+            Some(expected.clone())
         );
+        assert_eq!(fs::read(expected).unwrap(), PNG);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -601,6 +605,15 @@ mod tests {
         assert_eq!(replaced.content_type, "image/jpeg");
         assert!(!app_data.join(format!("game-icons/{game_id}.png")).exists());
         assert!(app_data.join(format!("game-icons/{game_id}.jpg")).is_file());
+        let reopened = GameArtworkStore::new(Ok(app_data));
+        assert_eq!(
+            reopened
+                .get(game_id, ArtworkKind::Icon)
+                .unwrap()
+                .unwrap()
+                .bytes,
+            fs::read(&jpeg).unwrap()
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -688,7 +701,7 @@ mod tests {
     }
 
     #[test]
-    fn removing_game_artwork_cleans_both_owned_files() {
+    fn removing_game_artwork_cleans_all_kinds_without_touching_other_games() {
         let root = test_dir();
         let source = root.join("selected.png");
         let app_data = root.join("app-data");
@@ -697,11 +710,32 @@ mod tests {
         let store = GameArtworkStore::new(Ok(app_data.clone()));
         store.set(game_id, ArtworkKind::Icon, &source).unwrap();
         store.set(game_id, ArtworkKind::Banner, &source).unwrap();
+        store
+            .set(game_id, ArtworkKind::ShortcutIcon, &source)
+            .unwrap();
+        let other_game_id = "00000000-0000-0000-0000-000000000002";
+        store
+            .set(other_game_id, ArtworkKind::Icon, &source)
+            .unwrap();
 
         store.remove_for_game(game_id).unwrap();
 
         assert!(store.get(game_id, ArtworkKind::Icon).unwrap().is_none());
         assert!(store.get(game_id, ArtworkKind::Banner).unwrap().is_none());
+        assert!(
+            store
+                .get(game_id, ArtworkKind::ShortcutIcon)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            store
+                .get(other_game_id, ArtworkKind::Icon)
+                .unwrap()
+                .unwrap()
+                .bytes,
+            PNG
+        );
         assert!(app_data.join("game-icons").is_dir());
         assert!(app_data.join("game-banners").is_dir());
         fs::remove_dir_all(root).unwrap();
@@ -777,6 +811,7 @@ mod tests {
                 .contains("unsupported image format")
         );
         store.remove(game_id, ArtworkKind::Icon).unwrap();
+        assert!(store.get(game_id, ArtworkKind::Icon).unwrap().is_none());
         fs::remove_dir_all(root).unwrap();
     }
 }
