@@ -155,6 +155,21 @@ pub(crate) fn webp_asset(bytes: &[u8]) -> Result<Vec<u8>, String> {
     transformed_webp(bytes, None)
 }
 
+// Windows shortcut icons must be .ico files and ICO entries are limited to 256 pixels.
+pub(crate) fn shortcut_ico(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let image = decode_image(bytes, format(bytes)?)?;
+    let image = image::DynamicImage::ImageRgba8(
+        image
+            .resize(256, 256, image::imageops::FilterType::Lanczos3)
+            .to_rgba8(),
+    );
+    let mut output = Cursor::new(Vec::new());
+    image
+        .write_to(&mut output, ImageFormat::Ico)
+        .map_err(|error| error.to_string())?;
+    bounded_output(output.into_inner())
+}
+
 pub(crate) fn hero_webp(bytes: &[u8], max_width: u32, blurred: bool) -> Result<Vec<u8>, String> {
     if max_width == 0 || max_width > 3840 {
         return Err("Invalid artwork display width".to_owned());
@@ -296,6 +311,28 @@ mod tests {
         let result = image::load_from_memory(&webp_asset(input.get_ref()).unwrap()).unwrap();
         assert_eq!(result.dimensions(), (8, 5));
         assert!(result.to_rgba8().pixels().all(|pixel| pixel[3] == 0));
+    }
+
+    #[test]
+    fn shortcut_icon_is_an_ico_of_at_most_256_pixels() {
+        let mut png = Cursor::new(Vec::new());
+        DynamicImage::ImageRgba8(RgbaImage::from_pixel(
+            512,
+            512,
+            image::Rgba([20, 40, 60, 255]),
+        ))
+        .write_to(&mut png, ImageFormat::Png)
+        .unwrap();
+
+        let ico = shortcut_ico(&png.into_inner()).unwrap();
+
+        assert_eq!(&ico[..4], &[0, 0, 1, 0]);
+        assert_eq!(
+            image::load_from_memory_with_format(&ico, ImageFormat::Ico)
+                .unwrap()
+                .dimensions(),
+            (256, 256)
+        );
     }
 
     #[test]

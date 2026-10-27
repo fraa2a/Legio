@@ -256,11 +256,13 @@ foreach ($base in @([Environment]::GetFolderPath('DesktopDirectory'), [Environme
             .collect::<String>();
         let name = name.trim().trim_end_matches('.');
         let name = if name.is_empty() { "Game" } else { name };
-        let icon = game
-            .executable_path
-            .as_deref()
-            .filter(|path| Path::new(path).is_file())
-            .or_else(|| icon.and_then(Path::to_str))
+        let icon = icon
+            .and_then(Path::to_str)
+            .or_else(|| {
+                game.executable_path
+                    .as_deref()
+                    .filter(|path| Path::new(path).is_file())
+            })
             .unwrap_or(launcher);
         let path = run(
             CREATE_SCRIPT,
@@ -1199,18 +1201,91 @@ pub(crate) fn create_application_menu<R: tauri::Runtime>(
 ) -> Result<Option<String>, String> {
     use tauri::Manager;
 
-    let icon = app
-        .state::<crate::game_artwork::GameArtworkStore>()
-        .shortcut_icon_path(game)?;
+    let icon = shortcut_icon(&app.state::<crate::game_artwork::GameArtworkStore>(), game)?;
     create(game, ShortcutLocation::ApplicationsMenu, icon.as_deref())?;
     Ok(None)
+}
+
+// Windows shortcuts accept only .ico icons, so they use the generated copy prepared for the game.
+fn shortcut_icon(
+    store: &crate::game_artwork::GameArtworkStore,
+    game: &crate::database::Game,
+) -> Result<Option<PathBuf>, String> {
+    if cfg!(windows) {
+        store.path(&game.id, crate::game_artwork::ArtworkKind::ShortcutIcon)
+    } else {
+        store.shortcut_icon_path(game)
+    }
+}
+
+// Returns a warning when the Steam icon is unavailable and the shortcut uses the executable icon instead.
+pub(crate) async fn prepare_shortcut_icon(
+    app: &tauri::AppHandle,
+    game_id: &str,
+) -> Result<Option<String>, String> {
+    use crate::database::DatabaseState;
+    use crate::game_artwork::{ArtworkKind, GameArtworkStore};
+    use tauri::Manager;
+
+    if !cfg!(windows) {
+        return Ok(None);
+    }
+    let game = app.state::<DatabaseState>().database()?.game(game_id)?;
+    let store = app.state::<GameArtworkStore>();
+    let (source, warning) = match store.get(game_id, ArtworkKind::Icon)? {
+        Some(artwork) => (Some(artwork.into_bytes()), None),
+        None => match game.steam_app_id {
+            Some(steam_app_id) => match steam_client_icon(app, steam_app_id).await {
+                Ok(bytes) => (Some(bytes), None),
+                Err(error) => (
+                    None,
+                    Some(format!("Could not load the Steam game icon: {error}")),
+                ),
+            },
+            None => (None, None),
+        },
+    };
+    match source {
+        Some(bytes) => {
+            store.set_shortcut_icon(game_id, crate::image_trim::shortcut_ico(&bytes)?)?
+        }
+        None => store.remove(game_id, ArtworkKind::ShortcutIcon)?,
+    }
+    Ok(warning)
+}
+
+async fn steam_client_icon(app: &tauri::AppHandle, steam_app_id: u32) -> Result<Vec<u8>, String> {
+    use crate::steam_assets::{AssetDemand, AssetKind, AssetPolicy, AssetRequest};
+    use tauri::Manager;
+
+    let network = app.state::<crate::network::NetworkState>();
+    let asset = crate::steam_assets::get_asset_for_request(
+        app.clone(),
+        network.inner(),
+        AssetRequest {
+            app_id: steam_app_id,
+            asset: AssetKind::ClientIcon,
+            index: None,
+            full: false,
+            policy: AssetPolicy::CacheOrFetch,
+            screenshot_identity: None,
+        },
+        AssetDemand {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            origin: crate::artwork_scheduler::WorkOrigin::Visible,
+            publication: crate::artwork_publication::PublicationMode::NativeOnly,
+        },
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    Ok(asset.into_bytes())
 }
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ShortcutCreationResult {
     path: String,
-    warning: Option<String>,
+    pub(crate) warning: Option<String>,
 }
 
 pub(crate) fn create_for_game(
@@ -1228,9 +1303,7 @@ pub(crate) fn create_for_game(
     } else {
         None
     };
-    let icon = app
-        .state::<crate::game_artwork::GameArtworkStore>()
-        .shortcut_icon_path(&game)?;
+    let icon = shortcut_icon(&app.state::<crate::game_artwork::GameArtworkStore>(), &game)?;
     let path = crate::desktop_shortcuts::create(&game, location, icon.as_deref())?;
     if steam_managed {
         crate::desktop_shortcuts::create(

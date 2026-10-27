@@ -359,11 +359,14 @@ pub async fn create_game_shortcut(
     location: crate::desktop_shortcuts::ShortcutLocation,
 ) -> Result<crate::desktop_shortcuts::ShortcutCreationResult, String> {
     crate::startup_recovery::wait(&app).await?;
-    tauri::async_runtime::spawn_blocking(move || {
+    let warning = crate::desktop_shortcuts::prepare_shortcut_icon(&app, &game_id).await?;
+    let mut result = tauri::async_runtime::spawn_blocking(move || {
         crate::desktop_shortcuts::create_for_game(&app, &game_id, location)
     })
     .await
-    .map_err(|error| format!("Game shortcut task failed: {error}"))?
+    .map_err(|error| format!("Game shortcut task failed: {error}"))??;
+    result.warning = warning;
+    Ok(result)
 }
 
 #[tauri::command]
