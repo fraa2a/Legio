@@ -132,3 +132,13 @@ test("Steam game settings offer hide and block removal while sync is enabled", a
     assert.deepEqual(calls, [["hide", game.id], ["closed"]]);
   } finally { await unmount(instance); target.remove(); delete globalThis.steamGameActions; }
 });
+
+test("Steam descriptions keep link text without links or scripts", async () => {
+  const { load } = createModuleLoader({});
+  const { renderSteamDescription } = await import(await load("src/lib/features/library/steam-description.ts"));
+  globalThis.DOMParser = dom.window.DOMParser;
+  const target = document.createElement("div");
+  renderSteamDescription(target, '<p>See <a href="https://example.com">the site</a><script>alert(1)</script></p>');
+  assert.equal(target.innerHTML, "<p>See the site</p>");
+  delete globalThis.DOMParser;
+});

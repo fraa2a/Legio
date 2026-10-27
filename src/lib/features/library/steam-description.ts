@@ -1,5 +1,6 @@
+// Links keep only their text: the webview cannot open them in the system browser.
 const allowedTags = new Set([
-  "a", "b", "blockquote", "br", "code", "div", "em", "h1", "h2", "h3", "h4",
+  "b", "blockquote", "br", "code", "div", "em", "h1", "h2", "h3", "h4",
   "hr", "i", "li", "ol", "p", "pre", "span", "strong", "ul",
 ]);
 const ignoredTags = new Set(["form", "iframe", "img", "input", "math", "object", "script", "style", "svg"]);
@@ -20,21 +21,6 @@ export function renderSteamDescription(target: HTMLElement, source: string): { u
       if (ignoredTags.has(tag)) return;
       const safe = allowedTags.has(tag) ? document.createElement(tag) : parent;
       if (safe !== parent) parent.appendChild(safe);
-      if (tag === "a" && safe instanceof HTMLAnchorElement) {
-        const href = element.getAttribute("href");
-        if (href !== null) {
-          try {
-            const url = new URL(href);
-            if (url.protocol === "https:" || url.protocol === "http:") {
-              safe.href = url.href;
-              safe.target = "_blank";
-              safe.rel = "noopener noreferrer";
-            }
-          } catch {
-            // Invalid links keep their visible text.
-          }
-        }
-      }
       for (const child of element.childNodes) appendSafe(safe, child);
     }
 
