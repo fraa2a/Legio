@@ -20,7 +20,7 @@ Also run the relevant `test:*` suites in [package.json](../../package.json), for
 
 ```sh
 corepack pnpm test:regressions
-corepack pnpm test:review
+corepack pnpm test:launcher
 corepack pnpm test:feedback
 corepack pnpm test:sources
 ```

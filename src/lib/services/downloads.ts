@@ -68,8 +68,8 @@ export function isFinishedDownloadStatus(status: string): boolean {
 }
 
 export function downloadProgressPercent(job: DownloadJob): number {
-  if (job.sizeBytes <= 0) return 0;
-  return Math.min(100, (job.downloadedBytes / job.sizeBytes) * 100);
+  if (!Number.isFinite(job.sizeBytes) || !Number.isFinite(job.downloadedBytes) || job.sizeBytes <= 0) return 0;
+  return Math.min(100, Math.max(0, (job.downloadedBytes / job.sizeBytes) * 100));
 }
 
 export function listDownloads(): Promise<DownloadJob[]> {

@@ -3,6 +3,16 @@ import { test } from "node:test";
 import { createModuleLoader, dataModule } from "./test_module_loader.mjs";
 const { load } = createModuleLoader({ "src/lib/i18n": dataModule("export const t = s => s;") });
 
+test("download progress stays finite and bounded for every consumer", async () => {
+  const { downloadProgressPercent } = await import(await load("src/lib/services/downloads.ts"));
+  for (const [downloadedBytes, sizeBytes, expected] of [
+    [25, 100, 25], [120, 100, 100], [-1, 100, 0], [1, 0, 0],
+    [1, -1, 0], [NaN, 100, 0], [Infinity, 100, 0], [1, Infinity, 0],
+  ]) {
+    assert.equal(downloadProgressPercent({ downloadedBytes, sizeBytes }), expected);
+  }
+});
+
 test("environment maps preserve own properties and reject duplicate special keys", async () => {
   const { parseMap } = await import(await load("src/lib/services/launch-fields.ts"));
   const result = parseMap("__proto__=value\nconstructor=other", "Environment");

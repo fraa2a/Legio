@@ -11,7 +11,8 @@
   import Icon from "../../components/ui/Icon.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
-  import { describeDownloadStatus } from "../../services/downloads";
+  import { describeDownloadStatus, downloadProgressPercent } from "../../services/downloads";
+  import ProgressBar from "../../components/ui/ProgressBar.svelte";
 
   let { gameId }: { gameId: string } = $props();
   let pending = $state(false);
@@ -20,7 +21,7 @@
   const update = $derived($gameUpdates.data.find(update => update.gameId === gameId));
   const job = $derived($downloads.data.find(job => job.targetGameId === gameId && job.status !== "installed" && job.status !== "cancelled"));
   const running = $derived(($launchStateByGame.get(gameId)?.status ?? "idle") !== "idle");
-  const percent = $derived(job === undefined || job.sizeBytes === 0 ? 0 : Math.min(100, job.downloadedBytes / job.sizeBytes * 100));
+  const percent = $derived(job === undefined ? 0 : downloadProgressPercent(job));
   onMount(() => { void gameUpdates.load(); });
   async function queue(accepted = false): Promise<void> {
     pending = true; error = null; confirming = false;
@@ -34,7 +35,7 @@
   <button type="button" class="relative flex h-[60px] w-[240px] shrink-0 items-center justify-center gap-2 overflow-hidden rounded-xl bg-legio-download px-4 text-xl font-bold text-white hover:bg-legio-download-hover" onclick={() => selectSection("downloads")}>
     <Icon name="download" size="h-6 w-6" />
     {job.pauseReason === "game_running" ? t("GIOCO APERTO", $language) : describeDownloadStatus(job.status).toUpperCase()}
-    <span class="absolute inset-x-0 bottom-0 h-2 bg-white/30" role="progressbar" aria-label={t("Avanzamento aggiornamento", $language)} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(percent)}><span class="block h-full bg-white" style:width={`${percent}%`}></span></span>
+    <ProgressBar variant="button" value={percent} label={t("Avanzamento aggiornamento", $language)} />
   </button>
 {:else if update !== undefined}
   <Button label={t("AGGIORNA", $language)} variant="download" class="h-[60px] w-[240px] shrink-0 rounded-xl px-4 text-xl font-bold" disabled={pending || running}
