@@ -33,7 +33,7 @@
   <button
     type="button"
     class="relative w-full cursor-zoom-in overflow-hidden rounded-2xl bg-white/5 ring-1 ring-white/10 light:bg-zinc-200"
-    aria-label="{t("Ingrandisci schermata ", $language)}{active + 1}{t(" di ", $language)}{count}"
+    aria-label={t("Ingrandisci schermata {0} di {1}", $language, [active + 1, count])}
     onclick={() => (open = true)}
   >
     <SteamArtwork
@@ -43,7 +43,7 @@
       screenshotIdentity={screenshots[active]?.full ?? screenshots[active]?.thumbnail ?? undefined}
 
       full
-      alt="{t("Schermata ", $language)}{active + 1}{t(" di ", $language)}{name}"
+      alt={t("Schermata {0} di {1}", $language, [active + 1, name])}
       caption={false}
       class="aspect-video w-full object-cover"
     />
@@ -66,7 +66,7 @@
             === active
             ? 'opacity-100 ring-2 ring-white light:ring-zinc-900'
             : 'opacity-60 ring-1 ring-white/10 hover:opacity-100'}"
-          aria-label="{t("Mostra schermata ", $language)}{position + 1}"
+          aria-label={t("Mostra schermata {0}", $language, [position + 1])}
           aria-current={position === active}
           onclick={() => select(position)}
         >
@@ -94,7 +94,7 @@
     screenshotIdentity={screenshots[active]?.full ?? screenshots[active]?.thumbnail ?? undefined}
     {count}
 
-    alt="{t("Schermata ", $language)}{active + 1}{t(" di ", $language)}{name}"
+    alt={t("Schermata {0} di {1}", $language, [active + 1, name])}
     onSelect={select}
     onClose={() => (open = false)}
   />

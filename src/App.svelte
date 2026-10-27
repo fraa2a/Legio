@@ -14,6 +14,9 @@
   import TitleBar from "./lib/components/layout/TitleBar.svelte";
   import SettingsDialog from "./lib/features/settings/SettingsDialog.svelte";
   import ToastNotice from "./lib/components/ui/ToastNotice.svelte";
+  import Button from "./lib/components/ui/Button.svelte";
+  import CloseButton from "./lib/components/ui/CloseButton.svelte";
+  import AccountSwitchDialog from "./lib/features/library/AccountSwitchDialog.svelte";
   import { hydrateApp } from "./lib/stores/bootstrap";
   import { closeSettings, settingsOpen } from "./lib/stores/navigation";
   import { settings } from "./lib/stores/settings";
@@ -108,18 +111,17 @@
   <SettingsDialog onClose={closeSettings} {accent} />
 {/if}
 
+<AccountSwitchDialog />
 <ToastNotice />
 
 {#if $updateState.version && !updateDismissed && ($appInfo.data.platform !== "linux" || !$updateState.nativeNotified)}
   <div class="fixed right-5 bottom-5 z-50 flex max-w-sm items-center gap-3 rounded-xl border border-white/15 bg-zinc-900/95 p-4 text-sm text-white shadow-xl light:border-zinc-900/15 light:bg-white light:text-zinc-900" role="status">
-    <span>Legio {$updateState.version}{t(" disponibile.", $language)}{#if $updateState.aur}{t("Aggiorna tramite AUR.", $language)}{/if}</span>
+    <span>{t("Legio {0} disponibile.", $language, [$updateState.version])}{#if $updateState.aur} {t("Aggiorna tramite AUR.", $language)}{/if}</span>
     {#if $appInfo.data.platform !== "linux" && !$updateState.aur}
-      <button type="button" class="rounded-lg bg-white px-3 py-2 text-zinc-900 disabled:opacity-50 light:bg-zinc-900 light:text-white" disabled={$updateState.installing} onclick={() => void installAppUpdate()}>
-        {$updateState.installing ? t("Installazione...", $language) : t("Aggiorna", $language)}
-      </button>
+      <Button label={$updateState.installing ? t("Installazione...", $language) : t("Aggiorna", $language)} size="sm" disabled={$updateState.installing} onClick={() => void installAppUpdate()} />
     {/if}
     {#if $appInfo.data.platform !== "linux"}
-      <button type="button" class="text-zinc-400 hover:text-white light:hover:text-zinc-900" aria-label={t("Chiudi avviso aggiornamento", $language)} onclick={() => (updateDismissed = true)}>{t("Chiudi", $language)}</button>
+      <CloseButton label={t("Chiudi avviso aggiornamento", $language)} onClick={() => (updateDismissed = true)} />
     {/if}
   </div>
 {/if}

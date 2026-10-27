@@ -47,11 +47,11 @@
     <GameLogo {game} class="h-24 w-auto max-w-full object-contain object-center sm:h-32 lg:h-40" />
   </div>
   <div class="flex shrink-0 flex-wrap items-center justify-center gap-2">
-    <Button label={t("Informazioni su {0}", $language, [game.name])} variant="secondary" circle onClick={() => openGame(game.id)} class="!bg-zinc-950/60 hover:!bg-zinc-950/75"><Icon name="info" /></Button>
-    <GameLaunchControls {game} {launch} playLabel={t("Continua a giocare", $language)} variant="primary" class="rounded-full! px-5"
+    <Button label={t("Informazioni su {0}", $language, [game.name])} variant="overlay" circle onClick={() => openGame(game.id)}><Icon name="info" /></Button>
+    <GameLaunchControls {game} {launch} playLabel={t("Continua a giocare", $language)} variant="primary" pill class="px-5"
       actionPending={$pendingGameId === game.id} cancelPending={$cancelPendingGameId === game.id}
       onPlay={playGame} onCancel={abortGameLaunch} onStop={stopGameProcess} />
-    <Button label={t("Impostazioni di {0}", $language, [game.name])} variant="secondary" circle onClick={onSettings} class="!bg-zinc-950/60 hover:!bg-zinc-950/75"><Icon name="settings" /></Button>
+    <Button label={t("Impostazioni di {0}", $language, [game.name])} variant="overlay" circle onClick={onSettings}><Icon name="settings" /></Button>
   </div>
 </section>
 {#if artworkError !== null}<ErrorBanner message={t("Immagine del gioco: {0}", $language, [artworkError])} />{/if}

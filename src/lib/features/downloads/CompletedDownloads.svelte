@@ -34,25 +34,26 @@
 <ul class="flex flex-col gap-2" role="list">
   {#each jobs as job (job.id)}
     <li class="flex flex-wrap items-center gap-3 rounded-xl legio-glass p-3">
-      <DownloadCover steamAppId={job.steamAppId} name={job.name} class="aspect-[2/3] w-9 rounded-lg" />
+      <DownloadCover steamAppId={job.steamAppId} name={job.name} class="aspect-[2/3] w-9" rounded="lg" />
 
       <div class="min-w-0 flex-1 basis-44">
         <div class="flex flex-wrap items-center gap-2">
           <p class="min-w-0 truncate font-medium text-zinc-50 light:text-zinc-900">{job.name}</p>
           <Badge tone={statusTone(job.status)} title={statusBadge(job.status, $language)} />
         </div>
-        <p class="mt-0.5 truncate text-xs text-zinc-400 light:text-zinc-600">{t("\n          Versione ", $language)}{job.releaseVersion} · {formatBytes(job.sizeBytes)} · {completedOn(job)}
+        <p class="mt-0.5 truncate text-xs text-zinc-400 light:text-zinc-600">
+          {t("Versione {0}", $language, [job.releaseVersion])} · {formatBytes(job.sizeBytes)} · {completedOn(job)}
         </p>
         {#if job.status === "installed"}
           <ProgressBar
             value={progressOf(job)}
             tone="success"
-            label="{t("Avanzamento di ", $language)}{job.name}"
+            label={t("Avanzamento di {0}", $language, [job.name])}
             class="mt-2 h-1.5"
           />
         {/if}
         {#if job.error !== null}
-          <p class="mt-2 break-words text-xs text-red-300 light:text-red-700" role="alert">{job.error}</p>
+          <p class="mt-2 break-words text-xs text-legio-error" role="alert">{job.error}</p>
         {/if}
       </div>
 
@@ -61,7 +62,7 @@
           <Button
             label={t("Gioca", $language)}
             variant="play"
-            class="h-8! px-3! text-xs!"
+            size="sm"
             disabled={!canPlay(job)}
             onClick={() => onPlay(job)}
           />
@@ -69,7 +70,7 @@
         <Button
           label={t("Rimuovi", $language)}
           variant="secondary"
-          class="h-8! px-3! text-xs!"
+          size="sm"
           disabled={busyJob === job.id}
           onClick={() => onRemove(job)}
         />

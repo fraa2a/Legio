@@ -165,7 +165,7 @@
   {:else if $appInfo.status === "error"}
     <ErrorBanner message={$appInfo.error ?? t("Impossibile rilevare la piattaforma.", $language)} onRetry={() => void load()} />
   {:else if $appInfo.data.platform !== "linux"}
-    <p class="rounded-xl bg-white/5 p-4 text-sm text-zinc-400 light:bg-zinc-100 light:text-zinc-600">{t("\n      I runner e i default di compatibilità sono disponibili su Linux. Le impostazioni di avvio native si configurano nella pagina di ogni gioco Windows.\n    ", $language)}</p>
+    <p class="rounded-xl bg-white/5 p-4 text-sm text-zinc-400 light:bg-zinc-100 light:text-zinc-600">{t("I runner e i default di compatibilità sono disponibili su Linux. Le impostazioni di avvio native si configurano nella pagina di ogni gioco Windows.", $language)}</p>
   {:else}
     {#if loadError !== null}
       <ErrorBanner message={loadError} onRetry={() => void load()} />
@@ -199,7 +199,7 @@
         />
       </div><ResetSetting label={t("Ripristina runner predefinito", $language)} disabled={saving || defaults.runnerPath === null} onClick={() => { defaults = { ...defaults, runnerPath: null }; }} /></div>
       {#if logsDirectory !== null}
-        <p class="break-all text-xs text-zinc-500 light:text-zinc-600">{t("Log compatibilità: ", $language)}{logsDirectory}</p>
+        <p class="break-all text-xs text-zinc-500 light:text-zinc-600">{t("Log compatibilità: {0}", $language, [logsDirectory])}</p>
       {/if}
     </SettingsGroup>
 

@@ -6,6 +6,7 @@
   import { reducedMotion } from "../../utils/motion";
   import { t, language } from "../../i18n";
   import Icon from "./Icon.svelte";
+  import IconButton from "./IconButton.svelte";
 
   let notice: HTMLDivElement | undefined = $state();
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
@@ -65,7 +66,7 @@
     >
       <p class="min-w-0 flex-1 break-words">{notification.message}</p>
       {#if notification.onRetry}<button type="button" class="shrink-0 rounded px-2 py-0.5 font-semibold hover:bg-white/15" onclick={() => { dismissToast(notification.id); notification.onRetry?.(); }}>{notification.retryLabel ?? t("Riprova", $language)}</button>{/if}
-      <button type="button" class="shrink-0 rounded p-0.5 hover:bg-white/15 light:hover:bg-zinc-900/10" aria-label={t("Chiudi notifica", $language)} onclick={() => dismissToast(notification.id)}><Icon name="close" size="size-4" /></button>
+      <IconButton size="xs" variant="plain" label={t("Chiudi notifica", $language)} onClick={() => dismissToast(notification.id)}><Icon name="close" size="size-4" /></IconButton>
     </div>
   {/each}
 </div>

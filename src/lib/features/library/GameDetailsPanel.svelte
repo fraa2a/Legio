@@ -173,15 +173,16 @@
   {/if}
   {#if confirmingRemove}
     <p class="text-sm text-zinc-300 light:text-zinc-700">
-      {game.name}{t(" verrà rimosso dalla libreria. I file installati non vengono eliminati.\n    ", $language)}</p>
+      {t("{0} verrà rimosso dalla libreria. I file installati non vengono eliminati.", $language, [game.name])}
+    </p>
     <div class="flex flex-wrap gap-2">
       <Button label={t("Annulla", $language)} variant="secondary" disabled={pending || identityPending} onClick={() => (confirmingRemove = false)} />
       <Button label={t("Rimuovi", $language)} variant="danger" disabled={pending || identityPending || removeBlocked} onClick={() => void remove()} />
     </div>
   {:else}
-    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("\n      Rimuovi questa voce senza toccare i file del gioco.\n    ", $language)}</p>
+    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Rimuovi questa voce senza toccare i file del gioco.", $language)}</p>
     {#if removeBlocked}
-      <p class="mt-2 text-sm text-amber-300 light:text-amber-800">{t("Disattiva Sync Steam games nelle impostazioni per rimuoverlo, oppure usa Nascondi dalla libreria per nascondere solo questo gioco.", $language)}</p>
+      <p class="mt-2 text-sm text-legio-warning">{t("Disattiva Sync Steam games nelle impostazioni per rimuoverlo, oppure usa Nascondi dalla libreria per nascondere solo questo gioco.", $language)}</p>
     {/if}
     <div>
       <Button label={t("Rimuovi gioco", $language)} variant="danger" disabled={removeBlocked || pending || identityPending} onClick={() => (confirmingRemove = true)} />

@@ -50,15 +50,15 @@
   {#snippet children(visible)}
     <button
       type="button"
-      class="flex flex-1 flex-col text-left focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-white"
-      aria-label="{t("Dettagli di ", $language)}{game.name}"
+      class="flex flex-1 flex-col text-left focus-visible:-outline-offset-2"
+      aria-label={t("Dettagli di {0}", $language, [game.name])}
       onclick={onOpen}
     >
       <div class="absolute inset-x-2 top-2 flex items-center gap-1.5">
         {#if lastPlayedLabel !== null}
           <span
             class="rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium text-zinc-100 light:bg-zinc-100/70 light:text-zinc-900"
-            title="{t("Ultima partita: ", $language)}{lastPlayedLabel}"
+            title={t("Ultima partita: {0}", $language, [lastPlayedLabel])}
           >
             {lastPlayedLabel}
           </span>
@@ -70,7 +70,7 @@
           {/if}
           <span
             class="flex items-center gap-1 rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-100 light:bg-zinc-100/70 light:text-zinc-900"
-            title="{playtimeLabel}{t(" giocati", $language)}"
+            title={t("{0} giocati", $language, [playtimeLabel])}
           >
             <Icon name="clock" size="h-3.5 w-3.5" />
             {playtimeLabel}

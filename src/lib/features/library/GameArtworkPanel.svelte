@@ -121,7 +121,7 @@
     <div class="grid gap-5">
       <section class="flex flex-col gap-3">
         <h3 class="text-base font-semibold">{t("Icona", $language)}</h3>
-        {#if iconUrl !== null}<img src={iconUrl} alt="{t("Icona personalizzata di ", $language)}{game.name}" class="size-20 rounded-xl object-cover" />{/if}
+        {#if iconUrl !== null}<img src={iconUrl} alt={t("Icona personalizzata di {0}", $language, [game.name])} class="size-20 rounded-xl object-cover" />{/if}
         <div class="flex flex-wrap gap-2">
           <Button label={t("Scegli immagine", $language)} variant="secondary" disabled={pending} onClick={() => void choose("icon")} />
           {#if iconUrl !== null}<Button label={t("Ripristina", $language)} variant="secondary" disabled={pending} onClick={() => void reset("icon")} />{/if}
@@ -129,7 +129,7 @@
       </section>
       <section class="flex flex-col gap-3">
         <h3 class="text-base font-semibold">Banner</h3>
-        {#if bannerUrl !== null}<img src={bannerUrl} alt="{t("Banner personalizzato di ", $language)}{game.name}" class="aspect-[2.2/1] max-h-48 w-full rounded-xl object-cover" />{/if}
+        {#if bannerUrl !== null}<img src={bannerUrl} alt={t("Banner personalizzato di {0}", $language, [game.name])} class="aspect-[2.2/1] max-h-48 w-full rounded-xl object-cover" />{/if}
         <div class="flex flex-wrap gap-2">
           <Button label={t("Scegli immagine", $language)} variant="secondary" disabled={pending} onClick={() => void choose("banner")} />
           {#if bannerUrl !== null}<Button label={t("Ripristina", $language)} variant="secondary" disabled={pending} onClick={() => void reset("banner")} />{/if}

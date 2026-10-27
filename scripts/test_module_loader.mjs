@@ -1,6 +1,12 @@
 import { readFile } from "node:fs/promises";
+import { relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { compile } from "svelte/compiler";
 import ts from "typescript";
+
+// Packages that ship uncompiled .svelte components are compiled like project sources.
+const sveltePackages = ["@lucide/svelte"];
+const root = fileURLToPath(new URL("..", import.meta.url));
 
 export const dataModule = (code) => `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`;
 
@@ -21,11 +27,17 @@ export function createModuleLoader(mocks) {
       const specifier = match[1];
       const resolved = specifier.startsWith(".") ? new URL(specifier, `file:///${path}`).pathname.slice(1) : null;
       const url = resolved === null
-        ? mocks[specifier] ?? import.meta.resolve(specifier)
-        : await load(mocks[resolved] || resolved.endsWith(".json") || resolved.endsWith(".svelte") ? resolved : resolved + ".ts");
+        ? mocks[specifier] ?? await resolvePackage(specifier)
+        : await load(mocks[resolved] || /\.(json|svelte|js)$/.test(resolved) ? resolved : resolved + ".ts");
       code = code.replaceAll(`"${specifier}"`, JSON.stringify(url)).replaceAll(`'${specifier}'`, JSON.stringify(url));
     }
     return code;
+  }
+
+  async function resolvePackage(specifier) {
+    const url = import.meta.resolve(specifier);
+    if (!sveltePackages.some((name) => specifier === name || specifier.startsWith(`${name}/`))) return url;
+    return load(relative(root, fileURLToPath(url)).replaceAll("\\", "/"));
   }
 
   async function load(path) {

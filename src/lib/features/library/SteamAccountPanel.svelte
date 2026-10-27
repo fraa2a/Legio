@@ -85,7 +85,7 @@
     onRetry={refresh}
   />
 
-  <p class="text-sm text-zinc-400 light:text-zinc-600">{t("\n    L'account scelto viene applicato al prossimo avvio. Steam viene chiuso e riavviato quando serve\n    per passare all'account salvato.\n  ", $language)}</p>
+  <p class="text-sm text-zinc-400 light:text-zinc-600">{t("L'account scelto viene applicato al prossimo avvio. Steam viene chiuso e riavviato quando serve per passare all'account salvato.", $language)}</p>
 
   <div class="flex items-end gap-2"><div class="min-w-0 flex-1"><SelectField
     id="steam-account"

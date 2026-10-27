@@ -15,7 +15,7 @@
 <label class="flex items-center justify-between gap-6 {disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}">
   <span class="min-w-0 text-sm text-zinc-100 light:text-zinc-900">{label}</span>
   <span
-    class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full bg-white/15 transition-colors duration-200 has-checked:bg-legio-accent has-focus-visible:ring-2 has-focus-visible:ring-legio-accent/60 light:bg-zinc-300"
+    class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full bg-white/15 transition-colors duration-200 has-checked:bg-legio-accent has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-(--legio-focus) light:bg-zinc-300"
   >
     <input
       type="checkbox"

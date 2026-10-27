@@ -10,6 +10,7 @@
   } from "../../services/downloads";
   import Badge from "../../components/ui/Badge.svelte";
   import Button from "../../components/ui/Button.svelte";
+  import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import ProgressBar from "../../components/ui/ProgressBar.svelte";
   import { formatBytes } from "../../utils/format";
   import DownloadCover from "./DownloadCover.svelte";
@@ -44,7 +45,7 @@
 
 <section
   class="rounded-2xl legio-glass p-5"
-  aria-label="{t("Download attivo di ", $language)}{job.name}"
+  aria-label={t("Download attivo di {0}", $language, [job.name])}
 >
   <div class="flex flex-col gap-5 sm:flex-row sm:items-start">
     <DownloadCover
@@ -66,7 +67,7 @@
             {#if busyPhase}
               <span class="size-1.5 shrink-0 rounded-full bg-legio-download animate-pulse" aria-hidden="true"></span>
             {/if}
-            <span class="truncate">{#if phase !== null}{phase} · {/if}{t("Versione ", $language)}{job.releaseVersion}</span>
+            <span class="truncate">{#if phase !== null}{phase} · {/if}{t("Versione {0}", $language, [job.releaseVersion])}</span>
           </p>
         </div>
         <p class="text-3xl font-semibold tabular-nums text-zinc-50 light:text-zinc-900">
@@ -78,24 +79,22 @@
         <ProgressBar
           value={progress}
           tone={progressTone(job.status)}
-          label="{t("Avanzamento di ", $language)}{job.name}"
+          label={t("Avanzamento di {0}", $language, [job.name])}
           class="h-2.5"
         />
         <div class="mt-2.5 flex flex-wrap gap-x-5 gap-y-1 text-xs text-zinc-400 light:text-zinc-600">
           <span class="tabular-nums">{formatBytes(job.downloadedBytes)} / {formatBytes(job.sizeBytes)}</span>
           {#if downloading}
             <span class="tabular-nums">{formatBytes(job.speedBps)}/s</span>
-            <span class="tabular-nums">{t("Rimanenti ", $language)}{formatEta(job.etaSeconds)}</span>
+            <span class="tabular-nums">{t("Rimanenti {0}", $language, [formatEta(job.etaSeconds)])}</span>
           {:else if job.status === "installed"}
-            <span>{t("Completato il ", $language)}{new Date(job.updatedAt * 1000).toLocaleDateString(undefined)}</span>
+            <span>{t("Completato il {0}", $language, [new Date(job.updatedAt * 1000).toLocaleDateString(undefined)])}</span>
           {/if}
         </div>
       </div>
 
       {#if job.error !== null}
-        <div class="mt-4 rounded-lg border border-red-500/40 bg-red-500/10 px-3.5 py-2.5" role="alert">
-          <p class="text-sm text-red-200 light:text-red-800">{job.error}</p>
-        </div>
+        <div class="mt-4"><ErrorBanner message={job.error} /></div>
       {/if}
 
       <div class="mt-4 flex flex-wrap gap-2">

@@ -5,6 +5,7 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import ProgressBar from "../../components/ui/ProgressBar.svelte";
+  import Spinner from "../../components/ui/Spinner.svelte";
   import { formatBytes } from "../../utils/format";
 
   let {
@@ -38,10 +39,7 @@
   <div class="flex flex-col gap-4">
     {#if status === "idle" || status === "loading"}
       <div class="flex items-center gap-2.5 text-sm text-zinc-400 light:text-zinc-600" role="status">
-        <span
-          class="size-3.5 shrink-0 animate-spin rounded-full border-2 border-zinc-400 border-t-transparent"
-          aria-hidden="true"
-        ></span>{t("\n        Lettura dello spazio su disco...\n      ", $language)}</div>
+        <Spinner size="sm" />{t("Lettura dello spazio su disco...", $language)}</div>
     {:else if status === "error" && error !== null}
       <ErrorBanner message={error} onRetry={onRetry} />
     {/if}
@@ -51,7 +49,7 @@
         <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Spazio disponibile", $language)}</p>
         <p class="text-sm font-medium tabular-nums text-zinc-50 light:text-zinc-900">
           {formatBytes(folder.freeBytes)}
-          <span class="font-normal text-zinc-500">{t("su ", $language)}{formatBytes(folder.totalBytes)}</span>
+          <span class="font-normal text-zinc-500">{t("su {0}", $language, [formatBytes(folder.totalBytes)])}</span>
         </p>
         <ProgressBar
           value={usedPercent}
@@ -65,7 +63,7 @@
     <div class="flex flex-col gap-1.5">
       <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Dimensione download", $language)}</p>
       <p
-        class="text-sm font-medium tabular-nums {insufficient ? 'text-red-300 light:text-red-700' : 'text-zinc-50 light:text-zinc-900'}"
+        class="text-sm font-medium tabular-nums {insufficient ? 'text-legio-error' : 'text-zinc-50 light:text-zinc-900'}"
       >
         {formatBytes(downloadBytes)}
         {#if insufficient}

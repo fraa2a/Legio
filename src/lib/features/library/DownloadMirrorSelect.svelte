@@ -19,5 +19,5 @@
 </script>
 
 {#if uris.length > 1}
-  <SelectField id="download-mirror" label={t("Collegamento di download", $language)} bind:value {options} {disabled} variant="hero" class="w-[260px] min-w-0 shrink-0" />
+  <SelectField id="download-mirror" label={t("Collegamento di download", $language)} bind:value {options} {disabled} variant="hero" class="w-65 min-w-0 shrink-0" />
 {/if}

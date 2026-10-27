@@ -115,7 +115,7 @@
   if (open && !root?.contains(event.target as Node)) open = false;
 }} />
 
-<div bind:this={root} class="relative flex flex-col {variant === 'hero' ? 'h-[60px] justify-center rounded-xl border border-white/10 bg-zinc-950/60 backdrop-blur-md hover:bg-zinc-950/75 light:border-zinc-900/10 light:bg-zinc-100/70 light:hover:bg-zinc-200' : 'gap-1.5'} {className}">
+<div bind:this={root} class="relative flex flex-col {variant === 'hero' ? 'h-15 justify-center rounded-xl border border-white/10 bg-zinc-950/60 backdrop-blur-md hover:bg-zinc-950/75 light:border-zinc-900/10 light:bg-zinc-100/70 light:hover:bg-zinc-200' : 'gap-1.5'} {className}">
   <span id={`${id}-label`} class="{variant === 'hero' ? 'px-3 pt-1 text-xs' : 'text-sm'} text-zinc-400 light:text-zinc-600">{label}</span>
   <button
     bind:this={trigger}
@@ -128,7 +128,7 @@
     aria-controls={`${id}-options`}
     onkeydown={handleKeydown}
     onclick={() => open ? (open = false) : void showOptions()}
-    class="flex h-10 w-full items-center justify-between gap-3 rounded-lg {variant === 'hero' ? 'bg-transparent' : `${borderless ? '' : 'border border-white/10 hover:border-white/25 focus-visible:border-white/50 light:border-zinc-900/10 light:hover:border-zinc-900/25'} bg-white/5 hover:bg-white/10 light:bg-white`} px-3 text-left text-sm text-zinc-100 transition-colors focus-visible:outline-2 focus-visible:outline-legio-accent disabled:cursor-not-allowed disabled:opacity-50 light:text-zinc-900"
+    class="flex h-10 w-full items-center justify-between gap-3 rounded-lg {variant === 'hero' ? 'bg-transparent' : `${borderless ? '' : 'border border-white/10 hover:border-white/25 focus-visible:border-white/50 light:border-zinc-900/10 light:hover:border-zinc-900/25'} bg-white/5 hover:bg-white/10 light:bg-white`} px-3 text-left text-sm text-zinc-100 transition-colors disabled:cursor-not-allowed disabled:opacity-50 light:text-zinc-900"
   >
     <span class="truncate">{selectedLabel}</span>
     <span class="shrink-0 text-zinc-400 transition-transform {open ? 'rotate-180' : ''}"><Icon name="chevron-down" size="size-4" /></span>

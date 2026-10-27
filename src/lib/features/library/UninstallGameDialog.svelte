@@ -5,9 +5,7 @@
   import { getGameUninstallTarget, type Game } from "../../services/local-state";
   import { uninstallGame } from "../../stores/games";
   import { toMessage } from "../../utils/errors";
-  import Button from "../../components/ui/Button.svelte";
-  import Dialog from "../../components/ui/Dialog.svelte";
-  import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
+  import ConfirmDialog from "../../components/ui/ConfirmDialog.svelte";
 
   let { game, onClose, onRemoved }: {
     game: Game;
@@ -44,20 +42,22 @@
   }
 </script>
 
-<Dialog open dismissible={!pending} title={t("Disinstalla gioco", $language)} {onClose}>
-  <p class="text-sm text-zinc-300 light:text-zinc-700">
-    {t("Disinstallare {0}? Il gioco verrà rimosso dalla libreria e la cartella indicata verrà eliminata definitivamente, insieme a tutti i file al suo interno.", $language, [game.name])}
-  </p>
+<ConfirmDialog
+  title={t("Disinstalla gioco", $language)}
+  message={t("Disinstallare {0}? Il gioco verrà rimosso dalla libreria e la cartella indicata verrà eliminata definitivamente, insieme a tutti i file al suo interno.", $language, [game.name])}
+  confirmLabel={t("Disinstalla definitivamente", $language)}
+  tone="danger"
+  {pending}
+  confirmDisabled={directory === null}
+  {error}
+  onConfirm={() => void confirm()}
+  {onClose}
+>
   {#if directory !== null}
     <p class="break-all rounded-lg bg-white/5 p-3 font-mono text-xs text-zinc-200 light:bg-zinc-900/5 light:text-zinc-800">{directory}</p>
-    <p class="text-sm text-amber-300 light:text-amber-800">{t("Verranno eliminati anche eventuali salvataggi e mod presenti in questa cartella. L'operazione non può essere annullata.", $language)}</p>
+    <p class="text-sm text-legio-warning">{t("Verranno eliminati anche eventuali salvataggi e mod presenti in questa cartella. L'operazione non può essere annullata.", $language)}</p>
   {:else if error === null}
-    <p class="text-sm text-zinc-400" role="status">{t("Verifica della cartella del gioco...", $language)}</p>
+    <p class="text-sm text-zinc-400 light:text-zinc-600" role="status">{t("Verifica della cartella del gioco...", $language)}</p>
   {/if}
-  {#if error !== null}<ErrorBanner message={error} />{/if}
-  {#if pending}<p class="text-sm text-zinc-400" role="status">{t("Disinstallazione in corso...", $language)}</p>{/if}
-  <div class="flex justify-end gap-2">
-    <Button label={t("Annulla", $language)} variant="secondary" disabled={pending} onClick={onClose} />
-    <Button label={t("Disinstalla definitivamente", $language)} variant="danger" disabled={pending || directory === null} onClick={() => void confirm()} />
-  </div>
-</Dialog>
+  {#if pending}<p class="text-sm text-zinc-400 light:text-zinc-600" role="status">{t("Disinstallazione in corso...", $language)}</p>{/if}
+</ConfirmDialog>

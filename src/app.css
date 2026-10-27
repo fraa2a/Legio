@@ -24,6 +24,8 @@ html[data-motion-paused="true"] *::after {
   --color-legio-launching-hover: #854d0e;
   --color-legio-running: #b91c1c;
   --color-legio-running-hover: #991b1b;
+  --color-legio-danger: #e81123;
+  --color-legio-danger-hover: #c50e1e;
 }
 
 @utility scrollbar-none {

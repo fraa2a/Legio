@@ -76,12 +76,12 @@
   {:else if searchStatus === "empty" && searchError === null}
     <p class="text-xs text-zinc-500">{t("Nessun risultato per questa ricerca.", $language)}</p>
   {/if}
-  {#if searchError !== null}<p class="text-xs text-amber-300 light:text-amber-800">{t("Ricerca non disponibile: ", $language)}{searchError}</p>{/if}
+  {#if searchError !== null}<p class="text-xs text-legio-warning">{t("Ricerca non disponibile: {0}", $language, [searchError])}</p>{/if}
   {#if searchResults.length > 0 && value.trim().length >= 2}
     <ul class="max-h-36 overflow-y-auto rounded-lg border border-white/10 bg-white/5 light:border-zinc-900/10 light:bg-white" aria-label={t("Risultati Steam", $language)}>
       {#each searchResults as result (result.steamAppId)}
         <li>
-          <button type="button" class="flex h-12 w-full items-center px-3 text-left text-sm text-zinc-200 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white light:text-zinc-800 light:hover:bg-zinc-900/5 light:focus-visible:outline-zinc-900"
+          <button type="button" class="flex h-12 w-full items-center px-3 text-left text-sm text-zinc-200 hover:bg-white/10 focus-visible:-outline-offset-2 light:text-zinc-800 light:hover:bg-zinc-900/5"
             disabled={disabled || selecting} onclick={() => void choose(result)}>
             <span class="truncate">{result.name}</span>
           </button>

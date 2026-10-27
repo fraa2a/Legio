@@ -150,7 +150,7 @@
           class="h-16 w-28 shrink-0 overflow-hidden rounded-lg transition-opacity {slot === index
             ? 'opacity-100 ring-2 ring-white'
             : 'opacity-50 hover:opacity-100'}"
-          aria-label="{t("Vai all'immagine ", $language)}{slot + 1}"
+          aria-label={t("Vai all'immagine {0}", $language, [slot + 1])}
           aria-current={slot === index}
           onclick={() => onSelect?.(slot)}
         >

@@ -64,8 +64,8 @@
     ></div>
     <button
       type="button"
-      class="relative flex min-h-28 w-full items-stretch text-left transition-colors hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-white sm:min-h-32 light:hover:bg-zinc-900/5 light:focus-visible:outline-zinc-900"
-      aria-label="{t("Dettagli di ", $language)}{name}{t(" nello Store", $language)}"
+      class="relative flex min-h-28 w-full items-stretch text-left transition-colors hover:bg-white/5 focus-visible:-outline-offset-2 sm:min-h-32 light:hover:bg-zinc-900/5"
+      aria-label={t("Dettagli di {0} nello Store", $language, [name])}
       onclick={onOpen}
     >
       <div class="relative w-56 shrink-0 overflow-hidden bg-zinc-800 sm:w-72 light:bg-zinc-200">
@@ -74,7 +74,7 @@
             {steamAppId}
             asset="header"
             caption={false}
-            alt="{t("Copertina di ", $language)}{name}"
+            alt={t("Copertina di {0}", $language, [name])}
             class="absolute inset-0 size-full object-cover"
           >
             {#snippet placeholder()}
@@ -94,7 +94,7 @@
           {#if entry !== null}
             <span
               class="whitespace-nowrap text-xs tabular-nums text-zinc-400 light:text-zinc-500"
-              title="{t("Versione ", $language)}{entry.release.version} · {entry.download.sizeBytes == null ? t("Dimensione sconosciuta", $language) : formatBytes(entry.download.sizeBytes)}"
+              title="{t("Versione {0}", $language, [entry.release.version])} · {entry.download.sizeBytes == null ? t("Dimensione sconosciuta", $language) : formatBytes(entry.download.sizeBytes)}"
             >
               {entry.release.version} · {entry.download.sizeBytes == null ? t("Dimensione sconosciuta", $language) : formatBytes(entry.download.sizeBytes)}
             </span>

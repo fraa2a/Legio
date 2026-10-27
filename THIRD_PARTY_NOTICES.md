@@ -10,11 +10,13 @@ Legio bundles the unmodified Inter variable fonts, including italics.
 - Copyright (c) 2016 The Inter Project Authors.
 - License: SIL Open Font License 1.1. The full text is in `src/assets/fonts/OFL.txt`, distributed as `licenses/Inter-OFL.txt` in application bundles.
 
-## Glow icons
+## Lucide
 
-- Source: https://github.com/glow-ui/glow-icons
-- Copyright (c) 2025 glow-ui.
-- License: MIT. The full notice is in `_meta/licenses/glow-icons.txt`, distributed as `licenses/glow-icons.txt` in application bundles.
+Legio uses the `@lucide/svelte` icon components.
+
+- Source: https://github.com/lucide-icons/lucide
+- Copyright (c) 2026 Lucide Icons and Contributors. Icons derived from Feather are Copyright (c) 2013-present Cole Bemis.
+- License: ISC, with MIT for the Feather-derived icons. The full notice is in `_meta/licenses/lucide.txt`, distributed as `licenses/lucide.txt` in application bundles.
 
 ## Svelte
 

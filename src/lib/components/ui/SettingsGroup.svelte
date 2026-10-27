@@ -38,7 +38,7 @@
         onclick={() => { open = !open; }}
       >
         <span
-          class="flex min-w-0 items-center gap-3 rounded-lg transition-colors hover:bg-white/5 group-focus-visible:outline-2 group-focus-visible:outline-legio-accent light:hover:bg-zinc-900/5"
+          class="flex min-w-0 items-center gap-3 rounded-lg transition-colors hover:bg-white/5 light:hover:bg-zinc-900/5"
         >
           {@render iconBadge()}
           <span class="min-w-0">{title}</span>
