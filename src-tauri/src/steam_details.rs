@@ -382,20 +382,18 @@ fn cached_localized(
             stale: false,
         }),
         Some((json, fetched_at)) => {
-            let cached_value: serde_json::Value = serde_json::from_str(&json).map_err(|error| {
-                DetailsError::database(format!("Invalid cached Steam details: {error}"))
-            })?;
-            let missing_description = cached_value.get("detailedDescription").is_none();
-            let missing_requirements = cached_value.get("systemRequirements").is_none();
-            let mut details: SteamDetails =
-                serde_json::from_value(cached_value).map_err(|error| {
-                    DetailsError::database(format!("Invalid cached Steam details: {error}"))
-                })?;
-            if details.steam_app_id != app_id {
-                return Err(DetailsError::database(
-                    "Cached Steam App ID does not match its cache key.".to_owned(),
-                ));
-            }
+            let (mut details, incomplete) = match decode_cached(&json, app_id) {
+                Ok(decoded) => decoded,
+                Err(error) => {
+                    // A corrupt entry is a cache miss; the next fetch replaces it.
+                    crate::application_log::failure("read_steam_metadata_cache", &error);
+                    return Ok(DetailsResult {
+                        details: None,
+                        cached_at: None,
+                        stale: false,
+                    });
+                }
+            };
             details.assets.header = steam_image(details.assets.header);
             details.assets.capsule = steam_image(details.assets.capsule);
             details.assets.background = steam_image(details.assets.background);
@@ -407,8 +405,7 @@ fn cached_localized(
             Ok(DetailsResult {
                 details: Some(details),
                 cached_at: Some(fetched_at),
-                stale: missing_description
-                    || missing_requirements
+                stale: incomplete
                     || current_time < fetched_at
                     || current_time.saturating_sub(fetched_at) >= STALE_SECONDS,
             })
@@ -440,23 +437,18 @@ fn cached(
     )
 }
 
-fn recover_cached(
-    result: Result<DetailsResult, DetailsError>,
-) -> Result<DetailsResult, DetailsError> {
-    match result {
-        Err(error)
-            if error.message.starts_with("Invalid cached Steam details:")
-                || error.message.starts_with("Cached Steam App ID") =>
-        {
-            crate::application_log::failure("read_steam_metadata_cache", &error.message);
-            Ok(DetailsResult {
-                details: None,
-                cached_at: None,
-                stale: false,
-            })
-        }
-        result => result,
+/// Returns the details and whether they predate the description and requirements fields.
+fn decode_cached(json: &str, app_id: u32) -> Result<(SteamDetails, bool), String> {
+    let value: serde_json::Value = serde_json::from_str(json)
+        .map_err(|error| format!("Invalid cached Steam details: {error}"))?;
+    let incomplete =
+        value.get("detailedDescription").is_none() || value.get("systemRequirements").is_none();
+    let details: SteamDetails = serde_json::from_value(value)
+        .map_err(|error| format!("Invalid cached Steam details: {error}"))?;
+    if details.steam_app_id != app_id {
+        return Err("Cached Steam App ID does not match its cache key.".to_owned());
     }
+    Ok((details, incomplete))
 }
 
 pub(crate) fn cached_details(
@@ -469,7 +461,7 @@ pub(crate) fn cached_details(
         .map_err(DetailsError::database)?
         .language;
     let time = now()?;
-    let details = recover_cached(cached_localized(database, app_id, time, language))?.details;
+    let details = cached_localized(database, app_id, time, language)?.details;
     if details.is_some() {
         return Ok(details);
     }
@@ -478,7 +470,7 @@ pub(crate) fn cached_details(
     } else {
         crate::locale::LanguagePreference::Italian
     };
-    Ok(recover_cached(cached_localized(database, app_id, time, alternate))?.details)
+    Ok(cached_localized(database, app_id, time, alternate)?.details)
 }
 
 async fn blocking<T, F>(task: F) -> Result<T, DetailsError>
@@ -543,7 +535,7 @@ where
 {
     let time = clock()?;
     let read = |database: Arc<Database>| async move {
-        blocking(move || recover_cached(cached_localized(&database, app_id, time, language))).await
+        blocking(move || cached_localized(&database, app_id, time, language)).await
     };
     let previous = read(database.clone()).await?;
     if !should_fetch(&previous, policy) {
@@ -1231,7 +1223,7 @@ mod tests {
     }
 
     #[test]
-    fn upgrades_v3_without_losing_library_records_and_surfaces_corruption() {
+    fn upgrades_v3_without_losing_library_records_and_ignores_corruption() {
         let path = directory();
         let database = Database::open(&path).unwrap();
         let game = database
@@ -1261,10 +1253,7 @@ mod tests {
                 Ok(())
             })
             .unwrap();
-        assert_eq!(
-            cached(&database, 400, 100).unwrap_err().kind,
-            DetailsErrorKind::Database
-        );
+        assert!(cached(&database, 400, 100).unwrap().details.is_none());
         store(&database, &decode(&fixture(400), 400).unwrap(), 200).unwrap();
         assert_eq!(
             cached(&database, 400, 200).unwrap().details.unwrap().name,

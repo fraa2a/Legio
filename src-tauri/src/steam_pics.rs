@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use steam_client::{AppsEvent, LogOnDetails, SteamClient, SteamEvent, utils::vdf::VdfValue};
 use tokio::io::AsyncReadExt;
 
+use crate::artwork_scheduler::WorkError;
+
 const CDN: &str = "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps";
 const COMMUNITY_ICON_CDN: &str =
     "https://shared.fastly.steamstatic.com/community_assets/images/apps";
@@ -179,7 +181,7 @@ pub(crate) async fn resolve(
     path: Result<PathBuf, String>,
     lock: &tokio::sync::Mutex<Lookup>,
     refresh_expired: bool,
-    fetched: impl Future<Output = Result<PicsAssets, String>>,
+    fetched: impl Future<Output = Result<PicsAssets, WorkError>>,
 ) -> (Option<PicsAssets>, Option<String>) {
     let (path, mut warning) = match path {
         Ok(path) => (Some(path), None),
@@ -218,18 +220,18 @@ pub(crate) async fn resolve(
         Some((completed, result)) if completed.elapsed() < Duration::from_secs(30) => {
             result.clone()
         }
-        _ => {
-            let result = fetched.await;
-            lookup.recent = if result
-                .as_ref()
-                .is_err_and(|error| error == "Artwork request cancelled")
-            {
-                None
-            } else {
-                Some((Instant::now(), result.clone()))
-            };
-            result
-        }
+        _ => match fetched.await {
+            // A cancelled lookup must not be reused by the next request.
+            Err(WorkError::Cancelled) => {
+                lookup.recent = None;
+                Err(WorkError::Cancelled.to_string())
+            }
+            result => {
+                let result = result.map_err(|error| error.to_string());
+                lookup.recent = Some((Instant::now(), result.clone()));
+                result
+            }
+        },
     };
     match result {
         Ok(assets) => {
@@ -486,7 +488,7 @@ mod tests {
         let path = cache_path();
         let lock = tokio::sync::Mutex::new(Lookup::default());
         let (_, warning) = resolve(Ok(path.clone()), &lock, true, async {
-            Err("Steam is offline".into())
+            Err(WorkError::Failed("Steam is offline".into()))
         })
         .await;
         assert_eq!(warning.as_deref(), Some("Steam is offline"));
@@ -503,7 +505,7 @@ mod tests {
         expire_cache(&path).await;
         let lock = tokio::sync::Mutex::new(Lookup::default());
         let (assets, warning) = resolve(Ok(path.clone()), &lock, true, async {
-            Err("Steam is offline".into())
+            Err(WorkError::Failed("Steam is offline".into()))
         })
         .await;
         assert_eq!(
@@ -522,7 +524,7 @@ mod tests {
         let path = cache_path();
         let lock = tokio::sync::Mutex::new(Lookup::default());
         let (_, warning) = resolve(Ok(path.clone()), &lock, true, async {
-            Err("Artwork request cancelled".into())
+            Err(WorkError::Cancelled)
         })
         .await;
         assert_eq!(warning.as_deref(), Some("Artwork request cancelled"));

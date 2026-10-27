@@ -195,12 +195,45 @@ async fn response_bytes(mut response: reqwest::Response) -> Result<Vec<u8>, Stri
     }
     Ok(bytes)
 }
+/// Lets the caller renew a rejected guest token without matching message text.
+enum GofileError {
+    Unauthorized,
+    Other(String),
+}
+
+impl std::fmt::Display for GofileError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unauthorized => formatter.write_str("GoFile authorization rejected"),
+            Self::Other(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl From<String> for GofileError {
+    fn from(error: String) -> Self {
+        Self::Other(error)
+    }
+}
+
+impl From<&str> for GofileError {
+    fn from(error: &str) -> Self {
+        Self::Other(error.to_owned())
+    }
+}
+
+impl From<GofileError> for String {
+    fn from(error: GofileError) -> Self {
+        error.to_string()
+    }
+}
+
 async fn request(
     client: &Client,
     method: Method,
     url: &str,
     headers: HeaderMap,
-) -> Result<Reply, String> {
+) -> Result<Reply, GofileError> {
     for attempt in 0..3 {
         let response = client
             .request(method.clone(), url)
@@ -220,7 +253,7 @@ async fn request(
             continue;
         }
         if status.as_u16() == 401 || status.as_u16() == 403 {
-            return Err("GoFile authorization rejected".into());
+            return Err(GofileError::Unauthorized);
         }
         if rate_limited || status.as_u16() == 429 {
             return Err("GoFile rate limit reached; retry later".into());
@@ -238,10 +271,10 @@ async fn request(
     }
     Err("GoFile retry limit reached".into())
 }
-fn api_error(status: &str) -> String {
+fn api_error(status: &str) -> GofileError {
     match status {
         "error-wrongToken" | "error-notAuthenticated" | "error-badToken" | "error-notPremium" => {
-            "GoFile authorization rejected".into()
+            GofileError::Unauthorized
         }
         "error-notFound" => "GoFile content was not found".into(),
         "error-passwordRequired" | "error-passwordWrong" => {
@@ -375,7 +408,7 @@ async fn first_file(
     token: &str,
     secret: &str,
     password: Option<&str>,
-) -> Result<ResolvedFile, String> {
+) -> Result<ResolvedFile, GofileError> {
     enum Work {
         Lookup(String),
         Item(Content),
@@ -486,7 +519,7 @@ async fn official(
         .as_deref()
         .ok_or("GoFile guest token is unavailable")?;
     let file = match first_file(client, id, token, &secret, password).await {
-        Err(error) if error == "GoFile authorization rejected" => {
+        Err(GofileError::Unauthorized) => {
             state.token = None;
             let token = create_token(client, &secret).await?;
             state.token = Some(token.clone());
