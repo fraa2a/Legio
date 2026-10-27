@@ -81,6 +81,10 @@ impl AssetResult {
         let metadata = serde_json::to_vec(&self).map_err(|error| error.to_string())?;
         crate::image_response::encode(metadata, self.bytes)
     }
+
+    pub(crate) fn into_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
 }
 
 #[derive(Deserialize, Serialize)]

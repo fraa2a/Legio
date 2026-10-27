@@ -49,6 +49,10 @@ impl GameArtworkResult {
         let metadata = serde_json::to_vec(&self).map_err(|error| error.to_string())?;
         crate::image_response::encode(metadata, self.bytes)
     }
+
+    pub(crate) fn into_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
 }
 
 #[derive(Clone)]
@@ -78,7 +82,7 @@ impl GameArtworkStore {
     ) -> Result<GameArtworkResult, String> {
         let game_id = canonical_game_id(game_id)?;
         let bytes = read_image(source, &format!("selected {}", kind.label()))?;
-        if ImageFormat::from_bytes(&bytes).is_some() {
+        if ImageFormat::from_steam_bytes(&bytes).is_some() {
             crate::image_trim::validate_image(&bytes)?;
         }
         self.store(game_id, kind, bytes)
@@ -86,6 +90,12 @@ impl GameArtworkStore {
 
     pub(crate) fn shortcut_icon_path(&self, game: &Game) -> Result<Option<PathBuf>, String> {
         self.path(&game.id, ArtworkKind::Icon)
+    }
+
+    pub(crate) fn set_shortcut_icon(&self, game_id: &str, bytes: Vec<u8>) -> Result<(), String> {
+        let game_id = canonical_game_id(game_id)?;
+        self.store(game_id, ArtworkKind::ShortcutIcon, bytes)
+            .map(|_| ())
     }
 
     fn store(
@@ -97,7 +107,7 @@ impl GameArtworkStore {
         if bytes.len() > MAX_ARTWORK_BYTES {
             return Err(format!("The {} exceeds the 2 MiB size limit", kind.label()));
         }
-        let format = ImageFormat::from_bytes(&bytes).ok_or_else(|| {
+        let format = ImageFormat::from_steam_bytes(&bytes).ok_or_else(|| {
             format!(
                 "The {} is not a supported PNG, JPEG, or WebP image",
                 kind.label()
@@ -166,7 +176,7 @@ impl GameArtworkStore {
             .take(header.len() as u64)
             .read(&mut header)
             .map_err(|error| error.to_string())?;
-        let format = ImageFormat::from_bytes(&header[..count])
+        let format = ImageFormat::from_steam_bytes(&header[..count])
             .ok_or("Stored artwork has an unsupported image format")?;
         if artwork_path(&directory, &game_id, format) != path {
             return Err(format!(
@@ -301,7 +311,7 @@ fn load_artwork(
         return Ok(None);
     };
     let bytes = read_image(&path, &format!("stored {}", kind.label()))?;
-    let format = ImageFormat::from_bytes(&bytes)
+    let format = ImageFormat::from_steam_bytes(&bytes)
         .ok_or_else(|| format!("Stored {} has an unsupported image format", kind.label()))?;
     if artwork_path(directory, game_id, format) != path {
         return Err(format!(
