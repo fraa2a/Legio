@@ -1036,10 +1036,12 @@ async fn run_queue<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
             queue.wake.notified().await;
             continue;
         };
+        let network = app.try_state::<crate::network::NetworkState>();
         let outcome = transfer(
             &app.state::<DownloadQueueState>(),
             app.state::<DatabaseState>().shared_database()?,
             &job,
+            || is_online(network.as_deref()),
         )
         .await;
         let app = app.clone();
@@ -1051,7 +1053,8 @@ async fn run_queue<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
                 }
                 Err(error) => {
                     if status(&database, &job.id)? == "downloading" {
-                        let waiting = error.starts_with("Network:") || error.starts_with("HTTP 5");
+                        let waiting =
+                            matches!(error, TransferError::Network(_) | TransferError::Server(_));
                         finish(
                             &database,
                             &job.id,
@@ -1060,7 +1063,7 @@ async fn run_queue<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
                             } else {
                                 DownloadStatus::Failed
                             },
-                            Some(error),
+                            Some(error.to_string()),
                         )?;
                     }
                 }
@@ -1168,11 +1171,64 @@ async fn persist_progress(
     .map_err(|error| format!("Progress task failed: {error}"))?
 }
 
-async fn transfer(
+/// Decides whether a failed transfer waits, tries another link or fails.
+#[derive(Debug)]
+enum TransferError {
+    Stopped,
+    /// The partial file cannot be used, so other links would fail the same way.
+    Local(String),
+    Network(String),
+    Server(String),
+    Link(String),
+}
+
+impl std::fmt::Display for TransferError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Stopped => formatter.write_str("Download was stopped"),
+            Self::Local(message)
+            | Self::Network(message)
+            | Self::Server(message)
+            | Self::Link(message) => formatter.write_str(message),
+        }
+    }
+}
+
+// The resolver and database helpers report errors as text.
+impl From<String> for TransferError {
+    fn from(error: String) -> Self {
+        if error.starts_with("Network:") {
+            Self::Network(error)
+        } else if error.starts_with("HTTP 5") {
+            Self::Server(error)
+        } else {
+            Self::Link(error)
+        }
+    }
+}
+
+impl From<&str> for TransferError {
+    fn from(error: &str) -> Self {
+        error.to_owned().into()
+    }
+}
+
+/// Without a network monitor, links fail over as if the network were online.
+async fn is_online(network: Option<&crate::network::NetworkState>) -> bool {
+    match network {
+        Some(network) => {
+            network.check_connectivity().await.status == crate::network::NetworkStatus::Online
+        }
+        None => true,
+    }
+}
+
+async fn transfer<F: std::future::Future<Output = bool>>(
     queue: &DownloadQueueState,
     database: std::sync::Arc<Database>,
     job: &Transfer,
-) -> Result<(), String> {
+    online: impl Fn() -> F,
+) -> Result<(), TransferError> {
     let (stop, mut stopped) = tokio::sync::watch::channel(false);
     *queue
         .active
@@ -1186,7 +1242,7 @@ async fn transfer(
         .map_err(|error| error.to_string())??
         != "downloading"
     {
-        return Err("Download was stopped".to_owned());
+        return Err(TransferError::Stopped);
     }
     let reader = database.clone();
     let id = job.id.clone();
@@ -1212,12 +1268,12 @@ async fn transfer(
     let mut failure = "No supported download links are available".to_owned();
     while let Some(uri) = plan.current().map(str::to_owned) {
         if *stopped.borrow() {
-            return Err("Download was stopped".into());
+            return Err(TransferError::Stopped);
         }
         let result = if current.url != uri {
             let inspected = tokio::select! {
                 biased;
-                _ = stopped.changed() => return Err("Download was stopped".into()),
+                _ = stopped.changed() => return Err(TransferError::Stopped),
                 result = crate::download_selection::inspect(&queue.client, &uri) => result,
             };
             match inspected {
@@ -1227,7 +1283,9 @@ async fn transfer(
                             Ok(()) => {}
                             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                             Err(error) => {
-                                return Err(format!("Could not reset partial download: {error}"));
+                                return Err(TransferError::Local(format!(
+                                    "Could not reset partial download: {error}"
+                                )));
                             }
                         }
                     }
@@ -1238,45 +1296,38 @@ async fn transfer(
                     transfer_once(queue, database.clone(), &current, &mut stopped).await
                 }
                 Ok(_) => Err("Download does not match the size published by the source".into()),
-                Err(error) => Err(error),
+                Err(error) => Err(error.into()),
             }
         } else {
             transfer_once(queue, database.clone(), &current, &mut stopped).await
         };
         match result {
             Ok(()) => return Ok(()),
-            Err(error) if *stopped.borrow() || error == "Download was stopped" => {
-                return Err(error);
-            }
             Err(error)
-                if [
-                    "Could not open partial download",
-                    "Could not write partial download",
-                    "Could not sync download",
-                    "Could not finalize downloaded archive",
-                    "Could not inspect partial download",
-                ]
-                .iter()
-                .any(|prefix| error.starts_with(prefix))
-                    || error == "Partial download is not a regular file" =>
+                if *stopped.borrow()
+                    || matches!(error, TransferError::Stopped | TransferError::Local(_)) =>
             {
                 return Err(error);
             }
-            Err(error) => failure = error,
+            // Offline, every link would fail and the next one would discard the partial file.
+            Err(error @ TransferError::Network(_)) if !online().await => {
+                return Err(error);
+            }
+            Err(error) => failure = error.to_string(),
         }
         plan.fail();
         save_mirror_state(database.clone(), &current, &plan, false).await?;
         if plan.current().is_some() {
             tokio::select! {
                 biased;
-                _ = stopped.changed() => return Err("Download was stopped".into()),
+                _ = stopped.changed() => return Err(TransferError::Stopped),
                 () = tokio::time::sleep(Duration::from_millis(250)) => {},
             }
         }
     }
-    Err(format!(
+    Err(TransferError::Link(format!(
         "All download links failed after three retries per link: {failure}"
-    ))
+    )))
 }
 
 async fn save_mirror_state(
@@ -1284,20 +1335,23 @@ async fn save_mirror_state(
     job: &Transfer,
     plan: &crate::download_selection::MirrorPlan,
     reset: bool,
-) -> Result<(), String> {
+) -> Result<(), TransferError> {
     let job = job.clone();
     let plan = serde_json::to_string(plan).map_err(|error| error.to_string())?;
-    tauri::async_runtime::spawn_blocking(move || {
+    let changed = tauri::async_runtime::spawn_blocking(move || {
         database.with_connection(|connection| {
             let changed = if reset {
                 connection.execute("UPDATE downloads SET url=?2,size_bytes=?3,downloaded_bytes=0,speed_bps=0,eta_seconds=NULL,etag=NULL,mirror_plan=?4 WHERE id=?1 AND status='downloading'", params![job.id,job.url,i64::try_from(job.size).map_err(|_| "Download exceeds local storage limits")?,plan]).map_err(db_error)?
             } else {
                 connection.execute("UPDATE downloads SET mirror_plan=?2 WHERE id=?1 AND status='downloading'", params![job.id,plan]).map_err(db_error)?
             };
-            if changed == 0 { return Err("Download was stopped".into()); }
-            Ok(())
+            Ok(changed)
         })
-    }).await.map_err(|error| error.to_string())?
+    }).await.map_err(|error| error.to_string())??;
+    if changed == 0 {
+        return Err(TransferError::Stopped);
+    }
+    Ok(())
 }
 
 async fn transfer_once(
@@ -1305,7 +1359,7 @@ async fn transfer_once(
     database: std::sync::Arc<Database>,
     job: &Transfer,
     stopped: &mut tokio::sync::watch::Receiver<bool>,
-) -> Result<(), String> {
+) -> Result<(), TransferError> {
     use tokio::io::AsyncWriteExt;
     let mut current = job.clone();
     let job = &mut current;
@@ -1319,16 +1373,24 @@ async fn transfer_once(
     }
     let mut offset = match tokio::fs::symlink_metadata(&partial).await {
         Ok(metadata) if metadata.is_file() => metadata.len(),
-        Ok(_) => return Err("Partial download is not a regular file".to_owned()),
+        Ok(_) => {
+            return Err(TransferError::Local(
+                "Partial download is not a regular file".to_owned(),
+            ));
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
-        Err(error) => return Err(format!("Could not inspect partial download: {error}")),
+        Err(error) => {
+            return Err(TransferError::Local(format!(
+                "Could not inspect partial download: {error}"
+            )));
+        }
     };
     if offset >= job.size {
         offset = 0;
     }
     let mut resolved = tokio::select! {
         biased;
-        _ = stopped.changed() => return Err("Download was stopped".into()),
+        _ = stopped.changed() => return Err(TransferError::Stopped),
         result = crate::download_resolver::resolve(&queue.client, &job.url) => result?,
     };
     if resolved.files.len() != 1 {
@@ -1355,14 +1417,14 @@ async fn transfer_once(
     }
     let mut response = tokio::select! {
         biased;
-        _ = stopped.changed() => return Err("Download was stopped".into()),
+        _ = stopped.changed() => return Err(TransferError::Stopped),
         result = crate::download_resolver::get(&queue.client, &resolved.url, headers) => result?,
     };
     if offset > 0 && !resume_matches(&response, job, offset) {
         offset = 0;
         response = tokio::select! {
             biased;
-            _ = stopped.changed() => return Err("Download was stopped".into()),
+            _ = stopped.changed() => return Err(TransferError::Stopped),
             result = crate::download_resolver::get(&queue.client, &resolved.url, resolved.headers.clone()) => result?,
         };
     }
@@ -1373,7 +1435,12 @@ async fn transfer_once(
             StatusCode::OK
         }
     {
-        return Err(format!("HTTP {}", response.status()));
+        let message = format!("HTTP {}", response.status());
+        return Err(if response.status().is_server_error() {
+            TransferError::Server(message)
+        } else {
+            TransferError::Link(message)
+        });
     }
     if crate::download_resolver::is_web_page(&response) {
         return Err("The download link returned a web page".into());
@@ -1437,7 +1504,9 @@ async fn transfer_once(
         .append(offset > 0)
         .open(&partial)
         .await
-        .map_err(|error| format!("Could not open partial download: {error}"))?;
+        .map_err(|error| {
+            TransferError::Local(format!("Could not open partial download: {error}"))
+        })?;
     persist_progress(database.clone(), &job.id, offset, 0, None, etag.as_deref()).await?;
     let started = Instant::now();
     let initial = offset;
@@ -1445,23 +1514,23 @@ async fn transfer_once(
     let mut limiter = BandwidthWindow::new(offset, queue.bandwidth_limit.load(Ordering::Relaxed));
     while let Some(chunk) = interruptible_response(stopped, response.chunk()).await? {
         if *stopped.borrow() {
-            return Err("Download was stopped".to_owned());
+            return Err(TransferError::Stopped);
         }
         let next = offset
             .checked_add(chunk.len() as u64)
             .ok_or_else(|| "Download size overflow".to_owned())?;
         if next > job.size {
-            return Err("Download exceeds the expected size".to_owned());
+            return Err("Download exceeds the expected size".into());
         }
-        file.write_all(&chunk)
-            .await
-            .map_err(|error| format!("Could not write partial download: {error}"))?;
+        file.write_all(&chunk).await.map_err(|error| {
+            TransferError::Local(format!("Could not write partial download: {error}"))
+        })?;
         offset = next;
         loop {
             if *stopped.borrow() {
                 persist_progress(database.clone(), &job.id, offset, 0, None, etag.as_deref())
                     .await?;
-                return Err("Download was stopped".to_owned());
+                return Err(TransferError::Stopped);
             }
             let delay = limiter.delay(offset, queue.bandwidth_limit.load(Ordering::Relaxed));
             if delay.is_zero() {
@@ -1499,36 +1568,38 @@ async fn transfer_once(
         }
     }
     if offset != job.size {
-        return Err(format!(
+        return Err(TransferError::Network(format!(
             "Network: Download ended at {offset} of {} bytes",
             job.size
-        ));
+        )));
     }
     persist_progress(database.clone(), &job.id, offset, 0, None, etag.as_deref()).await?;
     file.sync_all()
         .await
-        .map_err(|error| format!("Could not sync download: {error}"))?;
+        .map_err(|error| TransferError::Local(format!("Could not sync download: {error}")))?;
     drop(file);
     if *stopped.borrow() {
-        return Err("Download was stopped".to_owned());
+        return Err(TransferError::Stopped);
     }
     tokio::fs::rename(&partial, &archive)
         .await
-        .map_err(|error| format!("Could not finalize downloaded archive: {error}"))?;
+        .map_err(|error| {
+            TransferError::Local(format!("Could not finalize downloaded archive: {error}"))
+        })?;
     Ok(())
 }
 
 async fn interruptible_response<T>(
     stopped: &mut tokio::sync::watch::Receiver<bool>,
     response: impl std::future::Future<Output = Result<T, reqwest::Error>>,
-) -> Result<T, String> {
+) -> Result<T, TransferError> {
     if *stopped.borrow() {
-        return Err("Download was stopped".to_owned());
+        return Err(TransferError::Stopped);
     }
     tokio::select! {
         biased;
-        _ = stopped.changed() => Err("Download was stopped".to_owned()),
-        result = response => result.map_err(|error| format!("Network: {}", error.without_url())),
+        _ = stopped.changed() => Err(TransferError::Stopped),
+        result = response => result.map_err(|error| TransferError::Network(format!("Network: {}", error.without_url()))),
     }
 }
 
@@ -2041,7 +2112,7 @@ mod tests {
         })
         .await
         .unwrap();
-        assert_eq!(result.unwrap_err(), "Download was stopped");
+        assert!(matches!(result.unwrap_err(), TransferError::Stopped));
         assert!(
             interruptible_response(
                 &mut stopped,
@@ -2157,7 +2228,8 @@ mod tests {
         let database = std::sync::Arc::new(database);
         let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
         let transfer_job = claim(&database).unwrap().unwrap();
-        tauri::async_runtime::block_on(transfer(&queue, database.clone(), &transfer_job)).unwrap();
+        tauri::async_runtime::block_on(transfer(&queue, database.clone(), &transfer_job, online))
+            .unwrap();
         assert_eq!(
             fs::read(queue.path(&job.id, "archive").unwrap()).unwrap(),
             payload
@@ -2166,6 +2238,80 @@ mod tests {
         assert_eq!(saved.url, second);
         assert_eq!(saved.size_bytes, payload.len() as u64);
         assert_eq!(server.join().unwrap().len(), 6);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn offline_network_error_keeps_the_mirror_and_partial_file() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let first = format!("http://{}/first", listener.local_addr().unwrap());
+        let second = format!("http://{}/second", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") {
+                socket.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            // The connection drops after 3 of 10 bytes.
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nbad")
+                .unwrap();
+        });
+        let (database, directory) = database_with_source();
+        let job = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
+        let plan = crate::download_selection::MirrorPlan::new(vec![first.clone(), second], None);
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET url=?2,size_bytes=10,mirror_plan=?3,published_size_bytes=NULL WHERE id=?1",
+                        params![job.id, first, serde_json::to_string(&plan).unwrap()],
+                    )
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+        let database = std::sync::Arc::new(database);
+        let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
+        let transfer_job = claim(&database).unwrap().unwrap();
+        let result = tauri::async_runtime::block_on(transfer(
+            &queue,
+            database.clone(),
+            &transfer_job,
+            || std::future::ready(false),
+        ));
+        server.join().unwrap();
+        assert!(
+            matches!(result, Err(TransferError::Network(_))),
+            "{result:?}"
+        );
+        assert!(queue.path(&job.id, "part").unwrap().is_file());
+        let saved: crate::download_selection::MirrorPlan = database
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT mirror_plan FROM downloads WHERE id=?1",
+                        [&job.id],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .map_err(db_error)
+            })
+            .map(|plan| serde_json::from_str(&plan).unwrap())
+            .unwrap();
+        assert_eq!((saved.index, saved.failures), (0, 0));
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
@@ -2321,6 +2467,10 @@ mod tests {
         assert_eq!(completion_notification(&database, &job.id).unwrap(), None);
         drop(database);
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn online() -> std::future::Ready<bool> {
+        std::future::ready(true)
     }
 
     fn test_app(directory: &Path) -> tauri::App<tauri::test::MockRuntime> {
@@ -3311,8 +3461,12 @@ mod tests {
             }).unwrap();
             let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
             let claimed = claim(&database).unwrap().unwrap();
-            let result =
-                tauri::async_runtime::block_on(transfer(&queue, database.clone(), &claimed));
+            let result = tauri::async_runtime::block_on(transfer(
+                &queue,
+                database.clone(),
+                &claimed,
+                online,
+            ));
             assert_eq!(result.is_ok(), accepted, "size {actual}: {result:?}");
             if accepted {
                 assert_eq!(
@@ -3382,7 +3536,8 @@ mod tests {
         let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
         fs::write(queue.path(&job.id, "part").unwrap(), b"abcde").unwrap();
         let transfer_job = claim(&database).unwrap().unwrap();
-        tauri::async_runtime::block_on(transfer(&queue, database.clone(), &transfer_job)).unwrap();
+        tauri::async_runtime::block_on(transfer(&queue, database.clone(), &transfer_job, online))
+            .unwrap();
         assert_eq!(
             fs::read(queue.path(&job.id, "archive").unwrap()).unwrap(),
             b"abcdefghij"
@@ -3440,7 +3595,8 @@ mod tests {
         let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
         fs::write(queue.path(&job.id, "part").unwrap(), b"abcde").unwrap();
         let transfer_job = claim(&database).unwrap().unwrap();
-        tauri::async_runtime::block_on(transfer(&queue, database.clone(), &transfer_job)).unwrap();
+        tauri::async_runtime::block_on(transfer(&queue, database.clone(), &transfer_job, online))
+            .unwrap();
         assert_eq!(
             fs::read(queue.path(&job.id, "archive").unwrap()).unwrap(),
             b"abcdefghij"
@@ -3501,7 +3657,8 @@ mod tests {
         let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
         fs::write(queue.path(&job.id, "part").unwrap(), b"abcde").unwrap();
         let transfer_job = claim(&database).unwrap().unwrap();
-        tauri::async_runtime::block_on(transfer(&queue, database.clone(), &transfer_job)).unwrap();
+        tauri::async_runtime::block_on(transfer(&queue, database.clone(), &transfer_job, online))
+            .unwrap();
         assert_eq!(
             fs::read(queue.path(&job.id, "archive").unwrap()).unwrap(),
             b"0123456789"
@@ -3558,7 +3715,8 @@ mod tests {
         let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
         fs::write(queue.path(&job.id, "part").unwrap(), b"abcde").unwrap();
         let transfer_job = claim(&database).unwrap().unwrap();
-        tauri::async_runtime::block_on(transfer(&queue, database.clone(), &transfer_job)).unwrap();
+        tauri::async_runtime::block_on(transfer(&queue, database.clone(), &transfer_job, online))
+            .unwrap();
         assert_eq!(
             fs::read(queue.path(&job.id, "archive").unwrap()).unwrap(),
             b"0123456789"
