@@ -82,7 +82,7 @@
     <div class="flex flex-wrap items-center gap-3">
       <Button label={$updateState.checking ? t("Controllo...", $language) : t("Controlla aggiornamenti", $language)} variant="secondary" disabled={$updateState.checking || $updateState.installing} onClick={() => void checkForAppUpdate()} />
       {#if $updateState.version}
-        <span class="text-sm text-zinc-300 light:text-zinc-700">{t("Versione ", $language)}{$updateState.version}{t(" disponibile.", $language)}{#if $updateState.aur}{t("Aggiorna tramite AUR.", $language)}{/if}</span>
+        <span class="text-sm text-zinc-300 light:text-zinc-700">{t("Versione {0} disponibile.", $language, [$updateState.version])}{#if $updateState.aur} {t("Aggiorna tramite AUR.", $language)}{/if}</span>
         {#if !$updateState.aur}
           <Button label={$updateState.installing ? t("Installazione...", $language) : t("Installa e riavvia", $language)} disabled={$updateState.installing} onClick={() => void installAppUpdate()} />
         {/if}

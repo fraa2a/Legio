@@ -8,10 +8,7 @@
   import { games } from "../../stores/games";
   import {
     abortGameLaunch,
-    accountSwitchGame,
     cancelPendingGameId,
-    dismissAccountSwitch,
-    confirmAccountSwitch,
     launchStateByGame,
     pendingGameId,
     playGame,
@@ -27,8 +24,8 @@
   import { createArtworkWork } from "../../services/artwork-work";
   import { refreshSteamImagesOnOpen } from "../../services/steam-details";
   import Button from "../../components/ui/Button.svelte";
-  import ProgressBar from "../../components/ui/ProgressBar.svelte";
-  import Dialog from "../../components/ui/Dialog.svelte";
+  import DownloadProgressButton from "../downloads/DownloadProgressButton.svelte";
+  import ConfirmDialog from "../../components/ui/ConfirmDialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import GameSettingsDialog from "./GameSettingsDialog.svelte";
@@ -155,12 +152,12 @@
 </script>
 
 {#if storeGame === null && game === null}
-  <p class="legio-glass rounded-xl p-6 text-zinc-400 light:text-zinc-600">{t("\n    Il gioco non è più disponibile.\n  ", $language)}</p>
+  <p class="legio-glass rounded-xl p-6 text-zinc-400 light:text-zinc-600">{t("Il gioco non è più disponibile.", $language)}</p>
 {:else}
   <div class="flex min-h-full flex-col gap-4">
-    <section class="relative isolate z-10 aspect-[1920/620] w-full min-h-[20rem] min-w-[1024px] overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200">
+    <section class="relative isolate z-10 aspect-[1920/620] w-full min-h-80 min-w-5xl overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200">
       {#if customBannerUrl !== null}
-        <img src={customBannerUrl} alt="{t("Banner personalizzato di ", $language)}{name}" class="absolute inset-0 size-full object-cover" />
+        <img src={customBannerUrl} alt={t("Banner personalizzato di {0}", $language, [name])} class="absolute inset-0 size-full object-cover" />
       {:else if steamAppId !== null}
         <SteamArtwork
           {steamAppId}
@@ -181,14 +178,15 @@
         <div class="flex flex-nowrap items-end gap-2">
           {#if storeGame !== null}
             {#if job !== null}
-              <button type="button" class="relative flex h-[60px] w-[240px] shrink-0 items-center justify-center gap-2 overflow-hidden rounded-xl bg-legio-download px-4 text-xl font-bold text-white hover:bg-legio-download-hover" onclick={() => selectSection("downloads")}>
-                <Icon name="download" size="h-6 w-6" />
-                {job.status === "queued" || job.status === "downloading" ? t("SCARICAMENTO", $language) : describeDownloadStatus(job.status).toUpperCase()}
-                <ProgressBar variant="button" value={downloadProgress} label={t("Avanzamento download", $language)} />
-              </button>
+              <DownloadProgressButton
+                label={job.status === "queued" || job.status === "downloading" ? t("SCARICAMENTO", $language) : describeDownloadStatus(job.status).toUpperCase()}
+                value={downloadProgress}
+                progressLabel={t("Avanzamento download", $language)}
+                onClick={() => selectSection("downloads")}
+              />
             {:else if status?.availability === "verified" || status?.availability === "unverified"}
-              <Button label={t("SCARICA", $language)} variant="download" class="h-[60px] w-[240px] shrink-0 rounded-xl px-4 text-xl font-bold" disabled={queueing} onClick={requestDownload}>
-                <Icon name="download" size="h-6 w-6" />
+              <Button label={t("SCARICA", $language)} variant="download" size="hero" class="w-60" disabled={queueing} onClick={requestDownload}>
+                <Icon name="download" size="size-6" />
               </Button>
             {/if}
           {:else if game !== null}
@@ -196,7 +194,8 @@
               {game}
               {launch}
               variant="primary"
-              class="h-[60px] w-[240px] shrink-0 rounded-xl px-4 text-xl font-bold"
+              size="hero"
+              class="w-60"
               actionPending={$pendingGameId === game.id}
               cancelPending={$cancelPendingGameId === game.id}
               onPlay={playGame}
@@ -211,17 +210,17 @@
           {/if}
           {/if}
           {#if game !== null}
-            <Button label={t("Impostazioni del gioco", $language)} square variant="secondary" class="h-[60px] w-[60px] shrink-0 rounded-xl border border-white/10 !bg-zinc-950/60 hover:!bg-zinc-950/75 light:!border-zinc-900/10 light:!bg-zinc-100/70 light:hover:!bg-zinc-200" onClick={() => (gameSettingsOpen = true)}>
-              <Icon name="settings" size="h-6 w-6" />
+            <Button label={t("Impostazioni del gioco", $language)} square variant="overlay" size="hero" onClick={() => (gameSettingsOpen = true)}>
+              <Icon name="settings" size="size-6" />
             </Button>
           {/if}
         </div>
-        <div class="pointer-events-none flex h-[120px] w-[420px] shrink-0 flex-col items-end justify-end">
-          <h2 class="flex h-full w-full items-end justify-end text-[22px] font-semibold leading-tight text-white">
+        <div class="pointer-events-none flex h-30 w-105 shrink-0 flex-col items-end justify-end">
+          <h2 class="flex h-full w-full items-end justify-end text-2xl font-semibold leading-tight text-white">
             {#if customIconUrl !== null}
-              <img src={customIconUrl} alt="{t("Icona personalizzata di ", $language)}{name}" class="size-full object-contain object-right" />
+              <img src={customIconUrl} alt={t("Icona personalizzata di {0}", $language, [name])} class="size-full object-contain object-right" />
             {:else if steamAppId !== null}
-              <SteamArtwork {steamAppId} asset="logo" caption={false} alt="{t("Logo di ", $language)}{name}" class="size-full object-contain object-right">
+              <SteamArtwork {steamAppId} asset="logo" caption={false} alt={t("Logo di {0}", $language, [name])} class="size-full object-contain object-right">
                 {#snippet placeholder()}{@render nameText()}{/snippet}
               </SteamArtwork>
             {:else}
@@ -274,7 +273,7 @@
                 <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">Manifest</dt>
                 <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">
                   {entry === null || $source.data.cachedAt === null ? t("non disponibile", $language) : formatDateTime($source.data.cachedAt)}
-                  {#if entry !== null && $source.data.stale}<span class="text-amber-300 light:text-amber-800">{t(" · cache scaduta", $language)}</span>{/if}
+                  {#if entry !== null && $source.data.stale} <span class="text-legio-warning">{t("· cache scaduta", $language)}</span>{/if}
                 </dd>
               </div>
             </dl>
@@ -306,7 +305,7 @@
     {steamAppId}
     asset="hero"
     fallbackAsset="header"
-    alt="{t("Copertina di ", $language)}{name}"
+    alt={t("Copertina di {0}", $language, [name])}
     onClose={() => (artworkOpen = false)}
   />
 {/if}
@@ -316,32 +315,18 @@
 {/if}
 
 {#if storeGame !== null}
-  <Dialog open={confirmOpen} title={t("Rilascio non verificato", $language)} onClose={() => (confirmOpen = false)}>
-  {#snippet children(dismiss)}
-    <p class="text-sm text-zinc-300 light:text-zinc-700">{t("\n      Il rilascio di ", $language)}{name}{t(" non è classificato come verificato dalla fonte. Un archivio non verificato può contenere\n      programmi dannosi. Procedere con il download e l'installazione?\n    ", $language)}</p>
-    <div class="flex justify-end gap-2">
-      <Button label={t("Annulla", $language)} variant="secondary" onClick={dismiss} />
-      <Button label={t("Scarica comunque", $language)} variant="danger" disabled={queueing} onClick={() => { confirmOpen = false; if (confirmEntry !== null) void startDownload(confirmEntry.download.url, confirmEntry.release.version, true, confirmPreferredUri); }} />
-    </div>
-    {/snippet}
-</Dialog>
+  <ConfirmDialog
+    open={confirmOpen}
+    title={t("Rilascio non verificato", $language)}
+    message={t("Il rilascio di {0} non è classificato come verificato dalla fonte. Un archivio non verificato può contenere programmi dannosi. Procedere con il download e l'installazione?", $language, [name])}
+    confirmLabel={t("Scarica comunque", $language)}
+    tone="danger"
+    confirmDisabled={queueing}
+    onConfirm={() => { confirmOpen = false; if (confirmEntry !== null) void startDownload(confirmEntry.download.url, confirmEntry.release.version, true, confirmPreferredUri); }}
+    onClose={() => (confirmOpen = false)}
+  />
 {/if}
 
-{#if storeGame === null && $accountSwitchGame !== null}
-<Dialog
-  open
-  title={t("Cambio account Steam", $language)}
-  onClose={dismissAccountSwitch}
->
-  {#snippet children(dismiss)}
-  <p class="text-sm text-zinc-300 light:text-zinc-700">{t("\n    Steam deve essere chiuso e riavviato per usare l'account salvato di ", $language)}{$accountSwitchGame?.name}{t(".\n    Procedere?\n  ", $language)}</p>
-  <div class="flex justify-end gap-2">
-    <Button label={t("Annulla", $language)} variant="secondary" onClick={dismiss} />
-    <Button label={t("Riavvia e avvia", $language)} onClick={() => void confirmAccountSwitch()} />
-  </div>
-  {/snippet}
-</Dialog>
-{/if}
 
 {#snippet nameText()}
   <span class="block max-w-full truncate rounded-lg bg-zinc-950/60 px-3 py-1.5 text-right text-zinc-100 light:bg-zinc-100/70 light:text-zinc-900">{name}</span>
@@ -349,7 +334,7 @@
 
 {#snippet backdrop()}
   <div
-    class="min-h-[20rem] bg-gradient-to-br from-zinc-700 to-zinc-900 light:from-zinc-300 light:to-zinc-100"
+    class="min-h-80 bg-gradient-to-br from-zinc-700 to-zinc-900 light:from-zinc-300 light:to-zinc-100"
     aria-hidden="true"
   ></div>
 {/snippet}

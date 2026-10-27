@@ -152,11 +152,11 @@
         {#if previewPending}
           <p class="text-xs text-zinc-400" role="status">{t("Rilevamento del gioco su Steam...", $language)}</p>
         {:else if previewError !== null}
-          <p class="text-xs text-amber-300 light:text-amber-800">{t("Rilevamento non disponibile: ", $language)}{previewError}</p>
+          <p class="text-xs text-legio-warning">{t("Rilevamento non disponibile: {0}", $language, [previewError])}</p>
         {:else if preview?.status === "no_match"}
           <p class="text-xs text-zinc-500">{t("Nessuna corrispondenza esatta. Cerca il gioco per nome.", $language)}</p>
         {:else if preview?.status === "unavailable"}
-          <p class="text-xs text-amber-300 light:text-amber-800">{t("Rilevamento non disponibile: ", $language)}{preview.message ?? t("riprova più tardi", $language)}.</p>
+          <p class="text-xs text-legio-warning">{t("Rilevamento non disponibile: {0}.", $language, [preview.message ?? t("riprova più tardi", $language)])}</p>
         {:else if preview?.status === "matched"}
           <p class="text-xs text-legio-success">{t("Gioco Steam rilevato automaticamente. Puoi cambiarlo con la ricerca.", $language)}</p>
         {/if}

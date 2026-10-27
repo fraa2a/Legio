@@ -23,7 +23,7 @@ class PackagingTests(unittest.TestCase):
             "../LICENSE": "LICENSE",
             "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
             "../src/assets/fonts/OFL.txt": "licenses/Inter-OFL.txt",
-            "../_meta/licenses/glow-icons.txt": "licenses/glow-icons.txt",
+            "../_meta/licenses/lucide.txt": "licenses/lucide.txt",
             "vendor/flexsearch.LICENSE": "licenses/flexsearch.LICENSE",
         }
         for source, destination in required.items():

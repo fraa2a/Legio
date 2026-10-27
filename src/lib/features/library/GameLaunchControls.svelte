@@ -13,6 +13,8 @@
     variant = "secondary",
     playLabel = t("GIOCA", $language),
     circle = false,
+    pill = false,
+    size = "md",
     revealOnHover = false,
     class: className = "",
     onPlay,
@@ -26,6 +28,8 @@
     variant?: "primary" | "secondary";
     playLabel?: string;
     circle?: boolean;
+    pill?: boolean;
+    size?: "md" | "hero";
     revealOnHover?: boolean;
     class?: string;
     onPlay: (game: Game) => void;
@@ -45,6 +49,8 @@
       label={playLabel}
       variant={actionVariant}
       {circle}
+      {pill}
+      {size}
       class={revealOnHover
         ? "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
         : className}
@@ -57,6 +63,8 @@
     <Button
       label={cancelPending ? t("ANNULLAMENTO...", $language) : t("AVVIO...", $language)}
       variant={actionVariant}
+      {pill}
+      {size}
       class={className}
       disabled={cancelPending}
       onClick={() => onCancel(game)}
@@ -64,7 +72,7 @@
       <Icon name="close" size="h-6 w-6" />
     </Button>
   {:else}
-    <Button label={t("FERMA", $language)} variant={actionVariant} class={className} disabled={actionPending} onClick={() => onStop(game)}>
+    <Button label={t("FERMA", $language)} variant={actionVariant} {pill} {size} class={className} disabled={actionPending} onClick={() => onStop(game)}>
       <Icon name="stop" size="h-6 w-6" />
     </Button>
   {/if}

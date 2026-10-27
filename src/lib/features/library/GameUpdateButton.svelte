@@ -8,11 +8,11 @@
   import { selectSection } from "../../stores/navigation";
   import { toMessage } from "../../utils/errors";
   import Button from "../../components/ui/Button.svelte";
+  import DownloadProgressButton from "../downloads/DownloadProgressButton.svelte";
+  import ConfirmDialog from "../../components/ui/ConfirmDialog.svelte";
   import Icon from "../../components/ui/Icon.svelte";
-  import Dialog from "../../components/ui/Dialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import { describeDownloadStatus, downloadProgressPercent } from "../../services/downloads";
-  import ProgressBar from "../../components/ui/ProgressBar.svelte";
 
   let { gameId }: { gameId: string } = $props();
   let pending = $state(false);
@@ -32,21 +32,26 @@
 </script>
 
 {#if job !== undefined}
-  <button type="button" class="relative flex h-[60px] w-[240px] shrink-0 items-center justify-center gap-2 overflow-hidden rounded-xl bg-legio-download px-4 text-xl font-bold text-white hover:bg-legio-download-hover" onclick={() => selectSection("downloads")}>
-    <Icon name="download" size="h-6 w-6" />
-    {job.pauseReason === "game_running" ? t("GIOCO APERTO", $language) : describeDownloadStatus(job.status).toUpperCase()}
-    <ProgressBar variant="button" value={percent} label={t("Avanzamento aggiornamento", $language)} />
-  </button>
+  <DownloadProgressButton
+    label={job.pauseReason === "game_running" ? t("GIOCO APERTO", $language) : describeDownloadStatus(job.status).toUpperCase()}
+    value={percent}
+    progressLabel={t("Avanzamento aggiornamento", $language)}
+    onClick={() => selectSection("downloads")}
+  />
 {:else if update !== undefined}
-  <Button label={t("AGGIORNA", $language)} variant="download" class="h-[60px] w-[240px] shrink-0 rounded-xl px-4 text-xl font-bold" disabled={pending || running}
+  <Button label={t("AGGIORNA", $language)} variant="download" size="hero" class="w-60" disabled={pending || running}
     onClick={() => { if (!update.verified) confirming = true; else void queue(); }}>
-    <Icon name="download" size="h-6 w-6" />
+    <Icon name="download" size="size-6" />
   </Button>
 {/if}
 {#if error !== null}<ErrorBanner message={error} />{/if}
-<Dialog open={confirming} title={t("Aggiornamento non verificato", $language)} onClose={() => (confirming = false)}>
-  {#snippet children(dismiss)}
-    <p class="text-sm text-zinc-300 light:text-zinc-700">{update?.name}: {update?.installedVersion} → {update?.version}. {t("Confermi il download e l'installazione dalla source non verificata?", $language)}</p>
-    <div class="flex justify-end gap-2"><Button label={t("Annulla", $language)} variant="secondary" onClick={dismiss} /><Button label={t("Aggiorna comunque", $language)} variant="danger" disabled={pending || running} onClick={() => void queue(true)} /></div>
-  {/snippet}
-</Dialog>
+<ConfirmDialog
+  open={confirming}
+  title={t("Aggiornamento non verificato", $language)}
+  message="{update?.name}: {update?.installedVersion} → {update?.version}. {t("Confermi il download e l'installazione dalla source non verificata?", $language)}"
+  confirmLabel={t("Aggiorna comunque", $language)}
+  tone="danger"
+  confirmDisabled={pending || running}
+  onConfirm={() => void queue(true)}
+  onClose={() => (confirming = false)}
+/>

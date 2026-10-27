@@ -3,12 +3,12 @@
   import { onMount } from "svelte";
   import { startVisibleRefresh } from "../../stores/visible-refresh";
   import Button from "../../components/ui/Button.svelte";
-  import Dialog from "../../components/ui/Dialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Icon from "../../components/ui/Icon.svelte";
+  import Panel from "../../components/ui/Panel.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
   import { games } from "../../stores/games";
-  import { accountSwitchGame, confirmAccountSwitch, dismissAccountSwitch, launchError, launchStateByGame, launchStates } from "../../stores/launch";
+  import { launchError, launchStateByGame, launchStates } from "../../stores/launch";
   import { openGame, selectSection } from "../../stores/navigation";
   import { playtime } from "../../stores/playtime";
   import GameCard from "../library/GameCard.svelte";
@@ -42,7 +42,7 @@
       {:else if loading}
         <StateBlock status="loading" error={null} loadingMessage={t("Caricamento dell'ultima partita...", $language)} />
       {:else}
-        <section class="legio-glass flex min-h-0 flex-1 flex-col items-start justify-center gap-4 overflow-hidden rounded-2xl bg-zinc-900 p-8 light:bg-zinc-100">
+        <section class="legio-glass flex min-h-0 flex-1 flex-col items-start justify-center gap-4 overflow-hidden rounded-2xl p-8">
           <Icon name="play" size="size-10 text-legio-activity" />
           <h1 class="text-3xl font-semibold text-zinc-50 light:text-zinc-900">{t("La tua prossima partita ti aspetta", $language)}</h1>
           <p class="max-w-xl text-sm text-zinc-400 light:text-zinc-600">{t("Avvia un gioco dalla libreria. Qui troverai l'ultima partita e la tua attività di gioco.", $language)}</p>
@@ -57,11 +57,10 @@
     </div>
   </div>
 
-  <section class="legio-glass shrink-0 rounded-2xl bg-zinc-900 p-4 light:bg-zinc-100" aria-labelledby="recent-title">
-    <div class="mb-2.5 flex flex-wrap items-center justify-between gap-2.5">
-      <h2 id="recent-title" class="text-lg font-medium text-zinc-50 light:text-zinc-900">{t("Giocati di recente", $language)}</h2>
-      <Button label={t("Libreria", $language)} variant="secondary" onClick={() => selectSection('library')} />
-    </div>
+  <Panel title={t("Giocati di recente", $language)} class="shrink-0">
+    {#snippet actions()}
+      <Button label={t("Libreria", $language)} variant="secondary" size="sm" onClick={() => selectSection('library')} />
+    {/snippet}
     {#if recent.length > 1}
       <ul class="grid auto-rows-max grid-cols-2 gap-2.5 sm:grid-cols-3">
         {#each recent.slice(1, 4) as item (item.game.id)}
@@ -79,20 +78,10 @@
     {:else}
       <p class="py-4 text-sm text-zinc-400 light:text-zinc-600">{t("Gli altri giochi avviati di recente compariranno qui.", $language)}</p>
     {/if}
-  </section>
+  </Panel>
 </div>
 
 {#if settingsGame !== null}
   <GameSettingsDialog game={settingsGame} onClose={() => settingsGameId = null} onRemoved={() => settingsGameId = null} />
 {/if}
-{#if $accountSwitchGame !== null}
-  <Dialog open title={t("Cambio account Steam", $language)} onClose={dismissAccountSwitch}>
-  {#snippet children(dismiss)}
-    <p class="text-sm text-zinc-300 light:text-zinc-700">{t("Steam deve essere chiuso e riavviato per usare l'account salvato di ", $language)}{$accountSwitchGame.name}{t(". Procedere?", $language)}</p>
-    <div class="flex justify-end gap-2">
-      <Button label={t("Annulla", $language)} variant="secondary" onClick={dismiss} />
-      <Button label={t("Riavvia e avvia", $language)} onClick={() => void confirmAccountSwitch()} />
-    </div>
-    {/snippet}
-</Dialog>
-{/if}
+

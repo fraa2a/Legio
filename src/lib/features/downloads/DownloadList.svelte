@@ -11,6 +11,7 @@
   import Badge from "../../components/ui/Badge.svelte";
   import Button from "../../components/ui/Button.svelte";
   import Icon from "../../components/ui/Icon.svelte";
+  import IconButton from "../../components/ui/IconButton.svelte";
   import ProgressBar from "../../components/ui/ProgressBar.svelte";
   import { formatBytes } from "../../utils/format";
   import DownloadCover from "./DownloadCover.svelte";
@@ -116,25 +117,26 @@
         </span>
       {/if}
 
-      <DownloadCover steamAppId={job.steamAppId} name={job.name} class="aspect-[2/3] w-9 rounded-lg" />
+      <DownloadCover steamAppId={job.steamAppId} name={job.name} class="aspect-[2/3] w-9" rounded="lg" />
 
       <div class="min-w-0 flex-1 basis-44">
         <div class="flex flex-wrap items-center gap-2">
           <p class="min-w-0 truncate font-medium text-zinc-50 light:text-zinc-900">{job.name}</p>
           <Badge tone={statusTone(job.status)} title={statusBadge(job.status, $language)} />
         </div>
-        <p class="mt-0.5 truncate text-xs text-zinc-400 light:text-zinc-600">{t("\n          Versione ", $language)}{job.releaseVersion} · {formatBytes(job.sizeBytes)}{#if phase !== null} · {phase}{/if}
+        <p class="mt-0.5 truncate text-xs text-zinc-400 light:text-zinc-600">
+          {t("Versione {0}", $language, [job.releaseVersion])} · {formatBytes(job.sizeBytes)}{#if phase !== null} · {phase}{/if}
         </p>
         {#if job.downloadedBytes > 0}
           <ProgressBar
             value={progressOf(job)}
             tone={progressTone(job.status)}
-            label="{t("Avanzamento di ", $language)}{job.name}"
+            label={t("Avanzamento di {0}", $language, [job.name])}
             class="mt-2 h-1.5"
           />
         {/if}
         {#if job.error !== null}
-          <p class="mt-2 break-words text-xs text-red-300 light:text-red-700" role="alert">{job.error}</p>
+          <p class="mt-2 break-words text-xs text-legio-error" role="alert">{job.error}</p>
         {/if}
       </div>
 
@@ -143,7 +145,7 @@
           <Button
             label={t("Pausa", $language)}
             variant="secondary"
-            class="h-8! px-3! text-xs!"
+            size="sm"
             disabled={busyJob === job.id}
             onClick={() => onPause(job)}
           />
@@ -152,7 +154,7 @@
           <Button
             label={t("Riprendi", $language)}
             variant="secondary"
-            class="h-8! px-3! text-xs!"
+            size="sm"
             disabled={busyJob === job.id || job.pauseReason === "game_running"}
             onClick={() => onResume(job)}
           />
@@ -161,7 +163,7 @@
           <Button
             label={t("Riprova", $language)}
             variant="primary"
-            class="h-8! px-3! text-xs!"
+            size="sm"
             disabled={busyJob === job.id || job.pauseReason === "game_running"}
             onClick={() => onRetry(job)}
           />
@@ -170,7 +172,7 @@
           <Button
             label={t("Annulla", $language)}
             variant="danger"
-            class="h-8! px-3! text-xs!"
+            size="sm"
             disabled={busyJob === job.id}
             onClick={() => onCancel(job)}
           />
@@ -179,7 +181,7 @@
           <Button
             label={t("Rimuovi", $language)}
             variant="secondary"
-            class="h-8! px-3! text-xs!"
+            size="sm"
             disabled={busyJob === job.id}
             onClick={() => onRemove(job)}
           />
@@ -190,26 +192,24 @@
         <div
           class="ml-auto flex shrink-0 flex-col gap-0.5 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100"
         >
-          <button
-            type="button"
-            class="flex size-5 items-center justify-center rounded text-zinc-500 transition-colors duration-200 hover:bg-white/10 hover:text-zinc-200 disabled:opacity-30 disabled:hover:bg-transparent light:text-zinc-400 light:hover:bg-zinc-200 light:hover:text-zinc-800"
-            aria-label="{t("Sposta ", $language)}{job.name}{t(" in alto", $language)}"
+          <IconButton
+            size="xs"
+            label={t("Sposta {0} in alto", $language, [job.name])}
             title={t("Sposta in alto", $language)}
             disabled={index === 0 || busyJob !== null}
-            onclick={() => move(index, index - 1)}
+            onClick={() => move(index, index - 1)}
           >
-            <Icon name="chevron-down" size="size-3.5 -rotate-90" />
-          </button>
-          <button
-            type="button"
-            class="flex size-5 items-center justify-center rounded text-zinc-500 transition-colors duration-200 hover:bg-white/10 hover:text-zinc-200 disabled:opacity-30 disabled:hover:bg-transparent light:text-zinc-400 light:hover:bg-zinc-200 light:hover:text-zinc-800"
-            aria-label="{t("Sposta ", $language)}{job.name}{t(" in basso", $language)}"
+            <Icon name="chevron-down" size="size-3.5 rotate-180" />
+          </IconButton>
+          <IconButton
+            size="xs"
+            label={t("Sposta {0} in basso", $language, [job.name])}
             title={t("Sposta in basso", $language)}
             disabled={index === jobs.length - 1 || busyJob !== null}
-            onclick={() => move(index, index + 1)}
+            onClick={() => move(index, index + 1)}
           >
             <Icon name="chevron-down" size="size-3.5" />
-          </button>
+          </IconButton>
         </div>
       {/if}
     </li>

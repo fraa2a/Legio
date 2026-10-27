@@ -12,6 +12,7 @@
   import Badge from "../../components/ui/Badge.svelte";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
+  import Spinner from "../../components/ui/Spinner.svelte";
   import TextField from "../../components/ui/TextField.svelte";
 
   let {
@@ -88,7 +89,7 @@
     <div
       class="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-sky-500/10 p-3 text-sm text-sky-200 light:text-sky-900"
     >
-      <span class="min-w-0 break-all">{t("Eseguibile scelto: ", $language)}{pickedPath}</span>
+      <span class="min-w-0 break-all">{t("Eseguibile scelto: {0}", $language, [pickedPath])}</span>
       <Button
         label={t("Annulla scelta", $language)}
         variant="secondary"
@@ -100,10 +101,7 @@
 
   {#if $manualImport.status === "loading"}
     <p class="flex items-center gap-3 text-sm text-zinc-300 light:text-zinc-700" role="status">
-      <span
-        class="size-4 shrink-0 animate-spin rounded-full border-2 border-zinc-400 border-t-transparent"
-        aria-hidden="true"
-      ></span>{t("\n      Scansione degli eseguibili in corso...\n    ", $language)}</p>
+      <Spinner />{t("Scansione degli eseguibili in corso...", $language)}</p>
   {/if}
 
   {#if $manualImport.status === "error" && $manualImport.error !== null}
@@ -111,12 +109,12 @@
   {/if}
 
   {#if $manualImport.status === "empty"}
-    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("\n      Nessun eseguibile trovato in questa cartella.\n    ", $language)}</p>
+    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Nessun eseguibile trovato in questa cartella.", $language)}</p>
   {/if}
 
   {#if $manualImport.candidates.length > 0}
     {#if $manualImport.suggestedPath === null}
-      <p class="text-sm text-amber-300 light:text-amber-800">{t("\n        La scansione non ha un candidato chiaro: scegli l'eseguibile da usare.\n      ", $language)}</p>
+      <p class="text-sm text-legio-warning">{t("La scansione non ha un candidato chiaro: scegli l'eseguibile da usare.", $language)}</p>
     {/if}
     <fieldset class="flex flex-col gap-2" {disabled}>
       <legend class="sr-only">{t("Candidati trovati", $language)}</legend>

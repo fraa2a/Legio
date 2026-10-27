@@ -33,6 +33,7 @@
     "test:details-cache": "node --conditions=browser --test scripts/test_steam_details_cache.mjs"
   },
   "dependencies": {
+    "@lucide/svelte": "1.54.0",
     "@tauri-apps/api": "^2.12.1",
     "@tauri-apps/plugin-dialog": "^2.8.3",
     "@tauri-apps/plugin-process": "^2.4.0",

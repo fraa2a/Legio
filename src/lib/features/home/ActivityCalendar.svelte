@@ -4,6 +4,7 @@
   import { startVisibleRefresh } from "../../stores/visible-refresh";
   import Button from "../../components/ui/Button.svelte";
   import Icon from "../../components/ui/Icon.svelte";
+  import Panel from "../../components/ui/Panel.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
   import { getPlaytimeActivity } from "../../services/playtime";
   import { createResource } from "../../stores/resource";
@@ -29,29 +30,25 @@
   }, 30000));
 </script>
 
-<section class="legio-glass flex min-h-0 flex-col rounded-2xl bg-zinc-900 p-4 light:bg-zinc-100" aria-labelledby="activity-title">
-  <div class="mb-3 flex shrink-0 items-center justify-between gap-3">
-    <div>
-      <h2 id="activity-title" class="text-lg font-medium text-zinc-50 light:text-zinc-900">{t("Attività di gioco", $language)}</h2>
-      <p class="mt-1 text-sm capitalize text-zinc-400 light:text-zinc-600">{monthLabel}</p>
-    </div>
+<Panel title={t("Attività di gioco", $language)} description={monthLabel.charAt(0).toLocaleUpperCase() + monthLabel.slice(1)} class="min-h-0">
+  {#snippet actions()}
     <div class="flex gap-1">
-      <Button label={t("Mese precedente", $language)} variant="secondary" circle onClick={() => monthOffset--}><Icon name="previous" /></Button>
-      <Button label={t("Mese successivo", $language)} variant="secondary" circle disabled={monthOffset >= 0} onClick={() => monthOffset++}><Icon name="next" /></Button>
+      <Button label={t("Mese precedente", $language)} variant="secondary" size="sm" circle onClick={() => monthOffset--}><Icon name="previous" /></Button>
+      <Button label={t("Mese successivo", $language)} variant="secondary" size="sm" circle disabled={monthOffset >= 0} onClick={() => monthOffset++}><Icon name="next" /></Button>
     </div>
-  </div>
+  {/snippet}
 
   <StateBlock status={$activity.status} hasData={$activity.data !== null} error={$activity.error} onRetry={() => void activity.load()} loadingMessage={t("Caricamento attività...", $language)} />
 
   {#if $activity.data !== null}
-    <div class="mb-3 flex shrink-0 items-center gap-3 text-xs text-zinc-400 light:text-zinc-600" role="img" aria-label={t("Intensità proporzionale alle ore giocate, da 0 a 8 ore o più", $language)}>
+    <div class="flex shrink-0 items-center gap-3 text-xs text-zinc-400 light:text-zinc-600" role="img" aria-label={t("Intensità proporzionale alle ore giocate, da 0 a 8 ore o più", $language)}>
       <span>0 h</span>
       <span class="activity-scale block h-2 flex-1 rounded-full" aria-hidden="true"></span>
       <span>{t("8 h o più", $language)}</span>
     </div>
     <div class="grid shrink-0 grid-cols-7 gap-1.5" aria-hidden="true">
       {#each Array.from({ length: 7 }, (_, day) => new Date(2026, 0, 5 + day).toLocaleDateString(undefined, { weekday: "short" })) as weekday (weekday)}
-        <span class="pb-1 text-center text-xs text-zinc-500">{weekday}</span>
+        <span class="pb-1 text-center text-xs text-zinc-500 light:text-zinc-600">{weekday}</span>
       {/each}
     </div>
     <div class="grid shrink-0 grid-cols-7 gap-1.5" role="group" aria-label={t("Calendario di {0}", $language, [monthLabel])}>
@@ -62,7 +59,7 @@
           {@const milliseconds = $activity.data[day - 1] ?? 0}
           {@const future = calendar.boundaries[day - 1] > now.getTime()}
           {@const today = new Date(calendar.boundaries[day - 1]).toDateString() === now.toDateString()}
-          {@const label = `${day} ${monthLabel}: ${future ? t("giorno futuro", $language) : formatPlaytime(milliseconds) + t(" giocati", $language)}`}
+          {@const label = `${day} ${monthLabel}: ${future ? t("giorno futuro", $language) : t("{0} giocati", $language, [formatPlaytime(milliseconds)])}`}
           <span
             class="activity-cell flex aspect-square items-center justify-center rounded-lg text-xs font-medium tabular-nums text-zinc-200 light:text-zinc-800"
             class:future
@@ -77,7 +74,7 @@
       {/each}
     </div>
   {/if}
-</section>
+</Panel>
 
 <style>
   .activity-cell {

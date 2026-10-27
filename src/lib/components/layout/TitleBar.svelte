@@ -18,7 +18,7 @@
     onWindowResized,
     toggleMaximizeWindow,
   } from "../../services/window";
-  import WindowControlButton from "../ui/WindowControlButton.svelte";
+  import IconButton from "../ui/IconButton.svelte";
   import Icon from "../ui/Icon.svelte";
   import { addGameDialogOpen, libraryPortrait, libraryQuery, storeQuery } from "../../stores/library-ui";
   import { runCatalogSearch } from "../../stores/catalog";
@@ -123,33 +123,26 @@
 <div class="my-1.5 grid shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2" data-tauri-drag-region>
   <div class="col-start-1 flex items-center">
     {#if libraryList}
-      <div class="legio-glass flex h-11 items-center rounded-xl bg-zinc-900 p-1 light:bg-zinc-50">
-        <button
-          type="button"
-          aria-label={t("Aggiungi gioco", $language)}
-          title={t("Aggiungi gioco", $language)}
-          class="flex size-9 items-center justify-center rounded-xl text-zinc-300 transition-colors hover:bg-white/10 hover:text-white light:text-zinc-700 light:hover:bg-zinc-900/10 light:hover:text-zinc-900"
-          onclick={() => addGameDialogOpen.set(true)}
-        >
+      <div class="legio-glass flex h-11 items-center rounded-xl p-1">
+        <IconButton size="lg" label={t("Aggiungi gioco", $language)} title={t("Aggiungi gioco", $language)} onClick={() => addGameDialogOpen.set(true)}>
           <Icon name="plus" />
-        </button>
-        <button
-          type="button"
-          aria-label={t("Copertine verticali", $language)}
-          aria-pressed={$libraryPortrait}
+        </IconButton>
+        <IconButton
+          size="lg"
+          label={t("Copertine verticali", $language)}
+          pressed={$libraryPortrait}
           title={$libraryPortrait ? t("Mostra copertine orizzontali", $language) : t("Mostra copertine verticali", $language)}
-          class="flex size-9 items-center justify-center rounded-xl transition-colors hover:bg-white/10 hover:text-white light:hover:bg-zinc-900/10 light:hover:text-zinc-900 {$libraryPortrait ? 'bg-white/10 text-white light:bg-zinc-900/10 light:text-zinc-900' : 'text-zinc-300 light:text-zinc-700'}"
           disabled={savingLibraryView}
-          onclick={toggleLibraryView}
+          onClick={toggleLibraryView}
         >
           <Icon name={$libraryPortrait ? "landscape" : "portrait"} />
-        </button>
+        </IconButton>
       </div>
     {:else if detail !== null}
-      <div class="legio-glass flex h-11 items-center rounded-xl bg-zinc-900 p-1 light:bg-zinc-50">
+      <div class="legio-glass flex h-11 items-center rounded-xl p-1">
         <button
           type="button"
-          class="flex h-9 items-center gap-1.5 rounded-xl px-3 text-sm text-zinc-400 transition-colors duration-200 hover:bg-white/10 hover:text-zinc-100 light:hover:bg-zinc-900/10 light:hover:text-zinc-900"
+          class="flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm text-zinc-400 transition-colors duration-200 hover:bg-white/10 hover:text-zinc-100 light:text-zinc-600 light:hover:bg-zinc-900/10 light:hover:text-zinc-900"
           onclick={navigateBack}
         >
           <Icon name="back" />
@@ -159,7 +152,7 @@
     {/if}
   </div>
   {#if searchList}
-    <div class="legio-glass col-start-2 flex h-11 w-full min-w-0 max-w-lg justify-self-center items-center gap-2 rounded-xl bg-zinc-900 px-3 light:bg-zinc-50">
+    <div class="legio-glass col-start-2 flex h-11 w-full min-w-0 max-w-lg justify-self-center items-center gap-2 rounded-xl px-3">
       <Icon name="search" size="h-4 w-4 shrink-0 text-zinc-500" />
       <input
         bind:this={searchInput}
@@ -171,19 +164,17 @@
         class="h-full min-w-0 flex-1 bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-500 light:text-zinc-900"
       />
       {#if storeList}
-        <button
-          type="button"
-          class="flex size-8 shrink-0 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100 light:text-zinc-600 light:hover:bg-zinc-900/10 light:hover:text-zinc-900"
-          aria-label={t("Aggiorna store", $language)}
+        <IconButton
+          label={t("Aggiorna store", $language)}
           title={t("Aggiorna store", $language)}
-          onclick={() => { void refreshSource(); void runCatalogSearch($storeQuery); }}
+          onClick={() => { void refreshSource(); void runCatalogSearch($storeQuery); }}
         >
-          <Icon name="reload" size="h-4 w-4" />
-        </button>
+          <Icon name="reload" size="size-4" />
+        </IconButton>
       {/if}
     </div>
   {:else}
-    <div class="legio-glass col-start-2 flex h-11 min-w-0 max-w-full items-center justify-self-center rounded-xl bg-zinc-900 px-4 light:bg-zinc-50">
+    <div class="legio-glass col-start-2 flex h-11 min-w-0 max-w-full items-center justify-self-center rounded-xl px-4">
       <h1
         bind:this={heading}
         data-page-heading
@@ -195,22 +186,18 @@
     </div>
   {/if}
   <div class="col-start-3 flex items-center justify-end">
-    <div class="legio-glass flex h-11 items-center gap-1 rounded-xl bg-zinc-900 p-1 light:bg-zinc-50">
-      <WindowControlButton label={t("Riduci a icona", $language)} onClick={handleMinimize}>
+    <div class="legio-glass flex h-11 items-center gap-1 rounded-xl p-1">
+      <IconButton size="lg" label={t("Riduci a icona", $language)} onClick={handleMinimize}>
         <Icon name="minimize" />
-      </WindowControlButton>
+      </IconButton>
       {#if showMaximize}
-        <WindowControlButton label={maximized ? t("Ripristina finestra", $language) : t("Massimizza", $language)} onClick={handleToggleMaximize}>
-          {#if maximized}
-            <Icon name="restore" />
-          {:else}
-            <Icon name="maximize" />
-          {/if}
-        </WindowControlButton>
+        <IconButton size="lg" label={maximized ? t("Ripristina finestra", $language) : t("Massimizza", $language)} onClick={handleToggleMaximize}>
+          <Icon name={maximized ? "restore" : "maximize"} />
+        </IconButton>
       {/if}
-      <WindowControlButton label={t("Chiudi", $language)} variant="danger" onClick={handleClose}>
+      <IconButton size="lg" variant="danger" label={t("Chiudi", $language)} onClick={handleClose}>
         <Icon name="close" />
-      </WindowControlButton>
+      </IconButton>
     </div>
   </div>
 </div>

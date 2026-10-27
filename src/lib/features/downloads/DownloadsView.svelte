@@ -4,19 +4,12 @@
     type DownloadJob,
   } from "../../services/downloads";
   import Button from "../../components/ui/Button.svelte";
-  import Dialog from "../../components/ui/Dialog.svelte";
+  import ConfirmDialog from "../../components/ui/ConfirmDialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
   import { games } from "../../stores/games";
-  import {
-    accountSwitchGame,
-    confirmAccountSwitch,
-    dismissAccountSwitch,
-    launchStateByGame,
-    pendingGameId,
-    playGame,
-  } from "../../stores/launch";
+  import { launchStateByGame, pendingGameId, playGame } from "../../stores/launch";
   import { selectSection } from "../../stores/navigation";
   import {
     bandwidthLimit,
@@ -183,8 +176,9 @@
         {#if sections.queue.length > 0}
           <Panel title={t("Coda download", $language)}>
             {#snippet actions()}
-              <span class="text-xs text-zinc-500 light:text-zinc-500">
-                {sections.queue.length}{t(" in attesa\n              ", $language)}</span>
+              <span class="text-xs text-zinc-500 light:text-zinc-600">
+                {t("{0} in attesa", $language, [sections.queue.length])}
+              </span>
             {/snippet}
             <DownloadList
               jobs={sections.queue}
@@ -207,9 +201,9 @@
             {#snippet actions()}
               {#if $finishedDownloadCount > 0}
                 <Button
-                  label="{t("Rimuovi completati (", $language)}{$finishedDownloadCount})"
+                  label={t("Rimuovi completati ({0})", $language, [$finishedDownloadCount])}
                   variant="secondary"
-                  class="h-8! px-3! text-xs!"
+                  size="sm"
                   disabled={clearingFinished || pendingJob !== null}
                   onClick={() => void clearFinished()}
                 />
@@ -248,26 +242,17 @@
   />
 {/if}
 
-<Dialog open={removeTarget !== null} title={t("Rimuovi dalla coda", $language)} onClose={() => (removeTarget = null)}>
-  {#snippet children(dismiss)}
-  <p class="text-sm text-zinc-300 light:text-zinc-700">{t("\n    Rimuovere ", $language)}{removeTarget?.name}{t(" dalla coda?\n  ", $language)}</p>
-  <div class="flex justify-end gap-2">
-    <Button label={t("Indietro", $language)} variant="secondary" onClick={dismiss} />
-    <Button label={t("Rimuovi", $language)} variant="danger" onClick={() => void confirmRemove()} />
-  </div>
-  {/snippet}
-</Dialog>
+<ConfirmDialog
+  open={removeTarget !== null}
+  title={t("Rimuovi dalla coda", $language)}
+  message={t("Rimuovere {0} dalla coda?", $language, [removeTarget?.name ?? ""])}
+  cancelLabel={t("Indietro", $language)}
+  confirmLabel={t("Rimuovi", $language)}
+  tone="danger"
+  onConfirm={() => void confirmRemove()}
+  onClose={() => (removeTarget = null)}
+/>
 
 
 
-{#if $accountSwitchGame !== null}
-  <Dialog open title={t("Cambio account Steam", $language)} onClose={dismissAccountSwitch}>
-  {#snippet children(dismiss)}
-    <p class="text-sm text-zinc-300 light:text-zinc-700">{t("\n      Steam deve essere chiuso e riavviato per usare l'account salvato di ", $language)}{$accountSwitchGame.name}{t(". Procedere?\n    ", $language)}</p>
-    <div class="flex justify-end gap-2">
-      <Button label={t("Annulla", $language)} variant="secondary" onClick={dismiss} />
-      <Button label={t("Riavvia e avvia", $language)} onClick={() => void confirmAccountSwitch()} />
-    </div>
-    {/snippet}
-</Dialog>
-{/if}
+

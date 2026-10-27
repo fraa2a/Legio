@@ -50,7 +50,7 @@
 
 <svelte:window onpointerdown={outside} />
 
-<div bind:this={root} class="relative z-20 h-[60px] w-[260px] shrink-0">
+<div bind:this={root} class="relative z-20 h-15 w-65 shrink-0">
   <div class="absolute bottom-0 left-0 flex w-full flex-col-reverse overflow-hidden rounded-xl border border-white/10 bg-zinc-950/60 backdrop-blur-md light:border-zinc-900/10 light:bg-zinc-100/70 {open ? 'shadow-xl' : 'hover:bg-zinc-950/75 light:hover:bg-zinc-200'}">
     <button
       type="button"
@@ -85,7 +85,7 @@
             type="button"
             aria-current={option.id === selectedId ? "true" : undefined}
             onkeydown={handleKeydown}
-            class="flex h-[60px] w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-white/10 focus-visible:bg-white/10 light:hover:bg-zinc-900/10 light:focus-visible:bg-zinc-900/10"
+            class="flex h-15 w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-white/10 focus-visible:bg-white/10 light:hover:bg-zinc-900/10 light:focus-visible:bg-zinc-900/10"
             onclick={() => choose(option.id)}
           >
             {#if steamAppId !== null}
@@ -106,7 +106,7 @@
           </button>
         {/each}
         {#if onAdd}
-          <button type="button" class="flex h-[60px] w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-200 hover:bg-white/10 focus-visible:bg-white/10 light:text-zinc-800 light:hover:bg-zinc-900/10" onclick={() => { open = false; onAdd(); }}>
+          <button type="button" class="flex h-15 w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-200 hover:bg-white/10 focus-visible:bg-white/10 light:text-zinc-800 light:hover:bg-zinc-900/10" onclick={() => { open = false; onAdd(); }}>
             <Icon name="plus" size="size-5" />{t("Aggiungi un'altra versione", $language)}
           </button>
         {/if}

@@ -102,7 +102,7 @@
           <Panel title={t("Collegamento", $language)}>
             <Button label={shortcutPending ? t("Creazione...", $language) : t("Aggiungi collegamento desktop", $language)}
               disabled={shortcutPending} onClick={() => void addDesktopShortcut()} />
-            {#if shortcutPath}<p class="mt-2 break-all text-sm text-legio-success" role="status">{t("Collegamento creato: ", $language)}{shortcutPath}</p>{/if}
+            {#if shortcutPath}<p class="mt-2 break-all text-sm text-legio-success" role="status">{t("Collegamento creato: {0}", $language, [shortcutPath])}</p>{/if}
             {#if shortcutWarning}<ErrorBanner message={shortcutWarning} tone="warning" />{/if}
             {#if shortcutError}<ErrorBanner message={shortcutError} />{/if}
           </Panel>
