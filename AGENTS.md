@@ -2,98 +2,69 @@
 
 ## Project
 
-- Rust owns business logic, filesystem, processes, downloads, installation and system integration; Svelte owns presentation, interaction and frontend state.
-- Keep Tauri commands thin and put real logic in focused Rust modules/services.
-- Follow YAGNI: prefer simple, explicit code; do not add abstractions, extension points, architectural layers or dependencies without a current concrete need.
-- Reuse existing conventions and primitives; avoid duplication, but do not abstract merely to remove superficial repetition.
-- Make the smallest coherent change required and do not mix unrelated refactors with feature or bug-fix work.
-- Never use em dashes or en dashes in any context, including source text, comments, documentation, UI copy, commit messages and generated content; use standard punctuation or hyphens instead.
+- Rust owns business logic, filesystem, processes, downloads, installation and system integration. Svelte owns presentation, interaction and frontend state.
+- Keep Tauri commands thin; put logic in focused Rust modules or services.
+- Reuse existing conventions and primitives. Do not add abstractions, layers, dependencies or options without a current need.
+- Make the smallest coherent change. Do not mix refactors with feature or bug-fix work.
+- Never use em dashes or en dashes, in code, comments, docs, UI copy or commit messages. Use standard punctuation or hyphens.
+
+## Commands
+
+- Frontend: `npm run check`, `npm run lint`, and the relevant `npm run test:*` script.
+- Rust: `cargo test` in `src-tauri`.
+- Run the checks relevant to your change. Do not call work complete while they fail.
 
 ## Git
 
-- `main` must remain buildable and releasable; normal development happens on short-lived `feat/*`, `fix/*`, `refactor/*` or `chore/*` branches.
-- One branch and pull request should represent one coherent change; keep PRs focused and reasonably small.
-- Write branch names, commit messages, pull request titles and descriptions, release notes, and other Git metadata in English.
-- Merge only after required checks pass; update from `main` when needed, squash merge, then delete the branch.
-- Use Conventional Commits such as `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`, `test:`, `build:` and `perf:`
+- `main` must stay buildable and releasable. Work on short-lived `feat/`, `fix/`, `refactor/`, `chore/` or `docs/` branches.
+- One branch and pull request per coherent change. Keep them small.
+- Write branch names, commit messages, PR titles and PR descriptions in English.
+- Use Conventional Commits: `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`, `test:`, `build:`, `perf:`.
+- Merge only after required checks pass. Squash merge, then delete the branch.
 
 ## Versioning
 
-- `src-tauri/Cargo.toml` is the single source of truth for the application version.
-- Follow Semantic Versioning `MAJOR.MINOR.PATCH`, with `-alpha.N`, `-beta.N` or `-rc.N` when needed.
-- Do not bump the version during normal work; a version increase explicitly requests a release.
-- Merging a PR with a higher valid version triggers the release pipeline, which creates the matching `vMAJOR.MINOR.PATCH` tag.
-- Never decrease, reuse or manually tag a released version except when recovering from a failed release process.
+- `src-tauri/Cargo.toml` is the single source of truth for the version.
+- Do not change the version during normal work; a version change requests a release.
+- Never reuse, decrease or manually tag a released version, except to recover a failed release.
 
 ## Rust
 
-- Prefer idiomatic ownership and borrowing; never clone merely to silence the borrow checker without understanding the ownership problem.
-- Use `Result` and `Option` idiomatically; return meaningful errors instead of panicking, and avoid `unwrap()` or `expect()` in production paths unless failure is impossible by construction.
-- Prefer strong types and enums when they prevent invalid states; minimize global/shared mutable state and unnecessary public APIs.
-- Keep functions and modules focused; keep async boundaries explicit and never block an async executor with expensive synchronous work.
-- Validate external input at boundaries; treat paths, downloaded data and process output as untrusted.
-- Avoid `unsafe`; when unavoidable, keep its scope minimal and document the concrete safety constraint.
-- Skill rust-best-practices for rust's best development pratices (do not overuse)
+- Use `Result` and `Option` and return meaningful errors. Avoid `unwrap()` and `expect()` in production paths unless failure is impossible.
+- Prefer strong types and enums that make invalid states unrepresentable. Minimize shared mutable state and public APIs.
+- Keep async boundaries explicit. Never run expensive synchronous work on an async executor.
+- Avoid `unsafe`. If unavoidable, keep its scope minimal and document the safety constraint.
 
 ## Svelte and TypeScript
 
-- Keep business logic out of `.svelte` files; components should focus on presentation and interaction, with reusable logic/state moved into appropriate modules.
-- Keep reusable UI primitives in `src/lib/components/ui` and feature-specific components with their feature.
-- Derive state instead of duplicating it and avoid unnecessary reactive state.
-- Keep Tauri `invoke()` calls behind dedicated frontend service modules rather than scattering them through components.
+- Keep business logic out of `.svelte` files; move reusable logic and state into modules.
+- Keep Tauri `invoke()` calls in dedicated frontend service modules, not in components.
+- Derive state instead of duplicating it. Avoid unnecessary reactive state.
+- Reusable UI primitives go in `src/lib/components/ui`; feature components stay with their feature.
+- Use Tailwind and existing design tokens before arbitrary values. Keep equivalent controls consistent. Respect reduced-motion preferences.
 
-## UI
+## Naming and Comments
 
-- Use Tailwind CSS and existing design tokens, spacing, typography and UI primitives before introducing arbitrary values.
-- Turn genuinely repeated UI patterns into reusable components, but do not abstract one-off visual details.
-- Keep equivalent controls visually and behaviorally consistent.
-- Avoid unnecessary animation and respect reduced-motion preferences where relevant.
-
-## Naming
-
-- Keep function and test names short, concrete and clear in their module context; do not turn names into sentences or enumerate every fixture detail.
-- Name functions for the operation they actually perform. Reserve predicate-style names such as `is_*`, `has_*` and `can_*` for functions returning a boolean, not tests that assert behavior.
-- Explain non-obvious platform constraints, exceptions and relevant fixture details in a short local comment instead of appending them to the name. Comments do not replace a clear name.
-
-Example: prefer `manual_steam_launch` over `manual_steam_launch_respects_platform_support_without_a_catalog_app_id`, with a local comment:
-
-```rust
-// Saving the Steam launch option is supported only on Linux, even without an App ID.
-```
-
-## Comments
-
-- Comments are short factual notes, not explanations of how or why code supposedly works.
-- Comment only non-obvious constraints, caveats, external quirks, decisions or temporary limitations; never narrate obvious code.
-- Prefer clearer code over explanatory comments and never use comments as evidence that code is correct.
-- Keep comments local and verifiable; update or remove stale comments when changing related code.
+- Name functions for the operation they perform. Reserve `is_*`, `has_*` and `can_*` for boolean-returning functions.
+- Keep test names short. Put non-obvious fixture details in a local comment, not in the name.
+- Comments are short factual notes on non-obvious constraints. Do not narrate code. Update or remove comments when the related code changes.
 - TODOs must describe a concrete remaining task.
 
-## Errors and Logging
+## Errors, Logging and Security
 
-- Never silently ignore errors; expose useful user-facing messages while preserving technical details needed for debugging.
-- Log meaningful state changes and failures, not routine function calls or hot-path noise.
-- Never log passwords, tokens, secrets or sensitive user data.
-- Logging never replaces proper error handling.
+- Never silently ignore errors. Show useful user-facing messages and keep technical details for debugging.
+- Log state changes and failures, not routine calls. Never log secrets, tokens or personal data.
+- Validate input at boundaries. Treat paths, downloads, remote manifests and process output as untrusted.
+- Verify downloads with hashes or signatures when available. Grant only the Tauri capabilities and permissions required.
+- Never commit secrets. Never build shell commands from untrusted strings; pass structured arguments.
 
 ## Dependencies and Structure
 
-- Add maintained dependencies only when they provide clear value and existing project code or dependencies do not already solve the problem; avoid dependencies for trivial helpers and remove unused ones.
-- Put code where its responsibility belongs; avoid catch-all files such as oversized `utils.ts` or `helpers.rs`.
-- Prefer domain-specific modules, small public APIs and no circular frontend dependencies.
-- Do not create empty architecture for future needs.
-- Keep generated files out of source control unless explicitly required.
-
-## Security
-
-- Never commit secrets, tokens, credentials or private keys.
-- Treat remote manifests, API responses, downloaded files and frontend-provided paths as untrusted and validate them.
-- Verify downloads with hashes or signatures when available.
-- Grant only required Tauri capabilities and native permissions.
-- Never construct shell commands from untrusted strings; prefer structured process arguments.
+- Add a dependency only when it gives clear value and the project does not already solve the problem. Remove unused ones.
+- Put code where its responsibility belongs. Avoid catch-all files such as `utils.ts` or `helpers.rs`.
+- Do not commit generated files unless explicitly required.
 
 ## Changes and Tests
 
-- Understand existing code before changing it and preserve current behavior unless the task explicitly changes it.
-- Do not leave dead code, commented-out code, temporary debug output or unused dependencies.
-- Do not consider work complete while relevant checks are failing.
+- Understand existing code before changing it. Preserve current behavior unless the task changes it.
+- Leave no dead code, commented-out code, debug output or unused dependencies.
