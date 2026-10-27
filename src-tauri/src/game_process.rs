@@ -889,7 +889,7 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn runner_process_requires_launch_token_and_game_executable_name() {
+    fn runner_process_matches_game_name_and_rejects_other_named_helpers() {
         use std::process::Command;
         use std::thread;
         use std::time::{Duration, Instant};

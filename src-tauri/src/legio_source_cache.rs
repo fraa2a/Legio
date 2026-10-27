@@ -648,7 +648,16 @@ mod tests {
         ));
         let loaded = snapshot(&database, 101).unwrap();
         assert_eq!(loaded.sources.len(), 2);
-        assert_eq!(loaded.manifest.unwrap().verified.len(), 2);
+        let mut app_ids = loaded
+            .manifest
+            .as_ref()
+            .unwrap()
+            .verified
+            .iter()
+            .map(|entry| entry.steam_app_id)
+            .collect::<Vec<_>>();
+        app_ids.sort_unstable();
+        assert_eq!(app_ids, [400, 402]);
         remove(&database, &loaded.sources[0].id).unwrap();
         drop(database);
         let reopened = Database::open(&directory).unwrap();
@@ -787,7 +796,6 @@ mod tests {
             Some(&id),
         )
         .unwrap();
-        assert!(!job.id().is_empty());
         let sizes = database
             .with_connection(|connection| {
                 connection
@@ -834,7 +842,24 @@ mod tests {
             Some(123),
         )
         .unwrap();
-        assert!(!job.id().is_empty());
+        let stored = database
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT url, size_bytes, published_size_bytes FROM downloads WHERE id = ?1",
+                        [job.id()],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, i64>(1)?,
+                                row.get::<_, Option<i64>>(2)?,
+                            ))
+                        },
+                    )
+                    .map_err(db_error)
+            })
+            .unwrap();
+        assert_eq!(stored, ("https://example.test/other.zip".into(), 123, None));
         assert!(
             crate::download_queue::enqueue_prepared(
                 &database,

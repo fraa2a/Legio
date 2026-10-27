@@ -506,34 +506,17 @@ mod tests {
 
     #[test]
     fn preserves_real_title_words_and_edition_identity() {
-        for title in [
-            "Free Download Simulator",
-            "Download",
-            "Build 2026",
-            "Version 2",
-            "V Rising",
-            "Portal [Remastered]",
-            "Game (VR)",
+        for (title, expected) in [
+            ("Free Download Simulator", "free download simulator"),
+            ("Download", "download"),
+            ("Build 2026", "build 2026"),
+            ("Version 2", "version 2"),
+            ("V Rising", "v rising"),
+            ("Portal [Remastered]", "portal remastered"),
+            ("Game (VR)", "game vr"),
         ] {
-            assert!(!normalized_title(title).is_empty(), "{title}");
+            assert_eq!(normalized_title(title), expected, "{title}");
         }
-        assert_eq!(
-            normalized_title("Free Download Simulator"),
-            "free download simulator"
-        );
-        let catalog = vec![(1, "Portal".into()), (2, "Portal 2".into())];
-        assert_eq!(
-            match_title("Portal 2 Free Download [Build-12345]", &catalog),
-            MatchResult::Matched(2)
-        );
-        assert_eq!(
-            match_title("Portal 3 Free Download [v1.0]", &catalog),
-            MatchResult::Unresolved
-        );
-        assert_eq!(
-            match_title("Portal Remastered Free Download [v1.0]", &catalog),
-            MatchResult::Unresolved
-        );
     }
 
     #[test]

@@ -683,7 +683,15 @@ mod tests {
             directory.join("Game/bin/other.exe").to_str().unwrap(),
         )
         .unwrap();
+        let expected_root = dunce::canonicalize(directory.join("Game")).unwrap();
+        let expected_executable =
+            dunce::canonicalize(directory.join("Game/bin/other.exe")).unwrap();
+        assert_eq!(game.installation_root.as_deref(), expected_root.to_str());
         assert_eq!(selected.installation_root, game.installation_root);
+        assert_eq!(
+            selected.executable_path.as_deref(),
+            expected_executable.to_str()
+        );
         drop(state);
         fs::remove_dir_all(directory).unwrap();
     }
@@ -752,6 +760,10 @@ mod tests {
         fs::write(root.join("Setup.exe"), []).unwrap();
         let scan = scan_directory(root.to_str().unwrap(), None).unwrap();
         assert_eq!(scan.candidates.len(), 1);
+        assert_eq!(
+            Path::new(&scan.candidates[0].path),
+            dunce::canonicalize(root.join("Game.exe")).unwrap()
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -778,6 +790,8 @@ mod tests {
         .unwrap();
         drop(database);
         let reopened = Database::open(&root).unwrap();
+        let expected = dunce::canonicalize(&executable).unwrap();
+        assert_eq!(game.executable_path.as_deref(), expected.to_str());
         assert_eq!(reopened.games().unwrap(), vec![game]);
         drop(reopened);
         fs::remove_dir_all(root).unwrap();

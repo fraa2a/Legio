@@ -201,7 +201,12 @@ mod tests {
         );
         let pending = links.take().unwrap();
         assert_eq!(pending.requests.len(), 2);
-        assert!(pending.requests[0].url.is_some());
+        assert_eq!(
+            pending.requests[0].url.as_deref(),
+            Some("https://example.invalid/a.json")
+        );
+        assert!(pending.requests[0].error.is_none());
+        assert!(pending.requests[1].url.is_none());
         assert!(pending.requests[1].error.is_some());
         assert!(links.take().unwrap().requests.is_empty());
     }

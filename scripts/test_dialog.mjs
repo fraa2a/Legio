@@ -126,11 +126,16 @@ test("closing waits for the content fade and hides the dialog before leaving the
     advanceFrame();
     const dialog = document.querySelector("dialog");
     const content = dialog.querySelector(".legio-dialog-content");
-    [...dialog.querySelectorAll("button")].find(button => button.textContent === "Close").click();
+    const cancel = new Event("cancel", { cancelable: true });
+    dialog.dispatchEvent(cancel);
+    assert.equal(cancel.defaultPrevented, true);
     flushSync();
-    finishOpacityTransition(content.querySelector("button"));
-    assert.equal(dialog.open, true, "nested transitions must not finish the dialog exit");
-    assert.equal(closed, 0);
+    const surface = dialog.querySelector(".legio-dialog-surface");
+    for (const other of [content.querySelector("button"), surface]) {
+      finishOpacityTransition(other);
+      assert.equal(dialog.open, true, "only the content transition finishes the dialog exit");
+      assert.equal(closed, 0);
+    }
     finishOpacityTransition(content);
     assert.equal(dialog.open, false);
     assert.equal(dialog.style.visibility, "hidden", "the closed dialog must remain hidden if the native top layer paints another frame");
@@ -140,6 +145,9 @@ test("closing waits for the content fade and hides the dialog before leaving the
     flushSync();
     assert.equal(dialog.open, false, "an opening frame must not bring the closed dialog back");
     assert.equal(dialog.dataset.visible, "false");
+    finishOpacityTransition(surface);
+    await new Promise(resolve => setTimeout(resolve, 260));
+    assert.equal(closed, 1, "late transitions and the close timeout must not notify twice");
   } finally { await unmount(instance); }
 });
 
@@ -174,36 +182,11 @@ test("live_blur_targets_surface_not_foreground", async () => {
     assert.ok(surface, "the blur needs an independent decorative surface");
     const content = dialog.querySelector(".legio-dialog-content");
     assert.equal(surface.getAttribute("aria-hidden"), "true");
-    for (const blur of ["blur(2px)", "blur(10px)", "blur(0px)"]) {
-      document.documentElement.style.setProperty("--legio-dialog-blur", blur);
-      const foreground = dom.window.getComputedStyle(content);
-      assert.ok(!foreground.getPropertyValue("backdrop-filter") || foreground.getPropertyValue("backdrop-filter") === "none");
-      assert.notEqual(foreground.willChange, "opacity");
-      assert.equal(dom.window.getComputedStyle(dialog).getPropertyValue("backdrop-filter"), "none");
-      assert.equal(dom.window.getComputedStyle(surface).getPropertyValue("backdrop-filter"), "var(--legio-dialog-blur)");
-      assert.equal(dom.window.getComputedStyle(surface).pointerEvents, "none");
-    }
-  } finally { await unmount(instance); }
-});
-
-test("dialog_close_waits_only_for_content_transition and blur_drag_during_close_notifies_once", async () => {
-  let closed = 0;
-  const instance = mount(component, { target: document.body, props: { onClosed: () => closed++, persistent: true } });
-  try {
-    flushSync(); advanceFrame(); advanceFrame(); flushSync();
-    const dialog = document.querySelector("dialog");
-    dialog.dispatchEvent(new Event("cancel", { cancelable: true })); flushSync();
-    const surface = dialog.querySelector(".legio-dialog-surface");
-    assert.ok(surface);
-    for (const blur of ["blur(4px)", "blur(8px)"]) {
-      document.documentElement.style.setProperty("--legio-dialog-blur", blur);
-      finishOpacityTransition(surface);
-      assert.equal(closed, 0); assert.equal(dialog.open, true);
-    }
-    finishOpacityTransition(dialog.querySelector(".legio-dialog-content"));
-    assert.equal(closed, 1); assert.equal(dialog.open, false);
-    finishOpacityTransition(surface);
-    await new Promise(resolve => setTimeout(resolve, 260));
-    assert.equal(closed, 1);
+    const foreground = dom.window.getComputedStyle(content);
+    assert.ok(!foreground.getPropertyValue("backdrop-filter") || foreground.getPropertyValue("backdrop-filter") === "none");
+    assert.notEqual(foreground.willChange, "opacity");
+    assert.equal(dom.window.getComputedStyle(dialog).getPropertyValue("backdrop-filter"), "none");
+    assert.equal(dom.window.getComputedStyle(surface).getPropertyValue("backdrop-filter"), "var(--legio-dialog-blur)");
+    assert.equal(dom.window.getComputedStyle(surface).pointerEvents, "none");
   } finally { await unmount(instance); }
 });

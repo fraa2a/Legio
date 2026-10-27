@@ -723,10 +723,10 @@ mod tests {
             s.acquire_conversion(&b),
         )
         .await;
-        assert!(
-            second.is_ok(),
-            "An unselected Library must use both conversion slots"
-        );
+        let second = second
+            .expect("An unselected Library must use both conversion slots")
+            .unwrap();
+        drop(second);
         drop(first);
     }
 

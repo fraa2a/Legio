@@ -1,5 +1,64 @@
 # Third-party notices
 
+Third-party code and assets retain their own license terms. Legio's SA-NC-PD license does not replace those terms. MIT-licensed adaptations may be included in a differently licensed application, but their copyright and permission notices must be preserved.
+
+## Inter
+
+Legio bundles the unmodified Inter variable fonts, including italics.
+
+- Source: https://github.com/rsms/inter
+- Copyright (c) 2016 The Inter Project Authors.
+- License: SIL Open Font License 1.1. The full text is in `src/assets/fonts/OFL.txt`, distributed as `licenses/Inter-OFL.txt` in application bundles.
+
+## Glow icons
+
+- Source: https://github.com/glow-ui/glow-icons
+- Copyright (c) 2025 glow-ui.
+- License: MIT. The full notice is in `_meta/licenses/glow-icons.txt`, distributed as `licenses/glow-icons.txt` in application bundles.
+
+## Svelte
+
+Frontend runtime: https://github.com/sveltejs/svelte
+
+MIT License
+
+Copyright (c) 2016-2025 [Svelte Contributors](https://github.com/sveltejs/svelte/graphs/contributors)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+## Tauri API and plugins
+
+Frontend bindings: `@tauri-apps/api`, `@tauri-apps/plugin-dialog`, `@tauri-apps/plugin-process` and `@tauri-apps/plugin-updater`.
+
+Source: https://github.com/tauri-apps/tauri and https://github.com/tauri-apps/plugins-workspace
+
+MIT License
+
+Copyright (c) 2017 - Present Tauri Apps Contributors
+Copyright (c) 2019-2022, The Tauri Programme in the Commons Conservancy
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 ## Hydra Launcher
 
 The free-host resolution behavior in `src-tauri/src/download_resolver.rs`, `src-tauri/src/gofile.rs`, `src-tauri/src/gofile_probe.js` and `src-tauri/src/gofile_capture.js` is adapted from the Hydra Launcher hoster implementations at commit `a22ec02201e73db8ca2ee214c2b37cd2d6a27374`.
@@ -93,5 +152,5 @@ Source title indexing embeds the upstream FlexSearch distribution from the `0.7.
 
 - Source: https://github.com/nextapps-de/flexsearch
 - Author and Copyright: Thomas Wilkerling, hosted by Nextapps GmbH.
-- License: Apache-2.0. The complete license is in `src-tauri/vendor/flexsearch.LICENSE` and is included in application bundles.
+- License: Apache-2.0. The complete license is in `src-tauri/vendor/flexsearch.LICENSE`, distributed as `licenses/flexsearch.LICENSE` in application bundles.
 - The upstream distribution banner says `v0.7.41`; the package metadata at the pinned commit says `0.7.43`. The distribution file is vendored unchanged.

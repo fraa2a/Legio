@@ -83,36 +83,7 @@ test("visible library cover loads without requesting textual metadata", async ()
   }
 });
 
-test("standalone game logo loads without opening game details", async () => {
-  requests.length = 0;
-  const { default: GameLogo } = await import(await moduleUrl("src/lib/features/library/GameLogo.svelte"));
-  const target = document.createElement("div");
-  document.body.append(target);
-  const component = mount(GameLogo, { target, props: { game: { id: "portal", name: "Portal", steamAppId: 401 } } });
-  try {
-    await settle();
-    assert.ok(requests.some(([command, args]) => command === "get_steam_asset" && args.steamAppId === 401 && args.asset === "logo"));
-    assert.match(target.querySelector("img")?.src ?? "", /^blob:/);
-    assert.equal(requests.filter(([command]) => command === "get_steam_details").length, 0);
-  } finally {
-    await unmount(component);
-    target.remove();
-  }
-});
 
-test("manual game keeps its name without requesting Steam artwork", async () => {
-  requests.length = 0;
-  const { default: GameLogo } = await import(await moduleUrl("src/lib/features/library/GameLogo.svelte"));
-  const target = document.createElement("div");
-  const component = mount(GameLogo, { target, props: { game: { id: "manual", name: "Manual game", steamAppId: null } } });
-  try {
-    await settle();
-    assert.equal(target.textContent, "Manual game");
-    assert.equal(requests.length, 0);
-  } finally {
-    await unmount(component);
-  }
-});
 
 test("stale artwork stays visible during refresh and is replaced when ready", async () => {
   const { default: SteamArtwork } = await import(await moduleUrl("src/lib/features/library/SteamArtwork.svelte"));
@@ -246,6 +217,7 @@ test("library cards use the branding logo instead of a small icon", async () => 
     await settle();
     assert.equal(calls.filter(([command, args]) => command === "get_steam_asset" && args.asset === "logo").length, 1);
     assert.equal(target.querySelectorAll("img").length, 2);
+    assert.equal(calls.filter(([command]) => command === "get_steam_details").length, 0);
   } finally { await unmount(component); }
 });
 

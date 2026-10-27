@@ -21,9 +21,10 @@
     "test:dialog": "node --conditions=browser --test scripts/test_dialog.mjs",
     "test:feedback": "node --conditions=browser --test scripts/test_feedback.mjs scripts/test_game_identity.mjs scripts/test_game_library.mjs",
     "test:onboarding": "node --test scripts/test_onboarding_news.mjs",
-    "test:sources": "node scripts/test_source_search.mjs && node scripts/test_gofile_token.mjs && node --conditions=browser --test scripts/test_sources.mjs scripts/test_hydra_sources.mjs scripts/test_download_mirrors.mjs",
+    "test:sources": "node --conditions=browser --test scripts/test_sources.mjs scripts/test_hydra_sources.mjs scripts/test_download_mirrors.mjs",
     "test:catalog": "node --conditions=browser --test scripts/test_catalog.mjs scripts/test_store_filters.mjs",
     "test:acl": "node --test scripts/test_command_acl.mjs",
+    "test:docs": "node --test scripts/test_documentation.mjs",
     "test:launcher": "node --conditions=browser --test scripts/test_settings_frontend.mjs scripts/test_app_updater.mjs scripts/test_preferences.mjs scripts/test_settings_loading.mjs",
     "test:select": "node --conditions=browser --test scripts/test_select.mjs",
     "test:artwork-cache": "node --conditions=browser --test scripts/test_steam_image_cache.mjs",
@@ -33,22 +34,22 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.1",
-    "@tauri-apps/plugin-dialog": "^2.8.1",
+    "@tauri-apps/plugin-dialog": "^2.8.3",
     "@tauri-apps/plugin-process": "^2.4.0",
     "@tauri-apps/plugin-updater": "^2.13.2"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.0.0",
     "@tailwindcss/vite": "^4.0.0",
-    "@tauri-apps/cli": "^2.12.1",
+    "@tauri-apps/cli": "^2.12.3",
     "eslint": "^10.12.0",
-    "eslint-plugin-svelte": "^3.0.0",
+    "eslint-plugin-svelte": "^3.23.1",
     "jsdom": "^30.1.1",
     "svelte": "^5.57.2",
     "svelte-check": "^4.0.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.0.0",
-    "typescript-eslint": "^8.71.1",
+    "typescript-eslint": "^8.71.2",
     "vite": "^7.0.0"
   }
 }

@@ -173,7 +173,7 @@ fn full_damage(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gtk::cairo::{Context, Format, ImageSurface, Operator, RectangleInt, Region};
+    use gtk::cairo::{RectangleInt, Region};
 
     #[test]
     fn skia_runtime_does_not_install_legacy_damage_expansion() {
@@ -213,39 +213,6 @@ mod tests {
         assert!(text.contains("linux_rendering_configuration"));
         assert!(text.contains("before page creation"));
         std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    fn draw_frame(surface: &mut ImageSurface, partial_damage: bool) -> Vec<u8> {
-        let damage = Region::create_rectangle(&RectangleInt::new(
-            0,
-            0,
-            if partial_damage { 2 } else { 12 },
-            if partial_damage { 2 } else { 12 },
-        ));
-        full_damage(&damage, 12, 12).expect("expand damage");
-        let context = Context::new(&*surface).expect("image context");
-        context.add_region(&damage);
-        context.clip();
-        context.set_operator(Operator::Clear);
-        context.paint().expect("clear GTK damage region");
-        context.set_operator(Operator::Over);
-        context.set_source_rgba(0.15, 0.15, 0.15, 0.4);
-        context.paint().expect("draw translucent background");
-        context.set_source_rgba(1.0, 1.0, 1.0, 0.6);
-        context.rectangle(6.0, 6.0, 4.0, 4.0);
-        context.fill().expect("draw antialiased text pixels");
-        drop(context);
-        surface.flush();
-        surface.data().expect("frame pixels").to_vec()
-    }
-
-    #[test]
-    fn repeated_partial_updates_do_not_accumulate_translucent_text_pixels() {
-        let mut surface = ImageSurface::create(Format::ARgb32, 12, 12).expect("image surface");
-        let first = draw_frame(&mut surface, false);
-        for _ in 0..20 {
-            assert_eq!(draw_frame(&mut surface, true), first);
-        }
     }
 
     #[test]

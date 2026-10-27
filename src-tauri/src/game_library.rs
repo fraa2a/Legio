@@ -973,7 +973,7 @@ mod tests {
     }
 
     #[test]
-    fn json_manifest_is_portable_and_does_not_export_source_urls() {
+    fn json_manifest_uses_relative_installation_paths() {
         let directory = std::env::temp_dir().join(format!("legio-json-{}", uuid::Uuid::new_v4()));
         let database = Database::open(&directory).unwrap();
         let root = directory.join("games");

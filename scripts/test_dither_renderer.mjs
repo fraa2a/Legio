@@ -43,7 +43,7 @@ async function fixture(suppliedGl) {
   const frame = { time: 0, settings: configuration, accent: '#ff0000', mouse: [0,0], ratio: 1 };
   return { renderer, canvas, gl, diagnostics, draw: () => renderer.draw(frame), get attributes() { return attributes; }, resize() { width++; renderer.resize(width, 480); } };
 }
-test('unrelated_blur_preview_does_not_redraw_frozen_dither and hidden_resize_recovers_without_unbounded_frame_loop', async () => {
+test('dither redraws changed settings, stays idle for unrelated previews and suspends when hidden', async () => {
   const gl = fakeGl(); let attributes;
   window.HTMLCanvasElement.prototype.getContext = (_type, options) => { attributes = options; return gl; };
   const source = `<script>
@@ -51,7 +51,9 @@ test('unrelated_blur_preview_does_not_redraw_frozen_dither and hidden_resize_rec
     let settings = $state(${JSON.stringify(configuration)}); let active = $state(true); let opacity = $state(50);
   </script><DitherBackground {settings} {active} {opacity} accent="#ff0000" />
   <button onclick={() => { settings = {...settings}; opacity = 60; }}>Preview</button>
-  <button onclick={() => active = !active}>Toggle</button>`;
+  <button onclick={() => active = !active}>Toggle</button>
+  <button onclick={() => settings = {...settings, backgroundColor: "#111111"}}>Background</button>
+  <button onclick={() => settings = {...settings, disableAnimation: false}}>Animate</button>`;
   const Component = (await import(dataModule(await resolveImports(compile(source, { generate: 'client' }).js.code, 'scripts/dither_wrapper.svelte')))).default;
   const { mount, unmount, flushSync } = await import('svelte');
   const target = document.createElement('div'); document.body.append(target);
@@ -65,6 +67,14 @@ test('unrelated_blur_preview_does_not_redraw_frozen_dither and hidden_resize_rec
     target.querySelectorAll('button')[1].click(); flushSync(); assert.equal(frames.size, 1); advance();
     assert.equal(gl.draws, 4); assert.equal(frames.size, 0);
     assert.deepEqual(attributes, { alpha: false, antialias: false, preserveDrawingBuffer: true });
+    const previousDraws = gl.draws;
+    target.querySelectorAll("button")[2].click(); flushSync(); advance();
+    assert.ok(gl.draws > previousDraws, "changing the background must redraw the frozen image");
+    assert.equal(frames.size, 0);
+    target.querySelectorAll("button")[3].click(); flushSync(); advance();
+    assert.equal(frames.size, 1, "animated backgrounds keep rendering");
+    target.querySelectorAll("button")[1].click(); flushSync();
+    assert.equal(frames.size, 0, "hidden backgrounds stop rendering");
   } finally { await unmount(instance); target.remove(); }
 });
 test('context_restoration_rebuilds_resources_and_draws_valid_frame', async () => {

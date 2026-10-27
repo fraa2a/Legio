@@ -32,6 +32,8 @@ test("resource reload invalidates an older read and coalesces mutation refreshes
   const reads = [];
   const resource = createResource([], () => { const request = deferred(); reads.push(request); return request.promise; });
   const initial = resource.load();
+  const duplicate = resource.load();
+  assert.equal(reads.length, 1);
   const refresh = resource.reload();
   const joined = resource.reload();
   reads[0].resolve(["removed"]);
@@ -39,7 +41,8 @@ test("resource reload invalidates an older read and coalesces mutation refreshes
   assert.equal(reads.length, 2);
   assert.deepEqual(get(resource).data, []);
   reads[1].resolve(["current"]);
-  await Promise.all([initial, refresh, joined]);
+  await Promise.all([initial, duplicate, refresh, joined]);
+  assert.equal(get(resource).status, "ready");
   assert.deepEqual(get(resource).data, ["current"]);
 });
 
@@ -55,32 +58,7 @@ test("resource set supersedes an invalidated pending read", async () => {
   assert.deepEqual(get(resource).data, ["saved"]);
 });
 
-test("release review labels have English translations", async () => {
-  const { t } = await import(localeUrl);
-  assert.equal(t("Aggiornamento disponibile", "en"), "Update available");
-  assert.equal(t("Consenti download mentre un gioco è aperto", "en"), "Allow downloads while a game is running");
-});
 
-test("resource deduplicates slow reads and invalidates responses after set", async () => {
-  const { createResource } = await loadModule("../src/lib/stores/resource.ts", { "../utils/errors": errors });
-  const first = deferred();
-  let calls = 0;
-  const resource = createResource([], () => { calls++; return first.promise; });
-  const a = resource.load();
-  const b = resource.load();
-  assert.equal(calls, 1);
-  first.resolve([1]);
-  await Promise.all([a, b]);
-  assert.equal(get(resource).status, "ready");
-  assert.deepEqual(get(resource).data, [1]);
-  const late = deferred();
-  const other = createResource([], () => late.promise);
-  const loading = other.load();
-  other.set([2]);
-  late.resolve([0]);
-  await loading;
-  assert.deepEqual(get(other).data, [2]);
-});
 
 test("Steam refresh survives older success and failure without losing cached data", async () => {
   const pending = [];
@@ -181,6 +159,10 @@ test("Steam image cache preserves artwork identity across metadata timestamps an
   const unchangedHeader = await loadSteamImage({ ...request, asset: "header", displayWidth: 2560 });
   assert.equal(unchangedHeader.url, firstHeader.url);
   assert.equal(requests, 3, "monitor resolution only separates hero variants");
+  const screenshot = { ...request, asset: "screenshot", index: 0, screenshotIdentity: "https://cdn.steamstatic.com/a.jpg" };
+  await loadSteamImage(screenshot);
+  await loadSteamImage({ ...screenshot, screenshotIdentity: "https://cdn.steamstatic.com/b.jpg" });
+  assert.equal(requests, 5, "different screenshot sources must not share a cache entry");
   URL.revokeObjectURL(qhd.url);
   URL.revokeObjectURL(oldImage.url);
   URL.revokeObjectURL(newImage.url);

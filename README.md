@@ -26,22 +26,21 @@ Legio does not support or promote piracy. Use this option only with a legitimate
 
 ## Download
 
-Get the latest version from [Releases](https://github.com/fraa2a/Legio/releases). Packages are available for Windows and Linux. To run Windows games on Linux, install a compatible runner such as Proton or Wine first.
+### [Download the latest release](https://github.com/fraa2a/Legio/releases/latest)
 
-Steam must be installed for Steam integration and for games that require it.
+- **Windows:** `.exe` installer.
+- **Linux:** AppImage, `.deb` or `.rpm`.
+- **Arch Linux / AUR:** `legio-launcher-bin` for stable binaries, or `legio-launcher-git` to compile the latest `main` sources.
 
-Linux uses WebKitGTK's Skia compositor on runtime versions 2.54 and newer.
-See [Linux rendering diagnostics](_meta/docs/LINUX-RENDERING.md)
-for backend comparisons and runtime packaging requirements.
-
-See [Linux runners and performance controls](_meta/docs/LINUX.md) for umu setup,
-Proton/Wine requirements, prefixes, GameMode and gamescope.
+Steam is required for Steam integration. For Windows games on Linux, see [runner setup](_meta/docs/LINUX.md).
 
 ## Download sources
 
 Add an HTTPS catalog in **Settings > Sources**. You can install multiple sources,
 refresh their cached releases, and remove them individually. No download source
 is configured by default.
+
+**Hydra sources are also supported.** Some source URLs are protected by Cloudflare and cannot be fetched directly by Legio. Download the actual JSON file in your browser, then use **Choose JSON file** in Sources to select its local path. Use a JSON file, not a saved challenge page. Local refresh rereads that file; it does not download a newer copy. See [Hydra compatibility](_meta/docs/HYDRA.md) for supported downloads and limitations.
 
 After starting Legio once, opening a link such as
 `legio://add-source?url=https%3A%2F%2Fcatalogo.example%2Fgames.json`
