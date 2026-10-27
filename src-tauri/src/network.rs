@@ -289,11 +289,15 @@ impl NetworkState {
     }
 
     fn update(&self, status: NetworkStatus, detail: Option<String>) -> ConnectivityCheck {
-        let mut current = self
-            .status
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        *current = status;
+        match self.status.lock() {
+            Ok(mut current) => *current = status,
+            Err(_) => {
+                return ConnectivityCheck {
+                    status: NetworkStatus::Unknown,
+                    detail: Some("network status lock was poisoned".to_owned()),
+                };
+            }
+        }
         ConnectivityCheck { status, detail }
     }
 }
