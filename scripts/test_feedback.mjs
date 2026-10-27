@@ -44,6 +44,24 @@ test("notifications deduplicate messages, preserve different tones, dismiss indi
   } finally { globalThis.setTimeout = original; clearNotices(); }
 });
 
+test("progress variants share bounded accessible values and valid button markup", async () => {
+  const ProgressBar = (await import(await load("src/lib/components/ui/ProgressBar.svelte"))).default;
+  for (const variant of ["default", "button"]) {
+    for (const [value, expected] of [[-10, 0], [140, 100], [NaN, 0], [Infinity, 0], [12.5, 12.5]]) {
+      const target = document.createElement(variant === "button" ? "button" : "div");
+      const instance = mount(ProgressBar, { target, props: { variant, value, label: "Download progress" } });
+      try {
+        await settle();
+        const bar = target.querySelector('[role="progressbar"]');
+        assert.equal(bar.getAttribute("aria-label"), "Download progress");
+        assert.equal(bar.getAttribute("aria-valuenow"), String(Math.round(expected)));
+        assert.equal(bar.firstElementChild.style.width, `${expected}%`);
+        assert.equal(target.querySelector("div"), null);
+      } finally { await unmount(instance); }
+    }
+  }
+});
+
 test("an error stays visible in its panel and retains its retry action", async () => {
   const ErrorBanner = (await import(await load("src/lib/components/ui/ErrorBanner.svelte"))).default;
   const target = document.createElement("div");

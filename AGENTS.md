@@ -15,7 +15,7 @@
 - One branch and pull request should represent one coherent change; keep PRs focused and reasonably small.
 - Write branch names, commit messages, pull request titles and descriptions, release notes, and other Git metadata in English.
 - Merge only after required checks pass; update from `main` when needed, squash merge, then delete the branch.
-- Use Conventional Commits such as `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`, `test:`, `build:` and `perf:`; final history must use meaningful messages, while intermediate branch commits may be imperfect because PRs are squash-merged.
+- Use Conventional Commits such as `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`, `test:`, `build:` and `perf:`
 
 ## Versioning
 

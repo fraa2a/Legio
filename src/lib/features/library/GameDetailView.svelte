@@ -20,13 +20,14 @@
   import { closeGame, openGame, selectSection, selectedGameId, type StoreGameSelection } from "../../stores/navigation";
   import { downloads, queueJob } from "../../stores/downloads";
   import type { SourceEntry } from "../../services/legio-source";
-  import { describeDownloadStatus } from "../../services/downloads";
+  import { describeDownloadStatus, downloadProgressPercent } from "../../services/downloads";
   import { playtime } from "../../stores/playtime";
   import { refreshSource, source, sourceRefreshError } from "../../stores/source";
   import { refreshSteamDetailsOnOpen, steamDetails } from "../../stores/steam-details";
   import { createArtworkWork } from "../../services/artwork-work";
   import { refreshSteamImagesOnOpen } from "../../services/steam-details";
   import Button from "../../components/ui/Button.svelte";
+  import ProgressBar from "../../components/ui/ProgressBar.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
@@ -63,7 +64,7 @@
   let selectedMirror = $state("auto");
   const mirrorUris = $derived(entry === null ? [] : ($source.data.sources.find(origin => origin.id === entry.sourceId)?.candidates?.[entry.id ?? ""] ?? [entry.download.url]));
   const job = $derived(storeGame === null || entry === null ? null : ($downloads.data.find((candidate) => candidate.steamAppId === steamAppId && (candidate.sourceId && candidate.sourceEntryId ? candidate.sourceId === entry.sourceId && candidate.sourceEntryId === entry.id : candidate.url === entry.download.url && candidate.releaseVersion === entry.release.version) && candidate.status !== "installed" && candidate.status !== "cancelled") ?? null));
-  const downloadProgress = $derived(job === null || job.sizeBytes === 0 ? 0 : Math.min(100, Math.max(0, job.downloadedBytes / job.sizeBytes * 100)));
+  const downloadProgress = $derived(job === null ? 0 : downloadProgressPercent(job));
   const libraryVersions = $derived(game === null ? [] : $games.data.filter((candidate) => candidate.steamAppId === null ? candidate.id === game.id : candidate.steamAppId === game.steamAppId));
   const versionOptions = $derived(storeGame !== null
     ? releases.map((release) => ({ id: sourceReleaseId(release.entry), name: release.entry.name, sourceName: sourceNameFor(release.entry, $source.data.sources), subtitle: t("Versione {0}", $language, [release.entry.release.version]) }))
@@ -183,9 +184,7 @@
               <button type="button" class="relative flex h-[60px] w-[240px] shrink-0 items-center justify-center gap-2 overflow-hidden rounded-xl bg-legio-download px-4 text-xl font-bold text-white hover:bg-legio-download-hover" onclick={() => selectSection("downloads")}>
                 <Icon name="download" size="h-6 w-6" />
                 {job.status === "queued" || job.status === "downloading" ? t("SCARICAMENTO", $language) : describeDownloadStatus(job.status).toUpperCase()}
-                <span class="absolute inset-x-0 bottom-0 h-2 bg-white/30" role="progressbar" aria-label={t("Avanzamento download", $language)} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(downloadProgress)}>
-                  <span class="block h-full bg-white" style:width={`${downloadProgress}%`}></span>
-                </span>
+                <ProgressBar variant="button" value={downloadProgress} label={t("Avanzamento download", $language)} />
               </button>
             {:else if status?.availability === "verified" || status?.availability === "unverified"}
               <Button label={t("SCARICA", $language)} variant="download" class="h-[60px] w-[240px] shrink-0 rounded-xl px-4 text-xl font-bold" disabled={queueing} onClick={requestDownload}>

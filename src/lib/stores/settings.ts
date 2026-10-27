@@ -26,7 +26,12 @@ let saveQueue: Promise<void> = Promise.resolve();
 export function updateSettings(changes: Partial<Settings>): Promise<Settings> {
   const patch = structuredClone(changes);
   const task = saveQueue.then(async () => {
-    const previous = get(settings).data;
+    if (get(settings).status !== "ready") await settings.load();
+    const current = get(settings);
+    if (current.status !== "ready") {
+      throw new Error(current.error ?? "Could not load settings before saving");
+    }
+    const previous = current.data;
     const saved = await saveSettings({ ...previous, ...patch });
     settings.set(saved);
     if (saved.downloadPath !== previous.downloadPath) await installedFolder.reload();
