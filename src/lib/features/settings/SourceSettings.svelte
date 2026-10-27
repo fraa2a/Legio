@@ -61,8 +61,8 @@
           <li class="flex flex-col gap-3 rounded-lg bg-white/5 p-3 light:bg-zinc-900/5">
             <p class="text-sm font-medium text-zinc-100 light:text-zinc-900">{installed.name ?? installed.url} {installed.format === "hydra" ? "(Hydra)" : ""} {installed.isLocal ? t("(file locale)", $language) : ""}</p>
             {#if installed.diagnostics}
-              {#if installed.diagnostics.unresolved > 0}<p class="text-xs text-amber-300 light:text-amber-800">{installed.diagnostics.unresolved} {t("titoli non identificati", $language)}</p>{/if}
-              {#if installed.diagnostics.rejected > 0}<p class="text-xs text-amber-300 light:text-amber-800">{installed.diagnostics.rejected} {t("voci non valide", $language)}</p>{/if}
+              {#if installed.diagnostics.unresolved > 0}<p class="text-xs text-legio-warning">{installed.diagnostics.unresolved} {t("titoli non identificati", $language)}</p>{/if}
+              {#if installed.diagnostics.rejected > 0}<p class="text-xs text-legio-warning">{installed.diagnostics.rejected} {t("voci non valide", $language)}</p>{/if}
               {#if installed.diagnostics.unsupported > 0}<p class="text-xs text-zinc-400">{installed.diagnostics.unsupported} {t("link non supportati", $language)}</p>{/if}
             {/if}
             <p class="break-all text-sm text-zinc-100 light:text-zinc-900">{installed.url}</p>

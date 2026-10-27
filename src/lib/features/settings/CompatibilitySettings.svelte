@@ -176,7 +176,7 @@
     : "NTSync non disponibile sul sistema. Legio usa la sincronizzazione predefinita del runner.", $language)}</p>
   <SettingsGroup icon="wrench" title="Runner">
       {#if runnerDiagnostics.length > 0}
-        <div class="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-200 light:text-amber-900">
+        <div class="rounded-lg bg-amber-500/10 p-3 text-sm text-legio-warning">
           <p class="font-medium">{t("Rilevamento runner", $language)}</p>
           <ul class="mt-2 list-disc pl-5">
             {#each runnerDiagnostics as diagnostic (diagnostic)}

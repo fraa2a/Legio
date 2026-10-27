@@ -58,7 +58,7 @@
       aria-expanded={open}
       disabled={!hasChoices}
       onkeydown={handleKeydown}
-      class="flex h-[58px] w-full items-center gap-2 bg-transparent px-3 text-left text-zinc-100 light:text-zinc-900"
+      class="flex h-14.5 w-full items-center gap-2 bg-transparent px-3 text-left text-zinc-100 light:text-zinc-900"
       onclick={() => (open = !open)}
     >
       {#if steamAppId !== null}
@@ -79,7 +79,7 @@
       {#if hasChoices}<span class="transition-transform duration-150 {open ? 'rotate-180' : ''}"><Icon name="chevron-down" size="h-4 w-4 shrink-0 text-zinc-400 light:text-zinc-600" /></span>{/if}
     </button>
     {#if open}
-      <div class="max-h-[188px] overflow-y-auto overscroll-contain p-1">
+      <div class="max-h-47 overflow-y-auto overscroll-contain p-1">
         {#each alternatives as option (option.id)}
           <button
             type="button"

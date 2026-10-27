@@ -96,7 +96,7 @@
   /></div><ResetSetting label={t("Ripristina account Steam", $language)} disabled={pending || loading || selection === noAccount} onClick={() => { selection = noAccount; }} /></div>
 
   {#if $savedSteamAccounts.data.diagnostics.length > 0}
-    <ul class="flex flex-col gap-1 text-xs text-amber-300 light:text-amber-800">
+    <ul class="flex flex-col gap-1 text-xs text-legio-warning">
       {#each $savedSteamAccounts.data.diagnostics as diagnostic (diagnostic)}
         <li>{diagnostic}</li>
       {/each}

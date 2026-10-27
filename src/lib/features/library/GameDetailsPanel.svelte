@@ -160,7 +160,7 @@
 {#if game.steamInstallPath === null && game.executablePath !== null}
   <Panel title={t("Disinstalla gioco", $language)}>
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Elimina i file installati del gioco e rimuovi la voce dalla libreria.", $language)}</p>
-    {#if running}<p class="text-sm text-amber-300 light:text-amber-800">{t("Chiudi il gioco prima di disinstallarlo.", $language)}</p>{/if}
+    {#if running}<p class="text-sm text-legio-warning">{t("Chiudi il gioco prima di disinstallarlo.", $language)}</p>{/if}
     <Button label={t("Disinstalla gioco", $language)} variant="danger" disabled={running || pending || identityPending} onClick={() => (confirmingUninstall = true)} />
   </Panel>
   {#if confirmingUninstall}
