@@ -1271,10 +1271,13 @@ impl GameLaunchManager {
         if let Some(journal) = &self.journal {
             journal.record(game_id, "runner_exit", code != 0, Some(code));
         }
-        let mut entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut entries = match self.lock() {
+            Ok(entries) => entries,
+            Err(error) => {
+                crate::application_log::failure("record_runner_exit", error);
+                return;
+            }
+        };
         if let Some(entry) = entries.get_mut(game_id)
             && entry.compatibility_options.is_some()
         {
@@ -1298,10 +1301,15 @@ impl GameLaunchManager {
     }
 
     fn set_running(&self, game_id: &str, error: Option<String>) -> bool {
-        let mut entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut entries = match self.lock() {
+            Ok(entries) => entries,
+            Err(lock_error) => {
+                // The launch state cannot be read, so it cannot show a cancellation either.
+                // Keep the game running instead of stopping it.
+                crate::application_log::failure("mark_game_running", lock_error);
+                return true;
+            }
+        };
         let Some(entry) = entries.get_mut(game_id) else {
             return false;
         };
@@ -1334,10 +1342,13 @@ impl GameLaunchManager {
                 None,
             );
         }
-        let mut entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut entries = match self.lock() {
+            Ok(entries) => entries,
+            Err(lock_error) => {
+                crate::application_log::failure("update_game_launch_state", lock_error);
+                return;
+            }
+        };
         if let Some(entry) = entries.get_mut(game_id) {
             #[cfg(target_os = "linux")]
             if let Some(log) = &entry.compatibility_log {
