@@ -209,7 +209,7 @@ impl AssetCacheState {
         &self,
         app_id: u32,
         work: &AssetWork,
-        fetched: impl std::future::Future<Output = Result<crate::steam_pics::PicsAssets, String>>,
+        fetched: impl std::future::Future<Output = Result<crate::steam_pics::PicsAssets, WorkError>>,
     ) -> Result<(Option<crate::steam_pics::PicsAssets>, Option<String>), String> {
         let lock = self.metadata_lock(app_id)?;
         {
@@ -236,10 +236,9 @@ impl AssetCacheState {
             work.policy != AssetPolicy::CacheOrFetch,
             async {
                 {
-                    let mut owner = lock
-                        .owner
-                        .lock()
-                        .map_err(|_| "Metadata owner lock was poisoned")?;
+                    let mut owner = lock.owner.lock().map_err(|_| {
+                        WorkError::Failed("Metadata owner lock was poisoned".into())
+                    })?;
                     if let Some(previous) = owner.as_ref() {
                         work.handle.promote_from(previous);
                     }
@@ -706,10 +705,7 @@ async fn load_asset_scheduled(
     request_lock.set_owner(&work.handle)?;
     let requested_url = url.clone();
     let result = load_asset_inner(cache, network, key, url, refresh, hero, work).await;
-    if result
-        .as_ref()
-        .map_or_else(|error| error != "Artwork request cancelled", |_| true)
-    {
+    if result.is_ok() || !work.handle.is_cancelled() {
         *request = Some((requested_url, result.clone()));
     }
     result
@@ -832,7 +828,7 @@ async fn load_asset_inner(
                 }),
             })
         }
-        Err(error) if error == "Artwork request cancelled" => Err(error),
+        Err(error) if work.handle.is_cancelled() => Err(error),
         Err(error) => previous
             .map(|entry| AssetResult {
                 replacement_token: None,
@@ -1199,7 +1195,6 @@ pub async fn get_asset_for_request<R: tauri::Runtime>(
     }
     match result {
         Ok(result) => Ok(result),
-        Err(error) if error == "Artwork request cancelled" => Err(WorkError::Cancelled),
         Err(error) => match previous {
             Some(entry) => {
                 let mut result = cached_result(entry);
@@ -1418,7 +1413,6 @@ async fn get_asset_core<R: tauri::Runtime>(
                 work.scheduler
                     .run_metadata(&work.handle, || crate::steam_pics::fetch(app_id))
                     .await
-                    .map_err(|error| error.to_string())
             })
             .await?;
         if let Some(warning) = warning.as_deref() {
@@ -1929,7 +1923,6 @@ mod tests {
                             Ok(serde_json::from_str(r#"{"logo.png":"0123456789abcdef0123456789abcdef01234567/logo.png"}"#).unwrap())
                         })
                         .await
-                        .map_err(|error| error.to_string())
                 })
                 .await
         });
