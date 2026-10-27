@@ -55,7 +55,7 @@
 
 <aside
   class="legio-panel my-1.5 ml-1.5 flex shrink-0 flex-col overflow-hidden rounded-xl {expanded
-    ? "w-[13.5rem]"
+    ? "w-54"
     : "w-16"} transition-[width] duration-300 ease-out"
 >
   <nav class="mt-2 flex min-h-0 flex-1 flex-col gap-1 p-2" aria-label={t("Navigazione principale", $language)}>

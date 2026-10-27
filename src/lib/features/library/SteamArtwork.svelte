@@ -109,7 +109,7 @@
 {/if}
 
 {#if caption && (visibleStale || visibleWarning !== null)}
-  <p class="mt-1 text-xs text-amber-300 light:text-amber-800">
+  <p class="mt-1 text-xs text-legio-warning">
     {visibleWarning ?? t("Immagine servita dalla cache locale.", $language)}
   </p>
 {/if}

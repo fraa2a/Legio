@@ -145,7 +145,7 @@
           class="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm text-zinc-200 outline-none hover:bg-white/10 focus-visible:bg-white/10 aria-selected:bg-white/10 aria-selected:text-white light:text-zinc-800 light:hover:bg-zinc-100 light:focus-visible:bg-zinc-100 light:aria-selected:bg-zinc-100 light:aria-selected:text-zinc-950"
         >
           <span class="min-w-0 break-words">{option.label}</span>
-          {#if option.value === value}<Icon name="check" size="size-4 shrink-0 text-emerald-400 light:text-emerald-700" />{/if}
+          {#if option.value === value}<Icon name="check" size="size-4 shrink-0 text-legio-success" />{/if}
         </button>
       {/each}
     </div>

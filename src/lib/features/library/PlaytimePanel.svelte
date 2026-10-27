@@ -59,21 +59,21 @@
 </script>
 
 <Panel title={t("Modifica tempo di gioco", $language)}>
-  <p class="text-sm text-amber-400 light:text-amber-700">{t("Impostazione avanzata: sostituisce il totale locale di Legio. Non modifica Steam né la cronologia delle sessioni.", $language)}</p>
+  <p class="text-sm text-legio-warning">{t("Impostazione avanzata: sostituisce il totale locale di Legio. Non modifica Steam né la cronologia delle sessioni.", $language)}</p>
   {#if running}<p class="text-sm text-zinc-400 light:text-zinc-600">{t("Chiudi il gioco prima di modificare il tempo di gioco.", $language)}</p>{/if}
   <div><Button label={t("Imposta tempo di gioco", $language)} variant="danger" disabled={pending || running || summary === undefined} onClick={openEditor} /></div>
-  {#if saved}<p class="text-sm text-emerald-400 light:text-emerald-700" role="status">{t("Tempo di gioco aggiornato.", $language)}</p>{/if}
+  {#if saved}<p class="text-sm text-legio-success" role="status">{t("Tempo di gioco aggiornato.", $language)}</p>{/if}
 </Panel>
 
 <Dialog open={editorOpen} title={t("Modifica tempo di gioco", $language)} onClose={() => (editorOpen = false)}>
   <div class="flex flex-col gap-4">
-    <p class="text-sm text-amber-400 light:text-amber-700">{t("Impostazione avanzata: sostituisce il totale locale di Legio. Non modifica Steam né la cronologia delle sessioni.", $language)}</p>
+    <p class="text-sm text-legio-warning">{t("Impostazione avanzata: sostituisce il totale locale di Legio. Non modifica Steam né la cronologia delle sessioni.", $language)}</p>
     <div class="grid grid-cols-2 gap-3">
       <TextField id="playtime-hours" label={t("Ore", $language)} value={hours} inputmode="numeric" disabled={pending || running} oninput={(value) => edit("hours", value)} />
       <TextField id="playtime-minutes" label={t("Minuti", $language)} value={minutes} inputmode="numeric" disabled={pending || running} oninput={(value) => edit("minutes", value)} />
     </div>
     {#if running}<p class="text-sm text-zinc-400 light:text-zinc-600">{t("Chiudi il gioco prima di modificare il tempo di gioco.", $language)}</p>{/if}
-    {#if !valid}<p class="text-sm text-amber-400 light:text-amber-700">{t("Inserisci ore intere non negative e minuti da 0 a 59.", $language)}</p>{/if}
+    {#if !valid}<p class="text-sm text-legio-warning">{t("Inserisci ore intere non negative e minuti da 0 a 59.", $language)}</p>{/if}
     {#if error}<ErrorBanner message={error} />{/if}
     <div class="flex justify-end gap-2">
       <Button label={t("Annulla", $language)} variant="secondary" disabled={pending} onClick={() => (editorOpen = false)} />

@@ -111,7 +111,7 @@
     {/if}
     {#if filterError !== null}<ErrorBanner message={filterError} />{/if}
 
-    {#if $source.data.warning}<p class="text-xs text-amber-300 light:text-amber-800">{$source.data.warning}</p>{/if}
+    {#if $source.data.warning}<p class="text-xs text-legio-warning">{$source.data.warning}</p>{/if}
 
     {#if $catalog.error && $catalog.status !== "error"}
       <ErrorBanner message={$catalog.error}

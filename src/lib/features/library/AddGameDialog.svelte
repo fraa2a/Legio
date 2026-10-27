@@ -175,7 +175,7 @@
             <div class="min-w-0">
               <p class="truncate text-sm font-medium text-zinc-100 light:text-zinc-900">{details?.name ?? selectedSteamGame?.name ?? t("Gioco Steam", $language)}</p>
               <p class="text-xs text-zinc-500">{t("Gioco selezionato", $language)}</p>
-              {#if detailsState?.status === "error"}<p class="text-xs text-amber-300 light:text-amber-800">{t("Copertina non disponibile.", $language)}</p>{/if}
+              {#if detailsState?.status === "error"}<p class="text-xs text-legio-warning">{t("Copertina non disponibile.", $language)}</p>{/if}
             </div>
           </div>
         {/if}
@@ -189,7 +189,7 @@
       disabled={pending}
       oninput={setScanGameName}
     />
-    {#if duplicateName}<p class="text-sm text-amber-300 light:text-amber-800" role="alert">{t("Il nome è già usato per questo gioco Steam. Scegli un nome diverso.", $language)}</p>{/if}
+    {#if duplicateName}<p class="text-sm text-legio-warning" role="alert">{t("Il nome è già usato per questo gioco Steam. Scegli un nome diverso.", $language)}</p>{/if}
 
     <div class="flex flex-col gap-2 border-t border-white/10 pt-4 light:border-zinc-900/10">
       <span class="text-sm font-medium text-zinc-100 light:text-zinc-900">{t("Eseguibile del gioco", $language)}</span>

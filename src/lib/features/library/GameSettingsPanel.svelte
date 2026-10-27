@@ -340,7 +340,7 @@
     <p class="text-xs text-zinc-500">{t("Avvia Steam e il gioco con Proton usando il prefix della sezione Posizioni. Runtime e overlay vengono applicati automaticamente quando disponibili.", $language)}</p>
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Ogni campo eredita il default globale finché il relativo override resta disattivato. Una lista o una mappa vuota cancella il valore ereditato.", $language)}</p>
     {#if runnerDiagnostics.length > 0}
-      <div class="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-200 light:text-amber-900">
+      <div class="rounded-lg bg-amber-500/10 p-3 text-sm text-legio-warning">
         {#each runnerDiagnostics as diagnostic (diagnostic)}<p>{diagnostic}</p>{/each}
       </div>
     {/if}

@@ -73,6 +73,6 @@
   <p class="text-xs text-zinc-500">{t("Gli argomenti vengono passati a Steam quando avvii questo gioco da Legio.", $language)}</p>
   <div class="flex items-center gap-3">
     {#if saving}<span class="text-sm text-zinc-400" role="status">{t("Salvataggio...", $language)}</span>{/if}
-    {#if saved}<span class="text-sm text-emerald-400" role="status">{t("Salvato", $language)}</span>{/if}
+    {#if saved}<span class="text-sm text-legio-success" role="status">{t("Salvato", $language)}</span>{/if}
   </div>
 </Panel>

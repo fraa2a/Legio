@@ -278,7 +278,7 @@
               </div>
             </dl>
             {#if storeGame !== null && $source.data.warning !== null}
-              <p class="text-sm text-amber-300 light:text-amber-800">{$source.data.warning}</p>
+              <p class="text-sm text-legio-warning">{$source.data.warning}</p>
             {/if}
           </div>
         </Panel>{/if}
