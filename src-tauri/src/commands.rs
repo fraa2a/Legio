@@ -469,13 +469,18 @@ pub async fn reset_game_banner(app: AppHandle, game_id: String) -> Result<(), St
 }
 
 #[tauri::command]
-pub fn update_game(app: AppHandle, input: UpdateGameInput) -> Result<Game, String> {
-    let game = app
-        .state::<DatabaseState>()
-        .database()?
-        .update_game(input)?;
-    crate::game_library::sync_default(&app)?;
-    Ok(game)
+pub async fn update_game(app: AppHandle, input: UpdateGameInput) -> Result<Game, String> {
+    // Library manifests may live on slow or sleeping drives.
+    tauri::async_runtime::spawn_blocking(move || {
+        let game = app
+            .state::<DatabaseState>()
+            .database()?
+            .update_game(input)?;
+        crate::game_library::sync_default(&app)?;
+        Ok(game)
+    })
+    .await
+    .map_err(|error| format!("Game update task failed: {error}"))?
 }
 
 #[tauri::command]
