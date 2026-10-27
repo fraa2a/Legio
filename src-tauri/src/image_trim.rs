@@ -15,6 +15,83 @@ fn checkpoint(operation: u64, stage: &'static str, details: impl std::fmt::Displ
     );
 }
 
+fn decode_image(bytes: &[u8], format: ImageFormat) -> Result<image::DynamicImage, String> {
+    match bounded_reader(bytes, format)
+        .and_then(|reader| reader.decode().map_err(|error| error.to_string()))
+    {
+        Ok(image) => Ok(image),
+        Err(error) if format == ImageFormat::Ico => {
+            decode_ico_entry(bytes).map_err(|entry_error| format!("{error}; {entry_error}"))
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn decode_ico_entry(bytes: &[u8]) -> Result<image::DynamicImage, String> {
+    if bytes.len() < 6 || bytes[..4] != [0, 0, 1, 0] {
+        return Err("Invalid ICO header".to_owned());
+    }
+    let count = u16::from_le_bytes([bytes[4], bytes[5]]) as usize;
+    if bytes.len() < 6 + count * 16 {
+        return Err("Invalid ICO directory".to_owned());
+    }
+    let mut entries = Vec::with_capacity(count);
+    for index in 0..count {
+        let start = 6 + index * 16;
+        let mut directory = [0u8; 16];
+        directory.copy_from_slice(&bytes[start..start + 16]);
+        let width = if directory[0] == 0 {
+            256
+        } else {
+            u32::from(directory[0])
+        };
+        let height = if directory[1] == 0 {
+            256
+        } else {
+            u32::from(directory[1])
+        };
+        let size =
+            u32::from_le_bytes([directory[8], directory[9], directory[10], directory[11]]) as usize;
+        let offset =
+            u32::from_le_bytes([directory[12], directory[13], directory[14], directory[15]])
+                as usize;
+        let Some(end) = offset.checked_add(size) else {
+            continue;
+        };
+        if size == 0 || end > bytes.len() || validate_dimensions(width, height).is_err() {
+            continue;
+        }
+        entries.push((width * height, directory, offset, size));
+    }
+    entries.sort_unstable_by_key(|entry| std::cmp::Reverse(entry.0));
+    for (_, directory, offset, size) in entries {
+        let data = &bytes[offset..offset + size];
+        let decoded = if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+            bounded_reader(data, ImageFormat::Png)
+                .and_then(|reader| reader.decode().map_err(|error| error.to_string()))
+        } else {
+            decode_ico_bitmap(directory, data)
+        };
+        if let Ok(image) = decoded {
+            return Ok(image);
+        }
+    }
+    Err("Could not decode any image in the ICO file".to_owned())
+}
+
+fn decode_ico_bitmap(directory: [u8; 16], data: &[u8]) -> Result<image::DynamicImage, String> {
+    let mut single = Vec::with_capacity(22 + data.len());
+    single.extend_from_slice(&[0, 0, 1, 0, 1, 0]);
+    single.extend_from_slice(&directory[..8]);
+    let size = u32::try_from(data.len()).map_err(|_| "ICO image exceeds the size limit")?;
+    single.extend_from_slice(&size.to_le_bytes());
+    single.extend_from_slice(&22u32.to_le_bytes());
+    single.extend_from_slice(data);
+    bounded_reader(&single, ImageFormat::Ico)?
+        .decode()
+        .map_err(|error| error.to_string())
+}
+
 fn bounded_reader(bytes: &[u8], format: ImageFormat) -> Result<ImageReader<Cursor<&[u8]>>, String> {
     let (width, height) = ImageReader::with_format(Cursor::new(bytes), format)
         .into_dimensions()
@@ -93,9 +170,7 @@ fn transformed_webp(bytes: &[u8], hero: Option<(u32, bool)>) -> Result<Vec<u8>, 
         "decode_start",
         format!("bytes={}; format={format:?}; hero={hero:?}", bytes.len()),
     );
-    let image = bounded_reader(bytes, format)?
-        .decode()
-        .map_err(|error| error.to_string())?;
+    let image = decode_image(bytes, format)?;
     checkpoint(
         operation,
         "decode_complete",
@@ -221,6 +296,33 @@ mod tests {
         let result = image::load_from_memory(&webp_asset(input.get_ref()).unwrap()).unwrap();
         assert_eq!(result.dimensions(), (8, 5));
         assert!(result.to_rgba8().pixels().all(|pixel| pixel[3] == 0));
+    }
+
+    #[test]
+    fn decodes_ico_entries_with_non_rgba_png_payloads() {
+        let mut png = Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            256,
+            256,
+            image::Rgb([20, 40, 60]),
+        ))
+        .write_to(&mut png, ImageFormat::Png)
+        .unwrap();
+        let png = png.into_inner();
+        let mut ico = Vec::new();
+        ico.extend_from_slice(&[0, 0, 1, 0]);
+        ico.extend_from_slice(&1u16.to_le_bytes());
+        ico.extend_from_slice(&[0, 0, 0, 0, 1, 0, 32, 0]);
+        ico.extend_from_slice(&(png.len() as u32).to_le_bytes());
+        ico.extend_from_slice(&22u32.to_le_bytes());
+        ico.extend_from_slice(&png);
+
+        let output = webp_asset(&ico).unwrap();
+
+        assert_eq!(
+            image::load_from_memory(&output).unwrap().dimensions(),
+            (256, 256)
+        );
     }
 
     #[test]
