@@ -4,6 +4,7 @@
   import { startVisibleRefresh } from "../../stores/visible-refresh";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
   import { games } from "../../stores/games";
   import { addGameDialogOpen, libraryPortrait, libraryQuery } from "../../stores/library-ui";
   import { launchStateByGame } from "../../stores/launch";
@@ -32,9 +33,7 @@
   {/if}
 
   {#if $steamLibrary.importResult?.diagnostics.length}
-    <ul class="rounded-xl border border-amber-400/20 bg-amber-400/5 px-4 py-3 text-xs text-legio-warning" aria-label={t("Diagnostica Steam", $language)}>
-      {#each $steamLibrary.importResult.diagnostics as diagnostic, index (index)}<li>{diagnostic}</li>{/each}
-    </ul>
+    <Callout tone="warning" title={t("Diagnostica Steam", $language)} items={$steamLibrary.importResult.diagnostics} />
   {/if}
 
   <StateBlock

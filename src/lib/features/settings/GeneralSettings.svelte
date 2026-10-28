@@ -7,6 +7,7 @@
   import ToggleSetting from "../../components/ui/ToggleSetting.svelte";
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
   import Button from "../../components/ui/Button.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
   import type { Settings } from "../../services/local-state";
   import { closeSettings } from "../../stores/navigation";
   import { defaultSettings, settings, settingsError, updateSettings } from "../../stores/settings";
@@ -96,6 +97,6 @@
   </SettingsGroup>
 
   {#if saved}
-    <p class="text-sm text-legio-success" role="status">{t("Impostazioni salvate.", $language)}</p>
+    <Callout tone="success" variant="inline" message={t("Impostazioni salvate.", $language)} />
   {/if}
 </section>

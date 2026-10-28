@@ -13,6 +13,7 @@
   import Icon from "../../components/ui/Icon.svelte";
   import IconButton from "../../components/ui/IconButton.svelte";
   import ProgressBar from "../../components/ui/ProgressBar.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
   import { formatBytes } from "../../utils/format";
   import DownloadCover from "./DownloadCover.svelte";
   import { isReorderable, phaseLabel, progressOf, progressTone, statusBadge, statusTone } from "./downloads-model";
@@ -136,7 +137,7 @@
           />
         {/if}
         {#if job.error !== null}
-          <p class="mt-2 break-words text-xs text-legio-error" role="alert">{job.error}</p>
+          <Callout tone="danger" variant="inline" class="mt-2" message={job.error} />
         {/if}
       </div>
 

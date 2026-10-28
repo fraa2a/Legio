@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Callout from "../../components/ui/Callout.svelte";
   import { artworkDemand } from "../../utils/artwork-demand";
   import { t, language } from "../../i18n";
   import type { Snippet } from "svelte";
@@ -109,7 +110,5 @@
 {/if}
 
 {#if caption && (visibleStale || visibleWarning !== null)}
-  <p class="mt-1 text-xs text-legio-warning">
-    {visibleWarning ?? t("Immagine servita dalla cache locale.", $language)}
-  </p>
+  <Callout tone="warning" variant="inline" class="mt-1" message={visibleWarning ?? t("Immagine servita dalla cache locale.", $language)} />
 {/if}

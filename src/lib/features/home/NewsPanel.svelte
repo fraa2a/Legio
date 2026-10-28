@@ -10,6 +10,7 @@
   import Icon from "../../components/ui/Icon.svelte";
   import IconButton from "../../components/ui/IconButton.svelte";
   import Panel from "../../components/ui/Panel.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
 
   let selected = $state<NewsArticle | null>(null);
   const articles = $derived([...($news.data.feed?.items ?? [])].filter(article => Date.parse(article.publishedAt) <= Date.now()).sort((a,b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt)));
@@ -35,7 +36,7 @@
     {:else}
       <p class="text-sm text-zinc-400 light:text-zinc-600" role="status">{$news.status === "idle" || $news.status === "loading" ? t("Caricamento novità...", $language) : t("Nessuna novità disponibile.", $language)}</p>
     {/if}
-    {#if $news.data.warning || $news.error}<p role="status" class="mt-3 text-xs text-legio-warning">{t("Non è stato possibile aggiornare le novità. Le notizie salvate restano disponibili.", $language)}</p>{/if}
+    {#if $news.data.warning || $news.error}<Callout tone="warning" variant="inline" class="mt-3" message={t("Non è stato possibile aggiornare le novità. Le notizie salvate restano disponibili.", $language)} />{/if}
   </div>
 </Panel>
 {#if selected}

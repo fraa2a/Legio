@@ -20,6 +20,7 @@
   import Dialog from "../../components/ui/Dialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import TextField from "../../components/ui/TextField.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
   import SteamArtwork from "./SteamArtwork.svelte";
   import { showToast } from "../../stores/toast";
 
@@ -152,13 +153,13 @@
         {#if previewPending}
           <p class="text-xs text-zinc-400" role="status">{t("Rilevamento del gioco su Steam...", $language)}</p>
         {:else if previewError !== null}
-          <p class="text-xs text-legio-warning">{t("Rilevamento non disponibile: {0}", $language, [previewError])}</p>
+          <Callout tone="warning" variant="inline" message={t("Rilevamento non disponibile: {0}", $language, [previewError])} />
         {:else if preview?.status === "no_match"}
           <p class="text-xs text-zinc-500">{t("Nessuna corrispondenza esatta. Cerca il gioco per nome.", $language)}</p>
         {:else if preview?.status === "unavailable"}
-          <p class="text-xs text-legio-warning">{t("Rilevamento non disponibile: {0}.", $language, [preview.message ?? t("riprova più tardi", $language)])}</p>
+          <Callout tone="warning" variant="inline" message={t("Rilevamento non disponibile: {0}.", $language, [preview.message ?? t("riprova più tardi", $language)])} />
         {:else if preview?.status === "matched"}
-          <p class="text-xs text-legio-success">{t("Gioco Steam rilevato automaticamente. Puoi cambiarlo con la ricerca.", $language)}</p>
+          <Callout tone="success" variant="inline" message={t("Gioco Steam rilevato automaticamente. Puoi cambiarlo con la ricerca.", $language)} />
         {/if}
         {#if preview?.status === "ambiguous"}
           <div class="flex flex-wrap gap-2" aria-label={t("Corrispondenze Steam", $language)}>
@@ -175,7 +176,7 @@
             <div class="min-w-0">
               <p class="truncate text-sm font-medium text-zinc-100 light:text-zinc-900">{details?.name ?? selectedSteamGame?.name ?? t("Gioco Steam", $language)}</p>
               <p class="text-xs text-zinc-500">{t("Gioco selezionato", $language)}</p>
-              {#if detailsState?.status === "error"}<p class="text-xs text-legio-warning">{t("Copertina non disponibile.", $language)}</p>{/if}
+              {#if detailsState?.status === "error"}<Callout tone="warning" variant="inline" message={t("Copertina non disponibile.", $language)} />{/if}
             </div>
           </div>
         {/if}
@@ -189,7 +190,7 @@
       disabled={pending}
       oninput={setScanGameName}
     />
-    {#if duplicateName}<p class="text-sm text-legio-warning" role="alert">{t("Il nome è già usato per questo gioco Steam. Scegli un nome diverso.", $language)}</p>{/if}
+    {#if duplicateName}<Callout tone="warning" message={t("Il nome è già usato per questo gioco Steam. Scegli un nome diverso.", $language)} />{/if}
 
     <div class="flex flex-col gap-2 border-t border-white/10 pt-4 light:border-zinc-900/10">
       <span class="text-sm font-medium text-zinc-100 light:text-zinc-900">{t("Eseguibile del gioco", $language)}</span>

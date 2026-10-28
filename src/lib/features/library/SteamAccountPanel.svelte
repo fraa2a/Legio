@@ -14,6 +14,7 @@
   import Panel from "../../components/ui/Panel.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
 
   let { game }: { game: Game } = $props();
 
@@ -96,11 +97,7 @@
   /></div><ResetSetting label={t("Ripristina account Steam", $language)} disabled={pending || loading || selection === noAccount} onClick={() => { selection = noAccount; }} /></div>
 
   {#if $savedSteamAccounts.data.diagnostics.length > 0}
-    <ul class="flex flex-col gap-1 text-xs text-legio-warning">
-      {#each $savedSteamAccounts.data.diagnostics as diagnostic (diagnostic)}
-        <li>{diagnostic}</li>
-      {/each}
-    </ul>
+    <Callout tone="warning" items={$savedSteamAccounts.data.diagnostics} />
   {/if}
 
   {#if actionError !== null}

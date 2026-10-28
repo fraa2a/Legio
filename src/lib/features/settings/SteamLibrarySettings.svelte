@@ -5,6 +5,7 @@
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import ToggleSetting from "../../components/ui/ToggleSetting.svelte";
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
   import { configureSteamScanInterval } from "../../stores/bootstrap";
   import { importSteamLibrary } from "../../stores/steam-library";
   import { defaultSettings, settings, settingsError, updateSettings } from "../../stores/settings";
@@ -68,4 +69,4 @@
       />
     </div><ResetSetting label={t("Ripristina intervallo di controllo", $language)} disabled={saving || $settings.data.steamLibraryPollMinutes === defaultSettings.steamLibraryPollMinutes} onClick={() => void selectInterval(String(defaultSettings.steamLibraryPollMinutes))} /></div>
   </SettingsGroup>
-{#if saved}<p class="text-sm text-legio-success" role="status">{t("Impostazioni salvate.", $language)}</p>{/if}
+{#if saved}<Callout tone="success" variant="inline" message={t("Impostazioni salvate.", $language)} />{/if}

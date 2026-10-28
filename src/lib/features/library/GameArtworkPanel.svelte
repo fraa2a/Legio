@@ -15,6 +15,7 @@
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
   import { refreshSteamImages } from "../../services/steam-details";
   import { loadSteamDetails } from "../../stores/steam-details";
   import { showToast } from "../../stores/toast";
@@ -137,5 +138,5 @@
       </section>
     </div>
   {/if}
-  {#if saved}<p class="text-sm text-legio-success" role="status">{t("Immagine salvata.", $language)}</p>{/if}
+  {#if saved}<Callout tone="success" variant="inline" message={t("Immagine salvata.", $language)} />{/if}
 </Panel>

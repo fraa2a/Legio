@@ -57,7 +57,7 @@
     <div class="flex flex-col gap-2 rounded-lg bg-white/5 p-3 light:bg-zinc-900/5">
       <p class="break-all text-sm text-zinc-200 light:text-zinc-800">{library.root}</p>
       {#if library.warning}
-        <ErrorBanner message={library.warning} />
+        <ErrorBanner message={library.warning} tone="warning" />
         <p class="text-xs text-zinc-400 light:text-zinc-600">{t("La riparazione conserva una copia del catalogo e lo ricostruisce dai dati locali.", $language)}</p>
         <div><Button label={t("Ripara catalogo", $language)} variant="secondary" disabled={pending} onClick={() => void repair(library)} /></div>
       {/if}

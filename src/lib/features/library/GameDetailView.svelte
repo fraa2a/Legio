@@ -36,6 +36,7 @@
   import SteamArtwork from "./SteamArtwork.svelte";
   import SystemRequirements from "./SystemRequirements.svelte";
   import Icon from "../../components/ui/Icon.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
   import DownloadMirrorSelect from "./DownloadMirrorSelect.svelte";
   import GameVersionSelect from "./GameVersionSelect.svelte";
   import AddGameDialog from "./AddGameDialog.svelte";
@@ -277,7 +278,7 @@
               </div>
             </dl>
             {#if storeGame !== null && $source.data.warning !== null}
-              <p class="text-sm text-legio-warning">{$source.data.warning}</p>
+              <Callout tone="warning" variant="inline" message={$source.data.warning} />
             {/if}
           </div>
         </Panel>{/if}

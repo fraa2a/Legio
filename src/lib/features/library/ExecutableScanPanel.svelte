@@ -14,6 +14,7 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Spinner from "../../components/ui/Spinner.svelte";
   import TextField from "../../components/ui/TextField.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
 
   let {
     hint,
@@ -114,7 +115,7 @@
 
   {#if $manualImport.candidates.length > 0}
     {#if $manualImport.suggestedPath === null}
-      <p class="text-sm text-legio-warning">{t("La scansione non ha un candidato chiaro: scegli l'eseguibile da usare.", $language)}</p>
+      <Callout tone="warning" message={t("La scansione non ha un candidato chiaro: scegli l'eseguibile da usare.", $language)} />
     {/if}
     <fieldset class="flex flex-col gap-2" {disabled}>
       <legend class="sr-only">{t("Candidati trovati", $language)}</legend>

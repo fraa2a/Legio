@@ -9,6 +9,7 @@
   import TextField from "../../components/ui/TextField.svelte";
   import ToggleSetting from "../../components/ui/ToggleSetting.svelte";
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
   import {
     emptyCompatibilityDefaults,
     getCompatibilityDefaults,
@@ -176,14 +177,7 @@
     : "NTSync non disponibile sul sistema. Legio usa la sincronizzazione predefinita del runner.", $language)}</p>
   <SettingsGroup icon="wrench" title="Runner">
       {#if runnerDiagnostics.length > 0}
-        <div class="rounded-lg bg-amber-500/10 p-3 text-sm text-legio-warning">
-          <p class="font-medium">{t("Rilevamento runner", $language)}</p>
-          <ul class="mt-2 list-disc pl-5">
-            {#each runnerDiagnostics as diagnostic (diagnostic)}
-              <li>{diagnostic}</li>
-            {/each}
-          </ul>
-        </div>
+        <Callout tone="warning" title={t("Rilevamento runner", $language)} items={runnerDiagnostics} />
       {/if}
       {#if runners.length === 0}
         <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Nessun runner compatibile rilevato.", $language)}</p>
@@ -253,7 +247,7 @@
         <ErrorBanner message={saveError} />
       {/if}
       {#if saved}
-        <p class="text-sm text-legio-success" role="status">{t("Default salvati.", $language)}</p>
+        <Callout tone="success" variant="inline" message={t("Default salvati.", $language)} />
       {/if}
       {#if saving}<p class="text-sm text-zinc-400" role="status">{t("Salvataggio...", $language)}</p>{/if}
     </div>

@@ -4,6 +4,7 @@
   import Badge from "../../components/ui/Badge.svelte";
   import Button from "../../components/ui/Button.svelte";
   import ProgressBar from "../../components/ui/ProgressBar.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
   import { formatBytes, formatDate } from "../../utils/format";
   import DownloadCover from "./DownloadCover.svelte";
   import { progressOf, statusBadge, statusTone } from "./downloads-model";
@@ -49,7 +50,7 @@
           />
         {/if}
         {#if job.error !== null}
-          <p class="mt-2 break-words text-xs text-legio-error" role="alert">{job.error}</p>
+          <Callout tone="danger" variant="inline" class="mt-2" message={job.error} />
         {/if}
       </div>
 
