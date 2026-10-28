@@ -79,7 +79,7 @@ export function defaultAppearance(): Appearance {
   return {
     accent: null, background: null, backgroundBlur: 0, backgroundOpacity: 60,
     animatedBackground: "none", animatedOpacity: 65, dither: defaultDither(),
-    surfaceOpacity: 0, surfaceBlur: 40, dialogOpacity: 0, dialogBlur: 40, transparent: false,
+    ...panelStyles.glass, transparent: false,
   };
 }
 

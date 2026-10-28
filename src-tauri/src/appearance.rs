@@ -100,10 +100,10 @@ impl Default for Appearance {
             animated_background: AnimatedBackground::None,
             animated_opacity: default_animated_opacity(),
             dither: DitherSettings::default(),
-            surface_opacity: 0,
-            surface_blur: 40,
-            dialog_opacity: 0,
-            dialog_blur: 40,
+            surface_opacity: 45,
+            surface_blur: 24,
+            dialog_opacity: 75,
+            dialog_blur: 32,
             transparent: false,
         }
     }
@@ -379,6 +379,21 @@ mod tests {
         assert_eq!(appearance.dither, DitherSettings::default());
         let missing: Appearance = serde_json::from_str("{}").unwrap();
         assert_eq!(missing, Appearance::default());
+    }
+
+    #[test]
+    fn new_installs_default_to_the_glass_panel_style() {
+        // Keep in sync with panelStyles.glass in the frontend appearance service.
+        let defaults = Appearance::default();
+        assert_eq!(
+            (
+                defaults.surface_opacity,
+                defaults.surface_blur,
+                defaults.dialog_opacity,
+                defaults.dialog_blur
+            ),
+            (45, 24, 75, 32)
+        );
     }
 
     #[test]

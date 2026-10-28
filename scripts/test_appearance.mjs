@@ -167,6 +167,10 @@ test("the accent color previews immediately and resets to the palette accent", a
   } finally { await unmount(instance); target.remove(); }
 });
 
+test("new installs start with the glass panel style", () => {
+  assert.equal(appearance.panelStyleOf(appearance.defaultAppearance()), "glass");
+});
+
 test("panel style presets set the surface values and report a match", async () => {
   const base = appearance.defaultAppearance();
   for (const style of ["flat", "glass", "solid"]) assert.equal(appearance.panelStyleOf({ ...base, ...appearance.panelStyles[style] }), style);
@@ -397,10 +401,10 @@ test("closing appearance settings flushes the final draft after a pending save",
   slider.value = "20"; slider.dispatchEvent(new Event("input", { bubbles: true }));
   await new Promise(resolve => setTimeout(resolve, 650)); await settle();
   assert.equal(saved.length, 1);
-  slider.value = "45"; slider.dispatchEvent(new Event("input", { bubbles: true })); await settle();
+  slider.value = "60"; slider.dispatchEvent(new Event("input", { bubbles: true })); await settle();
   await unmount(instance); target.remove();
   pending.shift()(); await settle();
   assert.equal(saved.length, 2, "the final appearance draft must be saved after teardown");
-  assert.equal(saved[1].appearance.surfaceOpacity, 45);
+  assert.equal(saved[1].appearance.surfaceOpacity, 60);
   pending.shift()(); await settle();
 });
