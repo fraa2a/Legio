@@ -16,7 +16,7 @@
   } from "../../stores/launch";
   import { closeGame, openGame, selectSection, selectedGameId, type StoreGameSelection } from "../../stores/navigation";
   import { downloads, queueJob } from "../../stores/downloads";
-  import type { SourceEntry } from "../../services/legio-source";
+  import { checkGameLinks, type SourceEntry } from "../../services/legio-source";
   import { describeDownloadStatus, downloadProgressPercent } from "../../services/downloads";
   import { playtime } from "../../stores/playtime";
   import { refreshSource, source, sourceRefreshError } from "../../stores/source";
@@ -41,7 +41,7 @@
   import AddGameDialog from "./AddGameDialog.svelte";
   import { acquireGameArtwork, gameArtworkRevision } from "../../services/game-artwork";
   import { toMessage } from "../../utils/errors";
-  import { sourceNameFor, sourceReleaseId, sourceReleasesFor } from "../store/source-status";
+  import { reachableReleases, releaseLinks, sourceNameFor, sourceReleaseId, sourceReleasesFor } from "../store/source-status";
   import { nextVersionAfterRemoval } from "./library-model";
 
   let { storeGame = null, gameId = null }: { storeGame?: StoreGameSelection | null; gameId?: string | null } = $props();
@@ -53,18 +53,22 @@
   const launch = $derived(game === null ? undefined : $launchStateByGame.get(game.id));
   const detailsState = $derived(steamAppId === null ? null : ($steamDetails[steamAppId] ?? null));
   const details = $derived(detailsState?.details ?? null);
-  const releases = $derived(steamAppId === null ? [] : sourceReleasesFor($source.data.manifest, steamAppId));
+  const knownReleases = $derived(steamAppId === null ? [] : sourceReleasesFor($source.data.manifest, steamAppId));
+  let linkSizes = $state<Record<string, number> | null>(null);
+  let linkError = $state<string | null>(null);
+  const checkingLinks = $derived(storeGame !== null && knownReleases.length > 0 && linkSizes === null && linkError === null);
+  const releases = $derived(storeGame !== null && linkSizes !== null ? reachableReleases(knownReleases, $source.data.sources, linkSizes) : knownReleases);
   let selectedReleaseId = $state<string | null>(null);
   const status = $derived(releases.find((release) => sourceReleaseId(release.entry) === selectedReleaseId) ?? releases[0] ?? null);
   const entry = $derived(status?.entry ?? null);
   const name = $derived(storeGame !== null ? (entry?.name ?? storeGame.name) : (game?.name ?? ""));
   let selectedMirror = $state("auto");
-  const mirrorUris = $derived(entry === null ? [] : ($source.data.sources.find(origin => origin.id === entry.sourceId)?.candidates?.[entry.id ?? ""] ?? [entry.download.url]));
+  const mirrorUris = $derived(entry === null ? [] : releaseLinks(entry, $source.data.sources).filter(uri => linkSizes === null || uri in linkSizes));
   const job = $derived(storeGame === null || entry === null ? null : ($downloads.data.find((candidate) => candidate.steamAppId === steamAppId && (candidate.sourceId && candidate.sourceEntryId ? candidate.sourceId === entry.sourceId && candidate.sourceEntryId === entry.id : candidate.url === entry.download.url && candidate.releaseVersion === entry.release.version) && candidate.status !== "installed" && candidate.status !== "cancelled") ?? null));
   const downloadProgress = $derived(job === null ? 0 : downloadProgressPercent(job));
   const libraryVersions = $derived(game === null ? [] : $games.data.filter((candidate) => candidate.steamAppId === null ? candidate.id === game.id : candidate.steamAppId === game.steamAppId));
   const versionOptions: ReleaseOption[] = $derived(storeGame !== null
-    ? releases.map((release) => ({ id: sourceReleaseId(release.entry), name: release.entry.name, sourceName: sourceNameFor(release.entry, $source.data.sources), subtitle: t("Versione {0}", $language, [release.entry.release.version]), sizeBytes: release.entry.download.sizeBytes, availability: release.availability }))
+    ? releases.map((release) => ({ id: sourceReleaseId(release.entry), name: release.entry.name, sourceName: sourceNameFor(release.entry, $source.data.sources), subtitle: t("Versione {0}", $language, [release.entry.release.version]), sizeBytes: release.entry.download.sizeBytes ?? (linkSizes === null ? null : releaseLinks(release.entry, $source.data.sources).map(uri => linkSizes?.[uri]).find(size => size !== undefined) ?? null), availability: release.availability }))
     : libraryVersions.map((candidate) => {
       const lastPlayed = $playtime.data.find((summary) => summary.gameId === candidate.id)?.lastPlayedAt ?? null;
       return { id: candidate.id, name: candidate.name, subtitle: lastPlayed === null ? t("Mai giocato", $language) : t("Ultima partita: {0}", $language, [formatDateTime(lastPlayed / 1000, $language)]), isSteam: candidate.steamInstallPath !== null };
@@ -86,6 +90,20 @@
   onMount(() => {
     if (storeGame !== null) return;
     return startVisibleRefresh(() => void playtime.load(), 30000);
+  });
+
+  $effect(() => {
+    void $source.data.manifest;
+    const appId = steamAppId;
+    linkSizes = null;
+    linkError = null;
+    if (storeGame === null || appId === null || knownReleases.length === 0) return;
+    let cancelled = false;
+    checkGameLinks(appId).then(
+      (sizes) => { if (!cancelled) linkSizes = sizes; },
+      (cause: unknown) => { if (!cancelled) linkError = toMessage(cause); },
+    );
+    return () => { cancelled = true; };
   });
 
   $effect(() => {
@@ -245,6 +263,13 @@
       </div>
     </section>
 
+    {#if checkingLinks}
+      <p class="text-xs text-zinc-400" role="status">{t("Verifica dei link di download...", $language)}</p>
+    {:else if linkError !== null}
+      <Callout tone="warning" variant="inline" message={t("Verifica dei link non disponibile: {0}", $language, [linkError])} />
+    {:else if storeGame !== null && linkSizes !== null && knownReleases.length > 0 && releases.length === 0}
+      <Callout tone="warning" variant="inline" message={t("Nessun link di download raggiungibile per questo gioco.", $language)} />
+    {/if}
     {#if storeGame !== null && queueError !== null}
       <ErrorBanner message={queueError} />
     {/if}

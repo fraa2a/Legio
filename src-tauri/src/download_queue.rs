@@ -426,9 +426,7 @@ pub(crate) fn enqueue_prepared(
     let source_rows = crate::legio_source_cache::cached_rows(database)?;
     let source = source_rows.iter().find(|source| source.id == source_id);
     let exact_size = resolved_size
-        .or_else(|| {
-            source.and_then(|source| source.catalog.validated_sizes.get(download_url).copied())
-        })
+        .or(crate::link_check::cached_size(database, download_url)?)
         .or(entry.download.size_bytes)
         .filter(|size| *size > 0)
         .ok_or("The host did not provide a download size")?;
@@ -1651,7 +1649,7 @@ pub async fn queue_download(
     let lookup_url = download_url.clone();
     let lookup_version = release_version.clone();
     let lookup_source = source_id.clone();
-    let (selected_source, entry, mut candidates, sizes, hydra) =
+    let (selected_source, entry, mut candidates, hydra) =
         tauri::async_runtime::spawn_blocking(move || {
             let (origin, entry, verified) = crate::game_updates::find_download(
                 &read_database,
@@ -1683,7 +1681,6 @@ pub async fn queue_download(
                 origin,
                 entry,
                 candidates,
-                origin_catalog.catalog.validated_sizes.clone(),
                 origin_catalog.catalog.format == crate::source_catalog::SourceFormat::Hydra,
             ))
         })
@@ -1704,27 +1701,43 @@ pub async fn queue_download(
     let mirror_plan = if legacy_cdn {
         None
     } else {
+        let expected_size = if hydra {
+            None
+        } else {
+            entry.download.size_bytes
+        };
+        let checked = crate::link_check::check_links(
+            app.state::<DatabaseState>().shared_database()?,
+            &crate::download_resolver::client()?,
+            candidates
+                .iter()
+                .map(|uri| (uri.clone(), expected_size))
+                .collect(),
+        )
+        .await?;
+        let mut first_error = None;
+        let mut usable = Vec::new();
+        for uri in candidates {
+            match checked.get(&uri) {
+                Some(Ok(size)) => usable.push((uri, *size)),
+                Some(Err(error)) => {
+                    first_error.get_or_insert_with(|| error.clone());
+                }
+                None => {}
+            }
+        }
+        let Some((uri, size)) = usable.first() else {
+            return Err(
+                first_error.unwrap_or_else(|| "No supported download links are available".into())
+            );
+        };
+        resolved_size = Some(*size);
+        download_url = uri.clone();
         Some(crate::download_selection::MirrorPlan::new(
-            candidates,
-            if hydra {
-                None
-            } else {
-                entry.download.size_bytes
-            },
+            usable.into_iter().map(|(uri, _)| uri).collect(),
+            expected_size,
         ))
     };
-    if let Some(plan) = mirror_plan.as_ref() {
-        let uri = plan
-            .current()
-            .ok_or("No supported download links are available")?;
-        resolved_size = sizes.get(uri).copied().or(plan.expected_size);
-        if resolved_size.is_none() {
-            return Err(
-                "Refresh this source to validate its download links before downloading".into(),
-            );
-        }
-        download_url = uri.to_owned();
-    }
     let source_id = Some(selected_source);
     let worker_app = app.clone();
     let job = tauri::async_runtime::spawn_blocking(move || {

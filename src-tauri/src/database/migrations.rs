@@ -692,5 +692,18 @@ pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
             )
             .map_err(database_error)?;
     }
+    if version < 33 {
+        transaction
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS link_checks (
+                url TEXT PRIMARY KEY NOT NULL,
+                size_bytes INTEGER,
+                error TEXT,
+                checked_at INTEGER NOT NULL
+             );
+             PRAGMA user_version = 33;",
+            )
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }

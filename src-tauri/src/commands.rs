@@ -7,7 +7,7 @@ use crate::{
         self, AccountCheck, CreateGameInput, DatabaseState, Game, Settings, UpdateGameInput,
     },
     diagnostics::{Diagnostics, LogStatus},
-    legio_source_cache, manual_import,
+    legio_source_cache, link_check, manual_import,
     network::{ConnectivityCheck, NetworkState, NetworkStatus},
     steam_local,
 };
@@ -819,6 +819,14 @@ pub async fn get_legio_source(
     app: AppHandle,
 ) -> Result<legio_source_cache::SourceSnapshot, String> {
     legio_source_cache::cached_source(app).await
+}
+
+#[tauri::command]
+pub async fn check_game_links(
+    app: AppHandle,
+    steam_app_id: u32,
+) -> Result<std::collections::BTreeMap<String, u64>, String> {
+    link_check::check_game(app, steam_app_id).await
 }
 
 #[tauri::command]
