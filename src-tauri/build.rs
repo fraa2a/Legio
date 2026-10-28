@@ -85,6 +85,8 @@ fn main() {
             "remove_download",
             "remove_finished_downloads",
             "reorder_downloads",
+            "get_queue_shutdown",
+            "set_queue_shutdown",
             "open_installed_folder",
             "get_installed_folder_info",
             "refresh_legio_source",

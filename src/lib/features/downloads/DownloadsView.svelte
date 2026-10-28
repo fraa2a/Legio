@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
   import {
+    isActiveDownloadStatus,
     type DownloadJob,
   } from "../../services/downloads";
   import Button from "../../components/ui/Button.svelte";
@@ -28,6 +29,7 @@
   import ActiveDownloadCard from "./ActiveDownloadCard.svelte";
   import CompletedDownloads from "./CompletedDownloads.svelte";
   import DownloadList from "./DownloadList.svelte";
+  import QueueShutdownPanel from "./QueueShutdownPanel.svelte";
   import SystemInfoPanel from "./SystemInfoPanel.svelte";
   import CancelDownloadDialog from "./CancelDownloadDialog.svelte";
   import {
@@ -49,6 +51,9 @@
     [sections.primary, ...sections.processing, ...sections.queue].filter(
       (job): job is DownloadJob => job !== null,
     ),
+  );
+  const hasPendingWork = $derived(
+    $downloads.data.some((job) => isActiveDownloadStatus(job.status) || job.status === "paused"),
   );
   const required = $derived(downloadBytes(pending));
   const networkSpeed = $derived(activeSpeed(pending));
@@ -220,16 +225,19 @@
         {/if}
       </div>
 
-      <SystemInfoPanel
-        folder={$installedFolder.data}
-        status={$installedFolder.status}
-        error={$installedFolder.error}
-        downloadBytes={required}
-        speedBps={networkSpeed}
-        bandwidthLimit={$bandwidthLimit.data}
-        onRetry={() => void installedFolder.load()}
-        onOpenFolder={() => void browseInstalledFolder()}
-      />
+      <div class="flex min-w-0 flex-col gap-4">
+        <QueueShutdownPanel hasPendingWork={hasPendingWork} />
+        <SystemInfoPanel
+          folder={$installedFolder.data}
+          status={$installedFolder.status}
+          error={$installedFolder.error}
+          downloadBytes={required}
+          speedBps={networkSpeed}
+          bandwidthLimit={$bandwidthLimit.data}
+          onRetry={() => void installedFolder.load()}
+          onOpenFolder={() => void browseInstalledFolder()}
+        />
+      </div>
     </div>
 </div>
 

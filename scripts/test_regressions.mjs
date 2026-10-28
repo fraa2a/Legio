@@ -337,6 +337,7 @@ test("hydration waits for startup recovery before loading games and displays fai
     "src/lib/stores/games": fromGlobal("games"),
     "src/lib/stores/playtime": fromGlobal("playtime"),
     "src/lib/stores/downloads": dataModule(["downloads", "bandwidthLimit", "installedFolder"].map((name) => `export const ${name} = globalThis.legioBootstrap.${name};`).join("\n") + "export const startDownloadProgressPolling = () => {};"),
+    "src/lib/stores/queue-shutdown": dataModule("export const startQueueShutdown = async () => {};"),
     "src/lib/stores/source-links": dataModule("export const startSourceLinks = async () => {};"),
     "src/lib/stores/source": dataModule("export const source = globalThis.legioBootstrap.source; export const refreshSource = async () => {};"),
     "src/lib/stores/network": dataModule("export const network = globalThis.legioBootstrap.network; export const checkConnectivity = async () => {};"),

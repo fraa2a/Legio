@@ -576,6 +576,12 @@ pub(crate) fn failure(context: &'static str, error: impl std::fmt::Display) {
     }
 }
 
+pub(crate) fn state_change(context: &'static str, message: &str) {
+    if let Some(log) = APPLICATION_LOG.get() {
+        log.record("info", context, Some(message), None, true);
+    }
+}
+
 pub(crate) fn artwork_summary(message: String) {
     artwork_checkpoint("artwork", message);
 }
