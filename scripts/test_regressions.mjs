@@ -128,6 +128,17 @@ test("language selection preserves regional formatting and interpolates translat
   assert.equal(t("  Chiudi  ", "en"), "  Close  ");
 });
 
+test("date and size formatting follows the app language and keeps a matching system region", async () => {
+  const { regionalLocale, formatDate, formatBytes } = await loadModule("../src/lib/utils/format.ts");
+  assert.equal(regionalLocale("en", ["it-IT", "en-GB", "en-US"]), "en-GB");
+  assert.equal(regionalLocale("it", ["en-US"]), "it");
+  assert.equal(regionalLocale("en", []), "en");
+  assert.equal(formatDate("2026-10-26T12:00:00Z", "it", { month: "long", year: "numeric" }), "ottobre 2026");
+  assert.equal(formatDate("2026-10-26T12:00:00Z", "en", { month: "long", year: "numeric" }), "October 2026");
+  assert.equal(formatBytes(1536 * 1024 * 1024, "it"), "1,5 GB");
+  assert.equal(formatBytes(1536 * 1024 * 1024, "en"), "1.5 GB");
+});
+
 test("Steam image cache preserves artwork identity across metadata timestamps and separates monitor profiles", async () => {
   let requests = 0;
   globalThis.legioInvokeMock = command => {

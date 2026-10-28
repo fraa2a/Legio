@@ -12,7 +12,7 @@
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import ProgressBar from "../../components/ui/ProgressBar.svelte";
-  import { formatBytes } from "../../utils/format";
+  import { formatBytes, formatDate } from "../../utils/format";
   import DownloadCover from "./DownloadCover.svelte";
   import { formatEta, phaseLabel, progressOf, progressTone, statusBadge, statusTone } from "./downloads-model";
 
@@ -83,12 +83,12 @@
           class="h-2.5"
         />
         <div class="mt-2.5 flex flex-wrap gap-x-5 gap-y-1 text-xs text-zinc-400 light:text-zinc-600">
-          <span class="tabular-nums">{formatBytes(job.downloadedBytes)} / {formatBytes(job.sizeBytes)}</span>
+          <span class="tabular-nums">{formatBytes(job.downloadedBytes, $language)} / {formatBytes(job.sizeBytes, $language)}</span>
           {#if downloading}
-            <span class="tabular-nums">{formatBytes(job.speedBps)}/s</span>
+            <span class="tabular-nums">{formatBytes(job.speedBps, $language)}/s</span>
             <span class="tabular-nums">{t("Rimanenti {0}", $language, [formatEta(job.etaSeconds)])}</span>
           {:else if job.status === "installed"}
-            <span>{t("Completato il {0}", $language, [new Date(job.updatedAt * 1000).toLocaleDateString(undefined)])}</span>
+            <span>{t("Completato il {0}", $language, [formatDate(job.updatedAt * 1000, $language)])}</span>
           {/if}
         </div>
       </div>

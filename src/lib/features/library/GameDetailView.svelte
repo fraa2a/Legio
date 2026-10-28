@@ -67,7 +67,7 @@
     ? releases.map((release) => ({ id: sourceReleaseId(release.entry), name: release.entry.name, sourceName: sourceNameFor(release.entry, $source.data.sources), subtitle: t("Versione {0}", $language, [release.entry.release.version]) }))
     : libraryVersions.map((candidate) => {
       const lastPlayed = $playtime.data.find((summary) => summary.gameId === candidate.id)?.lastPlayedAt ?? null;
-      return { id: candidate.id, name: candidate.name, subtitle: lastPlayed === null ? t("Mai giocato", $language) : t("Ultima partita: {0}", $language, [new Date(lastPlayed).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })]), isSteam: candidate.steamInstallPath !== null };
+      return { id: candidate.id, name: candidate.name, subtitle: lastPlayed === null ? t("Mai giocato", $language) : t("Ultima partita: {0}", $language, [formatDateTime(lastPlayed / 1000, $language)]), isSteam: candidate.steamInstallPath !== null };
     }));
   const selectedVersionId = $derived(storeGame !== null ? (entry === null ? "" : sourceReleaseId(entry)) : (game?.id ?? ""));
 
@@ -262,16 +262,16 @@
               </div>
               <div class="flex flex-wrap gap-x-3">
                 <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">{t("Pubblicato", $language)}</dt>
-                <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">{entry?.release.publishedAt == null ? t("non pubblicato", $language) : formatDate(entry.release.publishedAt)}</dd>
+                <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">{entry?.release.publishedAt == null ? t("non pubblicato", $language) : formatDate(entry.release.publishedAt, $language)}</dd>
               </div>
               <div class="flex flex-wrap gap-x-3">
                 <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">{t("Dimensione", $language)}</dt>
-                <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">{entry?.download.sizeBytes == null ? t("Dimensione sconosciuta", $language) : formatBytes(entry.download.sizeBytes)}</dd>
+                <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">{entry?.download.sizeBytes == null ? t("Dimensione sconosciuta", $language) : formatBytes(entry.download.sizeBytes, $language)}</dd>
               </div>
               <div class="flex flex-wrap gap-x-3">
                 <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">Manifest</dt>
                 <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">
-                  {entry === null || $source.data.cachedAt === null ? t("non disponibile", $language) : formatDateTime($source.data.cachedAt)}
+                  {entry === null || $source.data.cachedAt === null ? t("non disponibile", $language) : formatDateTime($source.data.cachedAt, $language)}
                   {#if entry !== null && $source.data.stale} <span class="text-legio-warning">{t("· cache scaduta", $language)}</span>{/if}
                 </dd>
               </div>

@@ -4,7 +4,7 @@
   import Badge from "../../components/ui/Badge.svelte";
   import Button from "../../components/ui/Button.svelte";
   import ProgressBar from "../../components/ui/ProgressBar.svelte";
-  import { formatBytes } from "../../utils/format";
+  import { formatBytes, formatDate } from "../../utils/format";
   import DownloadCover from "./DownloadCover.svelte";
   import { progressOf, statusBadge, statusTone } from "./downloads-model";
 
@@ -23,11 +23,7 @@
   } = $props();
 
   function completedOn(job: DownloadJob): string {
-    return new Date(job.updatedAt * 1000).toLocaleDateString(undefined, {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
+    return formatDate(job.updatedAt * 1000, $language, { day: "numeric", month: "short", year: "numeric" });
   }
 </script>
 
@@ -42,7 +38,7 @@
           <Badge tone={statusTone(job.status)} title={statusBadge(job.status, $language)} />
         </div>
         <p class="mt-0.5 truncate text-xs text-zinc-400 light:text-zinc-600">
-          {t("Versione {0}", $language, [job.releaseVersion])} · {formatBytes(job.sizeBytes)} · {completedOn(job)}
+          {t("Versione {0}", $language, [job.releaseVersion])} · {formatBytes(job.sizeBytes, $language)} · {completedOn(job)}
         </p>
         {#if job.status === "installed"}
           <ProgressBar

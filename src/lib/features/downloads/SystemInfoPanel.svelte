@@ -48,8 +48,8 @@
       <div class="flex flex-col gap-1.5">
         <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Spazio disponibile", $language)}</p>
         <p class="text-sm font-medium tabular-nums text-zinc-50 light:text-zinc-900">
-          {formatBytes(folder.freeBytes)}
-          <span class="font-normal text-zinc-500">{t("su {0}", $language, [formatBytes(folder.totalBytes)])}</span>
+          {formatBytes(folder.freeBytes, $language)}
+          <span class="font-normal text-zinc-500">{t("su {0}", $language, [formatBytes(folder.totalBytes, $language)])}</span>
         </p>
         <ProgressBar
           value={usedPercent}
@@ -65,7 +65,7 @@
       <p
         class="text-sm font-medium tabular-nums {insufficient ? 'text-legio-error' : 'text-zinc-50 light:text-zinc-900'}"
       >
-        {formatBytes(downloadBytes)}
+        {formatBytes(downloadBytes, $language)}
         {#if insufficient}
           <span class="font-normal">{t("· dimensione maggiore dello spazio disponibile", $language)}</span>
         {/if}
@@ -84,10 +84,10 @@
     <div class="flex flex-col gap-1.5 border-t border-white/10 pt-4 light:border-zinc-900/10">
       <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Utilizzo della rete", $language)}</p>
       <p class="text-sm font-medium tabular-nums text-zinc-50 light:text-zinc-900">
-        {formatBytes(speedBps)}/s
+        {formatBytes(speedBps, $language)}/s
       </p>
       <p class="text-xs text-zinc-500 light:text-zinc-500">
-        {bandwidthLimit > 0 ? t("Limite impostato a {0}/s", $language, [formatBytes(bandwidthLimit)]) : t("Nessun limite di banda", $language)}
+        {bandwidthLimit > 0 ? t("Limite impostato a {0}/s", $language, [formatBytes(bandwidthLimit, $language)]) : t("Nessun limite di banda", $language)}
       </p>
     </div>
   </div>

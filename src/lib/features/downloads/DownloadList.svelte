@@ -125,7 +125,7 @@
           <Badge tone={statusTone(job.status)} title={statusBadge(job.status, $language)} />
         </div>
         <p class="mt-0.5 truncate text-xs text-zinc-400 light:text-zinc-600">
-          {t("Versione {0}", $language, [job.releaseVersion])} · {formatBytes(job.sizeBytes)}{#if phase !== null} · {phase}{/if}
+          {t("Versione {0}", $language, [job.releaseVersion])} · {formatBytes(job.sizeBytes, $language)}{#if phase !== null} · {phase}{/if}
         </p>
         {#if job.downloadedBytes > 0}
           <ProgressBar

@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { startVisibleRefresh } from "../../stores/visible-refresh";
   import { t, language } from "../../i18n";
+  import { formatDate } from "../../utils/format";
   import { loadNews, news } from "../../stores/news";
   import type { NewsArticle } from "../../services/news";
   import Dialog from "../../components/ui/Dialog.svelte";
@@ -12,7 +13,7 @@
 
   let selected = $state<NewsArticle | null>(null);
   const articles = $derived([...($news.data.feed?.items ?? [])].filter(article => Date.parse(article.publishedAt) <= Date.now()).sort((a,b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt)));
-  const date = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value));
+  const date = (value: string) => formatDate(value, $language, { dateStyle: "medium" });
   onMount(() => startVisibleRefresh(() => void loadNews(), 15 * 60 * 1000));
 </script>
 
