@@ -35,6 +35,10 @@ export function refreshLegioSource(): Promise<SourceSnapshot> {
   return invoke<SourceSnapshot>("refresh_legio_source");
 }
 
+export function checkGameLinks(steamAppId: number): Promise<Record<string, number>> {
+  return invoke<Record<string, number>>("check_game_links", { steamAppId });
+}
+
 export interface InstalledSource {
   id: string;
   url: string;

@@ -50,6 +50,7 @@ mod launch_journal;
 pub mod legio_source;
 mod legio_source_cache;
 mod library_manifest;
+mod link_check;
 #[cfg(target_os = "linux")]
 mod linux_performance;
 mod local_source;
@@ -448,6 +449,7 @@ fn run_application(
             commands::get_application_log_status,
             commands::report_application_event,
             commands::get_legio_source,
+            commands::check_game_links,
             commands::add_download_source,
             commands::add_local_download_source,
             commands::remove_download_source,

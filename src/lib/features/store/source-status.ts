@@ -79,3 +79,15 @@ export function sourceNameFor(entry: SourceEntry, sources: InstalledSource[]): s
   if (origin === undefined) return undefined;
   return origin.name || new URL(origin.url).hostname;
 }
+
+export function releaseLinks(entry: SourceEntry, sources: InstalledSource[]): string[] {
+  return sources.find(origin => origin.id === entry.sourceId)?.candidates?.[entry.id ?? ""] ?? [entry.download.url];
+}
+
+export function reachableReleases(
+  releases: SourceReleaseStatus[],
+  sources: InstalledSource[],
+  sizes: Record<string, number>,
+): SourceReleaseStatus[] {
+  return releases.filter(release => releaseLinks(release.entry, sources).some(uri => uri in sizes));
+}

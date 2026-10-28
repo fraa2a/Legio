@@ -68,6 +68,7 @@ fn main() {
             "get_application_log_status",
             "report_application_event",
             "get_legio_source",
+            "check_game_links",
             "add_download_source",
             "add_local_download_source",
             "remove_download_source",

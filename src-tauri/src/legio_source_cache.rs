@@ -380,11 +380,6 @@ async fn fetch_catalog(
         tauri::async_runtime::spawn_blocking(move || source_catalog::parse_source(&bytes, &games))
             .await
             .map_err(|error| error.to_string())??;
-    let operation_id = uuid::Uuid::new_v4().to_string();
-    catalog = source_catalog::validate_links(catalog, &crate::download_resolver::client()?, |processed, total| {
-        app.emit("source-import-progress", serde_json::json!({"operationId":operation_id,"processed":processed,"total":total,"phase":"links"})).map_err(|error| error.to_string())
-    }).await?;
-    let validated_sizes = catalog.validated_sizes.clone();
     let Some(raw) = catalog.raw_hydra.take() else {
         return Ok(catalog);
     };
@@ -467,7 +462,6 @@ async fn fetch_catalog(
         }
     }
     let mut result = source_catalog::from_hydra(raw, &[], matches);
-    result.validated_sizes = validated_sizes;
     result.diagnostics.reasons.extend(lookup_failures);
     Ok(result)
 }
@@ -777,10 +771,8 @@ mod tests {
         entry.download.sha256 = None;
         entry.download.size_bytes = None;
         manifest.unverified.push(entry);
-        let mut catalog = SourceCatalog::native(manifest);
-        catalog
-            .validated_sizes
-            .insert("https://example.invalid/a.zip".into(), 123);
+        let catalog = SourceCatalog::native(manifest);
+        crate::link_check::store_for_test(&database, "https://example.invalid/a.zip", 123);
         let location = reqwest::Url::from_file_path(directory.join("converted.json")).unwrap();
         insert_catalog(&database, location.as_str(), catalog, 100).unwrap();
         let installed = snapshot(&database, 101).unwrap();
