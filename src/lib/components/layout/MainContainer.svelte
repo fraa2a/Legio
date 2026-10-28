@@ -82,7 +82,7 @@
       <div
         bind:this={page}
         data-page={displayedTarget}
-        class="absolute inset-0 overflow-y-auto scrollbar-none"
+        class="absolute inset-0 overflow-y-auto"
       >
         {#if displayedTarget === "home"}
           <HomeView />
