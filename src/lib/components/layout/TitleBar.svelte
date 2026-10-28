@@ -23,7 +23,7 @@
   import { addGameDialogOpen, libraryPortrait, libraryQuery, storeQuery } from "../../stores/library-ui";
   import { runCatalogSearch } from "../../stores/catalog";
   import { refreshSource } from "../../stores/source";
-  import { updateSettings } from "../../stores/settings";
+  import { settings, updateSettings } from "../../stores/settings";
   import { showToast } from "../../stores/toast";
   import { toMessage } from "../../utils/errors";
 
@@ -52,7 +52,8 @@
   const storeGame = $derived($activeSection === "store" ? $selectedStoreGame : null);
   const detail = $derived(storeGame ?? game);
   const backLabel = $derived(storeGame !== null ? t("Risultati", $language) : t("Libreria", $language));
-  const title = $derived(detail?.name ?? t(sectionLabels[$activeSection], $language));
+  const onboarding = $derived($settings.status === "ready" && !$settings.data.onboardingCompleted);
+  const title = $derived(onboarding ? t("Configurazione iniziale", $language) : (detail?.name ?? t(sectionLabels[$activeSection], $language)));
   const libraryList = $derived($activeSection === "library" && $selectedGameId === null);
   const storeList = $derived($activeSection === "store" && $selectedStoreGame === null);
   const searchList = $derived(libraryList || storeList);
