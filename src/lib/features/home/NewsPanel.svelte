@@ -21,7 +21,7 @@
   {#snippet actions()}
     <IconButton label={t("Aggiorna novità", $language)} title={t("Aggiorna", $language)} onClick={() => void loadNews(true)}><Icon name="reload" size="size-4" /></IconButton>
   {/snippet}
-  <div class="min-h-0 overflow-auto">
+  <div class="min-h-0 overflow-auto [mask-image:linear-gradient(to_bottom,black_calc(100%-1.25rem),transparent)]">
     {#if articles.length > 0}
       <ul class="flex flex-col divide-y divide-white/10 light:divide-zinc-900/10">
         {#each articles.slice(0, 20) as article (article.id)}

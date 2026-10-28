@@ -16,7 +16,7 @@
     if (tone === "warning") return "bg-amber-500/15 text-amber-300 light:text-amber-800";
     if (tone === "danger") return "bg-red-500/15 text-red-300 light:text-red-700";
     if (tone === "info") return "bg-sky-500/15 text-sky-300 light:text-sky-800";
-    return "bg-white/10 text-zinc-300 light:bg-zinc-200 light:text-zinc-700";
+    return "bg-white/10 text-zinc-300 light:bg-zinc-900/10 light:text-zinc-700";
   });
 </script>
 
