@@ -12,6 +12,7 @@ use crate::{database::DatabaseState, download_queue::DownloadQueueState};
 
 const COUNTDOWN: Duration = Duration::from_secs(30);
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
+#[cfg(target_os = "linux")]
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,6 +189,17 @@ const POWER_OFF_COMMANDS: &[&[&str]] = &[&[
     "tell application \"System Events\" to shut down",
 ]];
 
+#[cfg(target_os = "linux")]
+fn run(request: &mut Command) -> Result<std::process::Output, String> {
+    crate::process_output::capture(request, COMMAND_TIMEOUT).map_err(str::to_owned)
+}
+
+// The Windows and macOS commands return as soon as the shutdown is requested.
+#[cfg(not(target_os = "linux"))]
+fn run(request: &mut Command) -> Result<std::process::Output, String> {
+    request.output().map_err(|error| error.to_string())
+}
+
 fn power_off() -> Result<(), String> {
     let mut last = "No shutdown command is available".to_owned();
     for command in POWER_OFF_COMMANDS {
@@ -196,7 +208,7 @@ fn power_off() -> Result<(), String> {
         };
         let mut request = Command::new(program);
         request.args(arguments);
-        match crate::process_output::capture(&mut request, COMMAND_TIMEOUT) {
+        match run(&mut request) {
             Ok(output) if output.status.success() => return Ok(()),
             Ok(output) => {
                 last = format!(
