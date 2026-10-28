@@ -19,6 +19,7 @@ pub enum AnimatedBackground {
     None,
     Particles,
     Dither,
+    Aurora,
 }
 
 impl<'de> Deserialize<'de> for AnimatedBackground {
@@ -30,6 +31,7 @@ impl<'de> Deserialize<'de> for AnimatedBackground {
         Ok(match value.as_str() {
             "particles" => Self::Particles,
             "dither" => Self::Dither,
+            "aurora" => Self::Aurora,
             _ => Self::None,
         })
     }
@@ -74,6 +76,7 @@ impl Default for DitherSettings {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Appearance {
+    pub accent: Option<String>,
     pub background: Option<String>,
     pub background_blur: u8,
     pub background_opacity: u8,
@@ -90,16 +93,17 @@ pub struct Appearance {
 impl Default for Appearance {
     fn default() -> Self {
         Self {
+            accent: None,
             background: None,
             background_blur: 0,
             background_opacity: 60,
             animated_background: AnimatedBackground::None,
             animated_opacity: default_animated_opacity(),
             dither: DitherSettings::default(),
-            surface_opacity: 0,
-            surface_blur: 40,
-            dialog_opacity: 0,
-            dialog_blur: 40,
+            surface_opacity: 45,
+            surface_blur: 24,
+            dialog_opacity: 75,
+            dialog_blur: 32,
             transparent: false,
         }
     }
@@ -118,6 +122,9 @@ pub(crate) fn validate(appearance: &Appearance) -> Result<(), String> {
     }
     if let Some(id) = &appearance.background {
         validate_id(id)?;
+    }
+    if let Some(color) = &appearance.accent {
+        validate_color(color)?;
     }
     validate_dither(&appearance.dither)
 }
@@ -156,7 +163,7 @@ fn validate_color(color: &str) -> Result<(), String> {
     if hex {
         Ok(())
     } else {
-        Err("Dither colors must be hex values such as #ff8800".to_owned())
+        Err("Colors must be hex values such as #ff8800".to_owned())
     }
 }
 
@@ -375,6 +382,21 @@ mod tests {
     }
 
     #[test]
+    fn new_installs_default_to_the_glass_panel_style() {
+        // Keep in sync with panelStyles.glass in the frontend appearance service.
+        let defaults = Appearance::default();
+        assert_eq!(
+            (
+                defaults.surface_opacity,
+                defaults.surface_blur,
+                defaults.dialog_opacity,
+                defaults.dialog_blur
+            ),
+            (45, 24, 75, 32)
+        );
+    }
+
+    #[test]
     fn unknown_animated_background_falls_back_to_none() {
         let unknown: Appearance =
             serde_json::from_str(r#"{"animatedBackground": "retro-glow"}"#).unwrap();
@@ -383,6 +405,7 @@ mod tests {
             AnimatedBackground::None,
             AnimatedBackground::Particles,
             AnimatedBackground::Dither,
+            AnimatedBackground::Aurora,
         ] {
             let encoded = serde_json::to_string(&background).unwrap();
             assert_eq!(
@@ -496,5 +519,32 @@ mod tests {
             ..Appearance::default()
         };
         assert!(validate(&wave_color).is_ok());
+    }
+
+    #[test]
+    fn accent_color_must_be_a_hex_value() {
+        for accent in ["#c8893a", "#FFFFFF"] {
+            let valid = Appearance {
+                accent: Some(accent.to_owned()),
+                ..Appearance::default()
+            };
+            assert!(validate(&valid).is_ok());
+        }
+        for accent in [
+            "c8893a",
+            "#c8893",
+            "#c8893g",
+            "red",
+            "#c8893a; x",
+            "#é8893a",
+        ] {
+            let invalid = Appearance {
+                accent: Some(accent.to_owned()),
+                ..Appearance::default()
+            };
+            assert!(validate(&invalid).is_err(), "{accent}");
+        }
+        let missing: Appearance = serde_json::from_str("{}").unwrap();
+        assert_eq!(missing.accent, None);
     }
 }

@@ -24,6 +24,7 @@
   import SelectField from "../../components/ui/SelectField.svelte";
   import TextField from "../../components/ui/TextField.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
   import { createSaveQueue } from "../../services/save-queue";
   import { toMessage } from "../../utils/errors";
   import { pickGameDirectory } from "../../services/dialog";
@@ -334,15 +335,13 @@
       </div>
     </div>
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
-    {#if saved}<p class="text-sm text-legio-success" role="status">{t("Percorsi salvati.", $language)}</p>{/if}
+    {#if saved}<Callout tone="success" variant="inline" message={t("Percorsi salvati.", $language)} />{/if}
   {:else if compatibilityGame && section === "compatibility"}
     <Toggle label={t("Avvio con Steam", $language)} checked={overrides.launchViaSteam ?? (game.steamAppId !== null)} onChange={(checked) => setOverride("launchViaSteam", checked)} />
     <p class="text-xs text-zinc-500">{t("Avvia Steam e il gioco con Proton usando il prefix della sezione Posizioni. Runtime e overlay vengono applicati automaticamente quando disponibili.", $language)}</p>
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Ogni campo eredita il default globale finché il relativo override resta disattivato. Una lista o una mappa vuota cancella il valore ereditato.", $language)}</p>
     {#if runnerDiagnostics.length > 0}
-      <div class="rounded-lg bg-amber-500/10 p-3 text-sm text-legio-warning">
-        {#each runnerDiagnostics as diagnostic (diagnostic)}<p>{diagnostic}</p>{/each}
-      </div>
+      <Callout tone="warning" title={t("Rilevamento runner", $language)} items={runnerDiagnostics} />
     {/if}
     <div class="flex flex-col gap-2">
       <h3 class="text-lg font-semibold text-zinc-100 light:text-zinc-900">{t("Versione Proton", $language)}</h3>
@@ -412,7 +411,7 @@
     </div>
 
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
-    {#if saved}<p class="text-sm text-legio-success" role="status">{t("Impostazioni salvate.", $language)}</p>{/if}
+    {#if saved}<Callout tone="success" variant="inline" message={t("Impostazioni salvate.", $language)} />{/if}
     <div class="flex flex-wrap gap-2">
       <Button label={t("Ripristina default globali", $language)} variant="secondary" disabled={saving} onClick={resetCompatibility} />
     </div>
@@ -429,19 +428,19 @@
       </div>
     </div>
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
-    {#if saved}<p class="text-sm text-legio-success" role="status">{t("Argomenti salvati.", $language)}</p>{/if}
+    {#if saved}<Callout tone="success" variant="inline" message={t("Argomenti salvati.", $language)} />{/if}
   {:else if !compatibilityGame && section === "launch"}
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Aggiungi argomenti di avvio. Racchiudi tra virgolette i valori che contengono spazi.", $language)}</p>
     <TextField id="native-arguments" label={t("Opzioni di avvio", $language)} value={nativeArguments} placeholder="-windowed -novid" oninput={(value) => (nativeArguments = value)} />
     <TextField id="native-environment" type="textarea" rows={4} label={t("Variabili ambiente", $language)} bind:value={nativeEnvironmentText} hint={t("Una voce KEY=VALUE per riga. Applicate solo all'avvio di questo gioco.", $language)} />
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
-    {#if saved}<p class="text-sm text-legio-success" role="status">{t("Argomenti salvati.", $language)}</p>{/if}
+    {#if saved}<Callout tone="success" variant="inline" message={t("Argomenti salvati.", $language)} />{/if}
   {:else if !compatibilityGame}
     {#if section === "locations"}
       <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Imposta la cartella iniziale del processo per questo gioco.", $language)}</p>
       <TextField id="native-working-directory" label={t("Cartella di lavoro", $language)} value={nativeWorkingDirectory} placeholder={t("Cartella dell'eseguibile", $language)} oninput={(value) => (nativeWorkingDirectory = value)} />
       {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
-      {#if saved}<p class="text-sm text-legio-success" role="status">{t("Percorso salvato.", $language)}</p>{/if}
+      {#if saved}<Callout tone="success" variant="inline" message={t("Percorso salvato.", $language)} />{/if}
     {:else}
       <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Le opzioni di compatibilità aggiuntive non sono disponibili per i runner nativi. Configura gli argomenti di avvio in Generali.", $language)}</p>
     {/if}

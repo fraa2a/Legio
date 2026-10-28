@@ -46,7 +46,7 @@ export const availabilityMeta: Record<
   },
   unavailable: {
     label: "Non disponibile",
-    tone: "danger",
+    tone: "neutral",
   },
   unknown: {
     label: "Sconosciuto",

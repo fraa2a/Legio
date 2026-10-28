@@ -4,6 +4,7 @@
   import { toMessage } from "../../utils/errors";
   import { cachedCatalogSearch, refreshCatalogCached, searchCatalog, type CatalogGame } from "../../services/catalog";
   import TextField from "../../components/ui/TextField.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
 
   let { id, value = $bindable(""), disabled = false, onSelect, onQueryChange }: {
     id: string;
@@ -76,7 +77,7 @@
   {:else if searchStatus === "empty" && searchError === null}
     <p class="text-xs text-zinc-500">{t("Nessun risultato per questa ricerca.", $language)}</p>
   {/if}
-  {#if searchError !== null}<p class="text-xs text-legio-warning">{t("Ricerca non disponibile: {0}", $language, [searchError])}</p>{/if}
+  {#if searchError !== null}<Callout tone="warning" variant="inline" message={t("Ricerca non disponibile: {0}", $language, [searchError])} />{/if}
   {#if searchResults.length > 0 && value.trim().length >= 2}
     <ul class="max-h-36 overflow-y-auto rounded-lg border border-white/10 bg-white/5 light:border-zinc-900/10 light:bg-white" aria-label={t("Risultati Steam", $language)}>
       {#each searchResults as result (result.steamAppId)}

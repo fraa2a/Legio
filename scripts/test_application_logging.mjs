@@ -87,7 +87,7 @@ test("Steam image display failures log safe asset context and keep a stable fall
     target.querySelector("img").dispatchEvent(new Event("error"));
     await settle(); flushSync();
     assert.equal(target.querySelector("img"), null);
-    assert.equal(target.querySelector('[role="status"]'), null, "a rejected image must leave the loading state");
+    assert.equal(target.querySelector('.sr-only[role="status"]'), null, "a rejected image must leave the loading state");
     const images = await import(await loader.load("src/lib/services/steam-details.ts"));
     images.steamImageRevision.update(value => value + 1);
     await settle(); flushSync();

@@ -171,6 +171,11 @@ pub enum Theme {
     System,
     Dark,
     Light,
+    Bronze,
+    Crimson,
+    Steel,
+    Emerald,
+    Sand,
 }
 
 impl Theme {
@@ -179,6 +184,11 @@ impl Theme {
             "system" | "eggplant" | "ocean" | "forest" | "amber" | "custom" => Ok(Self::System),
             "dark" => Ok(Self::Dark),
             "light" => Ok(Self::Light),
+            "bronze" => Ok(Self::Bronze),
+            "crimson" => Ok(Self::Crimson),
+            "steel" => Ok(Self::Steel),
+            "emerald" => Ok(Self::Emerald),
+            "sand" => Ok(Self::Sand),
             _ => Err(format!("stored theme is invalid: {value}")),
         }
     }
@@ -188,6 +198,11 @@ impl Theme {
             Self::System => "system",
             Self::Dark => "dark",
             Self::Light => "light",
+            Self::Bronze => "bronze",
+            Self::Crimson => "crimson",
+            Self::Steel => "steel",
+            Self::Emerald => "emerald",
+            Self::Sand => "sand",
         }
     }
 }
@@ -1547,6 +1562,28 @@ mod tests {
         );
         drop(state);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn named_palettes_round_trip_and_legacy_names_still_map_to_system() {
+        for theme in [
+            Theme::System,
+            Theme::Dark,
+            Theme::Light,
+            Theme::Bronze,
+            Theme::Crimson,
+            Theme::Steel,
+            Theme::Emerald,
+            Theme::Sand,
+        ] {
+            assert_eq!(Theme::parse(theme.as_str()).unwrap(), theme);
+            let encoded = serde_json::to_string(&theme).unwrap();
+            assert_eq!(serde_json::from_str::<Theme>(&encoded).unwrap(), theme);
+        }
+        for legacy in ["eggplant", "ocean", "forest", "amber", "custom"] {
+            assert_eq!(Theme::parse(legacy).unwrap(), Theme::System);
+        }
+        assert!(Theme::parse("neon").is_err());
     }
 
     #[test]

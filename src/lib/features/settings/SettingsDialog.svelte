@@ -3,7 +3,6 @@
   import SettingsNavigation from "../../components/ui/SettingsNavigation.svelte";
   import CloseButton from "../../components/ui/CloseButton.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
-  import type { IconName } from "../../components/ui/Icon.svelte";
   import { settingsCategory } from "../../stores/navigation";
   import LibrarySourcesSettings from "./LibrarySourcesSettings.svelte";
   import DownloadSettings from "./DownloadSettings.svelte";
@@ -11,18 +10,12 @@
   import AdvancedSettings from "./AdvancedSettings.svelte";
   import ThemeSettings from "./ThemeSettings.svelte";
   import GeneralSettings from "./GeneralSettings.svelte";
+  import { settingsCategories } from "./settings-categories";
   import { appInfo } from "../../stores/app-info";
 
   let { onClose, accent }: { onClose: () => void; accent: string } = $props();
 
-  const categories: { id: string; label: string; icon: IconName }[] = $derived([
-    { id: "general", label: t("Generali", $language), icon: "settings" },
-    { id: "appearance", label: t("Aspetto", $language), icon: "palette" },
-    { id: "downloads", label: "Download", icon: "downloads" },
-    { id: "libraries", label: t("Librerie e sorgenti", $language), icon: "folder" },
-    ...($appInfo.data.platform === "linux" ? [{ id: "compatibility", label: t("Compatibilità", $language), icon: "wrench" } as const] : []),
-    { id: "advanced", label: t("Avanzate", $language), icon: "info" },
-  ] as const);
+  const categories = $derived(settingsCategories($appInfo.data.platform).map((category) => ({ ...category, label: t(category.label, $language) })));
 
   const requested = $derived($settingsCategory === "sources" ? "libraries" : $settingsCategory);
   const active = $derived(categories.some(category => category.id === requested) ? requested : "general");

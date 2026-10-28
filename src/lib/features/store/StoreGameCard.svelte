@@ -94,9 +94,9 @@
           {#if entry !== null}
             <span
               class="whitespace-nowrap text-xs tabular-nums text-zinc-400 light:text-zinc-500"
-              title="{t("Versione {0}", $language, [entry.release.version])} · {entry.download.sizeBytes == null ? t("Dimensione sconosciuta", $language) : formatBytes(entry.download.sizeBytes)}"
+              title="{t("Versione {0}", $language, [entry.release.version])} · {entry.download.sizeBytes == null ? t("Dimensione sconosciuta", $language) : formatBytes(entry.download.sizeBytes, $language)}"
             >
-              {entry.release.version} · {entry.download.sizeBytes == null ? t("Dimensione sconosciuta", $language) : formatBytes(entry.download.sizeBytes)}
+              {entry.release.version} · {entry.download.sizeBytes == null ? t("Dimensione sconosciuta", $language) : formatBytes(entry.download.sizeBytes, $language)}
             </span>
           {/if}
           <Badge tone={meta.tone} title={t(meta.label, $language)} />

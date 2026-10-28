@@ -6,6 +6,7 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
   import type { CatalogSort, CatalogAvailability } from "../../services/catalog";
   import type { Settings } from "../../services/local-state";
   import { catalog, loadMoreCatalog, runCatalogSearch } from "../../stores/catalog";
@@ -111,7 +112,7 @@
     {/if}
     {#if filterError !== null}<ErrorBanner message={filterError} />{/if}
 
-    {#if $source.data.warning}<p class="text-xs text-legio-warning">{$source.data.warning}</p>{/if}
+    {#if $source.data.warning}<Callout tone="warning" message={$source.data.warning} />{/if}
 
     {#if $catalog.error && $catalog.status !== "error"}
       <ErrorBanner message={$catalog.error}
@@ -155,6 +156,9 @@
       status={listStatus}
       hasData={entries.length > 0}
       loadingMessage={t("Ricerca in corso...", $language)}
+      skeletonRows={4}
+      skeletonClass="h-28"
+      emptyIcon="search"
       {emptyMessage}
       error={$catalog.error}
       onRetry={() => void runCatalogSearch($storeQuery, options, true)}

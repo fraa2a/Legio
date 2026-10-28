@@ -3,12 +3,13 @@
   import { onDestroy } from "svelte";
   import { loadBackground, type DitherSettings } from "../../services/appearance";
   import AnimatedBackground from "./AnimatedBackground.svelte";
+  import AuroraBackground from "./AuroraBackground.svelte";
   import DitherBackground from "./DitherBackground.svelte";
   import { toMessage } from "../../utils/errors";
 
   let { id, animation, animationOpacity, accent, dither, active = true }: {
     id: string | null;
-    animation: "none" | "particles" | "dither";
+    animation: "none" | "particles" | "dither" | "aurora";
     animationOpacity: number;
     accent: string;
     dither: DitherSettings;
@@ -70,6 +71,8 @@
   {#if url}<img src={url} alt="" class="legio-wallpaper" onerror={imageFailed} />{/if}
   {#if animationOpacity > 0 && animation === "dither"}
     <DitherBackground opacity={animationOpacity} settings={dither} {accent} {active} />
+  {:else if animationOpacity > 0 && animation === "aurora"}
+    <AuroraBackground opacity={animationOpacity} color={accent} {active} />
   {:else if animationOpacity > 0 && animation !== "none"}
     {#key animation + accent}<AnimatedBackground opacity={animationOpacity} color={accent} {active} />{/key}
   {/if}

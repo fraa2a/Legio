@@ -4,6 +4,8 @@
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ChevronLeft from "@lucide/svelte/icons/chevron-left";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
+  import CircleAlert from "@lucide/svelte/icons/circle-alert";
+  import CircleCheck from "@lucide/svelte/icons/circle-check";
   import Clock from "@lucide/svelte/icons/clock";
   import Download from "@lucide/svelte/icons/download";
   import Folder from "@lucide/svelte/icons/folder";
@@ -45,6 +47,8 @@
     "image": Image,
     "wrench": Wrench,
     "warning": TriangleAlert,
+    "danger": CircleAlert,
+    "success": CircleCheck,
     "play": Play,
     "pause": Pause,
     "download": Download,

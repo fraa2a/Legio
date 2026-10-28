@@ -6,6 +6,7 @@
   import TextField from "../../components/ui/TextField.svelte";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
   import { source, sourceBusy, sourceActionError, sourceRefreshError, addLocalSource, addSource, removeSource, refreshSource } from "../../stores/source";
   import { pickSourceFile } from "../../services/dialog";
   import { toMessage } from "../../utils/errors";
@@ -61,16 +62,19 @@
           <li class="flex flex-col gap-3 rounded-lg bg-white/5 p-3 light:bg-zinc-900/5">
             <p class="text-sm font-medium text-zinc-100 light:text-zinc-900">{installed.name ?? installed.url} {installed.format === "hydra" ? "(Hydra)" : ""} {installed.isLocal ? t("(file locale)", $language) : ""}</p>
             {#if installed.diagnostics}
-              {#if installed.diagnostics.unresolved > 0}<p class="text-xs text-legio-warning">{installed.diagnostics.unresolved} {t("titoli non identificati", $language)}</p>{/if}
-              {#if installed.diagnostics.rejected > 0}<p class="text-xs text-legio-warning">{installed.diagnostics.rejected} {t("voci non valide", $language)}</p>{/if}
-              {#if installed.diagnostics.unsupported > 0}<p class="text-xs text-zinc-400">{installed.diagnostics.unsupported} {t("link non supportati", $language)}</p>{/if}
+              {@const problems = [
+                ...(installed.diagnostics.unresolved > 0 ? [`${installed.diagnostics.unresolved} ${t("titoli non identificati", $language)}`] : []),
+                ...(installed.diagnostics.rejected > 0 ? [`${installed.diagnostics.rejected} ${t("voci non valide", $language)}`] : []),
+              ]}
+              {#if problems.length > 0}<Callout tone="warning" variant="inline" items={problems} />{/if}
+              {#if installed.diagnostics.unsupported > 0}<Callout tone="info" variant="inline" message="{installed.diagnostics.unsupported} {t("link non supportati", $language)}" />{/if}
             {/if}
             <p class="break-all text-sm text-zinc-100 light:text-zinc-900">{installed.url}</p>
             <div class="flex flex-wrap items-center justify-between gap-3">
               <p class="text-xs text-zinc-400 light:text-zinc-600">{installed.gameCount} {t("giochi", $language)} · {t(installed.stale ? "Cache da aggiornare" : "Aggiornata", $language)}</p>
               <Button label={t("Rimuovi", $language)} variant="secondary" disabled={$sourceBusy} onClick={() => { void removeSource(installed.id); }} />
             </div>
-            {#if installed.warning}<ErrorBanner message={installed.warning} />{/if}
+            {#if installed.warning}<ErrorBanner message={installed.warning} tone="warning" />{/if}
           </li>
         {/each}
       </ul>
@@ -79,7 +83,7 @@
       </div>
     {/if}
     {#if $sourceRefreshError}<ErrorBanner message={$sourceRefreshError} />{/if}
-    {#if $source.data.warning}<ErrorBanner message={$source.data.warning} />{/if}
+    {#if $source.data.warning}<ErrorBanner message={$source.data.warning} tone="warning" />{/if}
   </SettingsGroup>
   <p class="text-xs text-zinc-500">{t("Puoi aggiungere una sorgente anche aprendo un collegamento legio://add-source?url=... dopo il primo avvio di Legio.", $language)}</p>
   {#if $sourceLinkRegistrationError}<ErrorBanner message={$sourceLinkRegistrationError} />{/if}

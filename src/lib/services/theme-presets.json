@@ -16,5 +16,55 @@
       "background": "#e4e4e7", "surface": "#fafafa", "raised": "#ffffff",
       "text": "#18181b", "muted": "#71717a", "accent": "#18181b"
     }
+  },
+  {
+    "id": "bronze",
+    "name": "Bronzo",
+    "scheme": "dark",
+    "palette": {
+      "background": "#0b0a09", "surface": "#16130f", "raised": "#211c16",
+      "text": "#f5efe6", "muted": "#a39a8c", "accent": "#c8893a"
+    },
+    "tint": { "hue": 70, "chroma": 0.012 }
+  },
+  {
+    "id": "crimson",
+    "name": "Cremisi",
+    "scheme": "dark",
+    "palette": {
+      "background": "#0c0709", "surface": "#181013", "raised": "#241820",
+      "text": "#f6eef0", "muted": "#a8929a", "accent": "#d1384f"
+    },
+    "tint": { "hue": 5, "chroma": 0.014 }
+  },
+  {
+    "id": "steel",
+    "name": "Acciaio",
+    "scheme": "dark",
+    "palette": {
+      "background": "#070a10", "surface": "#0f1520", "raised": "#182030",
+      "text": "#e8eef7", "muted": "#8a97ab", "accent": "#5b8def"
+    },
+    "tint": { "hue": 255, "chroma": 0.016 }
+  },
+  {
+    "id": "emerald",
+    "name": "Smeraldo",
+    "scheme": "dark",
+    "palette": {
+      "background": "#060b09", "surface": "#0e1613", "raised": "#16221d",
+      "text": "#e9f3ee", "muted": "#8aa397", "accent": "#34c38f"
+    },
+    "tint": { "hue": 165, "chroma": 0.014 }
+  },
+  {
+    "id": "sand",
+    "name": "Sabbia",
+    "scheme": "light",
+    "palette": {
+      "background": "#ede8df", "surface": "#f7f3ec", "raised": "#fffdf8",
+      "text": "#1d1a16", "muted": "#6b6257", "accent": "#8a4f0f"
+    },
+    "tint": { "hue": 80, "chroma": 0.012 }
   }
 ]

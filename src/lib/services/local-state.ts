@@ -2,7 +2,7 @@ import { invoke } from "./invoke";
 
 import type { Appearance } from "./appearance";
 
-export type Theme = "system" | "dark" | "light";
+export type Theme = "system" | "dark" | "light" | "bronze" | "crimson" | "steel" | "emerald" | "sand";
 
 export interface Settings {
   discordPresence: { enabled: boolean };

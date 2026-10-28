@@ -8,6 +8,7 @@
   import StateBlock from "../../components/ui/StateBlock.svelte";
   import { getPlaytimeActivity } from "../../services/playtime";
   import { createResource } from "../../stores/resource";
+  import { formatDate } from "../../utils/format";
   import { activityIntensity, formatPlaytime, monthCalendar } from "./home-model";
 
   let now = $state(new Date());
@@ -21,7 +22,7 @@
     const boundaries = calendar.boundaries;
     return createResource<number[] | null>(null, () => getPlaytimeActivity(boundaries));
   });
-  const monthLabel = $derived(calendar.first.toLocaleDateString(undefined, { month: "long", year: "numeric" }));
+  const monthLabel = $derived(formatDate(calendar.first, $language, { month: "long", year: "numeric" }));
 
   $effect(() => { void activity.load(); });
   onMount(() => startVisibleRefresh(() => {
@@ -47,7 +48,7 @@
       <span>{t("8 h o più", $language)}</span>
     </div>
     <div class="grid shrink-0 grid-cols-7 gap-1.5" aria-hidden="true">
-      {#each Array.from({ length: 7 }, (_, day) => new Date(2026, 0, 5 + day).toLocaleDateString(undefined, { weekday: "short" })) as weekday (weekday)}
+      {#each Array.from({ length: 7 }, (_, day) => formatDate(new Date(2026, 0, 5 + day), $language, { weekday: "short" })) as weekday (weekday)}
         <span class="pb-1 text-center text-xs text-zinc-500 light:text-zinc-600">{weekday}</span>
       {/each}
     </div>

@@ -1,25 +1,25 @@
 <script lang="ts">
-  import type { Snippet } from "svelte";
+  import { untrack, type Snippet } from "svelte";
   import Icon, { type IconName } from "./Icon.svelte";
 
   let {
     title,
     icon,
     collapsible = false,
+    defaultOpen = false,
     children,
   }: {
     title: string;
     icon?: IconName;
     collapsible?: boolean;
+    defaultOpen?: boolean;
     children: Snippet;
   } = $props();
 
-  let open = $state(false);
+  let open = $state(untrack(() => defaultOpen));
 </script>
 
-<section
-  class="flex flex-col gap-4 rounded-2xl legio-glass p-5 shadow-sm shadow-black/20 light:shadow-zinc-900/5"
->
+<section class="flex flex-col gap-4 rounded-2xl legio-glass p-5">
   {#snippet iconBadge()}
     {#if icon}
       <span

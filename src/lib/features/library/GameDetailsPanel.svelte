@@ -12,6 +12,7 @@
   import Panel from "../../components/ui/Panel.svelte";
   import TextField from "../../components/ui/TextField.svelte";
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
   import type { CatalogGame } from "../../services/catalog";
 
   let { game, onRemoved, section = "general", running = false }: {
@@ -160,8 +161,8 @@
 {#if game.steamInstallPath === null && game.executablePath !== null}
   <Panel title={t("Disinstalla gioco", $language)}>
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Elimina i file installati del gioco e rimuovi la voce dalla libreria.", $language)}</p>
-    {#if running}<p class="text-sm text-legio-warning">{t("Chiudi il gioco prima di disinstallarlo.", $language)}</p>{/if}
-    <Button label={t("Disinstalla gioco", $language)} variant="danger" disabled={running || pending || identityPending} onClick={() => (confirmingUninstall = true)} />
+    {#if running}<Callout tone="warning" variant="inline" message={t("Chiudi il gioco prima di disinstallarlo.", $language)} />{/if}
+    <Button label={t("Disinstalla gioco", $language)} variant="danger-soft" disabled={running || pending || identityPending} onClick={() => (confirmingUninstall = true)} />
   </Panel>
   {#if confirmingUninstall}
     <UninstallGameDialog {game} onClose={() => (confirmingUninstall = false)} {onRemoved} />
@@ -182,10 +183,10 @@
   {:else}
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Rimuovi questa voce senza toccare i file del gioco.", $language)}</p>
     {#if removeBlocked}
-      <p class="mt-2 text-sm text-legio-warning">{t("Disattiva Sync Steam games nelle impostazioni per rimuoverlo, oppure usa Nascondi dalla libreria per nascondere solo questo gioco.", $language)}</p>
+      <Callout tone="warning" class="mt-2" message={t("Disattiva Sync Steam games nelle impostazioni per rimuoverlo, oppure usa Nascondi dalla libreria per nascondere solo questo gioco.", $language)} />
     {/if}
     <div>
-      <Button label={t("Rimuovi gioco", $language)} variant="danger" disabled={removeBlocked || pending || identityPending} onClick={() => (confirmingRemove = true)} />
+      <Button label={t("Rimuovi gioco", $language)} variant="danger-soft" disabled={removeBlocked || pending || identityPending} onClick={() => (confirmingRemove = true)} />
     </div>
   {/if}
 </Panel>

@@ -52,8 +52,6 @@ test("onboarding appearance editor reports drafts without saving or clearing the
   const instance = mount(component, { target, props: { accent: "#ff8800", preview: initial, onPreview: value => { previews.push(value); previewStore.set(value); } } });
   try {
     await settle();
-    const themeToggle = [...target.querySelectorAll("button[aria-expanded]")].find(button => button.textContent.includes("Tema"));
-    themeToggle.click(); await settle();
     assert.equal(target.querySelector('input[name="theme"]:checked').value, "light");
     const dark = target.querySelector('input[name="theme"][value="dark"]');
     dark.checked = true; dark.dispatchEvent(new Event("change", { bubbles: true }));
@@ -147,6 +145,100 @@ test("system palette follows the OS and Hyprland alone can enable window transpa
   assert.equal(appearance.activePalette("system", true).id, "dark");
 });
 
+test("the accent color previews immediately and resets to the palette accent", async () => {
+  const initial = { theme: "dark", appearance: appearance.defaultAppearance() };
+  settingsStore.set({ data: initial });
+  const previews = [];
+  const component = (await import(await load("src/lib/features/settings/ThemeSettings.svelte"))).default;
+  const target = document.createElement("div"); document.body.append(target);
+  document.documentElement.dataset.theme = "dark";
+  const instance = mount(component, { target, props: { accent: "#fafafa", preview: initial, onPreview: value => previews.push(value) } });
+  try {
+    await settle();
+    const input = target.querySelector("#theme-accent");
+    assert.equal(input.value, presetData.find((preset) => preset.id === "dark").palette.accent);
+    input.value = "#336699"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    assert.equal(previews.at(-1).appearance.accent, "#336699");
+    const reset = [...target.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Ripristina {0}" && button.closest("div")?.querySelector("#theme-accent"));
+    assert.ok(reset, "reset button next to the accent input");
+    reset.click(); await settle();
+    assert.equal(previews.at(-1).appearance.accent, null);
+  } finally { await unmount(instance); target.remove(); }
+});
+
+test("new installs start with the glass panel style", () => {
+  assert.equal(appearance.panelStyleOf(appearance.defaultAppearance()), "glass");
+});
+
+test("panel style presets set the surface values and report a match", async () => {
+  const base = appearance.defaultAppearance();
+  for (const style of ["flat", "glass", "solid"]) assert.equal(appearance.panelStyleOf({ ...base, ...appearance.panelStyles[style] }), style);
+  assert.equal(appearance.panelStyleOf({ ...base, ...appearance.panelStyles.glass, surfaceOpacity: 33 }), null);
+  const initial = { theme: "dark", appearance: base };
+  settingsStore.set({ data: initial });
+  const previews = [];
+  const component = (await import(await load("src/lib/features/settings/ThemeSettings.svelte"))).default;
+  const target = document.createElement("div"); document.body.append(target);
+  const instance = mount(component, { target, props: { accent: "#fafafa", preview: initial, onPreview: value => previews.push(value) } });
+  try {
+    await settle();
+    const toggle = [...target.querySelectorAll("button[aria-expanded]")].find((button) => button.textContent.includes("Pannelli e dialoghi"));
+    toggle.click(); await settle();
+    const solid = target.querySelector('input[name="panel-style"][value="solid"]');
+    solid.checked = true; solid.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    const { appearance: applied } = previews.at(-1);
+    assert.deepEqual({ surfaceOpacity: applied.surfaceOpacity, surfaceBlur: applied.surfaceBlur, dialogOpacity: applied.dialogOpacity, dialogBlur: applied.dialogBlur }, appearance.panelStyles.solid);
+    assert.equal(target.querySelector('input[name="panel-style"]:checked').value, "solid");
+  } finally { await unmount(instance); target.remove(); }
+});
+
+test("tinted palettes recolor the neutral ramp and a custom accent wins", () => {
+  const channels = (hex) => [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16));
+  const dark = presetData.find((preset) => preset.id === "dark");
+  const bronze = presetData.find((preset) => preset.id === "bronze");
+  const sand = presetData.find((preset) => preset.id === "sand");
+  const neutral = appearance.paletteVariables(dark);
+  assert.equal(neutral["--color-zinc-950"], "#09090b");
+  assert.equal(neutral["--color-zinc-50"], "#fafafa");
+  const warm = appearance.paletteVariables(bronze);
+  const [red, , blue] = channels(warm["--color-zinc-800"]);
+  assert.ok(red > blue, "a warm tint leaves the mid neutrals redder than blue");
+  assert.notEqual(warm["--color-zinc-900"], neutral["--color-zinc-900"]);
+  assert.ok(channels(warm["--color-zinc-50"]).every((value) => value >= 248), "near-white shades stay neutral");
+  const paper = appearance.paletteVariables(sand);
+  assert.ok(channels(paper["--color-zinc-900"]).every((value) => value < 60));
+  assert.equal(warm["--legio-accent"], bronze.palette.accent);
+  const custom = appearance.paletteVariables(bronze, "#336699");
+  assert.equal(custom["--legio-accent"], "#336699");
+  assert.equal(custom["--legio-focus"], "#336699");
+  assert.equal(custom["--legio-accent-text"], "#ffffff");
+  assert.equal(appearance.resolvedAccent(bronze, { ...appearance.defaultAppearance(), accent: "#336699" }), "#336699");
+  assert.equal(appearance.resolvedAccent(bronze, appearance.defaultAppearance()), bronze.palette.accent);
+});
+
+test("every palette keeps readable text, muted text and accent buttons", () => {
+  const luminance = (hex) => {
+    const [r, g, b] = [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16) / 255)
+      .map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrast = (first, second) => {
+    const [high, low] = [luminance(first), luminance(second)].sort((a, b) => b - a);
+    return (high + 0.05) / (low + 0.05);
+  };
+  assert.ok(presetData.length >= 7);
+  for (const preset of presetData) {
+    const { palette } = preset;
+    assert.ok(contrast(palette.text, palette.surface) >= 7, preset.id + " text on surface");
+    assert.ok(contrast(palette.muted, palette.surface) >= 4.5, preset.id + " muted on surface");
+    assert.ok(contrast(palette.muted, palette.background) >= 3.5, preset.id + " muted on background");
+    assert.ok(contrast(palette.accent, appearance.accentText(palette.accent)) >= 4.5, preset.id + " accent button label");
+    assert.equal(preset.scheme === "light", luminance(palette.background) > 0.4, preset.id + " scheme matches its background");
+  }
+});
+
 test("the theme editor previews before auto save and preserves unrelated settings", async () => {
   const initial = { theme: "system", appearance: appearance.defaultAppearance(), language: "en", steamLibraryPollMinutes: 30 };
   settingsStore.set({ data: initial });
@@ -169,9 +261,8 @@ test("the theme editor previews before auto save and preserves unrelated setting
     await settle();
   };
 
-  assert.equal(target.querySelectorAll('input[name="theme"]').length, 0);
-  await openGroup("Tema");
-  assert.equal(target.querySelectorAll('input[name="theme"]').length, 3);
+  assert.equal(target.querySelectorAll('input[name="theme"]').length, presetData.length + 1, "the theme group starts open");
+  assert.equal(target.querySelector("#theme-surfaceOpacity"), null, "other groups start collapsed");
   const dark = [...target.querySelectorAll('input[name="theme"]')].find((input) => input.value === "dark");
   dark.checked = true;
   dark.dispatchEvent(new Event("change", { bubbles: true }));
@@ -310,10 +401,10 @@ test("closing appearance settings flushes the final draft after a pending save",
   slider.value = "20"; slider.dispatchEvent(new Event("input", { bubbles: true }));
   await new Promise(resolve => setTimeout(resolve, 650)); await settle();
   assert.equal(saved.length, 1);
-  slider.value = "45"; slider.dispatchEvent(new Event("input", { bubbles: true })); await settle();
+  slider.value = "60"; slider.dispatchEvent(new Event("input", { bubbles: true })); await settle();
   await unmount(instance); target.remove();
   pending.shift()(); await settle();
   assert.equal(saved.length, 2, "the final appearance draft must be saved after teardown");
-  assert.equal(saved[1].appearance.surfaceOpacity, 45);
+  assert.equal(saved[1].appearance.surfaceOpacity, 60);
   pending.shift()(); await settle();
 });

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import { placePopover } from "../../utils/popover-placement";
   import Icon from "./Icon.svelte";
 
   let {
@@ -65,13 +66,9 @@
     await tick();
     if (!open || !listbox.isConnected) return;
     listbox.showPopover();
-    const gap = 8;
-    const spaceAbove = Math.max(0, triggerRect.top - gap);
-    const spaceBelow = Math.max(0, window.innerHeight - triggerRect.bottom - gap);
-    const desiredHeight = Math.min(256, listbox.scrollHeight);
-    const above = spaceBelow < desiredHeight && spaceAbove > spaceBelow;
-    optionsMaxHeight = Math.floor(Math.min(desiredHeight, above ? spaceAbove : spaceBelow));
-    optionsTop = above ? triggerRect.top - gap - optionsMaxHeight : triggerRect.bottom + gap;
+    const placement = placePopover(triggerRect, listbox.scrollHeight, window.innerHeight);
+    optionsMaxHeight = placement.maxHeight;
+    optionsTop = placement.top;
     await tick();
     if (!open || !listbox.isConnected) return;
 

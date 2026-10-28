@@ -10,6 +10,7 @@
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
 
   let { game }: { game: Game } = $props();
   let hoursDraft = $state<string | null>(null);
@@ -59,21 +60,21 @@
 </script>
 
 <Panel title={t("Modifica tempo di gioco", $language)}>
-  <p class="text-sm text-legio-warning">{t("Impostazione avanzata: sostituisce il totale locale di Legio. Non modifica Steam né la cronologia delle sessioni.", $language)}</p>
+  <Callout tone="warning" message={t("Impostazione avanzata: sostituisce il totale locale di Legio. Non modifica Steam né la cronologia delle sessioni.", $language)} />
   {#if running}<p class="text-sm text-zinc-400 light:text-zinc-600">{t("Chiudi il gioco prima di modificare il tempo di gioco.", $language)}</p>{/if}
-  <div><Button label={t("Imposta tempo di gioco", $language)} variant="danger" disabled={pending || running || summary === undefined} onClick={openEditor} /></div>
-  {#if saved}<p class="text-sm text-legio-success" role="status">{t("Tempo di gioco aggiornato.", $language)}</p>{/if}
+  <div><Button label={t("Imposta tempo di gioco", $language)} variant="danger-soft" disabled={pending || running || summary === undefined} onClick={openEditor} /></div>
+  {#if saved}<Callout tone="success" variant="inline" message={t("Tempo di gioco aggiornato.", $language)} />{/if}
 </Panel>
 
 <Dialog open={editorOpen} title={t("Modifica tempo di gioco", $language)} onClose={() => (editorOpen = false)}>
   <div class="flex flex-col gap-4">
-    <p class="text-sm text-legio-warning">{t("Impostazione avanzata: sostituisce il totale locale di Legio. Non modifica Steam né la cronologia delle sessioni.", $language)}</p>
+    <Callout tone="warning" message={t("Impostazione avanzata: sostituisce il totale locale di Legio. Non modifica Steam né la cronologia delle sessioni.", $language)} />
     <div class="grid grid-cols-2 gap-3">
       <TextField id="playtime-hours" label={t("Ore", $language)} value={hours} inputmode="numeric" disabled={pending || running} oninput={(value) => edit("hours", value)} />
       <TextField id="playtime-minutes" label={t("Minuti", $language)} value={minutes} inputmode="numeric" disabled={pending || running} oninput={(value) => edit("minutes", value)} />
     </div>
     {#if running}<p class="text-sm text-zinc-400 light:text-zinc-600">{t("Chiudi il gioco prima di modificare il tempo di gioco.", $language)}</p>{/if}
-    {#if !valid}<p class="text-sm text-legio-warning">{t("Inserisci ore intere non negative e minuti da 0 a 59.", $language)}</p>{/if}
+    {#if !valid}<Callout tone="warning" variant="inline" message={t("Inserisci ore intere non negative e minuti da 0 a 59.", $language)} />{/if}
     {#if error}<ErrorBanner message={error} />{/if}
     <div class="flex justify-end gap-2">
       <Button label={t("Annulla", $language)} variant="secondary" disabled={pending} onClick={() => (editorOpen = false)} />

@@ -2,6 +2,7 @@ import { invoke } from "./invoke";
 import { open } from "@tauri-apps/plugin-dialog";
 import { t } from "../i18n";
 import presets from "./theme-presets.json";
+import { tintColor, type Tint } from "./color-tint";
 import type { Theme } from "./local-state";
 
 export interface Palette {
@@ -18,6 +19,7 @@ export interface ThemePreset {
   name: string;
   scheme: "dark" | "light";
   palette: Palette;
+  tint?: Tint;
 }
 
 export interface DitherSettings {
@@ -34,10 +36,11 @@ export interface DitherSettings {
 }
 
 export interface Appearance {
+  accent: string | null;
   background: string | null;
   backgroundBlur: number;
   backgroundOpacity: number;
-  animatedBackground: "none" | "particles" | "dither";
+  animatedBackground: "none" | "particles" | "dither" | "aurora";
   animatedOpacity: number;
   dither: DitherSettings;
   surfaceOpacity: number;
@@ -49,6 +52,21 @@ export interface Appearance {
 
 export const themePresets = presets as ThemePreset[];
 
+export type PanelStyle = "flat" | "glass" | "solid";
+type PanelValues = Pick<Appearance, "surfaceOpacity" | "surfaceBlur" | "dialogOpacity" | "dialogBlur">;
+
+export const panelStyles: Record<PanelStyle, PanelValues> = {
+  flat: { surfaceOpacity: 0, surfaceBlur: 40, dialogOpacity: 0, dialogBlur: 40 },
+  glass: { surfaceOpacity: 45, surfaceBlur: 24, dialogOpacity: 75, dialogBlur: 32 },
+  solid: { surfaceOpacity: 90, surfaceBlur: 0, dialogOpacity: 100, dialogBlur: 0 },
+};
+
+// Null when the sliders were tuned to values that match no preset.
+export function panelStyleOf(appearance: Appearance): PanelStyle | null {
+  const styles = Object.keys(panelStyles) as PanelStyle[];
+  return styles.find((style) => (Object.keys(panelStyles[style]) as (keyof PanelValues)[]).every((key) => appearance[key] === panelStyles[style][key])) ?? null;
+}
+
 export function defaultDither(): DitherSettings {
   return {
     waveSpeed: 0.05, waveFrequency: 3, waveAmplitude: 0.3,
@@ -59,9 +77,9 @@ export function defaultDither(): DitherSettings {
 
 export function defaultAppearance(): Appearance {
   return {
-    background: null, backgroundBlur: 0, backgroundOpacity: 60,
+    accent: null, background: null, backgroundBlur: 0, backgroundOpacity: 60,
     animatedBackground: "none", animatedOpacity: 65, dither: defaultDither(),
-    surfaceOpacity: 0, surfaceBlur: 40, dialogOpacity: 0, dialogBlur: 40, transparent: false,
+    ...panelStyles.glass, transparent: false,
   };
 }
 
@@ -87,19 +105,27 @@ export function accentText(color: string): string {
   return (value + 0.05) / 0.05 >= 1.05 / (value + 0.05) ? "#000000" : "#ffffff";
 }
 
-export function paletteVariables(preset: ThemePreset): Record<string, string> {
+const zincShades = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950];
+const zincRamp = ["#fafafa", "#f4f4f5", "#e4e4e7", "#d4d4d8", "#a1a1aa", "#71717a", "#52525b", "#3f3f46", "#27272a", "#18181b", "#09090b"];
+
+export function resolvedAccent(preset: ThemePreset, appearance: Appearance): string {
+  return appearance.accent ?? preset.palette.accent;
+}
+
+// Every neutral in the UI is a zinc shade, so a tinted palette recolors that ramp.
+export function paletteVariables(preset: ThemePreset, accent: string = preset.palette.accent): Record<string, string> {
   const p = preset.palette;
   const dark = preset.scheme === "dark";
-  const colors = ["#fafafa", "#f4f4f5", "#e4e4e7", "#d4d4d8", "#a1a1aa", "#71717a", "#52525b", "#3f3f46", "#27272a", "#18181b", "#09090b"];
+  const ramp = preset.tint === undefined ? zincRamp : zincRamp.map((color) => tintColor(color, preset.tint as Tint));
   const variables: Record<string, string> = {
     "--legio-background": p.background, "--legio-surface": p.surface,
     "--legio-raised": p.raised, "--legio-text": p.text, "--legio-muted": p.muted,
-    "--legio-accent": p.accent, "--legio-accent-text": accentText(p.accent),
-    "--legio-focus": p.accent,
+    "--legio-accent": accent, "--legio-accent-text": accentText(accent),
+    "--legio-focus": accent,
     "--color-white": dark ? p.text : "#ffffff",
   };
-  [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950].forEach((shade, index) => {
-    variables["--color-zinc-" + shade] = colors[index];
+  zincShades.forEach((shade, index) => {
+    variables["--color-zinc-" + shade] = ramp[index];
   });
   variables["--color-black"] = dark ? p.background : "#000000";
   return variables;
@@ -118,7 +144,7 @@ export function applyAppearance(
   root.dataset.palette = theme;
   root.dataset.transparent = String(windowTransparent);
   root.style.colorScheme = palette.scheme;
-  for (const [key, value] of Object.entries(paletteVariables(palette))) root.style.setProperty(key, value);
+  for (const [key, value] of Object.entries(paletteVariables(palette, resolvedAccent(palette, appearance)))) root.style.setProperty(key, value);
   root.style.setProperty("--legio-image-blur", appearance.backgroundBlur + "px");
   root.style.setProperty("--legio-image-opacity", String(appearance.backgroundOpacity / 100));
   root.style.setProperty("--legio-surface-opacity", String(appearance.surfaceOpacity / 100));

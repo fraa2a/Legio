@@ -39,9 +39,9 @@
   const detailLabel = $derived.by(() => {
     if (lead === null) return "";
     if (lead.pauseReason === null && lead.status === "downloading") {
-      return `${formatBytes(lead.downloadedBytes)} / ${formatBytes(lead.sizeBytes)}`;
+      return `${formatBytes(lead.downloadedBytes, $language)} / ${formatBytes(lead.sizeBytes, $language)}`;
     }
-    return phaseLabel(lead, $language) ?? `${formatBytes(lead.downloadedBytes)} / ${formatBytes(lead.sizeBytes)}`;
+    return phaseLabel(lead, $language) ?? `${formatBytes(lead.downloadedBytes, $language)} / ${formatBytes(lead.sizeBytes, $language)}`;
   });
 
   const quickActions: QuickAction[] = $derived.by(() => {
@@ -126,7 +126,7 @@
       >
         <span class="truncate">{detailLabel}</span>
         {#if lead.speedBps > 0}
-          <span class="shrink-0">{formatBytes(lead.speedBps)}/s</span>
+          <span class="shrink-0">{formatBytes(lead.speedBps, $language)}/s</span>
         {/if}
       </div>
 

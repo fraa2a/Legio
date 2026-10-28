@@ -13,6 +13,7 @@
   import Icon from "../../components/ui/Icon.svelte";
   import IconButton from "../../components/ui/IconButton.svelte";
   import ProgressBar from "../../components/ui/ProgressBar.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
   import { formatBytes } from "../../utils/format";
   import DownloadCover from "./DownloadCover.svelte";
   import { isReorderable, phaseLabel, progressOf, progressTone, statusBadge, statusTone } from "./downloads-model";
@@ -125,7 +126,7 @@
           <Badge tone={statusTone(job.status)} title={statusBadge(job.status, $language)} />
         </div>
         <p class="mt-0.5 truncate text-xs text-zinc-400 light:text-zinc-600">
-          {t("Versione {0}", $language, [job.releaseVersion])} · {formatBytes(job.sizeBytes)}{#if phase !== null} · {phase}{/if}
+          {t("Versione {0}", $language, [job.releaseVersion])} · {formatBytes(job.sizeBytes, $language)}{#if phase !== null} · {phase}{/if}
         </p>
         {#if job.downloadedBytes > 0}
           <ProgressBar
@@ -136,7 +137,7 @@
           />
         {/if}
         {#if job.error !== null}
-          <p class="mt-2 break-words text-xs text-legio-error" role="alert">{job.error}</p>
+          <Callout tone="danger" variant="inline" class="mt-2" message={job.error} />
         {/if}
       </div>
 
@@ -171,7 +172,7 @@
         {#if canCancelDownload(job.status)}
           <Button
             label={t("Annulla", $language)}
-            variant="danger"
+            variant="danger-soft"
             size="sm"
             disabled={busyJob === job.id}
             onClick={() => onCancel(job)}

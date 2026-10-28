@@ -12,17 +12,17 @@
   } = $props();
 
   const toneClass = $derived.by(() => {
-    if (tone === "success") return "bg-emerald-500/15 text-emerald-300 light:text-emerald-800";
-    if (tone === "warning") return "bg-amber-500/15 text-amber-300 light:text-amber-800";
-    if (tone === "danger") return "bg-red-500/15 text-red-300 light:text-red-700";
-    if (tone === "info") return "bg-sky-500/15 text-sky-300 light:text-sky-800";
-    return "bg-white/10 text-zinc-300 light:bg-zinc-200 light:text-zinc-700";
+    if (tone === "success") return "bg-legio-success/15 text-legio-success";
+    if (tone === "warning") return "bg-legio-warning/15 text-legio-warning";
+    if (tone === "danger") return "bg-legio-error/15 text-legio-error";
+    if (tone === "info") return "bg-legio-info/15 text-legio-info";
+    return "bg-white/10 text-zinc-300 light:bg-zinc-900/10 light:text-zinc-700";
   });
 </script>
 
 <span
-  class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium {toneClass}"
+  class="inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium {toneClass}"
 >
   {#if children}{@render children()}{/if}
-  {title}
+  <span class="truncate">{title}</span>
 </span>

@@ -11,6 +11,7 @@
   import CloseButton from "../../components/ui/CloseButton.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
   import Panel from "../../components/ui/Panel.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
   import GameArtworkPanel from "./GameArtworkPanel.svelte";
   import PlaytimePanel from "./PlaytimePanel.svelte";
   import GameDetailsPanel from "./GameDetailsPanel.svelte";
@@ -102,7 +103,7 @@
           <Panel title={t("Collegamento", $language)}>
             <Button label={shortcutPending ? t("Creazione...", $language) : t("Aggiungi collegamento desktop", $language)}
               disabled={shortcutPending} onClick={() => void addDesktopShortcut()} />
-            {#if shortcutPath}<p class="mt-2 break-all text-sm text-legio-success" role="status">{t("Collegamento creato: {0}", $language, [shortcutPath])}</p>{/if}
+            {#if shortcutPath}<Callout tone="success" variant="inline" class="mt-2 break-all" message={t("Collegamento creato: {0}", $language, [shortcutPath])} />{/if}
             {#if shortcutWarning}<ErrorBanner message={shortcutWarning} tone="warning" />{/if}
             {#if shortcutError}<ErrorBanner message={shortcutError} />{/if}
           </Panel>
@@ -138,7 +139,7 @@
                 <Button label={transferPending ? t("Trasferimento...", $language) : t("Trasferisci gioco", $language)}
                   disabled={running || transferPending || destinationDraft.trim().length === 0} onClick={() => void moveGame()} />
                 {#if running}<p class="text-sm text-zinc-400">{t("Chiudi il gioco prima di trasferirlo.", $language)}</p>{/if}
-                {#if transferDone}<p class="text-sm text-legio-success" role="status">{t("Gioco trasferito.", $language)}</p>{/if}
+                {#if transferDone}<Callout tone="success" variant="inline" message={t("Gioco trasferito.", $language)} />{/if}
                 {#if transferWarning}<ErrorBanner message={transferWarning} tone="warning" />{/if}
                 {#if transferError}<ErrorBanner message={transferError} />{/if}
               </div>

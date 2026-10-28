@@ -1,6 +1,6 @@
 import { writable } from "svelte/store";
 
-export type ToastTone = "info" | "success" | "error";
+export type ToastTone = "info" | "success" | "warning" | "error";
 export interface Toast { id: number; message: string; tone: ToastTone; onRetry?: () => void; retryLabel?: string }
 export const toast = writable<Toast[]>([]);
 

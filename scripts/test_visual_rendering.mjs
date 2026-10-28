@@ -168,3 +168,19 @@ test("navigation_keeps_sidebar_and_canvas_nodes and rapid_navigation_never_repub
     assert.equal(sidebar.style.opacity, "");assert.equal(canvas.style.opacity, "");
   } finally { await unmount(instance); target.remove(); document.startViewTransition = previousStart;frames.clear(); }
 });
+
+test("aurora follows the accent color and pauses while the window is inactive", async () => {
+  const Component = (await import(await load("src/lib/components/layout/AuroraBackground.svelte"))).default;
+  for (const active of [true, false]) {
+    const target = document.createElement("div"); document.body.append(target);
+    const instance = mount(Component, { target, props: { opacity: 40, color: "#c8893a", active } });
+    try {
+      flushSync();
+      const root = target.querySelector(".animated-background");
+      assert.equal(root.style.opacity, "0.4");
+      assert.equal(root.style.getPropertyValue("--aurora-color"), "#c8893a");
+      assert.equal(root.classList.contains("paused"), !active);
+      assert.equal(root.getAttribute("aria-hidden"), "true");
+    } finally { await unmount(instance); target.remove(); }
+  }
+});

@@ -8,6 +8,7 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import ToggleSetting from "../../components/ui/ToggleSetting.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
   import { appInfo } from "../../stores/app-info";
   import { getCompatibilityLogsDirectory } from "../../services/game-settings";
 
@@ -61,7 +62,7 @@
       <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Ogni gioco manuale salva launch.json, launch.log, stdout.log, stderr.log e runner-exit-code.txt nella propria cartella. Il debug aggiunge i dettagli di Proton o Wine.", $language)}</p>
       <p class="break-all font-mono text-xs text-zinc-300 light:text-zinc-700">{launchDirectory}</p>
     {/if}
-    {#if status?.lastError}<p class="text-xs text-legio-warning" role="status">{status.lastError}</p>{/if}
-    {#if applicationStatus?.lastError}<p class="text-xs text-legio-warning" role="status">{applicationStatus.lastError}</p>{/if}
+    {#if status?.lastError}<Callout tone="warning" message={status.lastError} />{/if}
+    {#if applicationStatus?.lastError}<Callout tone="warning" message={applicationStatus.lastError} />{/if}
   </SettingsGroup>
 </section>

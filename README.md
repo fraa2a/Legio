@@ -14,7 +14,8 @@ Legio is a desktop game launcher for Windows and Linux. Import games from Steam 
 - **A Steam account for each game.** If you use multiple accounts, assign the right one to each title. Legio asks before restarting Steam to switch accounts when needed.
 - **Per-game launch settings.** Run native Linux games or Windows games through Proton, GE-Proton, or Wine. Configure prefixes, launch arguments, environment variables, and DLL overrides on Linux, or native launch options on Windows.
 - **Flexible game import.** Detect your Steam library or add games and executables manually.
-- **Themes you can make your own.** Choose from built-in palettes, edit colors, set image or animated backgrounds, and save your own themes. Import and export themes as JSON.
+- **Themes you can make your own.** Choose from built-in palettes with a live preview, set your own accent color, pick a flat, glass or solid panel style, and add an image or an animated background (connected dots, Dither or Aurora).
+- **Quick navigation.** Press Ctrl+K (Cmd+K on macOS) to jump to a game, a page or a settings category.
 - **Hyprland transparency.** Enable a transparent Legio window on Hyprland and adjust the surface opacity. Background blur is controlled by your Hyprland rules.
 - **Playtime at a glance.** See recently played games, tracked playtime, and a calendar of your activity.
 

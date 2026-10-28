@@ -1,6 +1,7 @@
 <script lang="ts">
   import { gameUpdates } from "../../stores/game-updates";
   import { t, language } from "../../i18n";
+  import { formatDate } from "../../utils/format";
   import type { Game } from "../../services/local-state";
   import type { GameLaunchState } from "../../services/steam-accounts";
   import type { SteamAssetKind } from "../../services/steam-details";
@@ -36,7 +37,7 @@
   const lastPlayedLabel = $derived(
     lastPlayedAt === null
       ? null
-      : new Date(lastPlayedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" }),
+      : formatDate(lastPlayedAt, $language, { day: "numeric", month: "short" }),
   );
 
   const playtimeLabel = $derived.by(() => {
