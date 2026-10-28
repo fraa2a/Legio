@@ -155,7 +155,7 @@
   <p class="legio-glass rounded-xl p-6 text-zinc-400 light:text-zinc-600">{t("Il gioco non è più disponibile.", $language)}</p>
 {:else}
   <div class="flex min-h-full flex-col gap-4">
-    <section class="relative isolate z-10 aspect-[1920/620] w-full min-h-80 min-w-5xl overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200">
+    <section class="relative isolate aspect-[1920/620] min-h-80 w-full overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200">
       {#if customBannerUrl !== null}
         <img src={customBannerUrl} alt={t("Banner personalizzato di {0}", $language, [name])} class="absolute inset-0 size-full object-cover" />
       {:else if steamAppId !== null}
@@ -174,62 +174,61 @@
       {#if details !== null && customBannerUrl === null}
         <button type="button" class="absolute inset-0 z-0 cursor-zoom-in" aria-label={t("Ingrandisci copertina", $language)} onclick={() => (artworkOpen = true)}></button>
       {/if}
-      <div class="absolute inset-x-0 bottom-0 z-10 flex flex-nowrap items-end justify-between gap-4 pb-5 pl-5 pr-7">
-        <div class="flex flex-nowrap items-end gap-2">
-          {#if storeGame !== null}
-            {#if job !== null}
-              <DownloadProgressButton
-                label={job.status === "queued" || job.status === "downloading" ? t("SCARICAMENTO", $language) : describeDownloadStatus(job.status).toUpperCase()}
-                value={downloadProgress}
-                progressLabel={t("Avanzamento download", $language)}
-                onClick={() => selectSection("downloads")}
-              />
-            {:else if status?.availability === "verified" || status?.availability === "unverified"}
-              <Button label={t("SCARICA", $language)} variant="download" size="hero" class="w-60" disabled={queueing} onClick={requestDownload}>
-                <Icon name="download" size="size-6" />
-              </Button>
-            {/if}
-          {:else if game !== null}
-            <GameLaunchControls
-              {game}
-              {launch}
-              variant="primary"
-              size="hero"
-              class="w-60"
-              actionPending={$pendingGameId === game.id}
-              cancelPending={$cancelPendingGameId === game.id}
-              onPlay={playGame}
-              onCancel={abortGameLaunch}
-              onStop={stopGameProcess}
-            />
+      <div class="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-end pr-7 pb-5 pl-5">
+        <h2 class="flex h-30 w-105 max-w-full items-end justify-end text-2xl font-semibold leading-tight text-white">
+          {#if customIconUrl !== null}
+            <img src={customIconUrl} alt={t("Icona personalizzata di {0}", $language, [name])} class="size-full object-contain object-right" />
+          {:else if steamAppId !== null}
+            <SteamArtwork {steamAppId} asset="logo" caption={false} alt={t("Logo di {0}", $language, [name])} class="size-full object-contain object-right">
+              {#snippet placeholder()}{@render nameText()}{/snippet}
+            </SteamArtwork>
+          {:else}
+            {@render nameText()}
           {/if}
-          {#if versionOptions.length > 0}
-            <GameVersionSelect {steamAppId} options={versionOptions} selectedId={selectedVersionId} onSelect={selectVersion} onAdd={game !== null && libraryVersions.length === 1 && steamAppId !== null ? () => { addVersionOpen = true; } : undefined} />
-          {#if storeGame !== null && entry !== null}
-            <DownloadMirrorSelect uris={mirrorUris} bind:value={selectedMirror} disabled={queueing || confirmOpen} />
-          {/if}
-          {/if}
-          {#if game !== null}
-            <Button label={t("Impostazioni del gioco", $language)} square variant="overlay" size="hero" onClick={() => (gameSettingsOpen = true)}>
-              <Icon name="settings" size="size-6" />
-            </Button>
-          {/if}
-        </div>
-        <div class="pointer-events-none flex h-30 w-105 shrink-0 flex-col items-end justify-end">
-          <h2 class="flex h-full w-full items-end justify-end text-2xl font-semibold leading-tight text-white">
-            {#if customIconUrl !== null}
-              <img src={customIconUrl} alt={t("Icona personalizzata di {0}", $language, [name])} class="size-full object-contain object-right" />
-            {:else if steamAppId !== null}
-              <SteamArtwork {steamAppId} asset="logo" caption={false} alt={t("Logo di {0}", $language, [name])} class="size-full object-contain object-right">
-                {#snippet placeholder()}{@render nameText()}{/snippet}
-              </SteamArtwork>
-            {:else}
-              {@render nameText()}
-            {/if}
-          </h2>
-        </div>
+        </h2>
       </div>
     </section>
+
+    <div class="relative z-10 flex flex-wrap items-end gap-2">
+      {#if storeGame !== null}
+        {#if job !== null}
+          <DownloadProgressButton
+            label={job.status === "queued" || job.status === "downloading" ? t("SCARICAMENTO", $language) : describeDownloadStatus(job.status).toUpperCase()}
+            value={downloadProgress}
+            progressLabel={t("Avanzamento download", $language)}
+            onClick={() => selectSection("downloads")}
+          />
+        {:else if status?.availability === "verified" || status?.availability === "unverified"}
+          <Button label={t("SCARICA", $language)} variant="download" size="hero" class="w-60" disabled={queueing} onClick={requestDownload}>
+            <Icon name="download" size="size-6" />
+          </Button>
+        {/if}
+      {:else if game !== null}
+        <GameLaunchControls
+          {game}
+          {launch}
+          variant="primary"
+          size="hero"
+          class="w-60"
+          actionPending={$pendingGameId === game.id}
+          cancelPending={$cancelPendingGameId === game.id}
+          onPlay={playGame}
+          onCancel={abortGameLaunch}
+          onStop={stopGameProcess}
+        />
+      {/if}
+      {#if versionOptions.length > 0}
+        <GameVersionSelect {steamAppId} options={versionOptions} selectedId={selectedVersionId} onSelect={selectVersion} onAdd={game !== null && libraryVersions.length === 1 && steamAppId !== null ? () => { addVersionOpen = true; } : undefined} />
+        {#if storeGame !== null && entry !== null}
+          <DownloadMirrorSelect uris={mirrorUris} bind:value={selectedMirror} disabled={queueing || confirmOpen} />
+        {/if}
+      {/if}
+      {#if game !== null}
+        <Button label={t("Impostazioni del gioco", $language)} square variant="overlay" size="hero" onClick={() => (gameSettingsOpen = true)}>
+          <Icon name="settings" size="size-6" />
+        </Button>
+      {/if}
+    </div>
 
     {#if storeGame !== null && queueError !== null}
       <ErrorBanner message={queueError} />
