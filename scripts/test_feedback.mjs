@@ -162,3 +162,47 @@ test("notifications remain dismissible while a modal is open and return outside 
     delete HTMLElement.prototype.hidePopover;
   }
 });
+
+test("callouts expose their role, collapse long lists and offer retry and dismiss", async () => {
+  const Callout = (await import(await load("src/lib/components/ui/Callout.svelte"))).default;
+  const target = document.createElement("div"); document.body.append(target);
+  let retried = 0; let dismissed = 0;
+  const mountCallout = props => mount(Callout, { target, props });
+  let instance = mountCallout({ tone: "danger", message: "Disk full", onRetry: () => { retried++; }, onDismiss: () => { dismissed++; } });
+  try {
+    await settle();
+    assert.equal(target.firstElementChild.getAttribute("role"), "alert");
+    assert.match(target.textContent, /Disk full/);
+    [...target.querySelectorAll("button")].find(button => button.textContent.includes("Riprova")).click();
+    target.querySelector('button[aria-label="Chiudi avviso"]').click();
+    assert.deepEqual([retried, dismissed], [1, 1]);
+    await unmount(instance); target.replaceChildren();
+    instance = mountCallout({ tone: "warning", title: "Runner", items: ["one", "one"] });
+    await settle();
+    assert.equal(target.firstElementChild.getAttribute("role"), "status");
+    assert.equal(target.querySelector("details"), null, "two items stay visible");
+    assert.equal(target.querySelectorAll("li").length, 2);
+    await unmount(instance); target.replaceChildren();
+    instance = mountCallout({ tone: "warning", title: "Runner", items: ["a", "b", "b"] });
+    await settle();
+    assert.ok(target.querySelector("details"), "longer lists collapse");
+    assert.match(target.querySelector("summary").textContent, /Mostra i dettagli \(3\)/);
+    assert.equal(target.querySelector('ul[aria-label="Runner"]').children.length, 3);
+  } finally { await unmount(instance); target.remove(); }
+});
+
+test("state blocks show skeleton rows while loading and an empty state with its icon", async () => {
+  const StateBlock = (await import(await load("src/lib/components/ui/StateBlock.svelte"))).default;
+  const target = document.createElement("div"); document.body.append(target);
+  let instance = mount(StateBlock, { target, props: { status: "loading", error: null, skeletonRows: 3, loadingMessage: "Loading list" } });
+  try {
+    await settle();
+    assert.equal(target.querySelectorAll("[aria-hidden='true'].animate-pulse").length, 3);
+    assert.equal(target.querySelector('[role="status"] .sr-only').textContent, "Loading list");
+    await unmount(instance); target.replaceChildren();
+    instance = mount(StateBlock, { target, props: { status: "empty", error: null, emptyMessage: "Nothing here", emptyIcon: "library" } });
+    await settle();
+    assert.match(target.textContent, /Nothing here/);
+    assert.ok(target.querySelector("svg, span.grid"), "an icon chip is rendered");
+  } finally { await unmount(instance); target.remove(); }
+});

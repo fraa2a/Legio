@@ -156,6 +156,9 @@
       status={listStatus}
       hasData={entries.length > 0}
       loadingMessage={t("Ricerca in corso...", $language)}
+      skeletonRows={4}
+      skeletonClass="h-28"
+      emptyIcon="search"
       {emptyMessage}
       error={$catalog.error}
       onRetry={() => void runCatalogSearch($storeQuery, options, true)}

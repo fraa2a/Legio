@@ -5,6 +5,7 @@
   } from "../../services/downloads";
   import Button from "../../components/ui/Button.svelte";
   import ConfirmDialog from "../../components/ui/ConfirmDialog.svelte";
+  import EmptyState from "../../components/ui/EmptyState.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
@@ -139,10 +140,9 @@
   <div class="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_17rem]">
     <div class="flex min-w-0 flex-col gap-4">
       {#if $downloads.status === "empty"}
-        <section class="flex flex-col items-start justify-center gap-4 rounded-2xl legio-glass p-8">
-          <h2 class="text-lg font-medium text-zinc-50 light:text-zinc-900">{t("Nessun download", $language)}</h2>
+        <EmptyState icon="downloads" title={t("Nessun download", $language)}>
           <Button label={t("Sfoglia lo store", $language)} variant="primary" onClick={() => selectSection("store")} />
-        </section>
+        </EmptyState>
       {/if}
         {#if sections.primary !== null}
           {@const primary = sections.primary}

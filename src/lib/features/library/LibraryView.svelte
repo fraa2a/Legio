@@ -39,6 +39,9 @@
   <StateBlock
     status={listStatus}
     hasData={$games.data.length > 0}
+    skeletonRows={3}
+    skeletonClass="h-32"
+    emptyIcon="library"
     emptyMessage={$settings.data.syncSteamGames
       ? t("Nessun gioco visibile in libreria. Puoi aggiungerne uno con + o riabilitare i giochi Steam nascosti nelle impostazioni delle librerie.", $language)
       : t("Nessun gioco visibile in libreria. Puoi aggiungerne uno con + o riabilitare i giochi Steam nascosti nelle impostazioni delle librerie. Sync Steam games è disattivato.", $language)}
