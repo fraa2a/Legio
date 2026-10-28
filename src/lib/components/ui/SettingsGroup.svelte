@@ -19,9 +19,7 @@
   let open = $state(untrack(() => defaultOpen));
 </script>
 
-<section
-  class="flex flex-col gap-4 rounded-2xl legio-glass p-5 shadow-sm shadow-black/20 light:shadow-zinc-900/5"
->
+<section class="flex flex-col gap-4 rounded-2xl legio-glass p-5">
   {#snippet iconBadge()}
     {#if icon}
       <span

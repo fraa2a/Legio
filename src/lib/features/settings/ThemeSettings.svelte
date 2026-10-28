@@ -5,8 +5,8 @@
   import { t, language } from "../../i18n";
   import type { Theme } from "../../services/local-state";
   import {
-    activePalette, chooseBackground, cleanupBackgrounds, defaultAppearance, defaultDither, themePresets,
-    type Appearance, type Palette,
+    activePalette, chooseBackground, cleanupBackgrounds, defaultAppearance, defaultDither, panelStyleOf, panelStyles, themePresets,
+    type Appearance, type Palette, type PanelStyle,
   } from "../../services/appearance";
   import { appearancePreview } from "../../stores/appearance";
   import { appInfo } from "../../stores/app-info";
@@ -16,6 +16,7 @@
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
+  import SegmentedControl from "../../components/ui/SegmentedControl.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
   import AppearanceSlider from "./AppearanceSlider.svelte";
@@ -71,6 +72,11 @@
     { id: "none", label: t("Nessuno", $language) },
     { id: "particles", label: t("Punti connessi", $language) },
     { id: "dither", label: "Dither" },
+  ]);
+  const panelStyleOptions: { value: PanelStyle; label: string }[] = $derived([
+    { value: "flat", label: t("Piatto", $language) },
+    { value: "glass", label: t("Vetro", $language) },
+    { value: "solid", label: t("Solido", $language) },
   ]);
   const ditherEffects: DitherSliderConfig[] = $derived([
     { key: "waveSpeed", label: t("Velocità dell'onda", $language), min: 0, max: 1, step: 0.01, decimals: 2 },
@@ -207,16 +213,7 @@
         {/each}
       </div>
     {/if}
-    <fieldset disabled={busy} class="grid gap-2 sm:grid-cols-3">
-      <legend class="mb-2 text-sm font-medium text-zinc-100 light:text-zinc-900">{t("Effetto di sfondo animato", $language)}</legend>
-      {#each animatedOptions as option (option.id)}
-        <label class="flex cursor-pointer items-center gap-2 rounded-xl p-3 text-sm transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-legio-accent {draft.animatedBackground === option.id ? 'bg-legio-accent/10 text-zinc-100 light:text-zinc-900' : 'text-zinc-400 hover:bg-white/5 light:text-zinc-600'}">
-          <input class="sr-only" type="radio" name="animated-background" value={option.id} checked={draft.animatedBackground === option.id} onchange={() => { draft.animatedBackground = option.id; }} />
-          <span class="grid size-4 shrink-0 place-items-center rounded-full border-2 {draft.animatedBackground === option.id ? 'border-legio-accent' : 'border-zinc-500'}" aria-hidden="true">{#if draft.animatedBackground === option.id}<span class="size-2 rounded-full bg-legio-accent"></span>{/if}</span>
-          {option.label}
-        </label>
-      {/each}
-    </fieldset>
+    <SegmentedControl name="animated-background" label={t("Effetto di sfondo animato", $language)} options={animatedOptions.map((option) => ({ value: option.id, label: option.label }))} value={draft.animatedBackground} disabled={busy} onChange={(value) => { draft.animatedBackground = value as Appearance["animatedBackground"]; }} />
     {#if draft.animatedBackground !== "none"}
       <ResetSetting label={t("Ripristina sfondo animato", $language)} disabled={busy} onClick={() => { draft.animatedBackground = "none"; }} />
       <AppearanceSlider id="theme-animatedOpacity" label={t("Opacità dello sfondo animato", $language)} value={draft.animatedOpacity} min={0} max={100} unit="%" resetValue={defaultAppearance().animatedOpacity} disabled={busy} onChange={(value) => { draft.animatedOpacity = value; }} />
@@ -243,6 +240,7 @@
   </SettingsGroup>
 
   <SettingsGroup title={t("Pannelli e dialoghi", $language)} icon="landscape" collapsible>
+    <SegmentedControl name="panel-style" label={t("Stile dei pannelli", $language)} options={panelStyleOptions} value={panelStyleOf(draft)} disabled={busy} onChange={(value) => { Object.assign(draft, panelStyles[value as PanelStyle]); }} />
     <div class="grid gap-3 sm:grid-cols-2">
       {#each surfaceEffects as effect (effect.key)}
         <AppearanceSlider id={"theme-" + effect.key} label={effect.label} value={draft[effect.key]} min={effect.min} max={effect.max} unit={effect.unit} resetValue={defaultAppearance()[effect.key]} disabled={busy} onChange={(value) => { draft[effect.key] = value; }} />

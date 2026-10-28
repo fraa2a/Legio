@@ -167,6 +167,29 @@ test("the accent color previews immediately and resets to the palette accent", a
   } finally { await unmount(instance); target.remove(); }
 });
 
+test("panel style presets set the surface values and report a match", async () => {
+  const base = appearance.defaultAppearance();
+  for (const style of ["flat", "glass", "solid"]) assert.equal(appearance.panelStyleOf({ ...base, ...appearance.panelStyles[style] }), style);
+  assert.equal(appearance.panelStyleOf({ ...base, ...appearance.panelStyles.glass, surfaceOpacity: 33 }), null);
+  const initial = { theme: "dark", appearance: base };
+  settingsStore.set({ data: initial });
+  const previews = [];
+  const component = (await import(await load("src/lib/features/settings/ThemeSettings.svelte"))).default;
+  const target = document.createElement("div"); document.body.append(target);
+  const instance = mount(component, { target, props: { accent: "#fafafa", preview: initial, onPreview: value => previews.push(value) } });
+  try {
+    await settle();
+    const toggle = [...target.querySelectorAll("button[aria-expanded]")].find((button) => button.textContent.includes("Pannelli e dialoghi"));
+    toggle.click(); await settle();
+    const solid = target.querySelector('input[name="panel-style"][value="solid"]');
+    solid.checked = true; solid.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    const { appearance: applied } = previews.at(-1);
+    assert.deepEqual({ surfaceOpacity: applied.surfaceOpacity, surfaceBlur: applied.surfaceBlur, dialogOpacity: applied.dialogOpacity, dialogBlur: applied.dialogBlur }, appearance.panelStyles.solid);
+    assert.equal(target.querySelector('input[name="panel-style"]:checked').value, "solid");
+  } finally { await unmount(instance); target.remove(); }
+});
+
 test("tinted palettes recolor the neutral ramp and a custom accent wins", () => {
   const channels = (hex) => [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16));
   const dark = presetData.find((preset) => preset.id === "dark");

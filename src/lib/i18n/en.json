@@ -707,5 +707,9 @@
   "Acciaio": "Steel",
   "Smeraldo": "Emerald",
   "Sabbia": "Sand",
-  "Colore di accento": "Accent color"
+  "Colore di accento": "Accent color",
+  "Stile dei pannelli": "Panel style",
+  "Piatto": "Flat",
+  "Vetro": "Glass",
+  "Solido": "Solid"
 }

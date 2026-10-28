@@ -52,6 +52,21 @@ export interface Appearance {
 
 export const themePresets = presets as ThemePreset[];
 
+export type PanelStyle = "flat" | "glass" | "solid";
+type PanelValues = Pick<Appearance, "surfaceOpacity" | "surfaceBlur" | "dialogOpacity" | "dialogBlur">;
+
+export const panelStyles: Record<PanelStyle, PanelValues> = {
+  flat: { surfaceOpacity: 0, surfaceBlur: 40, dialogOpacity: 0, dialogBlur: 40 },
+  glass: { surfaceOpacity: 45, surfaceBlur: 24, dialogOpacity: 75, dialogBlur: 32 },
+  solid: { surfaceOpacity: 90, surfaceBlur: 0, dialogOpacity: 100, dialogBlur: 0 },
+};
+
+// Null when the sliders were tuned to values that match no preset.
+export function panelStyleOf(appearance: Appearance): PanelStyle | null {
+  const styles = Object.keys(panelStyles) as PanelStyle[];
+  return styles.find((style) => (Object.keys(panelStyles[style]) as (keyof PanelValues)[]).every((key) => appearance[key] === panelStyles[style][key])) ?? null;
+}
+
 export function defaultDither(): DitherSettings {
   return {
     waveSpeed: 0.05, waveFrequency: 3, waveAmplitude: 0.3,
