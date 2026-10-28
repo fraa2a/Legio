@@ -1,20 +1,22 @@
 <script lang="ts">
-  import type { Snippet } from "svelte";
+  import { untrack, type Snippet } from "svelte";
   import Icon, { type IconName } from "./Icon.svelte";
 
   let {
     title,
     icon,
     collapsible = false,
+    defaultOpen = false,
     children,
   }: {
     title: string;
     icon?: IconName;
     collapsible?: boolean;
+    defaultOpen?: boolean;
     children: Snippet;
   } = $props();
 
-  let open = $state(false);
+  let open = $state(untrack(() => defaultOpen));
 </script>
 
 <section

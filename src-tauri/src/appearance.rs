@@ -74,6 +74,7 @@ impl Default for DitherSettings {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Appearance {
+    pub accent: Option<String>,
     pub background: Option<String>,
     pub background_blur: u8,
     pub background_opacity: u8,
@@ -90,6 +91,7 @@ pub struct Appearance {
 impl Default for Appearance {
     fn default() -> Self {
         Self {
+            accent: None,
             background: None,
             background_blur: 0,
             background_opacity: 60,
@@ -118,6 +120,9 @@ pub(crate) fn validate(appearance: &Appearance) -> Result<(), String> {
     }
     if let Some(id) = &appearance.background {
         validate_id(id)?;
+    }
+    if let Some(color) = &appearance.accent {
+        validate_color(color)?;
     }
     validate_dither(&appearance.dither)
 }
@@ -156,7 +161,7 @@ fn validate_color(color: &str) -> Result<(), String> {
     if hex {
         Ok(())
     } else {
-        Err("Dither colors must be hex values such as #ff8800".to_owned())
+        Err("Colors must be hex values such as #ff8800".to_owned())
     }
 }
 
@@ -496,5 +501,32 @@ mod tests {
             ..Appearance::default()
         };
         assert!(validate(&wave_color).is_ok());
+    }
+
+    #[test]
+    fn accent_color_must_be_a_hex_value() {
+        for accent in ["#c8893a", "#FFFFFF"] {
+            let valid = Appearance {
+                accent: Some(accent.to_owned()),
+                ..Appearance::default()
+            };
+            assert!(validate(&valid).is_ok());
+        }
+        for accent in [
+            "c8893a",
+            "#c8893",
+            "#c8893g",
+            "red",
+            "#c8893a; x",
+            "#é8893a",
+        ] {
+            let invalid = Appearance {
+                accent: Some(accent.to_owned()),
+                ..Appearance::default()
+            };
+            assert!(validate(&invalid).is_err(), "{accent}");
+        }
+        let missing: Appearance = serde_json::from_str("{}").unwrap();
+        assert_eq!(missing.accent, None);
     }
 }

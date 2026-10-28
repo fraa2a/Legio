@@ -5,12 +5,13 @@
   import { t, language } from "../../i18n";
   import type { Theme } from "../../services/local-state";
   import {
-    chooseBackground, cleanupBackgrounds, defaultAppearance, defaultDither, themePresets,
-    type Appearance,
+    activePalette, chooseBackground, cleanupBackgrounds, defaultAppearance, defaultDither, themePresets,
+    type Appearance, type Palette,
   } from "../../services/appearance";
   import { appearancePreview } from "../../stores/appearance";
   import { appInfo } from "../../stores/app-info";
   import { settings, updateSettings } from "../../stores/settings";
+  import Icon from "../../components/ui/Icon.svelte";
   import { toMessage } from "../../utils/errors";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
@@ -34,6 +35,8 @@
   type DitherSliderConfig = { key: DitherSliderKey; label: string; min: number; max: number; step: number; decimals: number };
   type DitherToggleKey = "disableAnimation" | "enableMouseInteraction";
 
+  const lightPalette = themePresets.find((preset) => preset.id === "light");
+  const darkPalette = themePresets.find((preset) => preset.id === "dark");
   const initial = untrack(() => preview ?? get(settings).data);
   let theme: Theme = $state(initial.theme);
   let draft: Appearance = $state(structuredClone(initial.appearance));
@@ -47,6 +50,7 @@
   let disposed = false;
 
   const serialized = $derived(JSON.stringify({ theme, appearance: draft }));
+  const paletteAccent = $derived(activePalette(theme, document.documentElement.dataset.theme !== "light").palette.accent);
   const dirty = $derived(serialized !== baseline);
   const hyprland = $derived($appInfo.data.platform === "linux" && $appInfo.data.desktopEnvironment === "hyprland");
   const themeOptions: { id: Theme; label: string; preset: (typeof themePresets)[number] | null }[] = $derived([
@@ -163,21 +167,31 @@
 <section class="appearance-settings flex flex-col gap-4">
   {#if error}<ErrorBanner message={error} />{/if}
 
-  <SettingsGroup title={t("Tema", $language)} icon="palette" collapsible>
-    <fieldset disabled={busy} class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+  <SettingsGroup title={t("Tema", $language)} icon="palette" collapsible defaultOpen>
+    <fieldset disabled={busy} class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       <legend class="sr-only">{t("Palette predefinite", $language)}</legend>
       {#each themeOptions as option (option.id)}
-        <label class="flex min-h-16 cursor-pointer items-center gap-2 rounded-lg px-3 py-2 transition-colors focus-within:outline-2 focus-within:outline-legio-accent {theme === option.id ? 'bg-legio-accent/10' : 'hover:bg-white/5 light:hover:bg-zinc-900/5'}">
+        <label class="flex cursor-pointer flex-col gap-2 rounded-xl border p-2 transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-legio-accent {theme === option.id ? 'border-legio-accent bg-legio-accent/10' : 'border-white/10 hover:bg-white/5 light:border-zinc-900/10 light:hover:bg-zinc-900/5'}">
           <input class="sr-only" type="radio" name="theme" value={option.id} checked={theme === option.id} onchange={() => { theme = option.id; }} />
-          {#if option.preset}
-            <span class="flex shrink-0 -space-x-1" aria-hidden="true"><span class="size-4 rounded-full border border-white/20" style:background-color={option.preset.palette.background}></span><span class="size-4 rounded-full border border-white/20" style:background-color={option.preset.palette.accent}></span></span>
-          {:else}
-            <span class="grid size-4 shrink-0 place-items-center rounded-full border-2 {theme === option.id ? 'border-legio-accent' : 'border-zinc-500'}" aria-hidden="true">{#if theme === option.id}<span class="size-2 rounded-full bg-legio-accent"></span>{/if}</span>
-          {/if}
-          <span class="truncate text-sm text-zinc-100 light:text-zinc-900">{option.label}</span>
+          <span class="relative block h-20 overflow-hidden rounded-lg border border-white/10 light:border-zinc-900/10" aria-hidden="true">
+            {#if option.preset}
+              {@render paletteMock(option.preset.palette, "inset-0")}
+            {:else if darkPalette && lightPalette}
+              <span class="absolute inset-y-0 left-0 w-1/2 overflow-hidden">{@render paletteMock(darkPalette.palette, "inset-y-0 left-0 w-[200%]")}</span>
+              <span class="absolute inset-y-0 right-0 w-1/2 overflow-hidden">{@render paletteMock(lightPalette.palette, "inset-y-0 right-0 w-[200%]")}</span>
+            {/if}
+          </span>
+          <span class="flex items-center justify-between gap-2 px-1">
+            <span class="truncate text-sm text-zinc-100 light:text-zinc-900">{option.label}</span>
+            {#if theme === option.id}<span class="shrink-0 text-legio-accent"><Icon name="check" size="size-4" /></span>{/if}
+          </span>
         </label>
       {/each}
     </fieldset>
+    <div class="flex items-center gap-1">
+      <label for="theme-accent" class="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-zinc-300 light:text-zinc-700"><span>{t("Colore di accento", $language)}</span><input id="theme-accent" type="color" disabled={busy} value={draft.accent ?? paletteAccent} class="h-9 w-12 cursor-pointer rounded border border-white/15 bg-transparent light:border-zinc-900/15" oninput={(event) => { draft.accent = event.currentTarget.value; }} /></label>
+      <ResetSetting label={t("Ripristina {0}", $language, [t("Colore di accento", $language)])} disabled={busy || draft.accent === null} onClick={() => { draft.accent = null; }} />
+    </div>
   </SettingsGroup>
 
   <SettingsGroup title={t("Sfondo e animazioni", $language)} icon="image" collapsible>
@@ -246,6 +260,16 @@
     <Button variant="secondary" label={t("Ripristina aspetto predefinito", $language)} disabled={busy} onClick={reset} />
   </div>
 </section>
+
+{#snippet paletteMock(palette: Palette, frame: string)}
+  <span class="absolute {frame}" style:background-color={palette.background}>
+    <span class="absolute inset-y-0 left-0 w-1/5" style:background-color={palette.surface}></span>
+    <span class="absolute top-2.5 right-3 left-[28%] h-1.5 rounded-full opacity-70" style:background-color={palette.text}></span>
+    <span class="absolute top-6 left-[28%] h-3 w-[22%] rounded" style:background-color={palette.raised}></span>
+    <span class="absolute top-6 left-[54%] h-3 w-[22%] rounded" style:background-color={palette.raised}></span>
+    <span class="absolute bottom-2.5 left-[28%] h-2.5 w-[26%] rounded-full" style:background-color={palette.accent}></span>
+  </span>
+{/snippet}
 
 <style>
   .appearance-settings { min-width: 0; }

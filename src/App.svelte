@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t, language } from "./lib/i18n";
-  import { activePalette, applyAppearance } from "./lib/services/appearance";
+  import { activePalette, applyAppearance, resolvedAccent } from "./lib/services/appearance";
   import { appearancePreview } from "./lib/stores/appearance";
   import { appInfo } from "./lib/stores/app-info";
   import AppBackground from "./lib/components/layout/AppBackground.svelte";
@@ -31,7 +31,7 @@
   const appearance = $derived($appearancePreview?.appearance ?? $settings.data.appearance);
   const theme = $derived($appearancePreview?.theme ?? $settings.data.theme);
   let prefersDark = $state(window.matchMedia("(prefers-color-scheme: dark)").matches);
-  const accent = $derived(activePalette(theme, prefersDark).palette.accent);
+  const accent = $derived(resolvedAccent(activePalette(theme, prefersDark), appearance));
 
   let updateDismissed = $state(false);
 
