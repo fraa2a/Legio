@@ -1,5 +1,5 @@
 import { invoke } from "./invoke";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { t } from "../i18n";
 import presets from "./theme-presets.json";
 import { tintColor, type Tint } from "./color-tint";
@@ -57,7 +57,7 @@ type PanelValues = Pick<Appearance, "surfaceOpacity" | "surfaceBlur" | "dialogOp
 
 export const panelStyles: Record<PanelStyle, PanelValues> = {
   flat: { surfaceOpacity: 0, surfaceBlur: 40, dialogOpacity: 0, dialogBlur: 40 },
-  glass: { surfaceOpacity: 45, surfaceBlur: 24, dialogOpacity: 75, dialogBlur: 32 },
+  glass: { surfaceOpacity: 45, surfaceBlur: 24, dialogOpacity: 45, dialogBlur: 35 },
   solid: { surfaceOpacity: 90, surfaceBlur: 0, dialogOpacity: 100, dialogBlur: 0 },
 };
 
@@ -159,6 +159,26 @@ export async function chooseBackground(): Promise<string | null> {
     filters: [{ name: t("Immagini"), extensions: ["png", "jpg", "jpeg", "webp"] }],
   });
   return path === null ? null : invoke<string>("import_theme_background", { source: path });
+}
+
+const profileFilters = () => [{ name: "JSON", extensions: ["json"] }];
+
+export interface AppearanceProfile {
+  version: number;
+  theme: Theme;
+  appearance: Appearance;
+}
+
+export async function exportAppearance(theme: Theme, appearance: Appearance): Promise<boolean> {
+  const path = await save({ title: t("Esporta aspetto"), defaultPath: "legio-appearance.json", filters: profileFilters() });
+  if (path === null) return false;
+  await invoke("export_appearance", { path, profile: { version: 1, theme, appearance } });
+  return true;
+}
+
+export async function importAppearance(): Promise<AppearanceProfile | null> {
+  const path = await open({ title: t("Importa aspetto"), multiple: false, filters: profileFilters() });
+  return path === null ? null : invoke<AppearanceProfile>("import_appearance", { path });
 }
 
 export function cleanupBackgrounds(): Promise<void> {

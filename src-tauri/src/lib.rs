@@ -392,6 +392,8 @@ fn run_application(
             commands::get_settings,
             commands::save_settings,
             appearance::import_theme_background,
+            appearance::export_appearance,
+            appearance::import_appearance,
             appearance::get_theme_background,
             appearance::cleanup_theme_backgrounds,
             commands::get_compatibility_defaults,
