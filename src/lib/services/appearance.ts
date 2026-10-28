@@ -40,7 +40,7 @@ export interface Appearance {
   background: string | null;
   backgroundBlur: number;
   backgroundOpacity: number;
-  animatedBackground: "none" | "particles" | "dither";
+  animatedBackground: "none" | "particles" | "dither" | "aurora";
   animatedOpacity: number;
   dither: DitherSettings;
   surfaceOpacity: number;

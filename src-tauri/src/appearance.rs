@@ -19,6 +19,7 @@ pub enum AnimatedBackground {
     None,
     Particles,
     Dither,
+    Aurora,
 }
 
 impl<'de> Deserialize<'de> for AnimatedBackground {
@@ -30,6 +31,7 @@ impl<'de> Deserialize<'de> for AnimatedBackground {
         Ok(match value.as_str() {
             "particles" => Self::Particles,
             "dither" => Self::Dither,
+            "aurora" => Self::Aurora,
             _ => Self::None,
         })
     }
@@ -388,6 +390,7 @@ mod tests {
             AnimatedBackground::None,
             AnimatedBackground::Particles,
             AnimatedBackground::Dither,
+            AnimatedBackground::Aurora,
         ] {
             let encoded = serde_json::to_string(&background).unwrap();
             assert_eq!(

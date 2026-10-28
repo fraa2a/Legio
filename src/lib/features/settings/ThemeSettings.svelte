@@ -72,6 +72,7 @@
     { id: "none", label: t("Nessuno", $language) },
     { id: "particles", label: t("Punti connessi", $language) },
     { id: "dither", label: "Dither" },
+    { id: "aurora", label: "Aurora" },
   ]);
   const panelStyleOptions: { value: PanelStyle; label: string }[] = $derived([
     { value: "flat", label: t("Piatto", $language) },
