@@ -4,6 +4,7 @@
   import { activePalette, themePresets } from "../../services/appearance";
   import ThemeSettings from "../settings/ThemeSettings.svelte";
   import Button from "../../components/ui/Button.svelte";
+  import Logo from "../../components/ui/Logo.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
   import TextField from "../../components/ui/TextField.svelte";
@@ -20,8 +21,18 @@
 </script>
 
 <main class="legio-content min-h-0 flex-1 overflow-auto rounded-xl bg-black p-6 light:bg-zinc-50" aria-labelledby="onboarding-title">
-  <section class="mx-auto flex max-w-2xl flex-col gap-6 rounded-2xl legio-glass p-6">
+  <div class="mx-auto flex max-w-2xl flex-col gap-6">
+  <div class="flex items-center gap-3 px-6 text-white light:text-zinc-900">
+    <Logo size="size-9" />
+    <span class="font-mono text-2xl font-bold tracking-[0.12em]">LEGIO</span>
+  </div>
+  <section class="flex flex-col gap-6 rounded-2xl legio-glass p-6">
     <header>
+      <div class="mb-4 flex gap-1.5" aria-hidden="true">
+        {#each steps as stepName, index (stepName)}
+          <span class="h-1 flex-1 rounded-full transition-colors duration-300 {index <= step ? 'bg-legio-accent' : 'bg-white/15 light:bg-zinc-900/15'}"></span>
+        {/each}
+      </div>
       <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Configurazione iniziale", $language)} · {step + 1} / {steps.length}</p>
       <h1 tabindex="-1" id="onboarding-title" class="mt-2 text-3xl font-semibold text-zinc-50 light:text-zinc-900">{t(steps[step], $language)}</h1>
       <p class="mt-2 text-sm text-zinc-400 light:text-zinc-600">{t("Potrai cambiare tutte queste scelte nelle impostazioni.", $language)}</p>
@@ -81,14 +92,17 @@
         </dl>
       {/if}
       <footer class="flex flex-wrap items-center justify-between gap-3">
-        <Button label={t("Usa impostazioni attuali", $language)} variant="secondary" disabled={$onboarding.saving || appearanceBusy} onClick={() => void completeOnboarding(true)} />
         <Button label={t("Indietro", $language)} variant="secondary" disabled={step === 0 || $onboarding.saving || appearanceBusy} onClick={() => void moveStep(-1)} />
-        {#if step === steps.length - 1}
-          <Button label={$onboarding.saving ? t("Salvataggio...", $language) : t("Inizia a giocare", $language)} disabled={$onboarding.saving || $onboarding.loading || appearanceBusy} onClick={() => void completeOnboarding()} />
-        {:else}
-          <Button label={t("Continua", $language)} disabled={$onboarding.saving || appearanceBusy} onClick={() => void moveStep(1)} />
-        {/if}
+        <div class="flex flex-wrap items-center justify-end gap-2">
+          <Button label={t("Usa impostazioni attuali", $language)} variant="secondary" disabled={$onboarding.saving || appearanceBusy} onClick={() => void completeOnboarding(true)} />
+          {#if step === steps.length - 1}
+            <Button label={$onboarding.saving ? t("Salvataggio...", $language) : t("Inizia a giocare", $language)} disabled={$onboarding.saving || $onboarding.loading || appearanceBusy} onClick={() => void completeOnboarding()} />
+          {:else}
+            <Button label={t("Continua", $language)} disabled={$onboarding.saving || appearanceBusy} onClick={() => void moveStep(1)} />
+          {/if}
+        </div>
       </footer>
     {/if}
   </section>
+  </div>
 </main>
