@@ -154,7 +154,16 @@
 {#if storeGame === null && game === null}
   <p class="legio-glass rounded-xl p-6 text-zinc-400 light:text-zinc-600">{t("Il gioco non è più disponibile.", $language)}</p>
 {:else}
-  <div class="flex min-h-full flex-col gap-4">
+  <div class="relative isolate flex min-h-full flex-col gap-4">
+    {#if customBannerUrl !== null || steamAppId !== null}
+      <div class="pointer-events-none absolute inset-x-0 top-0 -z-10 h-160 overflow-hidden mask-b-from-20% opacity-50 light:opacity-25" aria-hidden="true">
+        {#if customBannerUrl !== null}
+          <img src={customBannerUrl} alt="" class="size-full scale-125 object-cover blur-3xl" />
+        {:else if steamAppId !== null}
+          <SteamArtwork {steamAppId} asset="hero_blur" caption={false} class="size-full scale-125 object-cover blur-3xl" />
+        {/if}
+      </div>
+    {/if}
     <section class="relative isolate aspect-[1920/620] min-h-80 w-full overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200">
       {#if customBannerUrl !== null}
         <img src={customBannerUrl} alt={t("Banner personalizzato di {0}", $language, [name])} class="absolute inset-0 size-full object-cover" />
