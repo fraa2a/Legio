@@ -66,6 +66,7 @@ mod playtime_activity;
 mod process_output;
 #[cfg(target_os = "linux")]
 mod proton_runtime;
+mod queue_shutdown;
 mod runner_discovery;
 mod settings;
 mod source_catalog;
@@ -280,6 +281,8 @@ fn run_application(
                 .map_err(std::io::Error::other)?,
             );
             app.manage(diagnostics);
+            app.manage(queue_shutdown::QueueShutdownState::default());
+            queue_shutdown::start(app.handle().clone());
             app.manage(discord_presence::PresenceService::start(app.handle())?);
             let language = initial_settings.language;
             let open = MenuItem::with_id(
@@ -462,6 +465,8 @@ fn run_application(
             download_queue::remove_download,
             download_queue::remove_finished_downloads,
             download_queue::reorder_downloads,
+            queue_shutdown::get_queue_shutdown,
+            queue_shutdown::set_queue_shutdown,
             installed_folder::open_installed_folder,
             installed_folder::get_installed_folder_info,
             commands::refresh_legio_source,

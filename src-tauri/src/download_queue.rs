@@ -929,6 +929,31 @@ fn has_status(database: &Database, status: DownloadStatus) -> Result<bool, Strin
     })
 }
 
+/// True while any job can still progress or finish installing. Failed jobs and
+/// extraction or installation errors are left for the user and do not count.
+pub(crate) fn has_unfinished_work(
+    queue: &DownloadQueueState,
+    database: &Database,
+) -> Result<bool, String> {
+    let processing = !queue
+        .processing
+        .lock()
+        .map_err(|_| "Processing lock was poisoned".to_owned())?
+        .is_empty();
+    if processing {
+        return Ok(true);
+    }
+    database.with_connection(|connection| {
+        connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM downloads WHERE status IN ('queued','downloading','waiting') OR (status = 'paused' AND pause_reason IS NOT 'automatic_disabled') OR (status IN ('downloaded','staging','staged','finalizing') AND error IS NULL))",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db_error)
+    })
+}
+
 fn wake_waiting(database: &Database) -> Result<bool, String> {
     database.with_connection(|connection| {
         let count = connection.execute(
@@ -3769,6 +3794,57 @@ mod tests {
                     .map_err(db_error)
             })
             .unwrap()
+    }
+
+    #[test]
+    fn unfinished_work_ignores_failures_and_user_decided_states() {
+        let (database, directory) = database_with_source();
+        let queue = DownloadQueueState::new(Ok(directory), "test").unwrap();
+        let job = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
+        let unfinished = |status: &str, reason: Option<&str>, error: Option<&str>| {
+            database
+                .with_connection(|connection| {
+                    connection.execute(
+                    "UPDATE downloads SET status = ?2, pause_reason = ?3, error = ?4 WHERE id = ?1",
+                    params![job.id, status, reason, error],
+                ).map_err(db_error)?;
+                    Ok(())
+                })
+                .unwrap();
+            has_unfinished_work(&queue, &database).unwrap()
+        };
+        for status in [
+            "queued",
+            "downloading",
+            "waiting",
+            "downloaded",
+            "staging",
+            "staged",
+            "finalizing",
+        ] {
+            assert!(unfinished(status, None, None), "{status}");
+        }
+        assert!(unfinished("paused", None, None));
+        assert!(unfinished("paused", Some("game_running"), None));
+        assert!(!unfinished("paused", Some("automatic_disabled"), None));
+        for status in ["downloaded", "staged", "finalizing"] {
+            assert!(
+                !unfinished(status, None, Some("extraction failed")),
+                "{status}"
+            );
+        }
+        for status in ["failed", "installed", "cancelled"] {
+            assert!(!unfinished(status, None, None), "{status}");
+        }
+        queue.processing.lock().unwrap().insert(job.id.clone());
+        assert!(has_unfinished_work(&queue, &database).unwrap());
     }
 
     #[test]
