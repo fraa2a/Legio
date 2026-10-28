@@ -8,9 +8,11 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
-use crate::database::DatabaseState;
+use crate::database::{DatabaseState, Theme};
 
 const MAX_IMAGE_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_PROFILE_BYTES: u64 = 64 * 1024;
+const PROFILE_VERSION: u8 = 1;
 
 #[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -102,8 +104,8 @@ impl Default for Appearance {
             dither: DitherSettings::default(),
             surface_opacity: 45,
             surface_blur: 24,
-            dialog_opacity: 75,
-            dialog_blur: 32,
+            dialog_opacity: 45,
+            dialog_blur: 35,
             transparent: false,
         }
     }
@@ -347,6 +349,53 @@ pub async fn cleanup_theme_backgrounds(app: AppHandle) -> Result<(), String> {
     .map_err(|error| error.to_string())?
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AppearanceProfile {
+    version: u8,
+    theme: Theme,
+    appearance: Appearance,
+}
+
+impl AppearanceProfile {
+    // Background images live in the local app data, so profiles never carry them.
+    fn checked(mut self) -> Result<Self, String> {
+        if self.version != PROFILE_VERSION {
+            return Err("Unsupported appearance file version".to_owned());
+        }
+        self.appearance.background = None;
+        validate(&self.appearance)?;
+        Ok(self)
+    }
+}
+
+#[tauri::command]
+pub async fn export_appearance(path: String, profile: AppearanceProfile) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = Path::new(&path);
+        if !path.is_absolute() {
+            return Err("Appearance paths must be absolute".to_owned());
+        }
+        let json =
+            serde_json::to_vec_pretty(&profile.checked()?).map_err(|error| error.to_string())?;
+        fs::write(path, json).map_err(|error| format!("Could not write appearance file: {error}"))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn import_appearance(path: String) -> Result<AppearanceProfile, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = read_bounded(Path::new(&path), MAX_PROFILE_BYTES)?;
+        serde_json::from_slice::<AppearanceProfile>(&bytes)
+            .map_err(|_| "The file is not a valid appearance export".to_owned())?
+            .checked()
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -392,7 +441,7 @@ mod tests {
                 defaults.dialog_opacity,
                 defaults.dialog_blur
             ),
-            (45, 24, 75, 32)
+            (45, 24, 45, 35)
         );
     }
 
@@ -546,5 +595,32 @@ mod tests {
         }
         let missing: Appearance = serde_json::from_str("{}").unwrap();
         assert_eq!(missing.accent, None);
+    }
+
+    #[test]
+    fn profile_roundtrip_drops_the_background_and_rejects_bad_files() {
+        let profile = AppearanceProfile {
+            version: PROFILE_VERSION,
+            theme: Theme::Dark,
+            appearance: Appearance {
+                background: Some("a".repeat(32)),
+                dialog_opacity: 50,
+                ..Appearance::default()
+            },
+        };
+        let checked = profile.clone().checked().unwrap();
+        assert_eq!(checked.appearance.background, None);
+        assert_eq!(checked.appearance.dialog_opacity, 50);
+        let json = serde_json::to_string(&checked).unwrap();
+        assert_eq!(
+            serde_json::from_str::<AppearanceProfile>(&json).unwrap(),
+            checked
+        );
+        let mut future = profile.clone();
+        future.version = PROFILE_VERSION + 1;
+        assert!(future.checked().is_err());
+        let mut loud = profile;
+        loud.appearance.dialog_blur = 41;
+        assert!(loud.checked().is_err());
     }
 }

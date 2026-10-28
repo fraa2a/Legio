@@ -74,7 +74,7 @@ test("onboarding keeps appearance edits across steps and saves them only on comp
   globalThis.themeInvoke = async command => { commands.push(command); return command === "import_theme_background" ? "chosen-background" : undefined; };
   const { load: loadSetup } = createModuleLoader({
     ...mocks,
-    "@tauri-apps/plugin-dialog": dataModule("export const open = () => globalThis.themeChooseBackground();"),
+    "@tauri-apps/plugin-dialog": dataModule("export const open = () => globalThis.themeChooseBackground(); export const save = () => Promise.resolve(null);"),
     "src/lib/i18n": dataModule(`import { writable } from ${JSON.stringify(import.meta.resolve("svelte/store"))}; export const language = writable("it"); export const setLanguage = () => {}; export const t = value => value;`),
     "src/lib/stores/app-info": dataModule(`import { writable } from ${JSON.stringify(import.meta.resolve("svelte/store"))}; export const appInfo = writable({data:{platform:"windows",trayAvailable:true}});`),
     "src/lib/stores/navigation": dataModule(`import { writable } from ${JSON.stringify(import.meta.resolve("svelte/store"))}; export const activeSection = writable("home");`),
@@ -192,6 +192,41 @@ test("panel style presets set the surface values and report a match", async () =
     assert.deepEqual({ surfaceOpacity: applied.surfaceOpacity, surfaceBlur: applied.surfaceBlur, dialogOpacity: applied.dialogOpacity, dialogBlur: applied.dialogBlur }, appearance.panelStyles.solid);
     assert.equal(target.querySelector('input[name="panel-style"]:checked').value, "solid");
   } finally { await unmount(instance); target.remove(); }
+});
+
+test("tuning a preset or choosing custom selects the custom panel style", async () => {
+  const initial = { theme: "dark", appearance: appearance.defaultAppearance() };
+  settingsStore.set({ data: initial });
+  const previews = [];
+  const component = (await import(await load("src/lib/features/settings/ThemeSettings.svelte"))).default;
+  const target = document.createElement("div"); document.body.append(target);
+  const instance = mount(component, { target, props: { accent: "#fafafa", preview: initial, onPreview: value => previews.push(value) } });
+  try {
+    await settle();
+    [...target.querySelectorAll("button[aria-expanded]")].find((button) => button.textContent.includes("Pannelli e dialoghi")).click();
+    await settle();
+    const checked = () => target.querySelector('input[name="panel-style"]:checked').value;
+    assert.equal(checked(), "glass");
+    const blur = target.querySelector("#theme-dialogBlur");
+    blur.value = "10"; blur.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    assert.equal(checked(), "custom");
+    const glass = target.querySelector('input[name="panel-style"][value="glass"]');
+    glass.checked = true; glass.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    assert.equal(checked(), "glass");
+    assert.equal(previews.at(-1).appearance.dialogBlur, 35);
+    const custom = target.querySelector('input[name="panel-style"][value="custom"]');
+    custom.checked = true; custom.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    assert.equal(checked(), "custom");
+    assert.equal(previews.at(-1).appearance.dialogBlur, 35);
+  } finally { await unmount(instance); target.remove(); }
+});
+
+test("the glass preset uses 45% dialog opacity and 35px dialog blur", () => {
+  assert.equal(appearance.panelStyles.glass.dialogOpacity, 45);
+  assert.equal(appearance.panelStyles.glass.dialogBlur, 35);
 });
 
 test("tinted palettes recolor the neutral ramp and a custom accent wins", () => {

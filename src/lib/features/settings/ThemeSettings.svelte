@@ -5,7 +5,7 @@
   import { t, language } from "../../i18n";
   import type { Theme } from "../../services/local-state";
   import {
-    activePalette, chooseBackground, cleanupBackgrounds, defaultAppearance, defaultDither, panelStyleOf, panelStyles, themePresets,
+    activePalette, chooseBackground, cleanupBackgrounds, defaultAppearance, defaultDither, exportAppearance, importAppearance, panelStyleOf, panelStyles, themePresets,
     type Appearance, type Palette, type PanelStyle,
   } from "../../services/appearance";
   import { appearancePreview } from "../../stores/appearance";
@@ -48,6 +48,7 @@
   let adjusting = $state(false);
   let busy = $state(false);
   let error = $state<string | null>(null);
+  let customPanels = $state(false);
   let disposed = false;
 
   const serialized = $derived(JSON.stringify({ theme, appearance: draft }));
@@ -74,11 +75,13 @@
     { id: "dither", label: "Dither" },
     { id: "aurora", label: "Aurora" },
   ]);
-  const panelStyleOptions: { value: PanelStyle; label: string }[] = $derived([
+  const panelStyleOptions: { value: PanelStyle | "custom"; label: string }[] = $derived([
     { value: "flat", label: t("Piatto", $language) },
     { value: "glass", label: t("Vetro", $language) },
     { value: "solid", label: t("Solido", $language) },
+    { value: "custom", label: t("Personalizzato", $language) },
   ]);
+  const panelStyle = $derived(customPanels ? "custom" : (panelStyleOf(draft) ?? "custom"));
   const ditherEffects: DitherSliderConfig[] = $derived([
     { key: "waveSpeed", label: t("Velocità dell'onda", $language), min: 0, max: 1, step: 0.01, decimals: 2 },
     { key: "waveFrequency", label: t("Frequenza dell'onda", $language), min: 0, max: 10, step: 0.1, decimals: 1 },
@@ -160,6 +163,45 @@
   function reset(): void {
     theme = "system";
     draft = defaultAppearance();
+    customPanels = false;
+  }
+
+  function selectPanelStyle(value: string): void {
+    customPanels = value === "custom";
+    if (value !== "custom") Object.assign(draft, panelStyles[value as PanelStyle]);
+  }
+
+  function setPanelValue(key: SliderKey, value: number): void {
+    draft[key] = value;
+    customPanels = panelStyleOf(draft) === null;
+  }
+
+  async function exportProfile(): Promise<void> {
+    busy = true;
+    error = null;
+    try {
+      if (await exportAppearance(theme, $state.snapshot(draft))) showToast(t("Aspetto esportato.", get(language)), "success");
+    } catch (reason) {
+      error = toMessage(reason);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function importProfile(): Promise<void> {
+    busy = true;
+    error = null;
+    try {
+      const profile = await importAppearance();
+      if (profile === null || disposed) return;
+      theme = profile.theme;
+      draft = { ...profile.appearance, background: draft.background };
+      customPanels = panelStyleOf(draft) === null;
+    } catch (reason) {
+      error = toMessage(reason);
+    } finally {
+      busy = false;
+    }
   }
 </script>
 
@@ -241,10 +283,10 @@
   </SettingsGroup>
 
   <SettingsGroup title={t("Pannelli e dialoghi", $language)} icon="landscape" collapsible>
-    <SegmentedControl name="panel-style" label={t("Stile dei pannelli", $language)} options={panelStyleOptions} value={panelStyleOf(draft)} disabled={busy} onChange={(value) => { Object.assign(draft, panelStyles[value as PanelStyle]); }} />
+    <SegmentedControl name="panel-style" label={t("Stile dei pannelli", $language)} options={panelStyleOptions} value={panelStyle} disabled={busy} onChange={selectPanelStyle} />
     <div class="grid gap-3 sm:grid-cols-2">
       {#each surfaceEffects as effect (effect.key)}
-        <AppearanceSlider id={"theme-" + effect.key} label={effect.label} value={draft[effect.key]} min={effect.min} max={effect.max} unit={effect.unit} resetValue={defaultAppearance()[effect.key]} disabled={busy} onChange={(value) => { draft[effect.key] = value; }} />
+        <AppearanceSlider id={"theme-" + effect.key} label={effect.label} value={draft[effect.key]} min={effect.min} max={effect.max} unit={effect.unit} resetValue={defaultAppearance()[effect.key]} disabled={busy} onChange={(value) => setPanelValue(effect.key, value)} />
       {/each}
     </div>
   </SettingsGroup>
@@ -257,6 +299,10 @@
 
   <div class="flex flex-wrap items-center justify-between gap-3 pt-4">
     <Button variant="secondary" label={t("Ripristina aspetto predefinito", $language)} disabled={busy} onClick={reset} />
+    <div class="flex flex-wrap gap-2">
+      <Button variant="secondary" label={t("Importa aspetto", $language)} disabled={busy} onClick={() => void importProfile()} />
+      <Button variant="secondary" label={t("Esporta aspetto", $language)} disabled={busy} onClick={() => void exportProfile()} />
+    </div>
   </div>
 </section>
 

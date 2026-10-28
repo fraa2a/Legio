@@ -10,6 +10,8 @@ commands.allow = [
   "get_settings",
   "save_settings",
   "import_theme_background",
+  "export_appearance",
+  "import_appearance",
   "get_theme_background",
   "cleanup_theme_backgrounds",
   "get_compatibility_defaults",
