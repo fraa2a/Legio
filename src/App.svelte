@@ -12,12 +12,14 @@
   import ErrorBanner from "./lib/components/ui/ErrorBanner.svelte";
   import MainContainer from "./lib/components/layout/MainContainer.svelte";
   import TitleBar from "./lib/components/layout/TitleBar.svelte";
+  import CommandPalette from "./lib/features/palette/CommandPalette.svelte";
   import SettingsDialog from "./lib/features/settings/SettingsDialog.svelte";
   import ToastNotice from "./lib/components/ui/ToastNotice.svelte";
   import Button from "./lib/components/ui/Button.svelte";
   import CloseButton from "./lib/components/ui/CloseButton.svelte";
   import AccountSwitchDialog from "./lib/features/library/AccountSwitchDialog.svelte";
   import { hydrateApp } from "./lib/stores/bootstrap";
+  import { paletteOpen } from "./lib/stores/command-palette";
   import { closeSettings, settingsOpen } from "./lib/stores/navigation";
   import { settings } from "./lib/stores/settings";
   import { checkForAppUpdate, installAppUpdate, updateState } from "./lib/services/app-updater";
@@ -87,7 +89,13 @@
   oncontextmenu={blockContextMenu}
   ondragstart={(event) => { if (event.target instanceof HTMLImageElement) event.preventDefault(); }}
   onpointerdown={() => { document.documentElement.dataset.inputMethod = "pointer"; }}
-  onkeydown={(event) => { if (event.key === "Tab" || event.key.startsWith("Arrow")) document.documentElement.dataset.inputMethod = "keyboard"; }}
+  onkeydown={(event) => {
+    if (event.key === "Tab" || event.key.startsWith("Arrow")) document.documentElement.dataset.inputMethod = "keyboard";
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k" && $settings.status === "ready" && $settings.data.onboardingCompleted) {
+      event.preventDefault();
+      paletteOpen.update((open) => !open);
+    }
+  }}
 />
 
 <AppBackground id={appearance.background} animation={appearance.animatedBackground} animationOpacity={appearance.animatedOpacity} {accent} dither={appearance.dither} active={$mediaActive} />
@@ -109,6 +117,10 @@
 
 {#if $settingsOpen}
   <SettingsDialog onClose={closeSettings} {accent} />
+{/if}
+
+{#if $paletteOpen}
+  <CommandPalette />
 {/if}
 
 <AccountSwitchDialog />

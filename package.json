@@ -11,7 +11,7 @@
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "lint": "eslint .",
-    "test:home": "node --experimental-strip-types --test scripts/test_home.mjs",
+    "test:home": "node --experimental-strip-types --test scripts/test_home.mjs scripts/test_palette.mjs",
     "test:logging": "node --conditions=browser scripts/test_application_logging.mjs",
     "tauri": "tauri",
     "test:regressions": "node --test scripts/test_regressions.mjs",

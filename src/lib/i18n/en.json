@@ -711,5 +711,11 @@
   "Stile dei pannelli": "Panel style",
   "Piatto": "Flat",
   "Vetro": "Glass",
-  "Solido": "Solid"
+  "Solido": "Solid",
+  "Pagina": "Page",
+  "Cerca ovunque": "Search everywhere",
+  "Cerca giochi, pagine e impostazioni": "Search games, pages and settings",
+  "Cerca nello Store: {0}": "Search the Store: {0}",
+  "Nessun risultato": "No results",
+  "Store": "Store"
 }
