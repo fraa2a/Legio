@@ -62,7 +62,7 @@
     <div
       transition:fly={{ y: 16, duration: reducedMotion ? 0 : 180 }}
       role={notification.tone === "error" ? "alert" : "status"}
-      class="pointer-events-auto flex items-start gap-3 rounded-xl border border-white/15 px-4 py-3 text-sm shadow-xl {notification.tone === 'error' ? 'bg-red-700 text-white' : notification.tone === 'success' ? 'bg-emerald-700 text-white' : 'bg-zinc-900 text-zinc-100 light:border-zinc-900/15 light:bg-zinc-50 light:text-zinc-900'}"
+      class="pointer-events-auto flex items-start gap-3 rounded-xl border border-white/15 px-4 py-3 text-sm shadow-xl {notification.tone === 'error' ? 'bg-red-700 text-white' : notification.tone === 'success' ? 'bg-emerald-700 text-white' : notification.tone === 'warning' ? 'bg-amber-700 text-white' : 'bg-zinc-900 text-zinc-100 light:border-zinc-900/15 light:bg-zinc-50 light:text-zinc-900'}"
     >
       <p class="min-w-0 flex-1 break-words">{notification.message}</p>
       {#if notification.onRetry}<button type="button" class="shrink-0 rounded px-2 py-0.5 font-semibold hover:bg-white/15" onclick={() => { dismissToast(notification.id); notification.onRetry?.(); }}>{notification.retryLabel ?? t("Riprova", $language)}</button>{/if}

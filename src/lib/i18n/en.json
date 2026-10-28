@@ -699,5 +699,7 @@
   "voci non valide": "invalid entries",
   "{0} giocati": "{0} played",
   "{0} in attesa": "{0} waiting",
-  "{0} verrà rimosso dalla libreria. I file installati non vengono eliminati.": "{0} will be removed from the library. Installed files will be kept."
+  "{0} verrà rimosso dalla libreria. I file installati non vengono eliminati.": "{0} will be removed from the library. Installed files will be kept.",
+  "Mostra i dettagli ({0})": "Show details ({0})",
+  "Chiudi avviso": "Dismiss notice"
 }
