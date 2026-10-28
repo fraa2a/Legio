@@ -24,15 +24,16 @@ test("source-distinct versions retain names and stable selection IDs", async () 
   assert.deepEqual(entries.map(entry => model.sourceNameFor(entry, sources)), ["SteamGG", "Other", "SteamGG"]);
 });
 
-test("version selector shows source badges alongside names and keeps Steam badge", async () => {
+test("release picker shows source badges alongside names and keeps the Steam badge", async () => {
   const { load } = createModuleLoader({
     "src/lib/i18n": dataModule(`import { writable } from ${JSON.stringify(import.meta.resolve("svelte/store"))}; export const language = writable("it"); export const t = value => value;`),
     "src/lib/features/library/SteamArtwork.svelte": dataModule("export default function () {}"),
     "src/lib/components/ui/Icon.svelte": dataModule("export default function () {}"),
   });
-  const Component = (await import(await load("src/lib/features/library/GameVersionSelect.svelte"))).default;
+  const Component = (await import(await load("src/lib/features/library/ReleasePicker.svelte"))).default;
   const target = document.createElement("div"); document.body.append(target);
   let selected;
+  HTMLElement.prototype.showPopover = function () {};
   const instance = mount(Component, { target, props: { steamAppId: null, selectedId: "a", options: [
     { id: "a", name: "Portal", subtitle: "1", sourceName: "SteamGG" },
     { id: "b", name: "Portal", subtitle: "2", sourceName: "Other" },
@@ -44,7 +45,7 @@ test("version selector shows source badges alongside names and keeps Steam badge
     target.querySelector("button").click(); await settle();
     assert.match(target.textContent, /Other/);
     assert.match(target.textContent, /STEAM/);
-    [...target.querySelectorAll("button")].find(button => button.textContent.includes("Other")).click();
+    [...target.querySelectorAll('[role="option"]')].find(option => option.textContent.includes("Other")).click();
     assert.equal(selected, "b");
   } finally { await unmount(instance); target.remove(); }
 });

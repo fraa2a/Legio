@@ -21,8 +21,8 @@
 </script>
 
 <span
-  class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium {toneClass}"
+  class="inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium {toneClass}"
 >
   {#if children}{@render children()}{/if}
-  {title}
+  <span class="truncate">{title}</span>
 </span>

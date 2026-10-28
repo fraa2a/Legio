@@ -37,8 +37,7 @@
   import SystemRequirements from "./SystemRequirements.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import Callout from "../../components/ui/Callout.svelte";
-  import DownloadMirrorSelect from "./DownloadMirrorSelect.svelte";
-  import GameVersionSelect from "./GameVersionSelect.svelte";
+  import ReleasePicker, { type ReleaseOption } from "./ReleasePicker.svelte";
   import AddGameDialog from "./AddGameDialog.svelte";
   import { acquireGameArtwork, gameArtworkRevision } from "../../services/game-artwork";
   import { toMessage } from "../../utils/errors";
@@ -64,8 +63,8 @@
   const job = $derived(storeGame === null || entry === null ? null : ($downloads.data.find((candidate) => candidate.steamAppId === steamAppId && (candidate.sourceId && candidate.sourceEntryId ? candidate.sourceId === entry.sourceId && candidate.sourceEntryId === entry.id : candidate.url === entry.download.url && candidate.releaseVersion === entry.release.version) && candidate.status !== "installed" && candidate.status !== "cancelled") ?? null));
   const downloadProgress = $derived(job === null ? 0 : downloadProgressPercent(job));
   const libraryVersions = $derived(game === null ? [] : $games.data.filter((candidate) => candidate.steamAppId === null ? candidate.id === game.id : candidate.steamAppId === game.steamAppId));
-  const versionOptions = $derived(storeGame !== null
-    ? releases.map((release) => ({ id: sourceReleaseId(release.entry), name: release.entry.name, sourceName: sourceNameFor(release.entry, $source.data.sources), subtitle: t("Versione {0}", $language, [release.entry.release.version]) }))
+  const versionOptions: ReleaseOption[] = $derived(storeGame !== null
+    ? releases.map((release) => ({ id: sourceReleaseId(release.entry), name: release.entry.name, sourceName: sourceNameFor(release.entry, $source.data.sources), subtitle: t("Versione {0}", $language, [release.entry.release.version]), sizeBytes: release.entry.download.sizeBytes, availability: release.availability }))
     : libraryVersions.map((candidate) => {
       const lastPlayed = $playtime.data.find((summary) => summary.gameId === candidate.id)?.lastPlayedAt ?? null;
       return { id: candidate.id, name: candidate.name, subtitle: lastPlayed === null ? t("Mai giocato", $language) : t("Ultima partita: {0}", $language, [formatDateTime(lastPlayed / 1000, $language)]), isSteam: candidate.steamInstallPath !== null };
@@ -219,10 +218,17 @@
         />
       {/if}
       {#if versionOptions.length > 0}
-        <GameVersionSelect {steamAppId} options={versionOptions} selectedId={selectedVersionId} onSelect={selectVersion} onAdd={game !== null && libraryVersions.length === 1 && steamAppId !== null ? () => { addVersionOpen = true; } : undefined} />
-        {#if storeGame !== null && entry !== null}
-          <DownloadMirrorSelect uris={mirrorUris} bind:value={selectedMirror} disabled={queueing || confirmOpen} />
-        {/if}
+        <ReleasePicker
+          class="min-w-72 max-w-md flex-1"
+          {steamAppId}
+          options={versionOptions}
+          selectedId={selectedVersionId}
+          onSelect={selectVersion}
+          onAdd={game !== null && libraryVersions.length === 1 && steamAppId !== null ? () => { addVersionOpen = true; } : undefined}
+          links={storeGame !== null && entry !== null ? mirrorUris : []}
+          bind:link={selectedMirror}
+          linksDisabled={queueing || confirmOpen}
+        />
       {/if}
       {#if game !== null}
         <Button label={t("Impostazioni del gioco", $language)} square variant="overlay" size="hero" onClick={() => (gameSettingsOpen = true)}>
