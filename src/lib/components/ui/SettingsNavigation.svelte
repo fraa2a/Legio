@@ -1,10 +1,12 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import Icon, { type IconName } from "./Icon.svelte";
-  let { categories, selected, label, onSelect }: {
+  let { categories, selected, label, onSelect, footer }: {
     categories: { id: string; label: string; icon: IconName }[];
     selected: string;
     label: string;
     onSelect: (id: string) => void;
+    footer?: Snippet;
   } = $props();
 </script>
 
@@ -16,4 +18,5 @@
       <Icon name={category.icon} size="size-4 shrink-0" />{category.label}
     </button>
   {/each}
+  {#if footer}<div class="mt-auto pt-3">{@render footer()}</div>{/if}
 </nav>
