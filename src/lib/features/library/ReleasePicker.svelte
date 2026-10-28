@@ -187,7 +187,7 @@
     disabled={disabled || !hasChoices}
     onkeydown={handleKeydown}
     onclick={() => (open ? close() : void showPanel())}
-    class="flex h-15 w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 text-left text-zinc-100 transition-colors enabled:hover:border-white/25 enabled:hover:bg-white/10 disabled:cursor-default light:border-zinc-900/10 light:bg-white light:text-zinc-900 light:enabled:hover:border-zinc-900/25 light:enabled:hover:bg-zinc-50"
+    class="flex h-15 w-full items-center gap-3 rounded-xl border border-white/10 bg-zinc-950/60 backdrop-blur-md px-3 text-left text-zinc-100 transition-colors enabled:hover:border-white/25 enabled:hover:bg-zinc-950/75 disabled:cursor-default light:border-zinc-900/10 light:bg-zinc-100/70 light:text-zinc-900 light:enabled:hover:border-zinc-900/25 light:enabled:hover:bg-zinc-50"
   >
     {@render icon(selected.name, "size-10")}
     <span class="flex min-w-0 flex-1 flex-col gap-0.5">
