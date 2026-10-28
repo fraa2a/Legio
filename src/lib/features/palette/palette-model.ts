@@ -8,7 +8,7 @@ export interface PaletteItem {
   keywords?: string;
 }
 
-const fold = (value: string): string => value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+const fold = (value: string): string => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 
 // Lower is better; null means the query does not match.
 function score(item: PaletteItem, query: string): number | null {

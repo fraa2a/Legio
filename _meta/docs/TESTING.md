@@ -37,7 +37,7 @@ Test development and installed builds. Back up production data before testing in
 - **Library:** empty/populated states, restart persistence, Steam detection, launch/stop and playtime.
 - **Downloads:** pause, resume, cancel, extract and finalize using an authorized source.
 - **Store:** sorting, filters, release selection, source refresh and offline cache. Rapid changes must not show stale results.
-- **UI:** both themes/languages, keyboard focus, retries, reduced motion, minimum window size, scaling and both sidebar states.
+- **UI:** every palette and panel style, both languages, keyboard focus, the Ctrl+K palette, retries, reduced motion, minimum window size, scaling and both sidebar states.
 - **Artwork:** cold/warm/expired caches, offline refresh, quick A/B/A navigation and cancellation. Failed refreshes must retain displayed content.
 - **Rendering:** animated/frozen/disabled backgrounds, resize, minimize/restore and GPU context recovery. See [Linux diagnostics](LINUX-RENDERING.md).
 - **Logging:** independent application/network toggles, off by default, and redaction. See [Troubleshooting](TROUBLESHOOTING.md).

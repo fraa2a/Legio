@@ -42,7 +42,7 @@ Clear inherited `WEBKIT_USE_SKIA_FOR_COMPOSITION`, `WEBKIT_DISABLE_DMABUF_RENDER
 
 Append `--check` for a nonvisual initialization check that reads preferences and constructs the ephemeral view without opening a window. It does not validate pixels or GPU execution. The synthetic probe is a reduction aid; a passing probe cannot prove that Legio's complete game page is unaffected.
 
-Open a game page containing hero artwork and blurred panels. Repeat window focus changes and workspace changes at least 20 times, then minimize/restore, resize, open/close fullscreen artwork and navigate through Library, Store and Settings. Repeat with Dither, another background and no background. Check that no surface disappears, text remains sharp, the sidebar stays visible and idle GPU use does not grow unexpectedly. Record the failing comparison and the corresponding `linux_renderer` entry.
+Open a game page containing hero artwork and blurred panels. Repeat window focus changes and workspace changes at least 20 times, then minimize/restore, resize, open/close fullscreen artwork and navigate through Library, Store and Settings. Repeat with Dither, Aurora, another background and no background. Check that no surface disappears, text remains sharp, the sidebar stays visible and idle GPU use does not grow unexpectedly. Record the failing comparison and the corresponding `linux_renderer` entry.
 
 No additional startup navigation or process restart is added to Legio. Its normal Skia selection comes from WebKit's initial engine configuration, before Tauri setup. Explicit engine environment overrides are reported separately from the read-back preferences, because an environment override can affect the WebProcess without changing the UI-process settings object.
 
