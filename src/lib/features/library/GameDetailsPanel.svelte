@@ -162,7 +162,7 @@
   <Panel title={t("Disinstalla gioco", $language)}>
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Elimina i file installati del gioco e rimuovi la voce dalla libreria.", $language)}</p>
     {#if running}<Callout tone="warning" variant="inline" message={t("Chiudi il gioco prima di disinstallarlo.", $language)} />{/if}
-    <Button label={t("Disinstalla gioco", $language)} variant="danger" disabled={running || pending || identityPending} onClick={() => (confirmingUninstall = true)} />
+    <Button label={t("Disinstalla gioco", $language)} variant="danger-soft" disabled={running || pending || identityPending} onClick={() => (confirmingUninstall = true)} />
   </Panel>
   {#if confirmingUninstall}
     <UninstallGameDialog {game} onClose={() => (confirmingUninstall = false)} {onRemoved} />
@@ -186,7 +186,7 @@
       <Callout tone="warning" class="mt-2" message={t("Disattiva Sync Steam games nelle impostazioni per rimuoverlo, oppure usa Nascondi dalla libreria per nascondere solo questo gioco.", $language)} />
     {/if}
     <div>
-      <Button label={t("Rimuovi gioco", $language)} variant="danger" disabled={removeBlocked || pending || identityPending} onClick={() => (confirmingRemove = true)} />
+      <Button label={t("Rimuovi gioco", $language)} variant="danger-soft" disabled={removeBlocked || pending || identityPending} onClick={() => (confirmingRemove = true)} />
     </div>
   {/if}
 </Panel>

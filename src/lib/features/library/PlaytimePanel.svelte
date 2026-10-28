@@ -62,7 +62,7 @@
 <Panel title={t("Modifica tempo di gioco", $language)}>
   <Callout tone="warning" message={t("Impostazione avanzata: sostituisce il totale locale di Legio. Non modifica Steam né la cronologia delle sessioni.", $language)} />
   {#if running}<p class="text-sm text-zinc-400 light:text-zinc-600">{t("Chiudi il gioco prima di modificare il tempo di gioco.", $language)}</p>{/if}
-  <div><Button label={t("Imposta tempo di gioco", $language)} variant="danger" disabled={pending || running || summary === undefined} onClick={openEditor} /></div>
+  <div><Button label={t("Imposta tempo di gioco", $language)} variant="danger-soft" disabled={pending || running || summary === undefined} onClick={openEditor} /></div>
   {#if saved}<Callout tone="success" variant="inline" message={t("Tempo di gioco aggiornato.", $language)} />{/if}
 </Panel>
 

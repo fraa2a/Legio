@@ -16,7 +16,7 @@
     children,
   }: {
     label: string;
-    variant?: "primary" | "secondary" | "overlay" | "danger" | "download" | "play" | "launching" | "running";
+    variant?: "primary" | "secondary" | "overlay" | "danger" | "danger-soft" | "download" | "play" | "launching" | "running";
     size?: "sm" | "md" | "hero";
     type?: "button" | "submit";
     disabled?: boolean;
@@ -45,6 +45,7 @@
     if (variant === "launching") return "bg-legio-launching text-white hover:bg-legio-launching-hover disabled:hover:bg-legio-launching";
     if (variant === "running") return "bg-legio-running text-white hover:bg-legio-running-hover disabled:hover:bg-legio-running";
     if (variant === "danger") return "bg-legio-danger text-white hover:bg-legio-danger-hover disabled:hover:bg-legio-danger";
+    if (variant === "danger-soft") return "bg-legio-error/15 text-legio-error hover:bg-legio-error/25 disabled:hover:bg-legio-error/15";
     if (variant === "overlay") {
       return "border border-white/10 bg-zinc-950/60 text-zinc-100 backdrop-blur-md hover:bg-zinc-950/75 light:border-zinc-900/10 light:bg-zinc-100/70 light:text-zinc-900 light:hover:bg-zinc-200";
     }

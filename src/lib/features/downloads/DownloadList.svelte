@@ -172,7 +172,7 @@
         {#if canCancelDownload(job.status)}
           <Button
             label={t("Annulla", $language)}
-            variant="danger"
+            variant="danger-soft"
             size="sm"
             disabled={busyJob === job.id}
             onClick={() => onCancel(job)}

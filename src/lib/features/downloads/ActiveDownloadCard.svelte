@@ -108,7 +108,7 @@
           <Button label={t("Riprova", $language)} variant="primary" disabled={busy || job.pauseReason === "game_running"} onClick={onRetry} />
         {/if}
         {#if canCancelDownload(job.status)}
-          <Button label={t("Annulla", $language)} variant="danger" disabled={busy} onClick={onCancel} />
+          <Button label={t("Annulla", $language)} variant="danger-soft" disabled={busy} onClick={onCancel} />
         {/if}
         {#if canRemoveDownload(job.status)}
           <Button label={t("Rimuovi", $language)} variant="secondary" disabled={busy} onClick={onRemove} />
