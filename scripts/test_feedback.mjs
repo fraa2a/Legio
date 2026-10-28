@@ -206,3 +206,34 @@ test("state blocks show skeleton rows while loading and an empty state with its 
     assert.ok(target.querySelector("svg, span.grid"), "an icon chip is rendered");
   } finally { await unmount(instance); target.remove(); }
 });
+
+test("icon button titles appear as a tooltip after a delay and hide on leave or Escape", async () => {
+  const shown = [];
+  HTMLElement.prototype.showPopover = function () { shown.push(this); };
+  const { createRawSnippet } = await import("svelte");
+  const IconButton = (await import(await load("src/lib/components/ui/IconButton.svelte"))).default;
+  const target = document.createElement("div"); document.body.append(target);
+  const instance = mount(IconButton, { target, props: { label: "Reload", title: "Reload store", onClick() {}, children: createRawSnippet(() => ({ render: () => "<i>x</i>" })) } });
+  try {
+    await settle();
+    const button = target.querySelector("button");
+    assert.equal(button.getAttribute("title"), null, "the native title is replaced");
+    assert.equal(button.getAttribute("aria-label"), "Reload");
+    const anchor = button.parentElement;
+    anchor.dispatchEvent(new window.Event("pointerenter"));
+    await new Promise(resolve => setTimeout(resolve, 100)); await settle();
+    assert.equal(target.querySelector("[popover]"), null, "nothing shows before the delay");
+    await new Promise(resolve => setTimeout(resolve, 450)); await settle();
+    assert.equal(target.querySelector("[popover]").textContent, "Reload store");
+    assert.equal(shown.length, 1);
+    anchor.dispatchEvent(new window.Event("pointerleave"));
+    await settle();
+    assert.equal(target.querySelector("[popover]"), null);
+    button.dispatchEvent(new window.Event("focusin", { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 20)); await settle();
+    assert.ok(target.querySelector("[popover]"), "keyboard focus shows it immediately");
+    window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape" }));
+    await settle();
+    assert.equal(target.querySelector("[popover]"), null);
+  } finally { await unmount(instance); target.remove(); }
+});

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import Tooltip from "./Tooltip.svelte";
 
   let {
     label,
@@ -43,14 +44,21 @@
   });
 </script>
 
+{#snippet control()}
 <button
   type="button"
   aria-label={label}
   aria-pressed={pressed}
-  {title}
   {disabled}
   onclick={onClick}
   class="group inline-flex shrink-0 items-center justify-center transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent {sizeClass} {variantClass} {className}"
 >
   {@render children()}
 </button>
+{/snippet}
+
+{#if title}
+  <Tooltip text={title}>{@render control()}</Tooltip>
+{:else}
+  {@render control()}
+{/if}

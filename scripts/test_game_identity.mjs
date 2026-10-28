@@ -6,7 +6,7 @@ import { createModuleLoader, dataModule } from "./test_module_loader.mjs";
 globalThis.matchMedia = () => ({ matches: false });
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBeVisual: true });
-for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputElement", "Element", "Node", "Text", "Comment", "Event", "MutationObserver"]) {
+for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLMediaElement", "HTMLInputElement", "Element", "Node", "Text", "Comment", "Event", "MutationObserver"]) {
   Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
 }
 const { mount, unmount, flushSync } = await import("svelte");
