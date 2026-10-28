@@ -67,7 +67,7 @@
             {#if busyPhase}
               <span class="size-1.5 shrink-0 rounded-full bg-legio-download animate-pulse" aria-hidden="true"></span>
             {/if}
-            <span class="truncate">{#if phase !== null}{phase} · {/if}{t("Versione {0}", $language, [job.releaseVersion])}</span>
+            <span class="truncate">{phase !== null ? `${phase} · ` : ""}{t("Versione {0}", $language, [job.releaseVersion])}</span>
           </p>
         </div>
         <p class="text-3xl font-semibold tabular-nums text-zinc-50 light:text-zinc-900">
