@@ -4,6 +4,7 @@ import { appInfo } from "./app-info";
 import { settings } from "./settings";
 import { games } from "./games";
 import { bandwidthLimit, downloads, installedFolder, startDownloadProgressPolling } from "./downloads";
+import { startQueueShutdown } from "./queue-shutdown";
 import { startSourceLinks } from "./source-links";
 import { source, refreshSource } from "./source";
 import { checkConnectivity, network } from "./network";
@@ -40,6 +41,7 @@ export async function hydrateApp(): Promise<void> {
     playtime.load(),
   ]);
   startDownloadProgressPolling();
+  await startQueueShutdown();
   await listenDownloadsChanged(() => { void downloads.reload(); });
   await listenGameUpdatesChanged(() => { void gameUpdates.reload(); void source.reload(); });
   if (get(settings).data.launchInLibrary) activeSection.set("library");
