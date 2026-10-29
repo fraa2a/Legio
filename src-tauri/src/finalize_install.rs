@@ -297,7 +297,8 @@ pub(crate) fn publish_noreplace(source: &Path, target: &Path) -> io::Result<()> 
         error.raw_os_error(),
         Some(libc::ENOSYS) | Some(libc::EINVAL) | Some(libc::EOPNOTSUPP)
     ) {
-        return Err(io::Error::other(
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
             "Atomic no-replace directory rename is unavailable on this kernel or filesystem",
         ));
     }
