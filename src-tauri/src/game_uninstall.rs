@@ -293,7 +293,7 @@ pub async fn uninstall_game(
         if let Err(error) = crate::game_lifecycle::cleanup_removed_game(&app, &id) {
             warnings.push(error);
         }
-        if let Err(error) = crate::game_library::remove_default(&app, &id) {
+        if let Err(error) = crate::game_library::sync_default(&app) {
             warnings.push(error);
         }
         Ok(UninstallResult { warnings })
