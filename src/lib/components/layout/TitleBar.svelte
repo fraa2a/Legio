@@ -122,7 +122,7 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div class="my-1.5 grid shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2" data-tauri-drag-region>
+<div class="my-1.5 grid shrink-0 grid-cols-[minmax(auto,1fr)_minmax(0,32rem)_minmax(auto,1fr)] items-center gap-2" data-tauri-drag-region>
   <div class="col-start-1 flex items-center">
     {#if libraryList}
       <div class="legio-glass flex h-11 items-center rounded-xl p-1">
