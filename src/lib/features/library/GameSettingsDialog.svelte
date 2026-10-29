@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { t, language } from "../../i18n";
   import { createDesktopShortcut, transferGame, type Game } from "../../services/local-state";
-  import { pickGameDirectory } from "../../services/dialog";
+  import type { GameLibrary } from "../../services/game-libraries";
   import { reconcileGame } from "../../stores/games";
-  import TextField from "../../components/ui/TextField.svelte";
+  import { gameLibraries } from "../../stores/game-libraries";
+  import LibraryPickerDialog from "./LibraryPickerDialog.svelte";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import { toMessage } from "../../utils/errors";
@@ -46,32 +48,28 @@
   let shortcutPath = $state<string | null>(null);
   let shortcutPending = $state(false);
   const running = $derived(($launchStateByGame.get(game.id)?.status ?? "idle") !== "idle");
-  let destinationDraft = $state("");
+  let transferPickerOpen = $state(false);
   let transferPending = $state(false);
   let transferWarning = $state<string | null>(null);
   let transferError = $state<string | null>(null);
   let transferDone = $state(false);
 
-  async function browseTransfer(): Promise<void> {
-    try {
-      const selected = await pickGameDirectory(destinationDraft);
-      if (selected !== null) destinationDraft = selected;
-    } catch (error) { transferError = toMessage(error); }
-  }
+  const currentLibrary = $derived($gameLibraries.data.find(library => library.games.some(entry => entry.id === game.id)) ?? null);
+  onMount(() => { void gameLibraries.load(); });
 
-  async function moveGame(): Promise<void> {
+  async function moveGame(library: GameLibrary): Promise<void> {
+    transferPickerOpen = false;
     transferPending = true;
     transferError = null;
     transferWarning = null;
     transferDone = false;
     try {
-      const result = await transferGame(game.id, destinationDraft.trim());
+      const result = await transferGame(game.id, library.root);
       reconcileGame(result.game);
       transferWarning = result.warning;
-      destinationDraft = "";
       transferDone = true;
     } catch (error) { transferError = toMessage(error); }
-    finally { transferPending = false; }
+    finally { transferPending = false; void gameLibraries.reload(); }
   }
 
   async function addDesktopShortcut(): Promise<void> {
@@ -132,12 +130,9 @@
           {#if !steamManaged && game.executablePath !== null}
             <Panel title={t("Trasferisci gioco", $language)}>
               <div class="flex flex-col gap-3">
-                <TextField id="transfer-destination" label={t("Cartella di destinazione", $language)} value={destinationDraft}
-                  placeholder={t("Seleziona la libreria di destinazione", $language)} oninput={(value) => (destinationDraft = value)} />
-                <Button label={t("Sfoglia destinazione...", $language)} variant="secondary" disabled={transferPending}
-                  onClick={() => void browseTransfer()} />
-                <Button label={transferPending ? t("Trasferimento...", $language) : t("Trasferisci gioco", $language)}
-                  disabled={running || transferPending || destinationDraft.trim().length === 0} onClick={() => void moveGame()} />
+                <p class="break-all text-sm text-zinc-400 light:text-zinc-600">{currentLibrary === null ? t("Questo gioco non si trova in una libreria di Legio.", $language) : t("Libreria attuale: {0}", $language, [currentLibrary.root])}</p>
+                <div><Button label={transferPending ? t("Trasferimento...", $language) : t("Sposta in un'altra libreria...", $language)}
+                  disabled={running || transferPending} onClick={() => (transferPickerOpen = true)} /></div>
                 {#if running}<p class="text-sm text-zinc-400">{t("Chiudi il gioco prima di trasferirlo.", $language)}</p>{/if}
                 {#if transferDone}<Callout tone="success" variant="inline" message={t("Gioco trasferito.", $language)} />{/if}
                 {#if transferWarning}<ErrorBanner message={transferWarning} tone="warning" />{/if}
@@ -165,3 +160,12 @@
     </div>
   </div>
 </Dialog>
+
+<LibraryPickerDialog
+  open={transferPickerOpen}
+  title={t("Sposta {0}", $language, [game.name])}
+  confirmLabel={t("Sposta qui", $language)}
+  excludeId={currentLibrary?.id ?? null}
+  onSelect={(library) => void moveGame(library)}
+  onClose={() => (transferPickerOpen = false)}
+/>

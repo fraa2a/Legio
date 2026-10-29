@@ -1,19 +1,23 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { language, t } from "../../i18n";
-  import { pickGameDirectory } from "../../services/dialog";
-  import { listGameLibraries, importGameLibrary, repairGameLibrary, type GameLibrary } from "../../services/game-libraries";
-  import { games, hiddenSteamGames, restoreSteamGame } from "../../stores/games";
+  import { repairGameLibrary, type GameLibrary } from "../../services/game-libraries";
+  import { gameLibraries, pickAndAddLibrary } from "../../stores/game-libraries";
+  import { hiddenSteamGames, restoreSteamGame } from "../../stores/games";
   import { toMessage } from "../../utils/errors";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import Button from "../../components/ui/Button.svelte";
+  import Badge from "../../components/ui/Badge.svelte";
+  import Icon from "../../components/ui/Icon.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
+  import { formatLibraryDetails } from "../library/library-details";
+  import RemoveLibraryDialog from "./RemoveLibraryDialog.svelte";
 
-  let libraries = $state<GameLibrary[]>([]);
   let pending = $state(false);
   let error = $state<string | null>(null);
   let restoringId = $state<string | null>(null);
-  onMount(() => { void refresh(); void hiddenSteamGames.load(); });
+  let removing = $state<GameLibrary | null>(null);
+  onMount(() => { void gameLibraries.reload(); void hiddenSteamGames.load(); });
 
   async function restore(id: string): Promise<void> {
     restoringId = id;
@@ -23,39 +27,41 @@
     finally { restoringId = null; }
   }
 
-  async function refresh(): Promise<void> {
-    try { libraries = await listGameLibraries(); }
-    catch (cause) { error = toMessage(cause); }
-  }
-
-  async function importLibrary(): Promise<void> {
+  async function addLibrary(): Promise<void> {
     pending = true;
     error = null;
-    try {
-      const directory = await pickGameDirectory("");
-      if (directory !== null) {
-        await importGameLibrary(directory);
-        await games.reload();
-        await refresh();
-      }
-    } catch (cause) { error = toMessage(cause); }
+    try { await pickAndAddLibrary(); }
+    catch (cause) { error = toMessage(cause); }
     finally { pending = false; }
   }
 
   async function repair(library: GameLibrary): Promise<void> {
     pending = true;
     error = null;
-    try { await repairGameLibrary(library.root); await refresh(); }
+    try { await repairGameLibrary(library.root); await gameLibraries.reload(); }
     catch (cause) { error = toMessage(cause); }
     finally { pending = false; }
   }
 </script>
 
 <SettingsGroup icon="folder" title={t("Librerie dei giochi", $language)}>
-  <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Importa una cartella contenente library.ldf. I giochi restano nella posizione attuale.", $language)}</p>
-  {#each libraries as library (library.id)}
+  <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Le librerie sono le cartelle in cui Legio installa i giochi; a ogni download scegli quella da usare. Aggiungendo una cartella, Legio crea al suo interno la sottocartella Legio. Se la cartella contiene già un catalogo library.ldf, i suoi giochi vengono importati.", $language)}</p>
+  {#if $gameLibraries.error !== null}<ErrorBanner message={$gameLibraries.error} onRetry={() => void gameLibraries.reload()} />{/if}
+  {#each $gameLibraries.data as library (library.id)}
     <div class="flex flex-col gap-2 rounded-lg bg-white/5 p-3 light:bg-zinc-900/5">
-      <p class="break-all text-sm text-zinc-200 light:text-zinc-800">{library.root}</p>
+      <div class="flex flex-wrap items-center gap-3">
+        <span class="shrink-0 text-zinc-400 light:text-zinc-600"><Icon name="folder" /></span>
+        <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div class="flex min-w-0 items-center gap-2">
+            <p class="break-all text-sm text-zinc-200 light:text-zinc-800">{library.root}</p>
+            {#if library.isDefault}<Badge title={t("Predefinita", $language)} />{/if}
+          </div>
+          <p class="text-xs text-zinc-400 light:text-zinc-600">{formatLibraryDetails(library, $language)}</p>
+        </div>
+        {#if !library.isDefault}
+          <Button label={t("Rimuovi...", $language)} variant="danger-soft" size="sm" disabled={pending} onClick={() => (removing = library)} />
+        {/if}
+      </div>
       {#if library.warning}
         <ErrorBanner message={library.warning} tone="warning" />
         <p class="text-xs text-zinc-400 light:text-zinc-600">{t("La riparazione conserva una copia del catalogo e lo ricostruisce dai dati locali.", $language)}</p>
@@ -63,9 +69,17 @@
       {/if}
     </div>
   {/each}
-  <div><Button label={t("Importa libreria...", $language)} variant="secondary" disabled={pending} onClick={() => void importLibrary()} /></div>
+  <div>
+    <Button label={t("Aggiungi libreria...", $language)} variant="secondary" disabled={pending} onClick={() => void addLibrary()}>
+      <Icon name="plus" size="size-4" />
+    </Button>
+  </div>
   {#if error}<ErrorBanner message={error} />{/if}
 </SettingsGroup>
+
+{#if removing !== null}
+  <RemoveLibraryDialog library={removing} onClose={() => (removing = null)} />
+{/if}
 
 <SettingsGroup icon="store" title={t("Giochi Steam nascosti", $language)}>
   {#if $hiddenSteamGames.error !== null}
