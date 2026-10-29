@@ -61,7 +61,7 @@
   let selectedReleaseId = $state<string | null>(null);
   const status = $derived(releases.find((release) => sourceReleaseId(release.entry) === selectedReleaseId) ?? releases[0] ?? null);
   const entry = $derived(status?.entry ?? null);
-  const name = $derived(storeGame !== null ? (entry?.name ?? storeGame.name) : (game?.name ?? ""));
+  const name = $derived(storeGame !== null ? (details?.name ?? storeGame.name) : (game?.name ?? ""));
   let selectedMirror = $state("auto");
   const mirrorUris = $derived(entry === null ? [] : releaseLinks(entry, $source.data.sources).filter(uri => linkSizes === null || uri in linkSizes));
   const job = $derived(storeGame === null || entry === null ? null : ($downloads.data.find((candidate) => candidate.steamAppId === steamAppId && (candidate.sourceId && candidate.sourceEntryId ? candidate.sourceId === entry.sourceId && candidate.sourceEntryId === entry.id : candidate.url === entry.download.url && candidate.releaseVersion === entry.release.version) && candidate.status !== "installed" && candidate.status !== "cancelled") ?? null));
