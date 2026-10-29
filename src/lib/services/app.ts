@@ -8,6 +8,7 @@ export interface AppInfo {
   desktopEnvironment: string | null;
   startupLaunchGameId: string | null;
   startupLaunchError: string | null;
+  startupWarnings: string[];
 }
 
 export function getAppInfo(): Promise<AppInfo> {

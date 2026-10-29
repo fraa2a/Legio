@@ -13,8 +13,11 @@ import { playtime } from "./playtime";
 import { importSteamLibrary } from "./steam-library";
 import { get } from "svelte/store";
 import { activeSection, openGame } from "./navigation";
+import { showToast } from "./toast";
+import { t } from "../i18n";
 
 let steamScanTimer: ReturnType<typeof setInterval> | null = null;
+let startupWarningsShown = false;
 
 export function configureSteamScanInterval(minutes: number): void {
   if (steamScanTimer !== null) clearInterval(steamScanTimer);
@@ -50,6 +53,10 @@ export async function hydrateApp(): Promise<void> {
     openGame(startup.startupLaunchGameId);
   }
   if (startup.startupLaunchError !== null) launchError.set(startup.startupLaunchError);
+  if (!startupWarningsShown && startup.startupWarnings.length > 0) {
+    startupWarningsShown = true;
+    showToast(t("Alcuni dati non sono stati caricati all'avvio: {0}", undefined, [startup.startupWarnings.join("; ")]), "warning");
+  }
   if (steamScanTimer === null) {
     configureSteamScanInterval(get(settings).data.steamLibraryPollMinutes);
     if (get(settings).data.syncSteamGames && !get(hasPendingLaunch)) await importSteamLibrary();
