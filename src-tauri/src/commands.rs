@@ -53,14 +53,25 @@ pub async fn get_app_info(app: AppHandle) -> Result<AppInfo, String> {
 }
 
 #[tauri::command]
-pub fn notify_update_available(app: AppHandle, version: String, aur: bool) -> Result<(), String> {
+pub async fn notify_update_available(
+    app: AppHandle,
+    version: String,
+    aur: bool,
+) -> Result<(), String> {
     if !cfg!(target_os = "linux") {
         return Ok(());
     }
     if version.is_empty() || version.len() > 64 || version.chars().any(char::is_control) {
         return Err("Update version is invalid".to_owned());
     }
-    let settings = app.state::<DatabaseState>().database()?.settings()?;
+    let settings = {
+        let app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            app.state::<DatabaseState>().database()?.settings()
+        })
+        .await
+        .map_err(|error| format!("Settings load task failed: {error}"))??
+    };
     let body = if aur {
         format!(
             "Legio {version}. {}",
@@ -105,36 +116,50 @@ fn normalize_desktop_environment(hyprland: bool, current_desktop: Option<&str>) 
 }
 
 #[tauri::command]
-pub fn get_settings(state: State<'_, DatabaseState>) -> Result<Settings, String> {
-    state.database()?.settings()
+pub async fn get_settings(state: State<'_, DatabaseState>) -> Result<Settings, String> {
+    let database = state.shared_database()?;
+    tauri::async_runtime::spawn_blocking(move || database.settings())
+        .await
+        .map_err(|error| format!("Settings load task failed: {error}"))?
 }
 
 #[tauri::command]
-pub fn save_settings(app: AppHandle, settings: Settings) -> Result<Settings, String> {
-    crate::settings::save(&app, settings)
+pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<Settings, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::settings::save(&app, settings))
+        .await
+        .map_err(|error| format!("Settings save task failed: {error}"))?
 }
 
 #[tauri::command]
-pub fn get_compatibility_defaults(
+pub async fn get_compatibility_defaults(
     state: State<'_, DatabaseState>,
 ) -> Result<database::CompatibilityDefaults, String> {
-    state.database()?.compatibility_defaults()
+    let database = state.shared_database()?;
+    tauri::async_runtime::spawn_blocking(move || database.compatibility_defaults())
+        .await
+        .map_err(|error| format!("Compatibility defaults load task failed: {error}"))?
 }
 
 #[tauri::command]
-pub fn save_compatibility_defaults(
+pub async fn save_compatibility_defaults(
     state: State<'_, DatabaseState>,
     defaults: database::CompatibilityDefaults,
 ) -> Result<database::CompatibilityDefaults, String> {
-    state.database()?.save_compatibility_defaults(defaults)
+    let database = state.shared_database()?;
+    tauri::async_runtime::spawn_blocking(move || database.save_compatibility_defaults(defaults))
+        .await
+        .map_err(|error| format!("Compatibility defaults save task failed: {error}"))?
 }
 
 #[tauri::command]
-pub fn get_game_compatibility_overrides(
+pub async fn get_game_compatibility_overrides(
     state: State<'_, DatabaseState>,
     game_id: String,
 ) -> Result<database::GameCompatibilityOverrides, String> {
-    state.database()?.game_compatibility_overrides(&game_id)
+    let database = state.shared_database()?;
+    tauri::async_runtime::spawn_blocking(move || database.game_compatibility_overrides(&game_id))
+        .await
+        .map_err(|error| format!("Compatibility overrides load task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -152,55 +177,77 @@ pub async fn get_game_online_fix_detected(
 }
 
 #[tauri::command]
-pub fn get_native_launch_config(
+pub async fn get_native_launch_config(
     state: State<'_, DatabaseState>,
     game_id: String,
 ) -> Result<database::NativeLaunchConfig, String> {
-    state.database()?.native_launch_config(&game_id)
+    let database = state.shared_database()?;
+    tauri::async_runtime::spawn_blocking(move || database.native_launch_config(&game_id))
+        .await
+        .map_err(|error| format!("Native launch config load task failed: {error}"))?
 }
 
 #[tauri::command]
-pub fn get_steam_launch_config(
+pub async fn get_steam_launch_config(
     state: State<'_, DatabaseState>,
     game_id: String,
 ) -> Result<database::SteamLaunchConfig, String> {
-    state.database()?.steam_launch_config(&game_id)
+    let database = state.shared_database()?;
+    tauri::async_runtime::spawn_blocking(move || database.steam_launch_config(&game_id))
+        .await
+        .map_err(|error| format!("Steam launch config load task failed: {error}"))?
 }
 
 #[tauri::command]
-pub fn save_steam_launch_config(
+pub async fn save_steam_launch_config(
     state: State<'_, DatabaseState>,
     game_id: String,
     config: database::SteamLaunchConfig,
 ) -> Result<database::SteamLaunchConfig, String> {
-    state.database()?.save_steam_launch_config(&game_id, config)
+    let database = state.shared_database()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        database.save_steam_launch_config(&game_id, config)
+    })
+    .await
+    .map_err(|error| format!("Steam launch config save task failed: {error}"))?
 }
 
 #[tauri::command]
-pub fn save_native_launch_config(
+pub async fn save_native_launch_config(
     state: State<'_, DatabaseState>,
     game_id: String,
     config: database::NativeLaunchConfig,
 ) -> Result<database::NativeLaunchConfig, String> {
-    state
-        .database()?
-        .save_native_launch_config(&game_id, config)
+    let database = state.shared_database()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        database.save_native_launch_config(&game_id, config)
+    })
+    .await
+    .map_err(|error| format!("Native launch config save task failed: {error}"))?
 }
 
 #[tauri::command]
-pub fn save_game_compatibility_overrides(
+pub async fn save_game_compatibility_overrides(
     state: State<'_, DatabaseState>,
     game_id: String,
     overrides: database::GameCompatibilityOverrides,
 ) -> Result<database::GameCompatibilityOverrides, String> {
-    state
-        .database()?
-        .save_game_compatibility_overrides(&game_id, overrides)
+    let database = state.shared_database()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        database.save_game_compatibility_overrides(&game_id, overrides)
+    })
+    .await
+    .map_err(|error| format!("Compatibility overrides save task failed: {error}"))?
 }
 
 #[tauri::command]
-pub fn list_games(state: State<'_, DatabaseState>) -> Result<Vec<Game>, String> {
-    let result = state.database().and_then(database::Database::visible_games);
+pub async fn list_games(state: State<'_, DatabaseState>) -> Result<Vec<Game>, String> {
+    let result = match state.shared_database() {
+        Ok(database) => tauri::async_runtime::spawn_blocking(move || database.visible_games())
+            .await
+            .unwrap_or_else(|error| Err(format!("Library load task failed: {error}"))),
+        Err(error) => Err(error),
+    };
     if let Err(error) = &result {
         crate::application_log::failure("library_load", error);
     }
@@ -208,17 +255,23 @@ pub fn list_games(state: State<'_, DatabaseState>) -> Result<Vec<Game>, String> 
 }
 
 #[tauri::command]
-pub fn list_hidden_steam_games(state: State<'_, DatabaseState>) -> Result<Vec<Game>, String> {
-    state.database()?.hidden_steam_games()
+pub async fn list_hidden_steam_games(state: State<'_, DatabaseState>) -> Result<Vec<Game>, String> {
+    let database = state.shared_database()?;
+    tauri::async_runtime::spawn_blocking(move || database.hidden_steam_games())
+        .await
+        .map_err(|error| format!("Hidden games load task failed: {error}"))?
 }
 
 #[tauri::command]
-pub fn set_game_hidden(
+pub async fn set_game_hidden(
     state: State<'_, DatabaseState>,
     id: String,
     hidden: bool,
 ) -> Result<(), String> {
-    state.database()?.set_game_hidden(&id, hidden)
+    let database = state.shared_database()?;
+    tauri::async_runtime::spawn_blocking(move || database.set_game_hidden(&id, hidden))
+        .await
+        .map_err(|error| format!("Game visibility task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -347,11 +400,14 @@ pub async fn get_playtime_activity(
 }
 
 #[tauri::command]
-pub fn create_game(
+pub async fn create_game(
     state: State<'_, DatabaseState>,
     input: CreateGameInput,
 ) -> Result<Game, String> {
-    state.database()?.create_game(input)
+    let database = state.shared_database()?;
+    tauri::async_runtime::spawn_blocking(move || database.create_game(input))
+        .await
+        .map_err(|error| format!("Game creation task failed: {error}"))?
 }
 
 #[tauri::command]

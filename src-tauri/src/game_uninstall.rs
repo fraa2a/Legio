@@ -123,21 +123,26 @@ fn checked_target(database: &Database, id: &str, protected: &[PathBuf]) -> Resul
             }
         }
     }
-    database.with_connection(|connection| {
+    let libraries = database.with_connection(|connection| {
         let busy: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM downloads WHERE (id=?1 OR target_game_id=?1) AND status NOT IN ('installed','cancelled')) OR EXISTS(SELECT 1 FROM game_transfers WHERE game_id=?1) OR EXISTS(SELECT 1 FROM game_update_journals WHERE game_id=?1)", [id], |row| row.get(0)).map_err(database_error)?;
         if busy { return Err("Finish or cancel this game's download, update or transfer before uninstalling".into()); }
         let mut query = connection.prepare("SELECT root FROM game_libraries").map_err(database_error)?;
-        for library in query.query_map([], |row| row.get::<_, String>(0)).map_err(database_error)? {
-            let library = library.map_err(database_error)?;
-            let library = match dunce::canonicalize(&library) {
-                Ok(path) => path,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => PathBuf::from(library),
-                Err(error) => return Err(format!("Could not inspect a game library directory: {error}")),
-            };
-            if library.starts_with(&root) { return Err("A game library directory cannot be uninstalled".into()); }
-        }
-        Ok(())
+        query.query_map([], |row| row.get::<_, String>(0)).map_err(database_error)?.collect::<Result<Vec<_>, _>>().map_err(database_error)
     })?;
+    for library in libraries {
+        let library = match dunce::canonicalize(&library) {
+            Ok(path) => path,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => PathBuf::from(library),
+            Err(error) => {
+                return Err(format!(
+                    "Could not inspect a game library directory: {error}"
+                ));
+            }
+        };
+        if library.starts_with(&root) {
+            return Err("A game library directory cannot be uninstalled".into());
+        }
+    }
     if crate::download_policy::external_busy(&root)? {
         return Err("Close the game before uninstalling its files".into());
     }
