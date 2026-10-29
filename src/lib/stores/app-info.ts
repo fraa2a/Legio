@@ -3,6 +3,6 @@ import { createResource } from "./resource";
 
 export const appInfo = createResource<AppInfo>(
   { name: "Legio", version: "", platform: "", trayAvailable: false, desktopEnvironment: null,
-    startupLaunchGameId: null, startupLaunchError: null },
+    startupLaunchGameId: null, startupLaunchError: null, startupWarnings: [] },
   getAppInfo,
 );

@@ -22,6 +22,7 @@ pub struct AppInfo {
     desktop_environment: Option<String>,
     startup_launch_game_id: Option<String>,
     startup_launch_error: Option<String>,
+    startup_warnings: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -33,7 +34,10 @@ pub struct GameActionResult {
 
 #[tauri::command]
 pub async fn get_app_info(app: AppHandle) -> Result<AppInfo, String> {
-    let recovery_error = crate::startup_recovery::wait(&app).await.err();
+    let (startup_warnings, recovery_error) = match crate::startup_recovery::warnings(&app).await {
+        Ok(warnings) => (warnings, None),
+        Err(error) => (Vec::new(), Some(error)),
+    };
     let package_info = app.package_info();
 
     Ok(AppInfo {
@@ -49,6 +53,7 @@ pub async fn get_app_info(app: AppHandle) -> Result<AppInfo, String> {
             .lock()
             .map_err(|_| "Shortcut launch state is unavailable".to_owned())?
             .clone()),
+        startup_warnings,
     })
 }
 

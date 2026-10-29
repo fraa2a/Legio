@@ -4,7 +4,7 @@ use tokio::sync::watch;
 #[derive(Clone)]
 enum Status {
     Pending,
-    Ready,
+    Ready(Vec<String>),
     Failed(String),
 }
 
@@ -19,27 +19,27 @@ impl StartupRecovery {
         }
     }
 
-    fn finish(&self, result: Result<(), String>) {
+    fn finish(&self, result: Result<Vec<String>, String>) {
         self.status.send_replace(match result {
-            Ok(()) => Status::Ready,
+            Ok(warnings) => Status::Ready(warnings),
             Err(error) => Status::Failed(format!("Startup recovery failed: {error}")),
         });
     }
 
     fn require_ready(&self) -> Result<(), String> {
         match &*self.status.borrow() {
-            Status::Ready => Ok(()),
+            Status::Ready(_) => Ok(()),
             Status::Pending => Err("Startup recovery is still in progress".to_owned()),
             Status::Failed(error) => Err(error.clone()),
         }
     }
 
-    async fn wait(&self) -> Result<(), String> {
+    async fn wait(&self) -> Result<Vec<String>, String> {
         let mut status = self.status.subscribe();
         loop {
             let current = status.borrow_and_update().clone();
             match current {
-                Status::Ready => return Ok(()),
+                Status::Ready(warnings) => return Ok(warnings),
                 Status::Failed(error) => return Err(error),
                 Status::Pending => {}
             }
@@ -62,40 +62,72 @@ pub(crate) fn require_ready<R: Runtime>(app: &AppHandle<R>) -> Result<(), String
 }
 
 pub(crate) async fn wait<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    warnings(app).await.map(|_| ())
+}
+
+/// Waits for recovery and returns the warnings of the steps that failed.
+pub(crate) async fn warnings<R: Runtime>(app: &AppHandle<R>) -> Result<Vec<String>, String> {
     match app.try_state::<StartupRecovery>() {
         Some(state) => state.wait().await,
         #[cfg(test)]
-        None => Ok(()),
+        None => Ok(Vec::new()),
         #[cfg(not(test))]
         None => Err("Startup recovery state is unavailable".to_owned()),
     }
 }
 
+fn record(warnings: &mut Vec<String>, step: &str, result: Result<(), String>) {
+    if let Err(error) = result {
+        warnings.push(format!("{step}: {error}"));
+    }
+}
+
+// Only an unavailable database is fatal; every other step runs and reports its failure.
+fn recover(app: &AppHandle) -> Result<Vec<String>, String> {
+    let state = app.state::<crate::database::DatabaseState>();
+    let database = state.database()?;
+    let mut warnings = Vec::new();
+    record(
+        &mut warnings,
+        "Game transfer recovery",
+        crate::game_transfer::recover(database),
+    );
+    record(
+        &mut warnings,
+        "Game folder adoption",
+        crate::game_library::adopt_existing(database),
+    );
+    record(
+        &mut warnings,
+        "Game library loading",
+        app.path()
+            .app_data_dir()
+            .map_err(|error| error.to_string())
+            .and_then(|data| database.storage_root(&data))
+            .map(|storage| crate::game_library::initialize(database, &storage)),
+    );
+    record(
+        &mut warnings,
+        "Download recovery",
+        crate::download_queue::start(app.clone()),
+    );
+    Ok(warnings)
+}
+
 pub(crate) fn start(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let worker = app.clone();
-        let result = tauri::async_runtime::spawn_blocking(move || {
-            crate::game_transfer::recover(
-                worker
-                    .state::<crate::database::DatabaseState>()
-                    .database()?,
-            )?;
-            crate::game_library::adopt_existing(
-                worker
-                    .state::<crate::database::DatabaseState>()
-                    .database()?,
-            )?;
-            let state = worker.state::<crate::database::DatabaseState>();
-            let data = worker.path().app_data_dir().map_err(|e| e.to_string())?;
-            let storage = state.database()?.storage_root(&data)?;
-            crate::game_library::initialize(state.database()?, &storage);
-            crate::download_queue::start(worker)
-        })
-        .await
-        .map_err(|error| format!("Recovery task failed: {error}"))
-        .and_then(|result| result);
-        if let Err(error) = &result {
-            crate::application_log::failure("startup_recovery", error);
+        let result = tauri::async_runtime::spawn_blocking(move || recover(&worker))
+            .await
+            .map_err(|error| format!("Recovery task failed: {error}"))
+            .and_then(|result| result);
+        match &result {
+            Ok(warnings) => {
+                for warning in warnings {
+                    crate::application_log::failure("startup_recovery", warning);
+                }
+            }
+            Err(error) => crate::application_log::failure("startup_recovery", error),
         }
         let ready = result.is_ok();
         app.state::<StartupRecovery>().finish(result);
@@ -126,7 +158,7 @@ mod tests {
         );
         let complete = async {
             tokio::task::yield_now().await;
-            recovery.finish(Ok(()));
+            recovery.finish(Ok(Vec::new()));
         };
         let (first, second, ()) = tokio::time::timeout(Duration::from_secs(1), async {
             tokio::join!(recovery.wait(), recovery.wait(), complete)
@@ -137,6 +169,21 @@ mod tests {
         second.unwrap();
         recovery.require_ready().unwrap();
         recovery.wait().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn failed_steps_become_warnings_and_operations_stay_available() {
+        let recovery = StartupRecovery::new();
+        let mut warnings = Vec::new();
+        record(&mut warnings, "Transfer", Err("drive offline".to_owned()));
+        record(&mut warnings, "Adoption", Ok(()));
+        record(&mut warnings, "Downloads", Err("stage locked".to_owned()));
+        recovery.finish(Ok(warnings));
+        recovery.require_ready().unwrap();
+        assert_eq!(
+            recovery.wait().await.unwrap(),
+            ["Transfer: drive offline", "Downloads: stage locked"]
+        );
     }
 
     #[tokio::test]

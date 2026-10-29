@@ -2145,28 +2145,38 @@ pub async fn set_download_bandwidth_limit(
 fn recover_on_start(app: &AppHandle) -> Result<(), String> {
     let database = app.state::<DatabaseState>();
     let database = database.database()?;
-    clean_cancelled(&app.state::<DownloadQueueState>(), database)?;
-    recover_staging(&app.state::<DownloadQueueState>(), database)?;
-
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("Could not locate app data: {error}"))?;
-    crate::overlay_update::recover(database)?;
-    finalize_install::recover(database, &database.storage_root(&data_dir)?)?;
-    recover(database)?;
-    Ok(())
+    let queue = app.state::<DownloadQueueState>();
+    // Each step runs even when an earlier one failed.
+    let errors: Vec<String> = [
+        clean_cancelled(&queue, database),
+        recover_staging(&queue, database),
+        crate::overlay_update::recover(database),
+        app.path()
+            .app_data_dir()
+            .map_err(|error| format!("Could not locate app data: {error}"))
+            .and_then(|data_dir| database.storage_root(&data_dir))
+            .and_then(|storage| finalize_install::recover(database, &storage)),
+        recover(database),
+    ]
+    .into_iter()
+    .filter_map(Result::err)
+    .collect();
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
 }
 
 pub fn start(app: AppHandle) -> Result<(), String> {
-    recover_on_start(&app)?;
+    let recovered = recover_on_start(&app);
     app.state::<DownloadQueueState>()
         .starting
         .store(false, Ordering::Release);
     kick(app.clone());
     schedule_installations(&app);
     crate::download_policy::start(app);
-    Ok(())
+    recovered
 }
 
 #[cfg(test)]

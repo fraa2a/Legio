@@ -686,6 +686,7 @@ pub(crate) fn repair(database: &Database, root: &Path) -> Result<(), String> {
 }
 
 pub(crate) fn adopt_existing(database: &Database) -> Result<(), String> {
+    let mut errors = Vec::new();
     for game in database.games()? {
         if game.steam_install_path.is_some() || game.installation_root.is_some() {
             continue;
@@ -693,25 +694,56 @@ pub(crate) fn adopt_existing(database: &Database) -> Result<(), String> {
         let Some(executable) = game.executable_path else {
             continue;
         };
-        let root = game_root(Path::new(&executable))?;
-        database.with_connection(|connection| {
-            connection.execute("UPDATE games SET installation_root = ?2 WHERE id = ?1 AND installation_root IS NULL", rusqlite::params![game.id, root.to_string_lossy()]).map_err(database_error)?;
-            Ok(())
-        })?;
-    }
-    let completed: Vec<(String, String)> = database.with_connection(|connection| {
-        let mut query = connection.prepare("SELECT g.installation_root, d.install_token FROM games g JOIN downloads d ON d.id = g.id WHERE d.status = 'installed' AND d.install_token IS NOT NULL AND g.installation_root IS NOT NULL").map_err(database_error)?;
-        query.query_map([], |row| Ok((row.get(0)?, row.get(1)?))).map_err(database_error)?.collect::<Result<_, _>>().map_err(database_error)
-    })?;
-    for (root, token) in completed {
-        let root = Path::new(&root);
-        if fs::symlink_metadata(root)
-            .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
-        {
-            crate::finalize_install::remove_install_markers(root, &token)?;
+        let adopted = game_root(Path::new(&executable)).and_then(|root| {
+            database.with_connection(|connection| {
+                connection.execute("UPDATE games SET installation_root = ?2 WHERE id = ?1 AND installation_root IS NULL", rusqlite::params![game.id, root.to_string_lossy()]).map_err(database_error)?;
+                Ok(())
+            })
+        });
+        if let Err(error) = adopted {
+            errors.push(format!("{}: {error}", game.name));
         }
     }
-    Ok(())
+    let completed: Vec<(String, String, String)> = database.with_connection(|connection| {
+        let mut query = connection.prepare("SELECT d.id, g.installation_root, d.install_token FROM games g JOIN downloads d ON d.id = g.id WHERE d.status = 'installed' AND d.install_token IS NOT NULL AND g.installation_root IS NOT NULL").map_err(database_error)?;
+        query.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).map_err(database_error)?.collect::<Result<_, _>>().map_err(database_error)
+    })?;
+    for (id, root, token) in completed {
+        if let Err(error) = clear_install_markers(database, &id, Path::new(&root), &token) {
+            errors.push(format!("{root}: {error}"));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
+}
+
+// Clearing the token makes the cleanup one-shot, so later startups do not touch the folder.
+fn clear_install_markers(
+    database: &Database,
+    id: &str,
+    root: &Path,
+    token: &str,
+) -> Result<(), String> {
+    match fs::symlink_metadata(root) {
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+            crate::finalize_install::remove_install_markers(root, token)?;
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("Could not inspect installation folder: {error}")),
+    }
+    database.with_connection(|connection| {
+        connection
+            .execute(
+                "UPDATE downloads SET install_token = NULL WHERE id = ?1",
+                [id],
+            )
+            .map_err(database_error)?;
+        Ok(())
+    })
 }
 
 #[cfg(test)]
@@ -765,6 +797,50 @@ mod tests {
             })
             .unwrap();
         assert!(cached_library(&database, &root).unwrap().unwrap().1 > 0);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn adoption_continues_past_failures_and_clears_tokens() {
+        let (directory, database, id) = installed_fixture();
+        let root = directory.join("games/Game");
+        fs::write(root.join(".legio-install-intent"), "token").unwrap();
+        let broken = database
+            .create_game(crate::database::CreateGameInput {
+                name: "Broken".into(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        database
+            .with_connection(|c| {
+                // An empty executable path has no parent directory, so its adoption fails.
+                c.execute(
+                    "UPDATE games SET executable_path='' WHERE id=?1",
+                    [&broken.id],
+                )
+                .map_err(database_error)?;
+                c.execute(
+                    "INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, downloaded_bytes, status, created_at, updated_at, install_token) VALUES (?1, 42, 'Game', '1', 'https://example.test/game.zip', 'hash', 4, 4, 'installed', 1, 1, 'token')",
+                    [&id],
+                )
+                .map_err(database_error)?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(adopt_existing(&database).unwrap_err().contains("Broken"));
+        assert!(!root.join(".legio-install-intent").exists());
+        let token: Option<String> = database
+            .with_connection(|c| {
+                c.query_row(
+                    "SELECT install_token FROM downloads WHERE id=?1",
+                    [&id],
+                    |row| row.get(0),
+                )
+                .map_err(database_error)
+            })
+            .unwrap();
+        assert_eq!(token, None);
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }

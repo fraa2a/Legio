@@ -331,7 +331,7 @@ test("hydration waits for startup recovery before loading games and displays fai
   const ready = deferred();
   const calls = [];
   const resource = (name) => ({ ...writable({ data: [] }), load: async () => { calls.push(name); } });
-  const appInfo = { ...writable({ data: { startupLaunchGameId: null, startupLaunchError: "Startup recovery failed: marker conflict" } }), load: () => { calls.push("appInfo"); return ready.promise; } };
+  const appInfo = { ...writable({ data: { startupLaunchGameId: null, startupLaunchError: "Startup recovery failed: marker conflict", startupWarnings: ["Download recovery: stage locked"] } }), load: () => { calls.push("appInfo"); return ready.promise; } };
   const settings = writable({ status: "ready", data: { launchInLibrary: false, steamLibraryPollMinutes: 30, syncSteamGames: false } });
   const launchError = writable(null);
   globalThis.legioBootstrap = { appInfo, settings, launchError,
@@ -355,6 +355,8 @@ test("hydration waits for startup recovery before loading games and displays fai
     "src/lib/stores/launch": dataModule(["hasPendingLaunch", "launchError", "launchStates"].map((name) => `export const ${name} = globalThis.legioBootstrap.${name};`).join("\n") + "export const startLaunchEvents = async () => {};"),
     "src/lib/stores/steam-library": dataModule("export const importSteamLibrary = async () => { globalThis.legioBootstrap.calls.push('steamImport'); };"),
     "src/lib/stores/navigation": dataModule("export const activeSection = globalThis.legioBootstrap.activeSection; export const openGame = () => {};"),
+    "src/lib/stores/toast": dataModule("export const showToast = (message, tone) => globalThis.legioBootstrap.toasts.push([message, tone]);"),
+    "src/lib/i18n": dataModule('export const t = (value, _language, args = []) => value.replace(/\\{(\\d+)\\}/g, (_, index) => args[index]);'),
   });
   const originalInterval = globalThis.setInterval;
   const originalClearInterval = globalThis.clearInterval;
@@ -362,6 +364,7 @@ test("hydration waits for startup recovery before loading games and displays fai
   globalThis.setInterval = () => { const timer = { cleared: false }; intervals.push(timer); return timer; };
   globalThis.clearInterval = timer => { timer.cleared = true; };
   globalThis.legioBootstrap.calls = calls;
+  globalThis.legioBootstrap.toasts = [];
   try {
     const { hydrateApp, configureSteamScanInterval } = await import(await load("src/lib/stores/bootstrap.ts"));
     const hydration = hydrateApp();
@@ -372,6 +375,7 @@ test("hydration waits for startup recovery before loading games and displays fai
     assert.ok(calls.includes("games"));
     assert.ok(calls.includes("folder"));
     assert.equal(get(launchError), "Startup recovery failed: marker conflict");
+    assert.deepEqual(globalThis.legioBootstrap.toasts, [["Alcuni dati non sono stati caricati all'avvio: Download recovery: stage locked", "warning"]]);
     assert.equal(calls.includes("steamImport"), false, "disabled Steam sync skips startup scan");
     assert.equal(intervals.length, 0, "disabled Steam sync has no polling timer");
     settings.set({ status: "ready", data: { launchInLibrary: false, steamLibraryPollMinutes: 30, syncSteamGames: true } });

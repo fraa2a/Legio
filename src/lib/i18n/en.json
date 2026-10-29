@@ -735,5 +735,6 @@
   "Disattiva": "Turn off",
   "Spegnere il computer a fine coda?": "Shut down the computer when the queue ends?",
   "Dopo che tutti i download sono stati estratti e installati, il computer si spegnerà dopo 30 secondi. Salva il lavoro aperto in altre applicazioni. Potrai annullare in qualsiasi momento. Se un download fallisce, resta in coda e si passa al successivo. L'impostazione vale solo fino alla chiusura di Legio.": "Once every download has been extracted and installed, the computer will shut down after 30 seconds. Save any work open in other applications. You can cancel at any time. If a download fails, it stays in the queue and the next one starts. This setting lasts only until Legio is closed.",
-  "Attiva": "Turn on"
+  "Attiva": "Turn on",
+  "Alcuni dati non sono stati caricati all'avvio: {0}": "Some data could not be loaded at startup: {0}"
 }

@@ -13,13 +13,13 @@ export function dismissToast(id: number): void {
   toast.update((notices) => notices.filter((notice) => notice.id !== id));
 }
 
-export function showToast(message: string, tone: ToastTone = "info", action?: { onRetry?: () => void; retryLabel?: string }): void {
+export function showToast(message: string, tone: ToastTone = "info", action?: { onRetry?: () => void; retryLabel?: string; persistent?: boolean }): void {
   const id = ++nextId;
   let duplicate = false;
   toast.update((notices) => {
     duplicate = notices.some((notice) => notice.message === message && notice.tone === tone);
-    return duplicate ? notices : [...notices, { id, message, tone, ...action }];
+    return duplicate ? notices : [...notices, { id, message, tone, onRetry: action?.onRetry, retryLabel: action?.retryLabel }];
   });
-  if (duplicate) return;
+  if (duplicate || action?.persistent) return;
   timers.set(id, setTimeout(() => dismissToast(id), 5000));
 }
