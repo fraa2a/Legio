@@ -7,20 +7,26 @@
   import type { NewsArticle } from "../../services/news";
   import Dialog from "../../components/ui/Dialog.svelte";
   import Button from "../../components/ui/Button.svelte";
-  import Icon from "../../components/ui/Icon.svelte";
+  import RefreshIcon from "../../components/ui/RefreshIcon.svelte";
   import IconButton from "../../components/ui/IconButton.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import Callout from "../../components/ui/Callout.svelte";
 
   let selected = $state<NewsArticle | null>(null);
+  let refreshing = $state(false);
   const articles = $derived([...($news.data.feed?.items ?? [])].filter(article => Date.parse(article.publishedAt) <= Date.now()).sort((a,b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt)));
   const date = (value: string) => formatDate(value, $language, { dateStyle: "medium" });
   onMount(() => startVisibleRefresh(() => void loadNews(), 15 * 60 * 1000));
+
+  async function refresh(): Promise<void> {
+    refreshing = true;
+    try { await loadNews(true); } finally { refreshing = false; }
+  }
 </script>
 
 <Panel title={t("Novità", $language)} class="min-h-0">
   {#snippet actions()}
-    <IconButton label={t("Aggiorna novità", $language)} title={t("Aggiorna", $language)} onClick={() => void loadNews(true)}><Icon name="reload" size="size-4" /></IconButton>
+    <IconButton label={t("Aggiorna novità", $language)} title={t("Aggiorna", $language)} onClick={() => void refresh()}><RefreshIcon spinning={refreshing} /></IconButton>
   {/snippet}
   <div class="min-h-0 overflow-auto [mask-image:linear-gradient(to_bottom,black_calc(100%-1.25rem),transparent)]">
     {#if articles.length > 0}

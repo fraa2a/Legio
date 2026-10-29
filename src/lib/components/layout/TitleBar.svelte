@@ -21,8 +21,9 @@
   import IconButton from "../ui/IconButton.svelte";
   import Icon from "../ui/Icon.svelte";
   import { addGameDialogOpen, libraryPortrait, libraryQuery, storeQuery } from "../../stores/library-ui";
-  import { runCatalogSearch } from "../../stores/catalog";
-  import { refreshSource } from "../../stores/source";
+  import RefreshIcon from "../ui/RefreshIcon.svelte";
+  import { catalog, runCatalogSearch } from "../../stores/catalog";
+  import { refreshSource, sourceBusy } from "../../stores/source";
   import { settings, updateSettings } from "../../stores/settings";
   import { showToast } from "../../stores/toast";
   import { toMessage } from "../../utils/errors";
@@ -170,7 +171,7 @@
           title={t("Aggiorna store", $language)}
           onClick={() => { void refreshSource(); void runCatalogSearch($storeQuery); }}
         >
-          <Icon name="reload" size="size-4" />
+          <RefreshIcon spinning={$sourceBusy || $catalog.status === "loading"} />
         </IconButton>
       {/if}
     </div>

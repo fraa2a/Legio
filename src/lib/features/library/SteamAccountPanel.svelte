@@ -9,6 +9,7 @@
     savedSteamAccounts,
   } from "../../stores/steam-accounts";
   import Button from "../../components/ui/Button.svelte";
+  import RefreshIcon from "../../components/ui/RefreshIcon.svelte";
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
@@ -74,7 +75,7 @@
 
 <Panel title={t("Account Steam", $language)}>
   {#snippet actions()}
-    <Button label={t("Aggiorna", $language)} variant="secondary" disabled={loading} onClick={refresh} />
+    <Button label={t("Aggiorna", $language)} variant="secondary" disabled={loading} onClick={refresh}><RefreshIcon spinning={loading} /></Button>
   {/snippet}
 
   <StateBlock

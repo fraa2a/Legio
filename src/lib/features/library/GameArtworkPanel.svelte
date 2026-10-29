@@ -13,6 +13,7 @@
   import { pickGameArtworkFile } from "../../services/dialog";
   import { toMessage } from "../../utils/errors";
   import Button from "../../components/ui/Button.svelte";
+  import RefreshIcon from "../../components/ui/RefreshIcon.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import Callout from "../../components/ui/Callout.svelte";
@@ -25,6 +26,7 @@
   let bannerUrl = $state<string | null>(null);
   let loading = $state(true);
   let pending = $state(false);
+  let refreshingImages = $state(false);
   let error = $state<string | null>(null);
   let saved = $state(false);
 
@@ -74,13 +76,18 @@
   }
 
   async function refreshImages(): Promise<void> {
-    await runAction(async () => {
-      if (game.steamAppId !== null) {
-        await loadSteamDetails(game.steamAppId, true);
-        await refreshSteamImages(game.steamAppId);
-      }
-      showToast(t("Immagini aggiornate.", $language), "success");
-    });
+    refreshingImages = true;
+    try {
+      await runAction(async () => {
+        if (game.steamAppId !== null) {
+          await loadSteamDetails(game.steamAppId, true);
+          await refreshSteamImages(game.steamAppId);
+        }
+        showToast(t("Immagini aggiornate.", $language), "success");
+      });
+    } finally {
+      refreshingImages = false;
+    }
   }
 
   async function reset(kind: "icon" | "banner"): Promise<void> {
@@ -112,7 +119,7 @@
 <Panel title={t("Personalizzazione", $language)}>
   <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Scegli le immagini usate per questo gioco. I file vengono copiati nei dati di Legio.", $language)}</p>
   <div class="flex flex-wrap items-center gap-3">
-    <Button label={t("Aggiorna immagini", $language)} variant="secondary" disabled={pending || game.steamAppId === null} onClick={() => void refreshImages()} />
+    <Button label={t("Aggiorna immagini", $language)} variant="secondary" disabled={pending || game.steamAppId === null} onClick={() => void refreshImages()}><RefreshIcon spinning={refreshingImages} /></Button>
     <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Riscarica le immagini Steam senza modificare quelle personalizzate.", $language)}</p>
   </div>
   {#if error !== null}<ErrorBanner message={error} onRetry={() => void load()} />{/if}
