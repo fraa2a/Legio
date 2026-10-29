@@ -35,6 +35,15 @@ impl PicsAssets {
         valid_asset_path(path, filename).then(|| format!("{CDN}/{app_id}/{path}"))
     }
 
+    // Plain raster image for consumers that cannot render .ico files.
+    pub(crate) fn community_icon_jpeg_url(&self, app_id: u32) -> Option<String> {
+        let hash = self
+            .0
+            .get("clienticon.jpg")
+            .filter(|hash| valid_hash(hash))?;
+        Some(format!("{COMMUNITY_ICON_CDN}/{app_id}/{hash}.jpg"))
+    }
+
     fn from_vdf(info: &VdfValue) -> Self {
         let info = info.get("appinfo").unwrap_or(info);
         let common = info.get("common").unwrap_or(info);
@@ -354,6 +363,20 @@ mod tests {
             assets.url(400, "library_hero_2x.jpg"),
             Some(format!("{CDN}/400/{high}/library_hero_2x.jpg"))
         );
+    }
+
+    #[test]
+    fn community_icon_jpeg_url_ignores_the_ico_hash() {
+        let hash = "94e9d990ddd19610b268faf629865e17dcda0bb8";
+        let ico = PicsAssets(BTreeMap::from([("clienticon.ico".into(), hash.into())]));
+        assert!(ico.community_icon_jpeg_url(400).is_none());
+        let jpeg = PicsAssets(BTreeMap::from([("clienticon.jpg".into(), hash.into())]));
+        assert_eq!(
+            jpeg.community_icon_jpeg_url(400),
+            Some(format!("{COMMUNITY_ICON_CDN}/400/{hash}.jpg"))
+        );
+        let invalid = PicsAssets(BTreeMap::from([("clienticon.jpg".into(), "../x".into())]));
+        assert!(invalid.community_icon_jpeg_url(400).is_none());
     }
 
     #[test]
