@@ -1,6 +1,7 @@
 mod migrations;
 mod sessions;
 use migrations::migrate;
+pub(crate) use sessions::RunningGamePresence;
 
 use std::{collections::BTreeMap, fs, path::Path, sync::Mutex};
 

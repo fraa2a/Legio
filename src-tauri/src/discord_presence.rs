@@ -10,10 +10,16 @@ use tokio::{sync::watch, time::Instant};
 
 use crate::{
     database::{Database, DatabaseState},
+    game_artwork::{ArtworkKind, GameArtworkStore},
     game_lifecycle::{GameLaunchManager, GameStatus},
+    steam_assets::AssetCacheState,
 };
 
 const APPLICATION_ID: &str = "1557120430475575366";
+// Discord only loads external images from public https URLs.
+const LEGIO_ICON_URL: &str =
+    "https://raw.githubusercontent.com/fraa2a/Legio/main/src-tauri/icons/icon.png";
+const MAX_IMAGE_URL_LENGTH: usize = 256;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
 const RETRY_INTERVAL: Duration = Duration::from_secs(15);
@@ -43,9 +49,13 @@ impl PresenceService {
             .shared_database()
             .map_err(io::Error::other)?;
         let manager = app.state::<GameLaunchManager>().inner().clone();
+        let artwork = app.state::<GameArtworkStore>().inner().clone();
+        let assets = app.state::<AssetCacheState>().inner().clone();
         let lifecycle = manager.subscribe_changes();
         let (refresh, receiver) = watch::channel(());
-        let worker = tauri::async_runtime::spawn(run(database, manager, receiver, lifecycle));
+        let worker = tauri::async_runtime::spawn(run(
+            database, manager, artwork, assets, receiver, lifecycle,
+        ));
         Ok(Self { refresh, worker })
     }
 
@@ -68,6 +78,7 @@ impl Drop for PresenceService {
 struct Activity {
     name: Option<String>,
     started_at: Option<i64>,
+    icon_url: Option<String>,
 }
 
 impl Activity {
@@ -79,21 +90,51 @@ impl Activity {
         if let Some(start) = self.started_at {
             activity["timestamps"] = json!({ "start": start });
         }
+        if self.name.is_some()
+            && let Some(icon_url) = self.icon_url.as_deref().filter(|url| is_https_url(url))
+        {
+            activity["assets"] = json!({
+                "large_image": icon_url,
+                "small_image": LEGIO_ICON_URL,
+                "small_text": "Legio Launcher",
+            });
+        }
         activity
     }
+}
+
+fn is_https_url(url: &str) -> bool {
+    url.len() <= MAX_IMAGE_URL_LENGTH
+        && reqwest::Url::parse(url)
+            .is_ok_and(|url| url.scheme() == "https" && url.host_str().is_some())
+}
+
+struct Snapshot {
+    settings: PresenceSettings,
+    activity: Activity,
+    // Steam app whose public icon can represent the running game.
+    icon_app_id: Option<u32>,
+    warning: Option<String>,
 }
 
 fn snapshot(
     database: &Database,
     manager: &GameLaunchManager,
-) -> Result<(PresenceSettings, Activity), String> {
+    artwork: &GameArtworkStore,
+) -> Result<Snapshot, String> {
     let settings = database.settings()?.discord_presence;
-    let mut activity = Activity {
-        name: None,
-        started_at: None,
+    let mut snapshot = Snapshot {
+        settings,
+        activity: Activity {
+            name: None,
+            started_at: None,
+            icon_url: None,
+        },
+        icon_app_id: None,
+        warning: None,
     };
-    if !settings.enabled {
-        return Ok((settings, activity));
+    if !snapshot.settings.enabled {
+        return Ok(snapshot);
     }
     let states = manager.list()?;
     let running: Vec<_> = states
@@ -101,11 +142,17 @@ fn snapshot(
         .filter(|state| state.status == GameStatus::Running)
         .map(|state| state.game_id.as_str())
         .collect();
-    if let Some((name, started_at)) = database.running_game_presence(&running)? {
-        activity.name = Some(limit_text(&name));
-        activity.started_at = started_at.map(|milliseconds| milliseconds / 1000);
+    if let Some(game) = database.running_game_presence(&running)? {
+        snapshot.activity.name = Some(limit_text(&game.name));
+        snapshot.activity.started_at = game.started_at.map(|milliseconds| milliseconds / 1000);
+        // A custom icon exists only on this device, so it cannot be shared.
+        match artwork.path(&game.game_id, ArtworkKind::Icon) {
+            Ok(None) => snapshot.icon_app_id = game.steam_app_id,
+            Ok(Some(_)) => {}
+            Err(error) => snapshot.warning = Some(error),
+        }
     }
-    Ok((settings, activity))
+    Ok(snapshot)
 }
 
 fn limit_text(text: &str) -> String {
@@ -126,6 +173,8 @@ fn limit_text(text: &str) -> String {
 async fn run(
     database: Arc<Database>,
     manager: GameLaunchManager,
+    artwork: GameArtworkStore,
+    assets: AssetCacheState,
     mut refresh: watch::Receiver<()>,
     mut lifecycle: watch::Receiver<()>,
 ) {
@@ -150,9 +199,16 @@ async fn run(
         }
         let database = Arc::clone(&database);
         let manager = manager.clone();
+        let artwork = artwork.clone();
         let result =
-            tauri::async_runtime::spawn_blocking(move || snapshot(&database, &manager)).await;
-        let (settings, activity) = match result {
+            tauri::async_runtime::spawn_blocking(move || snapshot(&database, &manager, &artwork))
+                .await;
+        let Snapshot {
+            settings,
+            mut activity,
+            icon_app_id,
+            warning,
+        } = match result {
             Ok(Ok(snapshot)) => snapshot,
             Ok(Err(error)) => {
                 report_error(&mut last_error, error);
@@ -167,6 +223,15 @@ async fn run(
                 continue;
             }
         };
+        if let Some(warning) = warning {
+            report_error(&mut last_error, warning);
+        }
+        if let Some(app_id) = icon_app_id {
+            match assets.cached_icon_url(app_id).await {
+                Ok(url) => activity.icon_url = url,
+                Err(error) => report_error(&mut last_error, error),
+            }
+        }
         enabled = settings.enabled;
         if !settings.enabled
             && let Some(mut connection) = client.take()
@@ -223,6 +288,7 @@ fn report_error(previous: &mut Option<String>, error: String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::database::RunningGamePresence;
 
     #[test]
     fn defaults_to_enabled_and_ignores_legacy_application_ids() {
@@ -243,6 +309,15 @@ mod tests {
                     json!({ "enabled": enabled })
                 );
             }
+        }
+    }
+
+    fn presence(game_id: &str, name: &str, started_at: Option<i64>) -> RunningGamePresence {
+        RunningGamePresence {
+            game_id: game_id.into(),
+            name: name.into(),
+            started_at,
+            steam_app_id: None,
         }
     }
 
@@ -269,16 +344,16 @@ mod tests {
             database
                 .running_game_presence(&[&older.id, &newer.id])
                 .unwrap(),
-            Some(("Newer".into(), Some(20)))
+            Some(presence(&newer.id, "Newer", Some(20)))
         );
         assert_eq!(
             database.running_game_presence(&[&older.id]).unwrap(),
-            Some(("Older".into(), Some(10)))
+            Some(presence(&older.id, "Older", Some(10)))
         );
         database.end_game_session(&older.id, 30).unwrap();
         assert_eq!(
             database.running_game_presence(&[&older.id]).unwrap(),
-            Some(("Older".into(), None))
+            Some(presence(&older.id, "Older", None))
         );
         assert!(database.running_game_presence(&[]).unwrap().is_none());
         drop(database);
@@ -294,6 +369,7 @@ mod tests {
         let activity = Activity {
             name: Some(name.clone()),
             started_at: Some(1234),
+            icon_url: None,
         }
         .payload();
         assert_eq!(activity["details"], name);
@@ -302,11 +378,60 @@ mod tests {
         assert!(
             Activity {
                 name: None,
-                started_at: None
+                started_at: None,
+                icon_url: None,
             }
             .payload()
             .get("timestamps")
             .is_none()
         );
+    }
+
+    #[test]
+    fn payload_shows_the_game_icon_only_while_playing() {
+        let icon = "https://shared.fastly.steamstatic.com/community_assets/images/apps/400/a.jpg";
+        let playing = Activity {
+            name: Some("Game".into()),
+            started_at: None,
+            icon_url: Some(icon.into()),
+        }
+        .payload();
+        assert_eq!(playing["assets"]["large_image"], icon);
+        assert_eq!(playing["assets"]["small_image"], LEGIO_ICON_URL);
+        let without_icon = Activity {
+            name: Some("Game".into()),
+            started_at: None,
+            icon_url: None,
+        }
+        .payload();
+        assert!(without_icon.get("assets").is_none());
+        let idle = Activity {
+            name: None,
+            started_at: None,
+            icon_url: Some(icon.into()),
+        }
+        .payload();
+        assert!(idle.get("assets").is_none());
+    }
+
+    #[test]
+    fn payload_rejects_icons_that_discord_cannot_load() {
+        let too_long = format!("https://example.com/{}", "a".repeat(MAX_IMAGE_URL_LENGTH));
+        for url in [
+            "http://example.com/a.jpg",
+            "asset://localhost/a.jpg",
+            "file:///C:/a.jpg",
+            "C:\\a.jpg",
+            "https://",
+            too_long.as_str(),
+        ] {
+            let payload = Activity {
+                name: Some("Game".into()),
+                started_at: None,
+                icon_url: Some(url.into()),
+            }
+            .payload();
+            assert!(payload.get("assets").is_none(), "{url}");
+        }
     }
 }

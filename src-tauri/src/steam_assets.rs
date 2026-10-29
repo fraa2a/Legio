@@ -268,6 +268,16 @@ impl AssetCacheState {
         self.directory.as_deref().map_err(Clone::clone)
     }
 
+    pub(crate) async fn cached_icon_url(&self, app_id: u32) -> Result<Option<String>, String> {
+        let path = self
+            .directory()?
+            .join("pics")
+            .join(format!("{app_id}.json"));
+        Ok(crate::steam_pics::read_cache(&path)
+            .await?
+            .and_then(|(assets, _)| assets.community_icon_jpeg_url(app_id)))
+    }
+
     fn reset_app(&self, app_id: u32) -> Result<(), String> {
         let mut guard = self
             .lock

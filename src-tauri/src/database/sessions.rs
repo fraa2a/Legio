@@ -1,6 +1,14 @@
 use super::{Database, PlaytimeSummary, database_error, parse_game_id};
 use rusqlite::{OptionalExtension, params};
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RunningGamePresence {
+    pub(crate) game_id: String,
+    pub(crate) name: String,
+    pub(crate) started_at: Option<i64>,
+    pub(crate) steam_app_id: Option<u32>,
+}
+
 impl Database {
     pub(crate) fn start_game_session(&self, game_id: &str, now: i64) -> Result<(), String> {
         let game_id = parse_game_id(game_id)?;
@@ -93,7 +101,7 @@ impl Database {
     pub(crate) fn running_game_presence(
         &self,
         game_ids: &[&str],
-    ) -> Result<Option<(String, Option<i64>)>, String> {
+    ) -> Result<Option<RunningGamePresence>, String> {
         if game_ids.is_empty() {
             return Ok(None);
         }
@@ -103,12 +111,17 @@ impl Database {
             .join(",");
         self.with_connection(|connection| {
             connection.query_row(&format!(
-                "SELECT COALESCE(g.name_override, g.automatic_name),
+                "SELECT g.id, COALESCE(g.name_override, g.automatic_name), g.steam_app_id,
                     CASE WHEN SUM(CASE WHEN s.id IS NOT NULL AND s.ended_at IS NULL THEN 1 ELSE 0 END) > 0 THEN MAX(s.started_at) END
                  FROM games g LEFT JOIN game_sessions s ON s.game_id = g.id
                  WHERE g.id IN ({placeholders}) GROUP BY g.id
                  ORDER BY MAX(s.started_at) DESC, g.id DESC LIMIT 1"),
-                rusqlite::params_from_iter(game_ids.iter()), |row| Ok((row.get(0)?, row.get(1)?)))
+                rusqlite::params_from_iter(game_ids.iter()), |row| Ok(RunningGamePresence {
+                    game_id: row.get(0)?,
+                    name: row.get(1)?,
+                    steam_app_id: row.get(2)?,
+                    started_at: row.get(3)?,
+                }))
                 .optional().map_err(database_error)
         })
     }
