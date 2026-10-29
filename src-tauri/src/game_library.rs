@@ -159,6 +159,276 @@ pub(crate) fn libraries(database: &Database) -> Result<Vec<LibraryInfo>, String>
     })
 }
 
+/// Folder created inside a user-selected directory when it becomes a library.
+const LIBRARY_FOLDER: &str = "Legio";
+
+pub(crate) const UNAVAILABLE_LIBRARY: &str = "The selected library is no longer available";
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LibraryGame {
+    id: String,
+    name: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LibrarySummary {
+    #[serde(flatten)]
+    library: LibraryInfo,
+    is_default: bool,
+    free_bytes: Option<u64>,
+    games: Vec<LibraryGame>,
+}
+
+fn canonical_or_raw(path: &Path) -> PathBuf {
+    dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// Returns false when `path` does not exist and an error when it is not a regular directory.
+fn regular_directory(path: &Path) -> Result<bool, String> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => Ok(true),
+        Ok(_) => Err("The library folder must be a regular folder, not a file or a link".into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!("Could not inspect library directory: {error}")),
+    }
+}
+
+fn library_games(database: &Database, root: &Path) -> Result<Vec<LibraryGame>, String> {
+    let mut games: Vec<_> = database
+        .games()?
+        .into_iter()
+        .filter(|game| {
+            game.steam_install_path.is_none()
+                && game
+                    .installation_root
+                    .as_deref()
+                    .is_some_and(|folder| library_child(Path::new(folder), root))
+        })
+        .map(|game| LibraryGame {
+            id: game.id,
+            name: game.name,
+        })
+        .collect();
+    games.sort_by_key(|game| game.name.to_lowercase());
+    Ok(games)
+}
+
+/// Lists the registered libraries with their games and free space. Disk checks run
+/// outside the database lock.
+pub(crate) fn summaries(
+    database: &Database,
+    default_root: &Path,
+) -> Result<Vec<LibrarySummary>, String> {
+    let default_root = canonical_or_raw(default_root);
+    let mut summaries = Vec::new();
+    for library in libraries(database)? {
+        let root = PathBuf::from(&library.root);
+        let free_bytes = if root.is_dir() {
+            match crate::installed_folder::disk_space(&root) {
+                Ok((free, _)) => Some(free),
+                Err(error) => {
+                    crate::application_log::failure("library_disk_space", error);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        summaries.push(LibrarySummary {
+            is_default: root == default_root,
+            free_bytes,
+            games: library_games(database, &root)?,
+            library,
+        });
+    }
+    summaries.sort_by_key(|summary| !summary.is_default);
+    Ok(summaries)
+}
+
+/// Rejects library roots that overlap system, personal or application folders,
+/// another library or a game installation.
+fn check_placement(
+    database: &Database,
+    root: &Path,
+    app_data: &Path,
+    protected: &[PathBuf],
+) -> Result<(), String> {
+    if root.parent().is_none()
+        || crate::game_uninstall::is_system_directory(root)
+        || protected.iter().any(|path| path.starts_with(root))
+    {
+        return Err(
+            "Choose a folder outside system folders and folders that hold personal files".into(),
+        );
+    }
+    if root.starts_with(app_data) {
+        return Err("Choose a folder outside Legio's application data".into());
+    }
+    for library in libraries(database)? {
+        let library = canonical_or_raw(Path::new(&library.root));
+        if root.starts_with(&library) || library.starts_with(root) {
+            return Err(format!(
+                "This folder overlaps the library at {}",
+                library.display()
+            ));
+        }
+    }
+    for game in database.games()? {
+        let executable_folder = game
+            .executable_path
+            .as_deref()
+            .and_then(|path| Path::new(path).parent().map(Path::to_path_buf));
+        let folders = [
+            game.installation_root.map(PathBuf::from),
+            game.steam_install_path.map(PathBuf::from),
+            executable_folder,
+        ];
+        // A drive root is skipped, otherwise one loose executable would block the whole drive.
+        if folders
+            .into_iter()
+            .flatten()
+            .filter(|folder| folder.parent().is_some())
+            .any(|folder| root.starts_with(canonical_or_raw(&folder)))
+        {
+            return Err(format!(
+                "This folder is inside the installation of {}",
+                game.name
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Registers `directory` as a library and returns its ID. A directory that already
+/// holds a catalog is imported; otherwise a `Legio` folder is created inside it.
+pub(crate) fn add(
+    database: &Database,
+    directory: &Path,
+    app_data: &Path,
+    protected: &[PathBuf],
+) -> Result<String, String> {
+    if !directory.is_absolute() || directory.to_string_lossy().chars().any(char::is_control) {
+        return Err("Library directory must be an absolute path".into());
+    }
+    if !regular_directory(directory)? {
+        return Err("Library directory does not exist".into());
+    }
+    let selected = dunce::canonicalize(directory)
+        .map_err(|error| format!("Could not inspect library directory: {error}"))?;
+    let named_legio = selected
+        .file_name()
+        .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(LIBRARY_FOLDER));
+    let mut root = if selected.join(FILE).is_file() || named_legio {
+        selected
+    } else {
+        selected.join(LIBRARY_FOLDER)
+    };
+    let exists = regular_directory(&root)?;
+    if exists {
+        root = dunce::canonicalize(&root)
+            .map_err(|error| format!("Could not inspect library directory: {error}"))?;
+        if let Some((id, _)) = cached_library(database, &root)? {
+            return Ok(id);
+        }
+    }
+    check_placement(database, &root, app_data, protected)?;
+    if root.join(FILE).is_file() {
+        import(database, &root)?;
+    } else {
+        if !exists {
+            fs::create_dir(&root)
+                .map_err(|error| format!("Could not create library directory: {error}"))?;
+        }
+        if !regular_directory(&root)? {
+            return Err("Library directory disappeared while it was being added".into());
+        }
+        sync(database, &root)?;
+    }
+    let root = dunce::canonicalize(&root)
+        .map_err(|error| format!("Could not inspect library directory: {error}"))?;
+    let id = cached_library(database, &root)?
+        .map(|(id, _)| id)
+        .ok_or("Could not register library")?;
+    crate::application_log::state_change("library_added", &id);
+    Ok(id)
+}
+
+fn registered_root(database: &Database, id: &str) -> Result<PathBuf, String> {
+    database
+        .with_connection(|c| {
+            c.query_row("SELECT root FROM game_libraries WHERE id = ?1", [id], |r| {
+                r.get::<_, String>(0)
+            })
+            .optional()
+            .map_err(database_error)
+        })?
+        .map(PathBuf::from)
+        .ok_or_else(|| UNAVAILABLE_LIBRARY.to_owned())
+}
+
+/// Forgets a library that no longer holds games. Its catalog stays on disk so the
+/// folder can be added again later.
+pub(crate) fn remove(database: &Database, id: &str, default_root: &Path) -> Result<(), String> {
+    let root = registered_root(database, id)?;
+    if root == canonical_or_raw(default_root) {
+        return Err("The default library cannot be removed".into());
+    }
+    if !library_games(database, &root)?.is_empty() {
+        return Err("Move or uninstall the games in this library first".into());
+    }
+    database.with_connection(|c| {
+        let tx = c.unchecked_transaction().map_err(database_error)?;
+        let busy: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM downloads WHERE library_id = ?1 AND status NOT IN ('installed', 'cancelled', 'failed'))",
+                [id],
+                |r| r.get(0),
+            )
+            .map_err(database_error)?;
+        if busy {
+            return Err("Finish or cancel the downloads for this library first".into());
+        }
+        let mut query = tx
+            .prepare("SELECT source, destination FROM game_transfers")
+            .map_err(database_error)?;
+        let transfers: Vec<(String, String)> = query
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(database_error)?
+            .collect::<Result<_, _>>()
+            .map_err(database_error)?;
+        if transfers.iter().any(|(source, destination)| {
+            [source, destination]
+                .iter()
+                .any(|path| Path::new(path).parent() == Some(root.as_path()))
+        }) {
+            return Err("Wait for the game transfer from or to this library to finish".into());
+        }
+        drop(query);
+        // A failed job retried later installs into the default library instead.
+        tx.execute(
+            "UPDATE downloads SET library_id = NULL WHERE library_id = ?1",
+            [id],
+        )
+        .map_err(database_error)?;
+        tx.execute("DELETE FROM game_libraries WHERE id = ?1", [id])
+            .map_err(database_error)?;
+        tx.commit().map_err(database_error)
+    })?;
+    crate::application_log::state_change("library_removed", id);
+    Ok(())
+}
+
+/// Returns the root of a registered library after checking that it is still a regular directory.
+pub(crate) fn library_root(database: &Database, id: &str) -> Result<PathBuf, String> {
+    let root = registered_root(database, id)?;
+    if !regular_directory(&root)? {
+        return Err("The selected library folder is not available".into());
+    }
+    Ok(root)
+}
+
 fn cached_library(database: &Database, root: &Path) -> Result<Option<(String, i64)>, String> {
     database.with_connection(|c| {
         c.query_row(
@@ -671,6 +941,9 @@ pub(crate) fn initialize(database: &Database, storage: &Path) {
 }
 
 pub(crate) fn repair(database: &Database, root: &Path) -> Result<(), String> {
+    if !root.is_absolute() || !regular_directory(root)? {
+        return Err("Library directory must be an existing absolute path".into());
+    }
     let root = dunce::canonicalize(root).map_err(|e| e.to_string())?;
     if cached_library(database, &root)?.is_none() {
         return Err("Library is not registered".into());
@@ -1261,6 +1534,164 @@ mod tests {
         fs::write(directory.join(FILE), "[broken").unwrap();
         assert!(sync(&database, &directory).is_err());
         assert_eq!(fs::read_to_string(directory.join(FILE)).unwrap(), "[broken");
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn app_data(directory: &Path) -> PathBuf {
+        dunce::canonicalize(directory.join("profile")).unwrap()
+    }
+
+    fn add_library(database: &Database, directory: &Path, folder: &str) -> Result<String, String> {
+        let selected = directory.join(folder);
+        fs::create_dir_all(&selected).unwrap();
+        add(database, &selected, &app_data(directory), &[])
+    }
+
+    #[test]
+    fn added_folder_becomes_a_legio_library_removable_once_empty() {
+        let (directory, database, id) = installed_fixture();
+        let default_root = dunce::canonicalize(directory.join("games")).unwrap();
+        sync(&database, &default_root).unwrap();
+        let added = add_library(&database, &directory, "drive").unwrap();
+        let root = dunce::canonicalize(directory.join("drive").join(LIBRARY_FOLDER)).unwrap();
+        assert!(root.join(FILE).is_file());
+        assert_eq!(add_library(&database, &directory, "drive").unwrap(), added);
+        assert_eq!(
+            add(&database, &root, &app_data(&directory), &[]).unwrap(),
+            added
+        );
+        let place = |folder: Option<PathBuf>| {
+            database
+                .with_connection(|c| {
+                    c.execute(
+                        "UPDATE games SET installation_root=?2 WHERE id=?1",
+                        params![id, folder.map(|f| f.to_string_lossy().into_owned())],
+                    )
+                    .map_err(database_error)?;
+                    Ok(())
+                })
+                .unwrap();
+        };
+        place(Some(root.join("Game")));
+        let summary = summaries(&database, &default_root).unwrap();
+        assert!(summary[0].is_default);
+        let library = summary.iter().find(|s| s.library.id == added).unwrap();
+        assert_eq!(library.games.len(), 1);
+        assert!(library.free_bytes.is_some());
+        assert!(remove(&database, &added, &default_root).is_err());
+        place(None);
+        remove(&database, &added, &default_root).unwrap();
+        assert!(libraries(&database).unwrap().iter().all(|l| l.id != added));
+        assert!(root.join(FILE).is_file());
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn add_refuses_overlapping_or_protected_folders() {
+        let (directory, database, _) = installed_fixture();
+        sync(&database, &directory.join("games")).unwrap();
+        // games/Game is both inside the default library and a game installation.
+        assert!(add_library(&database, &directory, "games/Game").is_err());
+        assert!(add_library(&database, &directory, "profile/nested").is_err());
+        let personal = directory.join("personal");
+        fs::create_dir_all(personal.join("Legio/Documents")).unwrap();
+        let protected = [dunce::canonicalize(personal.join("Legio/Documents")).unwrap()];
+        assert!(add(&database, &personal, &app_data(&directory), &protected).is_err());
+        assert!(!directory.join("games/Game").join(LIBRARY_FOLDER).exists());
+        assert!(
+            !directory
+                .join("profile/nested")
+                .join(LIBRARY_FOLDER)
+                .exists()
+        );
+        assert!(add(&database, Path::new("relative"), &app_data(&directory), &[]).is_err());
+        #[cfg(unix)]
+        {
+            fs::create_dir_all(directory.join("target")).unwrap();
+            std::os::unix::fs::symlink(directory.join("target"), directory.join("link")).unwrap();
+            assert!(
+                add(
+                    &database,
+                    &directory.join("link"),
+                    &app_data(&directory),
+                    &[]
+                )
+                .is_err()
+            );
+            assert!(!directory.join("target").join(LIBRARY_FOLDER).exists());
+        }
+        assert_eq!(libraries(&database).unwrap().len(), 1);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn removal_waits_for_active_downloads() {
+        let (directory, database, _) = installed_fixture();
+        let default_root = dunce::canonicalize(directory.join("games")).unwrap();
+        sync(&database, &default_root).unwrap();
+        let added = add_library(&database, &directory, "drive").unwrap();
+        database
+            .with_connection(|c| {
+                for (id, status) in [("active", "queued"), ("failed", "failed")] {
+                    c.execute(
+                        "INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at, library_id) VALUES (?1, 42, 'Game', '1', 'https://example.test/game.zip', '', 4, ?2, 1, 1, ?3)",
+                        params![id, status, added],
+                    )
+                    .map_err(database_error)?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(
+            remove(&database, &added, &default_root).unwrap_err(),
+            "Finish or cancel the downloads for this library first"
+        );
+        let attached = |database: &Database| -> i64 {
+            database
+                .with_connection(|c| {
+                    c.query_row(
+                        "SELECT COUNT(*) FROM downloads WHERE library_id IS NOT NULL",
+                        [],
+                        |r| r.get(0),
+                    )
+                    .map_err(database_error)
+                })
+                .unwrap()
+        };
+        assert_eq!(attached(&database), 2);
+        database
+            .with_connection(|c| {
+                c.execute(
+                    "UPDATE downloads SET status='cancelled' WHERE id='active'",
+                    [],
+                )
+                .map_err(database_error)?;
+                Ok(())
+            })
+            .unwrap();
+        remove(&database, &added, &default_root).unwrap();
+        assert_eq!(attached(&database), 0);
+        assert_eq!(
+            library_root(&database, &added).unwrap_err(),
+            UNAVAILABLE_LIBRARY
+        );
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn default_library_cannot_be_removed() {
+        let (directory, database, _) = installed_fixture();
+        let root = dunce::canonicalize(directory.join("games")).unwrap();
+        sync(&database, &root).unwrap();
+        let id = cached_library(&database, &root).unwrap().unwrap().0;
+        assert_eq!(
+            remove(&database, &id, &root).unwrap_err(),
+            "The default library cannot be removed"
+        );
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }

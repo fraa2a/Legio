@@ -400,6 +400,7 @@ pub(crate) fn enqueue_with_target(
         update,
         None,
         PlanChoice::Derived,
+        None,
     )
 }
 
@@ -422,6 +423,7 @@ pub(crate) fn enqueue_prepared(
     update: Option<(&str, bool)>,
     resolved_size: Option<u64>,
     plan: PlanChoice,
+    library_id: Option<&str>,
 ) -> Result<DownloadJob, String> {
     let (source_id, entry, source_verified) = crate::game_updates::find_download(
         database,
@@ -497,11 +499,24 @@ pub(crate) fn enqueue_prepared(
     .map(|plan| serde_json::to_string(&plan).map_err(|error| error.to_string()))
     .transpose()?;
     database.with_connection(|connection| {
+        // Checked under the same lock as the insert so a concurrent library removal cannot slip in.
+        if let Some(library) = library_id {
+            let registered: bool = connection
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM game_libraries WHERE id = ?1)",
+                    [library],
+                    |row| row.get(0),
+                )
+                .map_err(db_error)?;
+            if !registered {
+                return Err(crate::game_library::UNAVAILABLE_LIBRARY.to_owned());
+            }
+        }
         connection
             .execute(
                 "INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256,
-             size_bytes, status, created_at, updated_at, source_verified, queue_position, source_id, source_entry_id, target_game_id, automatic_update, mirror_plan, published_size_bytes)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'queued', ?8, ?8, ?9, ?8, ?10, ?11, ?12, ?13, ?14, ?15)",
+             size_bytes, status, created_at, updated_at, source_verified, queue_position, source_id, source_entry_id, target_game_id, automatic_update, mirror_plan, published_size_bytes, library_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'queued', ?8, ?8, ?9, ?8, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
                 params![
                     id,
                     app_id,
@@ -511,7 +526,7 @@ pub(crate) fn enqueue_prepared(
                     entry.download.sha256.as_deref().unwrap_or(""),
                     size,
                     created,
-                    source_verified, source_id, entry.id, update.map(|value| value.0), update.is_some_and(|value| value.1), mirror_plan, published_size
+                    source_verified, source_id, entry.id, update.map(|value| value.0), update.is_some_and(|value| value.1), mirror_plan, published_size, library_id
                 ],
             )
             .map_err(db_error)?;
@@ -1686,6 +1701,7 @@ pub async fn queue_download(
     accept_unverified: bool,
     source_id: Option<String>,
     preferred_uri: Option<String>,
+    library_id: Option<String>,
 ) -> Result<DownloadJob, String> {
     crate::startup_recovery::wait(&app).await?;
     let database = app.state::<DatabaseState>().shared_database()?;
@@ -1786,6 +1802,9 @@ pub async fn queue_download(
     let worker_app = app.clone();
     let job = tauri::async_runtime::spawn_blocking(move || {
         app.state::<DownloadQueueState>().directory()?;
+        if let Some(library) = library_id.as_deref() {
+            crate::game_library::library_root(app.state::<DatabaseState>().database()?, library)?;
+        }
         let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
         let _operation = manager.operation()?;
         let job = enqueue_prepared(
@@ -1798,6 +1817,7 @@ pub async fn queue_download(
             None,
             resolved_size,
             PlanChoice::Given(mirror_plan),
+            library_id.as_deref(),
         )?;
         crate::download_policy::manual_start(
             app.state::<DatabaseState>().database()?,
@@ -3869,6 +3889,7 @@ mod tests {
             None,
             None,
             PlanChoice::Given(Some(plan)),
+            None,
         )
         .unwrap();
         let stored: Option<String> = database
@@ -3886,6 +3907,56 @@ mod tests {
             serde_json::from_str(&stored.unwrap()).unwrap();
         assert_eq!(stored.uris, ["https://example.invalid/portal.zip"]);
         assert_eq!(stored.expected_size, Some(10));
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn enqueue_stores_only_a_registered_library() {
+        let (database, directory) = database_with_source();
+        let enqueue_into = |library: &str| {
+            enqueue_prepared(
+                &database,
+                400,
+                "https://example.invalid/portal.zip",
+                "1",
+                false,
+                None,
+                None,
+                None,
+                PlanChoice::Given(None),
+                Some(library),
+            )
+        };
+        assert_eq!(
+            enqueue_into("missing").err(),
+            Some(crate::game_library::UNAVAILABLE_LIBRARY.to_owned())
+        );
+        assert!(list(&database).unwrap().is_empty());
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "INSERT INTO game_libraries (id, root) VALUES ('library', '/library')",
+                        [],
+                    )
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+        let job = enqueue_into("library").unwrap();
+        let stored: Option<String> = database
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT library_id FROM downloads WHERE id = ?1",
+                        [&job.id],
+                        |row| row.get(0),
+                    )
+                    .map_err(db_error)
+            })
+            .unwrap();
+        assert_eq!(stored.as_deref(), Some("library"));
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }

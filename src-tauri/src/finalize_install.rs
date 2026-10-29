@@ -61,6 +61,26 @@ pub(crate) fn install_root(database: &Database, data_dir: &Path) -> Result<PathB
     Ok(root)
 }
 
+/// New installs go to the library chosen for the download, or to the default one.
+fn download_root(database: &Database, data_dir: &Path, id: &str) -> Result<PathBuf, String> {
+    let library: Option<String> = database
+        .with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT library_id FROM downloads WHERE id = ?1",
+                    [id],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .optional()
+                .map_err(database_error)
+        })?
+        .flatten();
+    match library {
+        Some(library) => crate::game_library::library_root(database, &library),
+        None => install_root(database, data_dir),
+    }
+}
+
 fn regular_directory(path: &Path, label: &str) -> Result<(), String> {
     if !directory_exists_regular(path, label)? {
         return Err(format!("Could not inspect {label}: path does not exist"));
@@ -122,7 +142,7 @@ fn claim(
     let stage = data_dir.join("downloads").join(format!("{id}.stage"));
     regular_directory(&data_dir.join("downloads"), "download directory")?;
     regular_executable(&stage, &executable)?;
-    let root = install_root(database, data_dir)?;
+    let root = download_root(database, data_dir, &id)?;
     let token = Uuid::new_v4().to_string();
     database.with_connection(|connection| {
         let row: Option<(i64, String, Option<String>, String)> = connection.query_row(
@@ -149,7 +169,7 @@ fn load_intent(database: &Database, data_dir: &Path, id: &str) -> Result<Intent,
     let id = Uuid::parse_str(id)
         .map_err(|_| "Download ID is invalid".to_owned())?
         .to_string();
-    let install_root = install_root(database, data_dir)?;
+    let install_root = download_root(database, data_dir, &id)?;
     database.with_connection(|connection| {
         let row: Option<StoredIntent> = connection.query_row(
             "SELECT steam_app_id, name, staged_path, final_path, executable_relative, install_token FROM downloads WHERE id = ?1 AND status = 'finalizing'",
@@ -918,6 +938,61 @@ mod tests {
             database.games().unwrap()[0].installation_root.as_deref(),
             target.to_str()
         );
+        drop(database);
+        fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    fn choose_library(database: &Database, id: &str, library: &str) {
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET library_id = ?2 WHERE id = ?1",
+                        params![id, library],
+                    )
+                    .map_err(database_error)?;
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn installs_into_the_chosen_library() {
+        let (database, data_dir, id) = fixture();
+        let library = data_dir.join("library");
+        fs::create_dir(&library).unwrap();
+        crate::game_library::sync(&database, &library).unwrap();
+        let library_id: String = database
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT id FROM game_libraries WHERE root = ?1",
+                        [library.to_string_lossy()],
+                        |row| row.get(0),
+                    )
+                    .map_err(database_error)
+            })
+            .unwrap();
+        choose_library(&database, &id, &library_id);
+        finalize(&database, &data_dir, &id, "bin/game.exe").unwrap();
+        assert_eq!(
+            fs::read(library.join("Test Game/game.exe")).unwrap(),
+            b"game"
+        );
+        assert!(!data_dir.join("installed/Test Game").exists());
+        drop(database);
+        fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
+    fn unregistered_library_is_never_used() {
+        let (database, data_dir, id) = fixture();
+        choose_library(&database, &id, "removed");
+        assert_eq!(
+            claim(&database, &data_dir, &id, "bin/game.exe").err(),
+            Some(crate::game_library::UNAVAILABLE_LIBRARY.to_owned())
+        );
+        assert_eq!(state(&database, &id).0, "staged");
         drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }

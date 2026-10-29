@@ -73,7 +73,7 @@ pub async fn get_installed_folder_info(app: AppHandle) -> Result<InstalledFolder
 }
 
 #[cfg(target_os = "linux")]
-fn disk_space(path: &Path) -> Result<(u64, u64), String> {
+pub(crate) fn disk_space(path: &Path) -> Result<(u64, u64), String> {
     use std::os::unix::ffi::OsStrExt;
 
     let c_path = std::ffi::CString::new(path.as_os_str().as_bytes())
@@ -105,7 +105,7 @@ fn block_count(value: libc::c_ulong) -> u64 {
 }
 
 #[cfg(windows)]
-fn disk_space(path: &Path) -> Result<(u64, u64), String> {
+pub(crate) fn disk_space(path: &Path) -> Result<(u64, u64), String> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 
