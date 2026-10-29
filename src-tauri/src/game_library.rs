@@ -245,8 +245,19 @@ fn snapshot(database: &Database, root: &Path, id: String) -> Result<(Library, i6
             },
         });
     }
-    if !normalized.is_empty() {
+    let revision = if normalized.is_empty() {
+        revision
+    } else {
         database.with_connection(|c| {
+            let read_revision = |c: &rusqlite::Connection| -> Result<i64, String> {
+                c.query_row(
+                    "SELECT dirty FROM game_libraries WHERE root=?1",
+                    [root.to_string_lossy()],
+                    |r| r.get(0),
+                )
+                .map_err(database_error)
+            };
+            let before = read_revision(c)?;
             for (id, folder, executable) in &normalized {
                 c.execute(
                     "UPDATE games SET installation_root=?2,executable_path=?3 WHERE id=?1",
@@ -254,9 +265,14 @@ fn snapshot(database: &Database, root: &Path, id: String) -> Result<(Library, i6
                 )
                 .map_err(database_error)?;
             }
-            Ok(())
-        })?;
-    }
+            // Adopt the bump caused by our own normalization unless another change landed meanwhile.
+            if before == revision {
+                read_revision(c)
+            } else {
+                Ok(revision)
+            }
+        })?
+    };
     Ok((
         Library {
             format: 1,
