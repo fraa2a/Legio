@@ -635,9 +635,11 @@ fn stage_one(queue: &DownloadQueueState, database: &Database, id: &str) -> Resul
         if verified && hash.is_empty() {
             return Err("SHA-256 is required for verified downloads".into());
         }
-        let update = crate::game_updates::target(database, &id)?.is_some();
-        let verify = (verified && database.settings()?.verify_verified_downloads)
-            || (update && !hash.is_empty());
+        let verify = if verified {
+            database.settings()?.verify_verified_downloads
+        } else {
+            !hash.is_empty()
+        };
         let archive = queue.path(&id, "archive")?;
         let stage = queue.path(&id, "stage")?;
         remove_stage(&stage)?;
@@ -686,6 +688,7 @@ impl Drop for ProcessingReservation {
     fn drop(&mut self) {
         self.ids
             .lock()
+            // Removing this entry is safe even after a panic poisoned the lock; keeping it would block the item forever.
             .unwrap_or_else(|error| error.into_inner())
             .remove(&self.id);
     }
@@ -2960,7 +2963,8 @@ mod tests {
 
     #[test]
     fn staging_hash_policy_respects_trust_and_the_global_setting() {
-        for (verified, enabled) in [(false, true), (false, false), (true, false)] {
+        // The stored hash never matches the archive, so staging succeeds only when verification is skipped.
+        for (verified, enabled) in [(false, true), (false, false), (true, true), (true, false)] {
             let (database, queue, job, directory) = downloaded_fixture();
             database
                 .save_settings(crate::database::Settings {
@@ -2979,9 +2983,13 @@ mod tests {
                     Ok(())
                 })
                 .unwrap();
-            stage_one(&queue, &database, &job.id).unwrap();
-            assert!(queue.path(&job.id, "archive").unwrap().exists());
-            assert_eq!(status(&database, &job.id).unwrap(), "staged");
+            let skipped = verified && !enabled;
+            assert_eq!(stage_one(&queue, &database, &job.id).is_ok(), skipped);
+            assert_eq!(queue.path(&job.id, "archive").unwrap().exists(), skipped);
+            assert_eq!(
+                status(&database, &job.id).unwrap(),
+                if skipped { "staged" } else { "failed" }
+            );
             drop(database);
             fs::remove_dir_all(directory).unwrap();
         }
