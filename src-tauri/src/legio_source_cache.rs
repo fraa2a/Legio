@@ -832,6 +832,7 @@ mod tests {
             Some(&source_id),
             None,
             Some(123),
+            crate::download_queue::PlanChoice::Derived,
         )
         .unwrap();
         let stored = database
@@ -861,7 +862,8 @@ mod tests {
                 true,
                 Some(&source_id),
                 None,
-                Some(123)
+                Some(123),
+                crate::download_queue::PlanChoice::Derived
             )
             .is_err()
         );
