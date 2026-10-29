@@ -131,7 +131,7 @@
     <span class="shrink-0 text-zinc-400 transition-transform {open ? 'rotate-180' : ''}"><Icon name="chevron-down" size="size-4" /></span>
   </button>
   {#if open}
-    <div id={`${id}-options`} popover="auto" role="listbox" tabindex="-1" aria-labelledby={`${id}-label`} onkeydown={handleKeydown} ontoggle={(event) => { if (event.newState === "closed") open = false; }} style:inset="auto" style:top="{optionsTop}px" style:left="{optionsLeft}px" style:width="{optionsWidth}px" style:max-height="{optionsMaxHeight}px" class="fixed z-50 m-0 overflow-auto rounded-xl {borderless ? '' : 'border border-white/10 light:border-zinc-900/10'} legio-glass p-1 shadow-xl shadow-black/30 light:shadow-zinc-900/15">
+    <div id={`${id}-options`} popover="auto" role="listbox" tabindex="-1" aria-labelledby={`${id}-label`} onkeydown={handleKeydown} ontoggle={(event) => { if (event.newState === "closed") open = false; }} style:inset="auto" style:top="{optionsTop}px" style:left="{optionsLeft}px" style:width="{optionsWidth}px" style:max-height="{optionsMaxHeight}px" class="fixed z-50 m-0 overflow-auto rounded-xl {borderless ? '' : 'border border-white/10 light:border-zinc-900/10'} legio-popover p-1 shadow-xl shadow-black/30 light:shadow-zinc-900/15">
       {#each options as option (option.value)}
         <button
           type="button"

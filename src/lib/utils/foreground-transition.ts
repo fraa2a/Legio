@@ -10,7 +10,7 @@ export function collectForegroundTargets(root: HTMLElement): HTMLElement[] {
     const style = getComputedStyle(node);
     const backdrop = style.getPropertyValue("backdrop-filter");
     const webkit = style.getPropertyValue("-webkit-backdrop-filter");
-    let protectedSubtree = node.matches(".legio-glass,.legio-panel,.legio-dialog-surface")
+    let protectedSubtree = node.matches(".legio-glass,.legio-panel,.legio-popover,.legio-dialog-surface")
       || (backdrop !== "" && backdrop !== "none") || (webkit !== "" && webkit !== "none");
     for (const child of node.children) {
       if (child instanceof HTMLElement && visit(child)) protectedSubtree = true;

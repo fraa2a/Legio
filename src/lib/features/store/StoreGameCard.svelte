@@ -12,7 +12,7 @@
 
   let {
     steamAppId,
-    name,
+    name: catalogName,
     status,
     onOpen,
   }: {
@@ -26,6 +26,7 @@
   let row: HTMLLIElement | undefined = $state();
   let visible = $state(false);
   const detailsState = $derived($steamDetails[steamAppId] ?? null);
+  const name = $derived(detailsState?.details?.name ?? catalogName);
   const entry = $derived(status.entry);
   const meta = $derived(availabilityMeta[status.availability]);
   const summary = $derived(steamSummaryLine(detailsState?.details?.shortDescription ?? null));
