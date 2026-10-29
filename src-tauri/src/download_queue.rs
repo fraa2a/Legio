@@ -686,6 +686,7 @@ impl Drop for ProcessingReservation {
     fn drop(&mut self) {
         self.ids
             .lock()
+            // Removing this entry is safe even after a panic poisoned the lock; keeping it would block the item forever.
             .unwrap_or_else(|error| error.into_inner())
             .remove(&self.id);
     }

@@ -318,6 +318,8 @@ pub async fn import_game_library(app: AppHandle, directory: String) -> Result<()
 pub async fn repair_game_library(app: AppHandle, directory: String) -> Result<(), String> {
     crate::startup_recovery::wait(&app).await?;
     tauri::async_runtime::spawn_blocking(move || {
+        let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
+        let _operation = manager.operation()?;
         crate::game_library::repair(
             app.state::<DatabaseState>().database()?,
             std::path::Path::new(&directory),
@@ -487,7 +489,7 @@ pub async fn update_game(app: AppHandle, input: UpdateGameInput) -> Result<Game,
 pub async fn remove_game(app: AppHandle, id: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         crate::game_lifecycle::remove_game(&app, &id)?;
-        crate::game_library::remove_default(&app, &id)
+        crate::game_library::sync_default(&app)
     })
     .await
     .map_err(|error| format!("Game removal task failed: {error}"))?
