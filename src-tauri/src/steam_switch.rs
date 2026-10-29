@@ -303,8 +303,9 @@ fn apply_file_patches(files: &[FilePatch]) -> Result<(), String> {
             );
         }
     }
+    let mut backups = Vec::with_capacity(files.len());
     for file in files {
-        create_backup(&file.path, &file.original)?;
+        backups.push(create_backup(&file.path, &file.original)?);
     }
     for (index, file) in files.iter().enumerate() {
         if let Err(error) = write_atomic(&file.path, &file.updated) {
@@ -326,7 +327,59 @@ fn apply_file_patches(files: &[FilePatch]) -> Result<(), String> {
             Err(rollback_error) => format!("{error}; file rollback also failed: {rollback_error}"),
         });
     }
+    for (file, backup) in files.iter().zip(&backups) {
+        clean_old_backups(&file.path, backup);
+    }
     Ok(())
+}
+
+fn is_legio_backup_name(name: &str, original_name: &str) -> bool {
+    name.strip_prefix(original_name)
+        .and_then(|rest| rest.strip_prefix(".legio-"))
+        .and_then(|rest| rest.strip_suffix(".bak"))
+        .is_some_and(|stamp| !stamp.is_empty() && stamp.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+// Keeps only the backup created in this run; failures are logged and never block the launch.
+fn clean_old_backups(path: &Path, keep: &Path) {
+    let (Some(directory), Some(original_name)) = (
+        path.parent(),
+        path.file_name().map(|name| name.to_string_lossy()),
+    ) else {
+        return;
+    };
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) => {
+            crate::application_log::failure("clean_steam_backups", error);
+            return;
+        }
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                crate::application_log::failure("clean_steam_backups", error);
+                continue;
+            }
+        };
+        let candidate = entry.path();
+        if candidate == keep
+            || !is_legio_backup_name(&entry.file_name().to_string_lossy(), &original_name)
+        {
+            continue;
+        }
+        let is_file = fs::symlink_metadata(&candidate).map(|metadata| metadata.is_file());
+        match is_file {
+            Ok(true) => {
+                if let Err(error) = fs::remove_file(&candidate) {
+                    crate::application_log::failure("clean_steam_backups", error);
+                }
+            }
+            Ok(false) => {}
+            Err(error) => crate::application_log::failure("clean_steam_backups", error),
+        }
+    }
 }
 
 fn restore_files(files: &[FilePatch]) -> Result<(), String> {
@@ -535,6 +588,49 @@ mod tests {
         assert_eq!(fs::read(&path).unwrap(), b"selected account");
         restore_files(&[patch]).unwrap();
         assert_eq!(fs::read(&path).unwrap(), original);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn clean_old_backups_keeps_only_the_latest_and_unrelated_files() {
+        let root = std::env::temp_dir().join(format!(
+            "legio-steam-backups-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let path = root.join("config.vdf");
+        fs::write(&path, b"current").unwrap();
+        let kept = [
+            "config.vdf.legio-abc.bak",
+            "config.vdf.legio-.bak",
+            "config.vdf.bak",
+            "config.vdf.legio-1.tmp",
+            "other.vdf.legio-1.bak",
+        ];
+        for name in kept {
+            fs::write(root.join(name), b"keep").unwrap();
+        }
+        fs::create_dir(root.join("config.vdf.legio-3.bak")).unwrap();
+        fs::write(root.join("config.vdf.legio-1.bak"), b"old").unwrap();
+        fs::write(root.join("config.vdf.legio-2.bak"), b"old").unwrap();
+        let latest = root.join("config.vdf.legio-9.bak");
+        fs::write(&latest, b"new").unwrap();
+
+        clean_old_backups(&path, &latest);
+
+        assert!(!root.join("config.vdf.legio-1.bak").exists());
+        assert!(!root.join("config.vdf.legio-2.bak").exists());
+        assert!(latest.exists());
+        assert!(path.exists());
+        assert!(root.join("config.vdf.legio-3.bak").is_dir());
+        for name in kept {
+            assert!(root.join(name).exists(), "{name} was removed");
+        }
 
         fs::remove_dir_all(root).unwrap();
     }
