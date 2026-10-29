@@ -1,5 +1,5 @@
 use reqwest::{
-    Client, Method, Response, Url,
+    Client, ClientBuilder, Method, Response, Url,
     header::{CONTENT_TYPE, HeaderMap, HeaderValue, LOCATION},
 };
 use serde::{Deserialize, Serialize};
@@ -92,6 +92,10 @@ async fn follow_redirects(
             || url.password().is_some()
         {
             return Err("Invalid resolved URL".into());
+        }
+        // IP literal hosts are never passed to the DNS resolver.
+        if !crate::public_address::is_public_host(&url) {
+            return Err("Download host is not a public internet address".into());
         }
         let response = client
             .request(method.clone(), url.clone())
@@ -224,11 +228,18 @@ pub(crate) fn is_web_page(response: &Response) -> bool {
         })
 }
 
-pub(crate) fn client() -> Result<Client, String> {
+/// Archive links come from untrusted sources: redirects are followed by hand and only
+/// public addresses are reachable.
+pub(crate) fn client_builder() -> ClientBuilder {
     Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .dns_resolver(crate::public_address::PublicResolver)
+}
+
+pub(crate) fn client() -> Result<Client, String> {
+    client_builder()
         .connect_timeout(Duration::from_secs(5))
         .read_timeout(Duration::from_secs(15))
-        .redirect(reqwest::redirect::Policy::none())
         .user_agent("Mozilla/5.0 Legio/0.2")
         .build()
         .map_err(|error| error.to_string())

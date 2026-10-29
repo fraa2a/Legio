@@ -288,6 +288,13 @@ fn validate_archive_url(url: &str, field: &str) -> Result<(), ManifestError> {
             "archive must be an HTTP or HTTPS URL without credentials or fragment",
         ));
     }
+    if !crate::public_address::is_public_host(&parsed) {
+        return Err(ManifestError::new(
+            ManifestErrorKind::InvalidUrl,
+            field,
+            "archive host must be a public internet address",
+        ));
+    }
     Ok(())
 }
 
@@ -491,6 +498,16 @@ mod tests {
             (
                 "/verified/0/download/url",
                 json!("file:///tmp/archive.zip"),
+                ManifestErrorKind::InvalidUrl,
+            ),
+            (
+                "/verified/0/download/url",
+                json!("http://192.168.1.1/archive.zip"),
+                ManifestErrorKind::InvalidUrl,
+            ),
+            (
+                "/verified/0/download/url",
+                json!("http://localhost/archive.zip"),
                 ManifestErrorKind::InvalidUrl,
             ),
         ] {

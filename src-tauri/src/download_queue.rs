@@ -135,10 +135,9 @@ pub struct DownloadQueueState {
 
 impl DownloadQueueState {
     pub fn new(data_dir: Result<PathBuf, tauri::Error>, version: &str) -> Result<Self, String> {
-        let client = reqwest::Client::builder()
+        let client = crate::download_resolver::client_builder()
             .connect_timeout(Duration::from_secs(10))
             .read_timeout(Duration::from_secs(30))
-            .redirect(reqwest::redirect::Policy::none())
             .user_agent(format!("Legio/{version}"))
             .build()
             .map_err(|error| format!("Could not initialize download client: {error}"))?;

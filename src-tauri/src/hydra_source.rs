@@ -40,7 +40,9 @@ pub(crate) fn valid_uri(uri: &str) -> bool {
     };
     match url.scheme() {
         "http" | "https" => {
-            url.host_str().is_some() && url.username().is_empty() && url.password().is_none()
+            crate::public_address::is_public_host(&url)
+                && url.username().is_empty()
+                && url.password().is_none()
         }
         "magnet" => url.query_pairs().any(|(key, value)| {
             key == "xt" && (value.starts_with("urn:btih:") || value.starts_with("urn:btmh:"))
@@ -174,6 +176,14 @@ mod tests {
         assert_eq!(source.downloads.len(), 1);
         assert_eq!(source.diagnostics.rejected, 1);
         assert_eq!(source.diagnostics.unsupported, 1);
+    }
+
+    #[test]
+    fn rejects_links_to_private_hosts() {
+        assert!(!valid_uri("http://169.254.169.254/latest/meta-data"));
+        assert!(!valid_uri("http://localhost:8080/game.zip"));
+        assert!(!valid_uri("https://[fd00::1]/game.zip"));
+        assert!(valid_uri("https://example.test/game.zip"));
     }
 
     #[test]
