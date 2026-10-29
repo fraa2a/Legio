@@ -55,7 +55,7 @@ export async function hydrateApp(): Promise<void> {
   if (startup.startupLaunchError !== null) launchError.set(startup.startupLaunchError);
   if (!startupWarningsShown && startup.startupWarnings.length > 0) {
     startupWarningsShown = true;
-    showToast(t("Alcuni dati non sono stati caricati all'avvio: {0}", undefined, [startup.startupWarnings.join("; ")]), "warning");
+    showToast(t("Alcuni dati non sono stati caricati all'avvio: {0}", undefined, [startup.startupWarnings.join("; ")]), "warning", { persistent: true });
   }
   if (steamScanTimer === null) {
     configureSteamScanInterval(get(settings).data.steamLibraryPollMinutes);
