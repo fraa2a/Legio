@@ -183,11 +183,17 @@ fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<Transfe
         ).map_err(database_error)?;
         Ok(())
     })?;
-    prepare_transfer(database.database()?, &intent)?;
-    if let Err(error) = require_not_running(&intent.source) {
-        rollback_prepared(database.database()?, &intent, true)
-            .map_err(|cleanup| format!("{error}; could not release transfer: {cleanup}"))?;
-        return Err(error);
+    if !move_transfer(
+        database.database()?,
+        &intent,
+        finalize_install::publish_noreplace,
+    )? {
+        prepare_transfer(database.database()?, &intent)?;
+        if let Err(error) = require_not_running(&intent.source) {
+            rollback_prepared(database.database()?, &intent, true)
+                .map_err(|cleanup| format!("{error}; could not release transfer: {cleanup}"))?;
+            return Err(error);
+        }
     }
     commit_transfer(database.database()?, &intent)?;
     let warning = cleanup_transfer(database.database()?, &intent).err();
@@ -217,10 +223,18 @@ struct TransferIntent {
     phase: String,
 }
 
+/// Canonicalizes the nearest existing ancestor, since a moved source no longer exists.
+fn canonical_path(path: &Path) -> PathBuf {
+    dunce::canonicalize(path).unwrap_or_else(|_| match (path.parent(), path.file_name()) {
+        (Some(parent), Some(name)) => canonical_path(parent).join(name),
+        _ => path.to_path_buf(),
+    })
+}
+
 fn remap(value: Option<String>, source: &Path, destination: &Path) -> Option<String> {
     value.map(|value| {
-        let path = dunce::canonicalize(&value).unwrap_or_else(|_| PathBuf::from(&value));
-        let source = dunce::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
+        let path = canonical_path(Path::new(&value));
+        let source = canonical_path(source);
         match path.strip_prefix(source) {
             Ok(relative) => destination.join(relative).to_string_lossy().into_owned(),
             Err(_) => value,
@@ -386,6 +400,87 @@ fn cleanup_transfer(database: &Database, intent: &TransferIntent) -> Result<(), 
     })
 }
 
+fn reserve_source(intent: &TransferIntent) -> Result<(), String> {
+    use std::io::Write;
+    let path = intent.source.join(MARKER);
+    let mut marker = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|error| format!("Could not reserve transfer source: {error}"))?;
+    let written = marker
+        .write_all(intent.temporary.to_string_lossy().as_bytes())
+        .and_then(|()| marker.sync_all())
+        .map_err(|error| format!("Could not sync transfer source marker: {error}"));
+    drop(marker);
+    if let Err(error) = written {
+        return Err(match fs::remove_file(&path) {
+            Ok(()) => error,
+            Err(cleanup) => format!("{error}; could not release source marker: {cleanup}"),
+        });
+    }
+    finalize_install::sync_directory(&intent.source)
+}
+
+fn set_phase(database: &Database, game_id: &str, phase: &str) -> Result<(), String> {
+    database.with_connection(|connection| {
+        connection
+            .execute(
+                "UPDATE game_transfers SET phase = ?2 WHERE game_id = ?1",
+                params![game_id, phase],
+            )
+            .map_err(database_error)?;
+        Ok(())
+    })
+}
+
+fn requires_copy(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::CrossesDevices | io::ErrorKind::Unsupported
+    )
+}
+
+/// Returns false when the files must be copied because a rename cannot move them.
+fn move_transfer(
+    database: &Database,
+    intent: &TransferIntent,
+    rename: fn(&Path, &Path) -> io::Result<()>,
+) -> Result<bool, String> {
+    let result = (|| -> Result<bool, String> {
+        // The moved marker proves that the destination holds this transfer's files.
+        reserve_source(intent)?;
+        set_phase(database, &intent.game_id, "moving")?;
+        require_not_running(&intent.source)?;
+        match rename(&intent.source, &intent.destination) {
+            Ok(()) => return Ok(true),
+            Err(error) if !requires_copy(&error) => {
+                return Err(format!("Could not move game files: {error}"));
+            }
+            Err(_) => {}
+        }
+        set_phase(database, &intent.game_id, "prepared")?;
+        fs::remove_file(intent.source.join(MARKER))
+            .map_err(|error| format!("Could not release transfer source: {error}"))?;
+        Ok(false)
+    })();
+    match result {
+        Ok(true) => {
+            for path in [&intent.destination, &intent.source] {
+                finalize_install::sync_directory(
+                    path.parent().ok_or("Transfer path has no parent")?,
+                )?;
+            }
+            Ok(true)
+        }
+        Ok(false) => Ok(false),
+        Err(error) => match rollback_prepared(database, intent, false) {
+            Ok(()) => Err(error),
+            Err(cleanup) => Err(format!("{error}; could not release transfer: {cleanup}")),
+        },
+    }
+}
+
 fn prepare_transfer(database: &Database, intent: &TransferIntent) -> Result<(), String> {
     let mut temporary_created = false;
     let mut source_reserved = false;
@@ -394,19 +489,8 @@ fn prepare_transfer(database: &Database, intent: &TransferIntent) -> Result<(), 
             .map_err(|error| format!("Could not reserve transfer directory: {error}"))?;
         temporary_created = true;
         // Keep the source until both publication and the database transaction succeed.
-        use std::io::Write;
-        let mut marker = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(intent.source.join(MARKER))
-            .map_err(|error| format!("Could not reserve transfer source: {error}"))?;
+        reserve_source(intent)?;
         source_reserved = true;
-        marker
-            .write_all(intent.temporary.to_string_lossy().as_bytes())
-            .and_then(|()| marker.sync_all())
-            .map_err(|error| format!("Could not sync transfer source marker: {error}"))?;
-        drop(marker);
-        finalize_install::sync_directory(&intent.source)?;
         copy_contents(&intent.source, &intent.temporary)?;
         fs::write(
             intent.temporary.join(MARKER),
@@ -449,11 +533,15 @@ fn rollback_prepared(
     intent: &TransferIntent,
     remove_temporary: bool,
 ) -> Result<(), String> {
+    if source_moved(intent)? {
+        return Err("Game files were already moved; the transfer must be completed".to_owned());
+    }
     if owns_directory(&intent.source, intent) {
         fs::remove_file(intent.source.join(MARKER))
             .map_err(|error| format!("Could not release transfer source: {error}"))?;
     }
-    if remove_temporary {
+    // A partial copy is disposable only while the source still holds the game.
+    if remove_temporary && intent.source.is_dir() {
         match fs::remove_dir_all(&intent.temporary) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -486,11 +574,22 @@ fn pending_transfers(
     })
 }
 
+/// Before commit, only the no-replace rename leaves an owned destination without the source.
+fn source_moved(intent: &TransferIntent) -> Result<bool, String> {
+    match fs::symlink_metadata(&intent.source) {
+        Ok(_) => Ok(false),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(owns_destination(intent)),
+        Err(error) => Err(format!("Could not inspect transfer source: {error}")),
+    }
+}
+
 fn recover_transfer(database: &Database, intent: &TransferIntent) -> Result<(), String> {
-    if intent.phase == "prepared" {
-        rollback_prepared(database, intent, true)
+    let pending = matches!(intent.phase.as_str(), "prepared" | "moving");
+    if pending && !source_moved(intent)? {
+        // A move never creates the temporary directory, so only the copy path removes it.
+        rollback_prepared(database, intent, intent.phase == "prepared")
     } else {
-        if intent.phase == "copied" {
+        if intent.phase != "committed" {
             commit_transfer(database, intent)?;
         }
         cleanup_transfer(database, intent)
@@ -732,6 +831,155 @@ mod tests {
     }
 
     #[test]
+    fn same_volume_transfer_moves_without_copying() {
+        let (root, database, intent) = fixture("prepared");
+        // A new transfer starts without a source marker.
+        fs::remove_file(intent.source.join(MARKER)).unwrap();
+        assert!(move_transfer(&database, &intent, finalize_install::publish_noreplace).unwrap());
+        assert!(!intent.source.exists());
+        assert!(!intent.temporary.exists());
+        commit_transfer(&database, &intent).unwrap();
+        cleanup_transfer(&database, &intent).unwrap();
+        assert_eq!(
+            fs::read(intent.destination.join(&intent.relative)).unwrap(),
+            b"game"
+        );
+        assert!(!intent.destination.join(MARKER).exists());
+        assert!(!intent.temporary.exists());
+        assert!(pending_transfers(&database, None).unwrap().is_empty());
+        assert_eq!(
+            dunce::canonicalize(
+                database
+                    .game(&intent.game_id)
+                    .unwrap()
+                    .installation_root
+                    .unwrap()
+            )
+            .unwrap(),
+            dunce::canonicalize(&intent.destination).unwrap()
+        );
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cross_device_move_falls_back_to_copy() {
+        let (root, database, intent) = fixture("prepared");
+        fs::remove_file(intent.source.join(MARKER)).unwrap();
+        assert!(
+            !move_transfer(&database, &intent, |_, _| Err(io::Error::from(
+                io::ErrorKind::CrossesDevices
+            )))
+            .unwrap()
+        );
+        assert!(!intent.source.join(MARKER).exists());
+        assert_eq!(
+            pending_transfers(&database, None).unwrap()[0].phase,
+            "prepared"
+        );
+        prepare_transfer(&database, &intent).unwrap();
+        commit_transfer(&database, &intent).unwrap();
+        cleanup_transfer(&database, &intent).unwrap();
+        assert!(!intent.source.exists());
+        assert!(!intent.temporary.exists());
+        assert_eq!(
+            fs::read(intent.destination.join(&intent.relative)).unwrap(),
+            b"game"
+        );
+        assert!(pending_transfers(&database, None).unwrap().is_empty());
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn failed_move_releases_source() {
+        let (root, database, intent) = fixture("prepared");
+        fs::remove_file(intent.source.join(MARKER)).unwrap();
+        assert!(
+            move_transfer(&database, &intent, |_, _| Err(io::Error::from(
+                io::ErrorKind::PermissionDenied
+            )))
+            .is_err()
+        );
+        assert!(!intent.source.join(MARKER).exists());
+        assert!(intent.source.join(&intent.relative).is_file());
+        assert!(pending_transfers(&database, None).unwrap().is_empty());
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn only_volume_errors_require_copy() {
+        #[cfg(target_os = "linux")]
+        assert!(requires_copy(&io::Error::from_raw_os_error(libc::EXDEV)));
+        #[cfg(windows)]
+        assert!(requires_copy(&io::Error::from_raw_os_error(
+            windows_sys::Win32::Foundation::ERROR_NOT_SAME_DEVICE as i32
+        )));
+        assert!(requires_copy(&io::Error::from(io::ErrorKind::Unsupported)));
+        assert!(!requires_copy(&io::Error::from(
+            io::ErrorKind::AlreadyExists
+        )));
+        assert!(!requires_copy(&io::Error::from(
+            io::ErrorKind::PermissionDenied
+        )));
+    }
+
+    #[test]
+    fn interrupted_move_before_rename_keeps_source() {
+        let (root, database, intent) = fixture("moving");
+        recover(&database).unwrap();
+        assert!(intent.source.join(&intent.relative).is_file());
+        assert!(!intent.source.join(MARKER).exists());
+        assert!(!intent.destination.exists());
+        assert!(pending_transfers(&database, None).unwrap().is_empty());
+        assert_eq!(
+            database
+                .game(&intent.game_id)
+                .unwrap()
+                .installation_root
+                .as_deref(),
+            intent.source.to_str()
+        );
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn interrupted_move_after_rename_rolls_forward() {
+        // A lost phase update leaves a completed move recorded as prepared.
+        for phase in ["moving", "prepared"] {
+            let (root, database, intent) = fixture(phase);
+            finalize_install::publish_noreplace(&intent.source, &intent.destination).unwrap();
+            drop(database);
+            let database = Database::open(&root.join("data")).unwrap();
+            recover(&database).unwrap();
+            let game = database.game(&intent.game_id).unwrap();
+            assert_eq!(
+                dunce::canonicalize(game.installation_root.as_ref().unwrap()).unwrap(),
+                dunce::canonicalize(&intent.destination).unwrap()
+            );
+            assert_eq!(
+                database
+                    .native_launch_config(&intent.game_id)
+                    .unwrap()
+                    .working_directory
+                    .as_deref(),
+                intent.destination.join("bin").to_str()
+            );
+            assert!(!intent.source.exists());
+            assert!(!intent.destination.join(MARKER).exists());
+            assert_eq!(
+                fs::read(intent.destination.join(&intent.relative)).unwrap(),
+                b"game"
+            );
+            assert!(pending_transfers(&database, None).unwrap().is_empty());
+            drop(database);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
     fn incomplete_copy_keeps_source_and_database_paths() {
         let (root, database, intent) = fixture("prepared");
         fs::create_dir(&intent.temporary).unwrap();
@@ -827,6 +1075,26 @@ mod tests {
             remap(
                 Some(source.join("../source/bin").to_string_lossy().into_owned()),
                 &dunce::canonicalize(&source).unwrap(),
+                &destination
+            )
+            .map(PathBuf::from),
+            Some(destination.join("bin"))
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn remaps_moved_source_through_links() {
+        let root = std::env::temp_dir().join(format!("legio-remap-{}", Uuid::new_v4()));
+        fs::create_dir_all(root.join("library")).unwrap();
+        std::os::unix::fs::symlink(root.join("library"), root.join("link")).unwrap();
+        let destination = root.join("target");
+        // The source directory no longer exists after a move.
+        assert_eq!(
+            remap(
+                Some(root.join("link/Game/bin").to_string_lossy().into_owned()),
+                &root.join("library/Game"),
                 &destination
             )
             .map(PathBuf::from),
