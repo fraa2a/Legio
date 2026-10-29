@@ -58,6 +58,7 @@
   let linkError = $state<string | null>(null);
   const checkingLinks = $derived(storeGame !== null && knownReleases.length > 0 && linkSizes === null && linkError === null);
   const releases = $derived(storeGame !== null && linkSizes !== null ? reachableReleases(knownReleases, $source.data.sources, linkSizes) : knownReleases);
+  const noReachableLinks = $derived(storeGame !== null && linkSizes !== null && knownReleases.length > 0 && releases.length === 0);
   let selectedReleaseId = $state<string | null>(null);
   const status = $derived(releases.find((release) => sourceReleaseId(release.entry) === selectedReleaseId) ?? releases[0] ?? null);
   const entry = $derived(status?.entry ?? null);
@@ -215,6 +216,8 @@
             <Button label={t("SCARICA", $language)} variant="download" size="hero" class="w-60" disabled={queueing} onClick={requestDownload}>
               <Icon name="download" size="size-6" />
             </Button>
+          {:else if noReachableLinks}
+            <Callout tone="warning" message={t("Nessun link di download raggiungibile per questo gioco.", $language)} class="legio-popover max-w-md" />
           {/if}
         {:else if game !== null}
           <GameLaunchControls
@@ -267,8 +270,6 @@
       <p class="text-xs text-zinc-400" role="status">{t("Verifica dei link di download...", $language)}</p>
     {:else if linkError !== null}
       <Callout tone="warning" variant="inline" message={t("Verifica dei link non disponibile: {0}", $language, [linkError])} />
-    {:else if storeGame !== null && linkSizes !== null && knownReleases.length > 0 && releases.length === 0}
-      <Callout tone="warning" variant="inline" message={t("Nessun link di download raggiungibile per questo gioco.", $language)} />
     {/if}
     {#if storeGame !== null && queueError !== null}
       <ErrorBanner message={queueError} />
