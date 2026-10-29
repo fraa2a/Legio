@@ -15,6 +15,7 @@ import { get } from "svelte/store";
 import { activeSection, openGame } from "./navigation";
 import { showToast } from "./toast";
 import { t } from "../i18n";
+import { loadNews } from "./news";
 
 let steamScanTimer: ReturnType<typeof setInterval> | null = null;
 let startupWarningsShown = false;
@@ -62,5 +63,6 @@ export async function hydrateApp(): Promise<void> {
     if (get(settings).data.syncSteamGames && !get(hasPendingLaunch)) await importSteamLibrary();
   }
   await startSourceLinks();
+  void loadNews();
   await Promise.all([checkConnectivity(), refreshSource()]);
 }

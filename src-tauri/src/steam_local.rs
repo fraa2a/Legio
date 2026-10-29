@@ -400,7 +400,7 @@ pub(crate) fn default_steam_library_paths() -> Vec<PathBuf> {
     let mut libraries = Vec::new();
     let mut seen = HashSet::new();
     for root in roots {
-        let Ok(root) = fs::canonicalize(root) else {
+        let Ok(root) = dunce::canonicalize(root) else {
             continue;
         };
         if !seen.insert(root.clone()) {
@@ -416,7 +416,7 @@ pub(crate) fn default_steam_library_paths() -> Vec<PathBuf> {
     let mut seen = HashSet::new();
     libraries
         .into_iter()
-        .filter_map(|library| fs::canonicalize(library).ok())
+        .filter_map(|library| dunce::canonicalize(library).ok())
         .filter(|library| seen.insert(library.clone()))
         .collect()
 }
@@ -764,11 +764,11 @@ pub(crate) fn find_steam_root_for_game(game: &crate::database::Game) -> Result<P
         .steam_install_path
         .as_deref()
         .ok_or_else(|| "This game has no detected Steam installation".to_owned())?;
-    let install_path = fs::canonicalize(install_path)
+    let install_path = dunce::canonicalize(install_path)
         .map_err(|error| format!("Could not inspect the game's Steam library: {error}"))?;
     let roots = default_steam_roots().ok_or_else(|| MISSING_STEAM_ROOTS.to_owned())?;
     for root in roots {
-        let root = match fs::canonicalize(root) {
+        let root = match dunce::canonicalize(root) {
             Ok(root) => root,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
             Err(error) => return Err(format!("Could not inspect Steam installation: {error}")),
@@ -782,7 +782,7 @@ pub(crate) fn find_steam_root_for_game(game: &crate::database::Game) -> Result<P
         }
         if libraries.into_iter().any(|library| {
             let common = library.join("steamapps/common");
-            fs::canonicalize(common).is_ok_and(|common| install_path.starts_with(common))
+            dunce::canonicalize(common).is_ok_and(|common| install_path.starts_with(common))
         }) {
             return Ok(root);
         }
@@ -841,7 +841,7 @@ fn scan_saved_accounts_in(roots: impl IntoIterator<Item = PathBuf>) -> SavedStea
     let mut seen_roots = HashSet::new();
     let mut seen_accounts = HashSet::new();
     for root in roots {
-        let root = match fs::canonicalize(root) {
+        let root = match dunce::canonicalize(root) {
             Ok(root) => root,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
             Err(error) => {
@@ -921,7 +921,7 @@ pub(crate) fn scan_installations(roots: impl IntoIterator<Item = PathBuf>) -> St
     let mut libraries = Vec::new();
     let mut seen_roots = HashSet::new();
     for root in roots {
-        let steamapps = match fs::canonicalize(root.join("steamapps")) {
+        let steamapps = match dunce::canonicalize(root.join("steamapps")) {
             Ok(path) => path,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
             Err(error) => {
@@ -954,7 +954,7 @@ pub(crate) fn scan_installations(roots: impl IntoIterator<Item = PathBuf>) -> St
     let mut resolved_libraries = Vec::new();
     let mut app_types = HashMap::new();
     for library in libraries {
-        let steamapps = match fs::canonicalize(library) {
+        let steamapps = match dunce::canonicalize(library) {
             Ok(path) => path,
             Err(error) => {
                 scan.diagnostics.push(format!(
@@ -1004,7 +1004,7 @@ pub(crate) fn scan_installations(roots: impl IntoIterator<Item = PathBuf>) -> St
                 continue;
             }
         };
-        let common = fs::canonicalize(steamapps.join("common")).ok();
+        let common = dunce::canonicalize(steamapps.join("common")).ok();
         for entry in entries {
             let entry = match entry {
                 Ok(entry) => entry,
@@ -1052,7 +1052,7 @@ pub(crate) fn scan_installations(roots: impl IntoIterator<Item = PathBuf>) -> St
                 continue;
             }
             let installed = common.as_ref().and_then(|common| {
-                fs::canonicalize(common.join(&game.install_dir))
+                dunce::canonicalize(common.join(&game.install_dir))
                     .ok()
                     .filter(|directory| {
                         directory.starts_with(common) && directory != common && directory.is_dir()
@@ -1211,6 +1211,17 @@ mod tests {
             vec![1, 2]
         );
         assert!(scan.diagnostics.is_empty());
+    }
+
+    // Canonicalized paths on Windows must not expose the verbatim `\\?\` prefix.
+    #[cfg(windows)]
+    #[test]
+    fn installed_game_path_has_no_verbatim_prefix() {
+        let fixture = Fixture::new();
+        let root = fixture.library("steam", 1);
+        let scan = scan_installations([root]);
+        let game = scan.games.first().unwrap();
+        assert!(!game.install_path.starts_with(r"\\?\"));
     }
 
     #[test]

@@ -201,10 +201,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             portal.steam_install_path.as_deref(),
-            fixture
-                .0
-                .join("steam/steamapps/common/Portal")
-                .canonicalize()
+            dunce::canonicalize(fixture.0.join("steam/steamapps/common/Portal"))
                 .unwrap()
                 .to_str()
         );
@@ -292,7 +289,7 @@ mod tests {
                 connection
                     .execute(
                         "UPDATE games SET executable_path = ?2, steam_install_path = ?3 WHERE id = ?1",
-                        params![manual.id, "/games/Portal.exe", fs::canonicalize(fixture.0.join("steam/steamapps/common/Portal")).unwrap().to_string_lossy()],
+                        params![manual.id, "/games/Portal.exe", dunce::canonicalize(fixture.0.join("steam/steamapps/common/Portal")).unwrap().to_string_lossy()],
                     )
                     .map_err(database_error)?;
                 Ok(())
