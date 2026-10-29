@@ -24,6 +24,8 @@ Supported downloads resolve to a single ZIP, 7z or RAR archive with a known exac
 | FuckingFast | Direct-link extraction and archive validation |
 | Rootz | Page-token/API resolution and archive validation |
 | GoFile | Guest website/session flow, folder lookup and archive validation |
+| 1fichier | Public link checker for size and name, guest download form for the one-time link |
+| Buzzheavier | Page token and `HX-Redirect` download request, archive validation |
 
 DataNodes, VikingFile, FileKeeper and AkiraBox landing pages do not have supported resolvers. This is not a claim that those websites require payment for all downloads. Free website downloads, public developer APIs and Hydra backend access are separate capabilities.
 
@@ -37,11 +39,27 @@ Links retain their JSON order. Each link gets an initial attempt and up to three
 
 The queue persists link order, active mirror and failed-attempt count through pause, resume and restart. Exhausting the list produces a failed job; explicit Retry starts a fresh bounded cycle. Changing mirrors clears partial bytes, ETag and progress before checking the next exact size.
 
+## 1fichier
+
+Hydra only lists 1fichier as a host that needs a Real-Debrid account, so this resolver is Legio's own and follows the website's behavior for guests. Only `1fichier.com/?id` file pages are recognized. Its alias domains return 404 for known files and are not supported.
+
+Reachability checks use the public link checker (`check_links.pl`), which reports the exact size and file name without using the single free download that guests get per hour. The archive type is therefore taken from the file name instead of the archive signature. Starting a transfer submits the guest download form and follows the one-time direct link, which is requested again whenever the transfer starts or resumes.
+
+When the website asks the guest to wait between downloads, the error states the wait. Guests cannot resume transfers, so pausing and resuming within that hour fails with the same error.
+
+## Buzzheavier
+
+Hydra's main branch has no Buzzheavier resolver. The flow follows the bzzhr downloader proposed in Hydra pull request 2699, which was not merged, and was checked against the live website. The file page carries a tokenized download request; sending it with the `HX-Request` header answers with the direct link in an `HX-Redirect` header. Direct links on download servers such as `ts.buzzheavier.com` keep the plain direct path.
+
+`buzzheavier.com`, `bzzhr.co` and `bzzhr.to` serve the same file ids. Every request goes to `buzzheavier.com`, because the other two domains were challenged by Cloudflare in every test. Cloudflare also challenges a share of requests from clients that cannot run its script, so each request is retried up to three times before the error reports a browser check. The page request needs a referrer from the website itself; without one the website redirects elsewhere.
+
 ## GoFile protocol
 
 The guest flow follows the website/session behavior in [Hydra's hosters](https://github.com/hydralauncher/hydra/tree/a22ec02201e73db8ca2ee214c2b37cd2d6a27374/src/main/services/hosters), including website-token discovery, guest account persistence, authorization refresh, pagination, nested folders, URL passwords and first-accessible-file selection.
 
-Website token scripts run in embedded QuickJS with a one-second deadline and 16 MiB memory limit, without filesystem, process, network, module-loader or Tauri bindings. Folder traversal is limited to 100 content requests and overall resolution to 120 seconds. Automatic selection allows this initialization budget rather than the shorter budget used for other hosts.
+Website token scripts run in embedded QuickJS with a ten-second deadline and 16 MiB memory limit, without filesystem, process, network, module-loader or Tauri bindings. The deadline only stops runaway scripts: the obfuscated generator takes about 0.1 seconds in an optimized build and about 0.7 seconds in an unoptimized one. The extracted secret is reused for at most four hours, because the website rotates it and rejects retired ones. Folder traversal is limited to 100 content requests and overall resolution to 120 seconds. Automatic selection allows this initialization budget rather than the shorter budget used for other hosts.
+
+Access gates and unavailable files produce specific errors: missing content, a required or incorrect password, private or expired content, files in cold storage and overloaded servers.
 
 Official file HEAD validation precedes Hydra's alternate CDN fallback. The alternate `https://gofilecdn.eu.cc` endpoint comes from Hydra's code; its operator and official relationship with GoFile are not established. It must not be described as a guaranteed official GoFile service. External hosts can change their protocols or reject requests; validation and bounded fallback remain necessary. No user-provided paid API key configuration is included.
 

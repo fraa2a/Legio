@@ -15,6 +15,7 @@ mod artwork_display;
 mod artwork_publication;
 mod artwork_scheduler;
 mod background_process;
+mod buzzheavier;
 mod catalog;
 mod commands;
 #[cfg(target_os = "linux")]
@@ -60,6 +61,7 @@ mod manual_import;
 mod native_rendering;
 mod network;
 mod news;
+mod one_fichier;
 mod online_fix;
 mod overlay_update;
 mod playtime_activity;
