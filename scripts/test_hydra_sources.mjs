@@ -7,6 +7,7 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBe
 for (const key of ["window", "document", "navigator", "Node", "Text", "Comment", "Element", "HTMLElement", "HTMLMediaElement", "HTMLInputElement", "HTMLFormElement", "Event", "KeyboardEvent", "MouseEvent"]) {
   Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
 }
+globalThis.matchMedia = () => ({ matches: false });
 const { mount, unmount, flushSync } = await import("svelte");
 const settle = async () => { flushSync(); await new Promise(setImmediate); flushSync(); };
 
