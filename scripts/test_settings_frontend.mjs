@@ -20,7 +20,7 @@ const d = dataModule;
 const mocks = {
  'src/lib/services/theme-presets.json': d('export default ' + JSON.stringify(require('./src/lib/services/theme-presets.json')) + ';'),
  'src/lib/i18n': d(storeImport + 'export const language=writable("it");export const t=(value,_language,args=[])=>value.replace(/\\{(\\d+)\\}/g,(_,i)=>args[i]);'),
- 'src/lib/utils/motion': d('export const reducedMotion=true;export const fadeDuration=0;'),
+ 'src/lib/utils/motion': d('export const reducedMotion=true;export const fadeDuration=0;export const pageTransitionDuration=0;'),
  'src/lib/stores/window-activity': d(storeImport + 'export const windowActive=writable(true);'),
  'src/lib/services/local-state': d('export const getSettings=async()=>globalThis.frontendRepro.current;export const saveSettings=value=>globalThis.frontendRepro.saveSettings(value);'),
  'src/lib/services/dialog': d('export const pickGameDirectory=async()=>globalThis.frontendRepro.pickedDirectory??null;export const pickExecutableFile=async()=>null;'),

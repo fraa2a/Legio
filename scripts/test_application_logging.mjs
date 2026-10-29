@@ -70,7 +70,7 @@ test("Steam image display failures log safe asset context and keep a stable fall
   const { records, loader, logger } = await fixture({
     "src/lib/i18n": dataModule(storeImport + 'export const language = writable("it"); export const t = value => value;'),
     "src/lib/stores/window-activity": dataModule(storeImport + 'export const windowActive = writable(true);'),
-    "src/lib/utils/motion": dataModule("export const fadeDuration = 0;"),
+    "src/lib/utils/motion": dataModule("export const reducedMotion = false; export const fadeDuration = 0; export const pageTransitionDuration = 0;"),
   });
   globalThis.applicationLogInvoke = async (command, args) => {
     if (command === "report_application_event") { records.push(args); return; }
@@ -138,7 +138,7 @@ test("local icon display failures record a static warning without the game's ide
   const { records, loader, logger } = await fixture({
     "src/lib/i18n": dataModule(storeImport + 'export const language = writable("it"); export const t = value => value;'),
     "src/lib/stores/window-activity": dataModule(storeImport + 'export const windowActive = writable(true);'),
-    "src/lib/utils/motion": dataModule("export const fadeDuration = 0;"),
+    "src/lib/utils/motion": dataModule("export const reducedMotion = false; export const fadeDuration = 0; export const pageTransitionDuration = 0;"),
   });
   globalThis.applicationLogInvoke = async (command, args) => {
     if (command === "report_application_event") { records.push(args); return; }
@@ -305,7 +305,7 @@ test("navigation records library checkpoints without disclosing a selected game 
   logger.setApplicationLoggingEnabled(true);
   const mocks = {
     "@tauri-apps/api/core": dataModule(`export const invoke = (...args) => globalThis.applicationLogInvoke(...args); // navigation ${++sequence}`),
-    "src/lib/utils/motion": dataModule("export const reducedMotion = true; export const pageTransitionDuration = 0;"),
+    "src/lib/utils/motion": dataModule("export const reducedMotion = true; export const fadeDuration = 0; export const pageTransitionDuration = 0;"),
   };
   const emptyView = dataModule("export default () => {};");
   for (const [feature, view] of [["home", "HomeView"], ["library", "LibraryView"], ["library", "GameDetailView"], ["store", "StoreView"], ["downloads", "DownloadsView"]]) {
@@ -335,7 +335,7 @@ test("publishing one cover does not cancel another mounted cover's pending deman
   const storeImport = `import { writable } from "${import.meta.resolve("svelte/store")}";`;
   const { loader, logger } = await fixture({
     "src/lib/i18n": dataModule(storeImport + 'export const language = writable("en"); export const t = value => value;'),
-    "src/lib/utils/motion": dataModule("export const fadeDuration = 0;"),
+    "src/lib/utils/motion": dataModule("export const reducedMotion = false; export const fadeDuration = 0; export const pageTransitionDuration = 0;"),
   });
   logger.setApplicationLoggingEnabled(false);
   const waiting = new Map(); const cancelled = [];

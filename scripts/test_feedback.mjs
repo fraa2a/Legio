@@ -16,7 +16,7 @@ const { get, writable } = await import("svelte/store");
 const storeImport = `import { writable } from "${import.meta.resolve("svelte/store")}";`;
 const mocks = {
   "src/lib/i18n": dataModule(storeImport + 'export const language = writable("it"); export const t = (value, _language, args = []) => value.replace(/\\{(\\d+)\\}/g, (_, index) => args[index]);'),
-  "src/lib/utils/motion": dataModule("export const reducedMotion = true; export const fadeDuration = 0;"),
+  "src/lib/utils/motion": dataModule("export const reducedMotion = true; export const fadeDuration = 0; export const pageTransitionDuration = 0;"),
 };
 const { load } = createModuleLoader(mocks);
 const notices = await import(await load("src/lib/stores/toast.ts"));

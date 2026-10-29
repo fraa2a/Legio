@@ -15,7 +15,7 @@ const mocks = {
   "src/lib/stores/window-activity": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const windowActive = writable(true);`),
   "@tauri-apps/api/core": dataModule('export const invoke = (...args) => args[0] === "cancel_artwork_request" ? (globalThis.cancelledMetadata?.push(args[1].requestId), Promise.resolve()) : globalThis.artworkInvoke(...args);'),
   "src/lib/i18n": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const language = writable("en"); export const t = value => value;`),
-  "src/lib/utils/motion": dataModule("export const fadeDuration = 0;"),
+  "src/lib/utils/motion": dataModule("export const reducedMotion = false; export const fadeDuration = 0; export const pageTransitionDuration = 0;"),
 };
 const { load: moduleUrl, resolveImports } = createModuleLoader(mocks);
 const logger = await import(await moduleUrl("src/lib/services/application-log.ts"));
