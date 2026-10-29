@@ -21,6 +21,7 @@ use uuid::Uuid;
 use crate::{
     archive_install,
     database::{Database, DatabaseState},
+    download_resolver::ResolveError,
     finalize_install,
 };
 
@@ -120,6 +121,8 @@ struct Transfer {
 pub struct DownloadQueueState {
     directory: std::sync::Mutex<PathBuf>,
     client: reqwest::Client,
+    /// Shorter timeouts keep link checks responsive before a download is queued.
+    link_client: reqwest::Client,
     running: AtomicBool,
     starting: AtomicBool,
     active: std::sync::Mutex<Option<(String, tokio::sync::watch::Sender<bool>)>>,
@@ -141,6 +144,8 @@ impl DownloadQueueState {
             .user_agent(format!("Legio/{version}"))
             .build()
             .map_err(|error| format!("Could not initialize download client: {error}"))?;
+        let link_client = crate::download_resolver::client()
+            .map_err(|error| format!("Could not initialize download client: {error}"))?;
         Ok(Self {
             directory: std::sync::Mutex::new(
                 data_dir
@@ -148,6 +153,7 @@ impl DownloadQueueState {
                     .map_err(|error| format!("Could not locate download directory: {error}"))?,
             ),
             client,
+            link_client,
             running: AtomicBool::new(false),
             starting: AtomicBool::new(false),
             active: std::sync::Mutex::new(None),
@@ -1216,16 +1222,21 @@ impl std::fmt::Display for TransferError {
     }
 }
 
-// The resolver and database helpers report errors as text.
+impl From<ResolveError> for TransferError {
+    fn from(error: ResolveError) -> Self {
+        let message = error.to_string();
+        match error {
+            ResolveError::Network(_) => Self::Network(message),
+            ResolveError::Http(status) if status.is_server_error() => Self::Server(message),
+            ResolveError::Http(_) | ResolveError::Link(_) => Self::Link(message),
+        }
+    }
+}
+
+// Database and validation helpers report errors as text and fail the current link.
 impl From<String> for TransferError {
     fn from(error: String) -> Self {
-        if error.starts_with("Network:") {
-            Self::Network(error)
-        } else if error.starts_with("HTTP 5") {
-            Self::Server(error)
-        } else {
-            Self::Link(error)
-        }
+        Self::Link(error)
     }
 }
 
@@ -1591,7 +1602,7 @@ async fn transfer_once(
     }
     if offset != job.size {
         return Err(TransferError::Network(format!(
-            "Network: Download ended at {offset} of {} bytes",
+            "Download ended at {offset} of {} bytes",
             job.size
         )));
     }
@@ -1707,7 +1718,7 @@ pub async fn queue_download(
         };
         let checked = crate::link_check::check_links(
             app.state::<DatabaseState>().shared_database()?,
-            &crate::download_resolver::client()?,
+            &app.state::<DownloadQueueState>().link_client,
             candidates
                 .iter()
                 .map(|uri| (uri.clone(), expected_size))
@@ -2158,6 +2169,22 @@ mod tests {
             .await
             .is_err()
         );
+    }
+
+    #[test]
+    fn resolver_failures_map_to_retry_decisions() {
+        let network = TransferError::from(ResolveError::Network("reset".into()));
+        assert!(matches!(&network, TransferError::Network(_)));
+        assert_eq!(network.to_string(), "Network: reset");
+        let server = TransferError::from(ResolveError::Http(StatusCode::SERVICE_UNAVAILABLE));
+        assert!(matches!(&server, TransferError::Server(_)));
+        assert_eq!(server.to_string(), "HTTP 503");
+        for error in [
+            ResolveError::Http(StatusCode::NOT_FOUND),
+            ResolveError::Link("The download link returned a web page".into()),
+        ] {
+            assert!(matches!(TransferError::from(error), TransferError::Link(_)));
+        }
     }
     use sha2::{Digest, Sha256};
     use std::{

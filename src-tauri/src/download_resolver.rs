@@ -1,9 +1,17 @@
+use regex::Regex;
 use reqwest::{
-    Client, ClientBuilder, Method, Response, Url,
+    Client, ClientBuilder, Method, Response, StatusCode, Url,
     header::{CONTENT_TYPE, HeaderMap, HeaderValue, LOCATION},
 };
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::{sync::LazyLock, time::Duration};
+
+static FUCKING_FAST_LINK: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r#"https://fuckingfast\.co/dl/[^\s"'<>\\]+"#).ok());
+static MEDIAFIRE_LINK: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r#"https?://download[0-9]+\.mediafire\.com/[^\s"'<>\\]+"#).ok());
+static ROOTZ_PAGE_TOKEN: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r#"pageToken[\\]*"\s*:\s*[\\]*"([^"\\]+)"#).ok());
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -26,6 +34,46 @@ pub(crate) struct ResolvedFile {
 pub(crate) struct ResolvedDownload {
     pub provider: Provider,
     pub files: Vec<ResolvedFile>,
+}
+
+/// Lets the download queue decide whether a failure waits for connectivity or tries another link.
+#[derive(Debug)]
+pub(crate) enum ResolveError {
+    Network(String),
+    Http(StatusCode),
+    Link(String),
+}
+
+impl std::fmt::Display for ResolveError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Network(message) => write!(formatter, "Network: {message}"),
+            Self::Http(status) => write!(formatter, "HTTP {}", status.as_u16()),
+            Self::Link(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl From<String> for ResolveError {
+    fn from(error: String) -> Self {
+        Self::Link(error)
+    }
+}
+
+impl From<&str> for ResolveError {
+    fn from(error: &str) -> Self {
+        Self::Link(error.to_owned())
+    }
+}
+
+impl From<ResolveError> for String {
+    fn from(error: ResolveError) -> Self {
+        error.to_string()
+    }
+}
+
+fn network_error(error: reqwest::Error) -> ResolveError {
+    ResolveError::Network(error.without_url().to_string())
 }
 
 fn host_is(host: &str, domain: &str) -> bool {
@@ -67,7 +115,7 @@ pub(crate) async fn get(
     client: &Client,
     uri: &str,
     headers: HeaderMap,
-) -> Result<Response, String> {
+) -> Result<Response, ResolveError> {
     follow_redirects(client, Method::GET, uri, headers).await
 }
 
@@ -75,7 +123,7 @@ pub(crate) async fn head(
     client: &Client,
     uri: &str,
     headers: HeaderMap,
-) -> Result<Response, String> {
+) -> Result<Response, ResolveError> {
     follow_redirects(client, Method::HEAD, uri, headers).await
 }
 
@@ -84,7 +132,7 @@ async fn follow_redirects(
     method: Method,
     uri: &str,
     mut headers: HeaderMap,
-) -> Result<Response, String> {
+) -> Result<Response, ResolveError> {
     let mut url = Url::parse(uri).map_err(|_| "Invalid resolved URL")?;
     for hop in 0..=5 {
         if !matches!(url.scheme(), "http" | "https")
@@ -102,7 +150,7 @@ async fn follow_redirects(
             .headers(headers.clone())
             .send()
             .await
-            .map_err(|error| format!("Network: {}", error.without_url()))?;
+            .map_err(network_error)?;
         if response.status().is_redirection() {
             if hop == 5 {
                 return Err("Download redirected too many times".into());
@@ -126,21 +174,17 @@ async fn follow_redirects(
             continue;
         }
         if !response.status().is_success() {
-            return Err(format!("HTTP {}", response.status().as_u16()));
+            return Err(ResolveError::Http(response.status()));
         }
         return Ok(response);
     }
     Err("Download redirect limit reached".into())
 }
 
-async fn text(client: &Client, url: &str, headers: HeaderMap) -> Result<String, String> {
+async fn text(client: &Client, url: &str, headers: HeaderMap) -> Result<String, ResolveError> {
     let mut response = get(client, url, headers).await?;
     let mut bytes = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| format!("Network: {}", error.without_url()))?
-    {
+    while let Some(chunk) = response.chunk().await.map_err(network_error)? {
         if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
             return Err("Host response exceeds the size limit".into());
         }
@@ -151,12 +195,13 @@ async fn text(client: &Client, url: &str, headers: HeaderMap) -> Result<String, 
 
 pub(crate) fn extract_link(provider: Provider, html: &str) -> Result<String, String> {
     let pattern = match provider {
-        Provider::FuckingFast => r#"https://fuckingfast\.co/dl/[^\s"'<>\\]+"#,
-        Provider::Mediafire => r#"https?://download[0-9]+\.mediafire\.com/[^\s"'<>\\]+"#,
+        Provider::FuckingFast => &FUCKING_FAST_LINK,
+        Provider::Mediafire => &MEDIAFIRE_LINK,
         _ => return Err("Unsupported page resolver".into()),
     };
-    let regex = regex::Regex::new(pattern).map_err(|error| error.to_string())?;
-    let link = regex
+    let link = pattern
+        .as_ref()
+        .ok_or("Download link pattern is invalid")?
         .find(html)
         .ok_or("No supported download link found on the host page")?
         .as_str()
@@ -240,12 +285,12 @@ pub(crate) fn client() -> Result<Client, String> {
     client_builder()
         .connect_timeout(Duration::from_secs(5))
         .read_timeout(Duration::from_secs(15))
-        .user_agent("Mozilla/5.0 Legio/0.2")
+        .user_agent(concat!("Mozilla/5.0 Legio/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|error| error.to_string())
 }
 
-pub(crate) async fn resolve(client: &Client, uri: &str) -> Result<ResolvedDownload, String> {
+pub(crate) async fn resolve(client: &Client, uri: &str) -> Result<ResolvedDownload, ResolveError> {
     let provider = classify(uri)?;
     let mut headers = HeaderMap::new();
     let url = match provider {
@@ -273,9 +318,9 @@ pub(crate) async fn resolve(client: &Client, uri: &str) -> Result<ResolvedDownlo
                 })
                 .ok_or("Invalid Rootz file ID")?;
             let html = text(client, uri, HeaderMap::new()).await?;
-            let regex = regex::Regex::new(r#"pageToken[\\]*"\s*:\s*[\\]*"([^"\\]+)"#)
-                .map_err(|e| e.to_string())?;
-            let token = regex
+            let token = ROOTZ_PAGE_TOKEN
+                .as_ref()
+                .ok_or("Rootz page token pattern is invalid")?
                 .captures(&html)
                 .and_then(|c| c.get(1))
                 .ok_or("Rootz page token is unavailable")?
@@ -334,7 +379,7 @@ pub(crate) async fn resolve(client: &Client, uri: &str) -> Result<ResolvedDownlo
     })
 }
 
-async fn resolve_gofile(client: &Client, uri: &str) -> Result<ResolvedDownload, String> {
+async fn resolve_gofile(client: &Client, uri: &str) -> Result<ResolvedDownload, ResolveError> {
     let parsed = Url::parse(uri).map_err(|_| "Invalid GoFile URL")?;
     let id = parsed
         .path_segments()
@@ -350,7 +395,9 @@ async fn resolve_gofile(client: &Client, uri: &str) -> Result<ResolvedDownload, 
         .query_pairs()
         .find(|(key, _)| key == "password")
         .map(|(_, value)| value.into_owned());
-    crate::gofile::resolve(client, id, password.as_deref()).await
+    crate::gofile::resolve(client, id, password.as_deref())
+        .await
+        .map_err(ResolveError::Link)
 }
 
 #[cfg(test)]
