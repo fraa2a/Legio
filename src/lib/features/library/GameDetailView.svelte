@@ -16,6 +16,7 @@
   } from "../../stores/launch";
   import { closeGame, openGame, selectSection, selectedGameId, type StoreGameSelection } from "../../stores/navigation";
   import { downloads, queueJob } from "../../stores/downloads";
+  import { onlyUsableLibrary } from "../../stores/game-libraries";
   import { checkGameLinks, type SourceEntry } from "../../services/legio-source";
   import { describeDownloadStatus, downloadProgressPercent } from "../../services/downloads";
   import { playtime } from "../../stores/playtime";
@@ -39,6 +40,7 @@
   import Callout from "../../components/ui/Callout.svelte";
   import ReleasePicker, { type ReleaseOption } from "./ReleasePicker.svelte";
   import AddGameDialog from "./AddGameDialog.svelte";
+  import LibraryPickerDialog from "./LibraryPickerDialog.svelte";
   import { acquireGameArtwork, gameArtworkRevision } from "../../services/game-artwork";
   import { toMessage } from "../../utils/errors";
   import { reachableReleases, releaseLinks, sourceNameFor, sourceReleaseId, sourceReleasesFor } from "../store/source-status";
@@ -85,6 +87,10 @@
   let confirmEntry = $state<SourceEntry | null>(null);
   let confirmPreferredUri = $state<string | null>(null);
   let queueing = $state(false);
+  let libraryPickerOpen = $state(false);
+  let choosingLibrary = $state(false);
+  let downloadLibraryId = $state<string | null>(null);
+  const downloadSize = $derived(versionOptions.find((option) => option.id === selectedVersionId)?.sizeBytes ?? null);
   let queueError = $state<string | null>(null);
 
   onMount(() => {
@@ -143,7 +149,7 @@
     queueError = null;
     queueing = true;
     try {
-      await queueJob(steamAppId, downloadUrl, releaseVersion, acceptUnverified, confirmEntry?.download.url === downloadUrl ? confirmEntry.sourceId : entry?.sourceId, preferredUri);
+      await queueJob(steamAppId, downloadUrl, releaseVersion, acceptUnverified, confirmEntry?.download.url === downloadUrl ? confirmEntry.sourceId : entry?.sourceId, preferredUri, downloadLibraryId);
     } catch (error) {
       queueError = toMessage(error);
     } finally {
@@ -151,7 +157,21 @@
     }
   }
 
-  function requestDownload(): void {
+  async function requestDownload(): Promise<void> {
+    if (entry === null || choosingLibrary) return;
+    choosingLibrary = true;
+    try {
+      const library = await onlyUsableLibrary(downloadSize);
+      if (library === null) libraryPickerOpen = true;
+      else downloadTo(library.id);
+    } finally {
+      choosingLibrary = false;
+    }
+  }
+
+  function downloadTo(libraryId: string): void {
+    libraryPickerOpen = false;
+    downloadLibraryId = libraryId;
     if (entry === null) return;
     if (status?.availability === "unverified") {
       confirmEntry = entry;
@@ -212,7 +232,7 @@
               onClick={() => selectSection("downloads")}
             />
           {:else if status?.availability === "verified" || status?.availability === "unverified"}
-            <Button label={t("SCARICA", $language)} variant="download" size="hero" class="w-60" disabled={queueing} onClick={requestDownload}>
+            <Button label={t("SCARICA", $language)} variant="download" size="hero" class="w-60" disabled={queueing || choosingLibrary} onClick={() => void requestDownload()}>
               <Icon name="download" size="size-6" />
             </Button>
           {/if}
@@ -354,6 +374,14 @@
 {/if}
 
 {#if storeGame !== null}
+  <LibraryPickerDialog
+    open={libraryPickerOpen}
+    title={t("Installa {0}", $language, [name])}
+    confirmLabel={t("Scarica", $language)}
+    requiredBytes={downloadSize}
+    onSelect={(library) => downloadTo(library.id)}
+    onClose={() => (libraryPickerOpen = false)}
+  />
   <ConfirmDialog
     open={confirmOpen}
     title={t("Rilascio non verificato", $language)}

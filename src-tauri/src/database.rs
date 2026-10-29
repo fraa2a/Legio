@@ -14,7 +14,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 34;
+const SCHEMA_VERSION: i64 = 35;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1739,6 +1739,33 @@ mod tests {
             )
             .unwrap();
         assert_eq!((created_at, queue_position), (7, 0));
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn migration_35_adds_an_empty_download_library() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO downloads (id, steam_app_id, name, release_version, url, sha256, size_bytes, status, created_at, updated_at)
+                 VALUES ('job', 42, 'Game', '1', 'https://example.test', 'hash', 4, 'failed', 7, 7);
+                 ALTER TABLE downloads DROP COLUMN library_id;
+                 PRAGMA user_version = 34;",
+            )
+            .unwrap();
+        migrate(&connection).unwrap();
+        let library: Option<String> = connection
+            .query_row(
+                "SELECT library_id FROM downloads WHERE id = 'job'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(library, None);
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();

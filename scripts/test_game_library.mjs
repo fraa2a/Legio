@@ -61,7 +61,8 @@ test("transfer asks only for a destination library and stays disabled while the 
     "src/lib/stores/playtime": dataModule(storeImport + 'export const playtime=writable({data:[{gameId:"game",totalMilliseconds:3600000,activeSessions:0}]}); playtime.load=async()=>{}; playtime.reload=async()=>{};'),
     "src/lib/services/playtime": dataModule('export const setGamePlaytime=async(...args)=>{globalThis.libraryFixture.calls.push(args);};'),
     "src/lib/stores/games": dataModule('export const reconcileGame=()=>{};'),
-    "src/lib/services/dialog": dataModule('export const pickGameDirectory=async()=>"/new-library";'),
+    "src/lib/stores/game-libraries": dataModule(storeImport + 'export const gameLibraries=writable({data:[{id:"current",root:"/old",games:[{id:"game",name:"My Game"}]}]}); gameLibraries.load=async()=>{}; gameLibraries.reload=async()=>{};'),
+    "src/lib/features/library/LibraryPickerDialog.svelte": await stub('<script>let {open,excludeId,onSelect}=$props();</script>{#if open}<button onclick={() => onSelect({id:"next",root:"/new-library"})}>Pick outside {excludeId}</button>{/if}'),
     "src/lib/services/local-state": dataModule('export const createDesktopShortcut=async()=>({}); export const transferGame=async(...args)=>{globalThis.libraryFixture.calls.push(args);return {game:globalThis.libraryFixture.game,warning:null};};'),
     "src/lib/components/ui/Dialog.svelte": await stub('<script>let {open,children}=$props();</script>{#if open}<div>{@render children?.()}</div>{/if}'),
   };
@@ -76,15 +77,15 @@ test("transfer asks only for a destination library and stays disabled while the 
     await settle();
     [...target.querySelectorAll("button")].find(button => button.textContent.trim() === "Posizioni").click(); await settle();
     assert.equal(target.querySelector("#transfer-source"), null);
-    [...target.querySelectorAll("button")].find(button => button.textContent.includes("Sfoglia destinazione")).click(); await settle();
-    assert.equal(target.querySelector("#transfer-destination").value, "/new-library");
-    const button = [...target.querySelectorAll("button")].find(button => button.textContent.trim() === "Trasferisci gioco");
+    const button = [...target.querySelectorAll("button")].find(button => button.textContent.trim() === "Sposta in un'altra libreria...");
     assert.equal(button.disabled, false);
     launch.set(new Map([[game.id, { status: "running" }]])); await settle();
     assert.equal(button.disabled, true);
     assert.equal(calls.length, 0);
     launch.set(new Map()); await settle();
     button.click(); await settle();
+    assert.equal(calls.length, 0);
+    [...target.querySelectorAll("button")].find(button => button.textContent.trim() === "Pick outside current").click(); await settle();
     assert.deepEqual(calls, [[game.id, "/new-library"]]);
     [...target.querySelectorAll("button")].find(button => button.textContent.trim() === "Zona pericolosa").click(); await settle();
     const editPlaytime = [...target.querySelectorAll("button")].find(button => button.textContent.trim() === "Imposta tempo di gioco");
@@ -141,4 +142,37 @@ test("Steam descriptions keep link text without links or scripts", async () => {
   renderSteamDescription(target, '<p>See <a href="https://example.com">the site</a><script>alert(1)</script></p>');
   assert.equal(target.innerHTML, "<p>See the site</p>");
   delete globalThis.DOMParser;
+});
+
+test("library removal stops at the first failed game and keeps the library", async () => {
+  const calls = [];
+  globalThis.removalFixture = { calls, fail: "b", libraries: [] };
+  const storeImport = `import { writable } from "${import.meta.resolve("svelte/store")}";`;
+  const { load } = createModuleLoader({
+    "src/lib/i18n": dataModule(storeImport + 'export const language=writable("it"); export const t=value=>value;'),
+    "src/lib/services/dialog": dataModule("export const pickGameDirectory=async()=>null;"),
+    "src/lib/services/game-libraries": dataModule('export const listGameLibraries=async()=>globalThis.removalFixture.libraries; export const addGameLibrary=async()=>""; export const removeGameLibrary=async id=>{globalThis.removalFixture.calls.push(["remove",id]);};'),
+    "src/lib/services/local-state": dataModule('export const getGameUninstallTarget=async()=>""; export const transferGame=async(id,root)=>{globalThis.removalFixture.calls.push(["move",id,root]); if(id===globalThis.removalFixture.fail) throw new Error("disk full"); return {game:{id},warning:null};};'),
+    "src/lib/stores/games": dataModule("export const games={reload:async()=>{}}; export const reconcileGame=()=>{}; export const uninstallGame=async()=>({warnings:[]});"),
+  });
+  const { removeLibrary, onlyUsableLibrary } = await import(await load("src/lib/stores/game-libraries.ts"));
+  try {
+    const library = { id: "old", root: "/old", games: [{ id: "a", name: "A" }, { id: "b", name: "B" }, { id: "c", name: "C" }] };
+    const removal = { kind: "move", target: { id: "new", root: "/new" } };
+    const outcome = await removeLibrary(library, removal, () => {});
+    assert.deepEqual(outcome.failure, { game: "B", message: "disk full" });
+    assert.deepEqual(calls, [["move", "a", "/new"], ["move", "b", "/new"]]);
+    globalThis.removalFixture.fail = null;
+    calls.length = 0;
+    assert.equal((await removeLibrary({ ...library, games: [{ id: "c", name: "C" }] }, removal, () => {})).failure, null);
+    assert.deepEqual(calls, [["move", "c", "/new"], ["remove", "old"]]);
+
+    // The picker is skipped only for a single reachable library with enough room.
+    const only = { id: "only", root: "/games", freeBytes: 500, games: [] };
+    globalThis.removalFixture.libraries = [only];
+    assert.equal(await onlyUsableLibrary(100), only);
+    assert.equal(await onlyUsableLibrary(1000), null);
+    globalThis.removalFixture.libraries = [only, { ...only, id: "other" }];
+    assert.equal(await onlyUsableLibrary(null), null);
+  } finally { delete globalThis.removalFixture; }
 });

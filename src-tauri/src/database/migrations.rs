@@ -722,5 +722,22 @@ pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
             )
             .map_err(database_error)?;
     }
+    if version < 35 {
+        let exists: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('downloads') WHERE name='library_id')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(database_error)?;
+        if !exists {
+            transaction
+                .execute_batch("ALTER TABLE downloads ADD COLUMN library_id TEXT;")
+                .map_err(database_error)?;
+        }
+        transaction
+            .pragma_update(None, "user_version", 35)
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }

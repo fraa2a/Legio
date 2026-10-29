@@ -345,31 +345,68 @@ pub async fn set_game_playtime(
     .map_err(|e| format!("Playtime edit task failed: {e}"))?
 }
 
-#[tauri::command]
-pub async fn get_game_libraries(
-    app: AppHandle,
-) -> Result<Vec<crate::game_library::LibraryInfo>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        crate::game_library::libraries(app.state::<DatabaseState>().database()?)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+fn default_library_root(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let state = app.state::<DatabaseState>();
+    let database = state.database()?;
+    crate::finalize_install::install_root(database, &database.storage_root(&data_dir)?)
+}
+
+/// Refuses library changes while any game runs, is launching or is being transferred.
+fn require_idle_games(app: &AppHandle) -> Result<(), String> {
+    let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
+    for game in app.state::<DatabaseState>().database()?.games()? {
+        manager.require_idle(&game.id)?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn import_game_library(app: AppHandle, directory: String) -> Result<(), String> {
+pub async fn get_game_libraries(
+    app: AppHandle,
+) -> Result<Vec<crate::game_library::LibrarySummary>, String> {
+    crate::startup_recovery::wait(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let default_root = default_library_root(&app)?;
+        crate::game_library::summaries(app.state::<DatabaseState>().database()?, &default_root)
+    })
+    .await
+    .map_err(|e| format!("Library list task failed: {e}"))?
+}
+
+#[tauri::command]
+pub async fn add_game_library(app: AppHandle, directory: String) -> Result<String, String> {
+    crate::startup_recovery::wait(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        let app_data = dunce::canonicalize(&app_data).unwrap_or(app_data);
+        let protected = crate::game_uninstall::protected_directories(&app)?;
+        let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
+        let _operation = manager.operation()?;
+        require_idle_games(&app)?;
+        crate::game_library::add(
+            app.state::<DatabaseState>().database()?,
+            std::path::Path::new(&directory),
+            &app_data,
+            &protected,
+        )
+    })
+    .await
+    .map_err(|e| format!("Library task failed: {e}"))?
+}
+
+#[tauri::command]
+pub async fn remove_game_library(app: AppHandle, id: String) -> Result<(), String> {
     crate::startup_recovery::wait(&app).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
         let _operation = manager.operation()?;
-        let database = app.state::<DatabaseState>();
-        for game in database.database()?.games()? {
-            manager.require_idle(&game.id)?;
-        }
-        crate::game_library::import(database.database()?, std::path::Path::new(&directory))
+        require_idle_games(&app)?;
+        let default_root = default_library_root(&app)?;
+        crate::game_library::remove(app.state::<DatabaseState>().database()?, &id, &default_root)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("Library task failed: {e}"))?
 }
 
 #[tauri::command]

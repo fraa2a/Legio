@@ -142,11 +142,14 @@ The frontend invokes `queue_download` with these arguments:
   "downloadUrl": "https://downloads.example.invalid/portal-1.0.0.zip",
   "releaseVersion": "1.0.0",
   "acceptUnverified": false,
-  "sourceId": "<installed-source-id>"
+  "sourceId": "<installed-source-id>",
+  "libraryId": "<registered-library-id>"
 }
 ```
 
 Rust looks up the exact tuple in the selected validated source. If origin is omitted, the match must be unambiguous. The frontend cannot supply arbitrary size, hash, name, or trust classification. An unverified release requires `acceptUnverified: true`. Queueing stores a snapshot of the selected metadata and its `source_verified` classification; later manifest refreshes do not change the job.
+
+`libraryId` is optional. When present it must name a registered library whose folder still exists, and the game is installed there; otherwise the default library is used. A library can be removed only when none of its jobs is still active. Removal detaches its finished, cancelled and failed jobs, so a later retry installs into the default library.
 
 ### Job returned to the frontend
 

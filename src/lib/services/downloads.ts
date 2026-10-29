@@ -76,8 +76,8 @@ export function listDownloads(): Promise<DownloadJob[]> {
   return invoke<DownloadJob[]>("list_downloads");
 }
 
-export function queueDownload(steamAppId: number, downloadUrl: string, releaseVersion: string, acceptUnverified: boolean, sourceId?: string | null, preferredUri?: string | null): Promise<DownloadJob> {
-  return invoke<DownloadJob>("queue_download", { steamAppId, downloadUrl, releaseVersion, acceptUnverified, ...(sourceId ? { sourceId } : {}), ...(preferredUri ? { preferredUri } : {}) });
+export function queueDownload(steamAppId: number, downloadUrl: string, releaseVersion: string, acceptUnverified: boolean, sourceId?: string | null, preferredUri?: string | null, libraryId?: string | null): Promise<DownloadJob> {
+  return invoke<DownloadJob>("queue_download", { steamAppId, downloadUrl, releaseVersion, acceptUnverified, ...(sourceId ? { sourceId } : {}), ...(preferredUri ? { preferredUri } : {}), ...(libraryId ? { libraryId } : {}) });
 }
 
 export function pauseDownload(id: string): Promise<void> {
