@@ -5,6 +5,7 @@
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import TextField from "../../components/ui/TextField.svelte";
   import Button from "../../components/ui/Button.svelte";
+  import RefreshIcon from "../../components/ui/RefreshIcon.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Callout from "../../components/ui/Callout.svelte";
   import { source, sourceBusy, sourceActionError, sourceRefreshError, addLocalSource, addSource, removeSource, refreshSource } from "../../stores/source";
@@ -14,6 +15,7 @@
 
   let url = $state("");
   let progress = $state<SourceImportProgress | null>(null);
+  let refreshing = $state(false);
   onMount(() => {
     let disposed = false;
     let stop: (() => void) | undefined;
@@ -26,6 +28,10 @@
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     if (await addSource(url)) url = "";
+  }
+  async function refreshSources(): Promise<void> {
+    refreshing = true;
+    try { await refreshSource(); } finally { refreshing = false; }
   }
   async function chooseLocalSource(): Promise<void> {
     try {
@@ -79,7 +85,7 @@
         {/each}
       </ul>
       <div class="flex justify-end">
-        <Button label={t("Aggiorna sorgenti", $language)} variant="secondary" disabled={$sourceBusy} onClick={() => { void refreshSource(); }} />
+        <Button label={t("Aggiorna sorgenti", $language)} variant="secondary" disabled={$sourceBusy} onClick={() => { void refreshSources(); }}><RefreshIcon spinning={refreshing} /></Button>
       </div>
     {/if}
     {#if $sourceRefreshError}<ErrorBanner message={$sourceRefreshError} />{/if}

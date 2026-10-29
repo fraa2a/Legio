@@ -21,8 +21,9 @@
   import IconButton from "../ui/IconButton.svelte";
   import Icon from "../ui/Icon.svelte";
   import { addGameDialogOpen, libraryPortrait, libraryQuery, storeQuery } from "../../stores/library-ui";
-  import { runCatalogSearch } from "../../stores/catalog";
-  import { refreshSource } from "../../stores/source";
+  import RefreshIcon from "../ui/RefreshIcon.svelte";
+  import { catalog, runCatalogSearch } from "../../stores/catalog";
+  import { refreshSource, sourceBusy } from "../../stores/source";
   import { settings, updateSettings } from "../../stores/settings";
   import { showToast } from "../../stores/toast";
   import { toMessage } from "../../utils/errors";
@@ -121,7 +122,7 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div class="my-1.5 grid shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2" data-tauri-drag-region>
+<div class="my-1.5 grid shrink-0 grid-cols-[minmax(auto,1fr)_minmax(0,32rem)_minmax(auto,1fr)] items-center gap-2" data-tauri-drag-region>
   <div class="col-start-1 flex items-center">
     {#if libraryList}
       <div class="legio-glass flex h-11 items-center rounded-xl p-1">
@@ -170,7 +171,7 @@
           title={t("Aggiorna store", $language)}
           onClick={() => { void refreshSource(); void runCatalogSearch($storeQuery); }}
         >
-          <Icon name="reload" size="size-4" />
+          <RefreshIcon spinning={$sourceBusy || $catalog.status === "loading"} />
         </IconButton>
       {/if}
     </div>

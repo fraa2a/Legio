@@ -14,6 +14,7 @@
   import { settings } from "../../stores/settings";
   import AddGameDialog from "./AddGameDialog.svelte";
   import GameCard from "./GameCard.svelte";
+  import { reflowOnResize } from "./grid-reflow";
   import { libraryGroups, libraryItems } from "./library-model";
 
   onMount(() => startVisibleRefresh(() => void playtime.load(), 30000));
@@ -50,7 +51,7 @@
   />
 
   {#if visible.length > 0}
-    <ul class="grid auto-rows-max gap-4 {$libraryPortrait ? 'grid-cols-[repeat(auto-fill,minmax(min(100%,11rem),1fr))]' : 'grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))]'}">
+    <ul use:reflowOnResize class="relative grid auto-rows-max gap-4 {$libraryPortrait ? 'grid-cols-[repeat(auto-fill,minmax(min(100%,11rem),1fr))]' : 'grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))]'}">
       {#each visible as item (item.game.id)}
         <GameCard
           game={item.game}

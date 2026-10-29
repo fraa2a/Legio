@@ -5,17 +5,19 @@ import { JSDOM } from "jsdom";
 import { artworkPacket, createModuleLoader, dataModule } from "./test_module_loader.mjs";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBeVisual: true });
-for (const key of ["window", "document", "navigator", "Node", "Text", "Comment", "Element", "HTMLElement", "HTMLMediaElement", "Event", "CustomEvent", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"]) {
+for (const key of ["window", "document", "navigator", "Node", "Text", "Comment", "Element", "HTMLElement", "HTMLMediaElement", "Event", "CustomEvent", "getComputedStyle", "MutationObserver", "requestAnimationFrame", "cancelAnimationFrame"]) {
   const value = dom.window[key];
   Object.defineProperty(globalThis, key, { configurable: true, value: typeof value === "function" && key.endsWith("AnimationFrame") ? value.bind(dom.window) : value });
 }
+// jsdom has no ResizeObserver; the library grid's reflow action only needs it to exist.
+globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 const { mount, unmount, flushSync } = await import("svelte");
 const { writable } = await import("svelte/store");
 const mocks = {
   "src/lib/stores/window-activity": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const windowActive = writable(true);`),
   "@tauri-apps/api/core": dataModule('export const invoke = (...args) => args[0] === "cancel_artwork_request" ? (globalThis.cancelledMetadata?.push(args[1].requestId), Promise.resolve()) : globalThis.artworkInvoke(...args);'),
   "src/lib/i18n": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const language = writable("en"); export const t = value => value;`),
-  "src/lib/utils/motion": dataModule("export const fadeDuration = 0;"),
+  "src/lib/utils/motion": dataModule("export const reducedMotion = false; export const fadeDuration = 0; export const pageTransitionDuration = 0;"),
 };
 const { load: moduleUrl, resolveImports } = createModuleLoader(mocks);
 const logger = await import(await moduleUrl("src/lib/services/application-log.ts"));
