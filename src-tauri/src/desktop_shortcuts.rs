@@ -195,7 +195,7 @@ foreach ($base in @([Environment]::GetFolderPath('DesktopDirectory'), [Environme
   foreach ($folder in @($base, (Join-Path $base 'Legio'))) {
     if (-not [IO.Directory]::Exists($folder)) { continue }
     foreach ($path in [IO.Directory]::EnumerateFiles($folder, '*.lnk')) {
-      $link = $shell.CreateShortcut($path)
+      try { $link = $shell.CreateShortcut($path) } catch { continue }
       if ($link.Description -eq ('Legio game ' + $env:LEGIO_GAME_ID)) { [IO.File]::Delete($path) }
     }
   }
