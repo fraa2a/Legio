@@ -434,10 +434,14 @@ fn set_phase(database: &Database, game_id: &str, phase: &str) -> Result<(), Stri
     })
 }
 
+// Windows refuses to rename a directory while another process (often an antivirus)
+// holds one of its files open; copying still works in that case.
 fn requires_copy(error: &io::Error) -> bool {
     matches!(
         error.kind(),
-        io::ErrorKind::CrossesDevices | io::ErrorKind::Unsupported
+        io::ErrorKind::CrossesDevices
+            | io::ErrorKind::Unsupported
+            | io::ErrorKind::PermissionDenied
     )
 }
 
@@ -897,7 +901,7 @@ mod tests {
         fs::remove_file(intent.source.join(MARKER)).unwrap();
         assert!(
             move_transfer(&database, &intent, |_, _| Err(io::Error::from(
-                io::ErrorKind::PermissionDenied
+                io::ErrorKind::NotFound
             )))
             .is_err()
         );
@@ -909,7 +913,7 @@ mod tests {
     }
 
     #[test]
-    fn only_volume_errors_require_copy() {
+    fn copyable_move_errors_fall_back() {
         #[cfg(target_os = "linux")]
         assert!(requires_copy(&io::Error::from_raw_os_error(libc::EXDEV)));
         #[cfg(windows)]
@@ -920,7 +924,7 @@ mod tests {
         assert!(!requires_copy(&io::Error::from(
             io::ErrorKind::AlreadyExists
         )));
-        assert!(!requires_copy(&io::Error::from(
+        assert!(requires_copy(&io::Error::from(
             io::ErrorKind::PermissionDenied
         )));
     }
