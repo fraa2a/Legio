@@ -41,7 +41,9 @@ The queue persists link order, active mirror and failed-attempt count through pa
 
 The guest flow follows the website/session behavior in [Hydra's hosters](https://github.com/hydralauncher/hydra/tree/a22ec02201e73db8ca2ee214c2b37cd2d6a27374/src/main/services/hosters), including website-token discovery, guest account persistence, authorization refresh, pagination, nested folders, URL passwords and first-accessible-file selection.
 
-Website token scripts run in embedded QuickJS with a one-second deadline and 16 MiB memory limit, without filesystem, process, network, module-loader or Tauri bindings. Folder traversal is limited to 100 content requests and overall resolution to 120 seconds. Automatic selection allows this initialization budget rather than the shorter budget used for other hosts.
+Website token scripts run in embedded QuickJS with a ten-second deadline and 16 MiB memory limit, without filesystem, process, network, module-loader or Tauri bindings. The deadline only stops runaway scripts: the obfuscated generator takes about 0.1 seconds in an optimized build and about 0.7 seconds in an unoptimized one. The extracted secret is reused for at most four hours, because the website rotates it and rejects retired ones. Folder traversal is limited to 100 content requests and overall resolution to 120 seconds. Automatic selection allows this initialization budget rather than the shorter budget used for other hosts.
+
+Access gates and unavailable files produce specific errors: missing content, a required or incorrect password, private or expired content, files in cold storage and overloaded servers.
 
 Official file HEAD validation precedes Hydra's alternate CDN fallback. The alternate `https://gofilecdn.eu.cc` endpoint comes from Hydra's code; its operator and official relationship with GoFile are not established. It must not be described as a guaranteed official GoFile service. External hosts can change their protocols or reject requests; validation and bounded fallback remain necessary. No user-provided paid API key configuration is included.
 

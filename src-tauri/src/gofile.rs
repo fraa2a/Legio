@@ -11,13 +11,22 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
     path::PathBuf,
-    sync::{LazyLock, OnceLock},
+    sync::{
+        Arc, LazyLock, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Mutex as AsyncMutex;
 
 const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 const LANGUAGE: &str = "en-US";
+// The website rotates its token secret server-side and rejects retired ones, so a
+// secret must not outlive the window in which the website itself still signs with it.
+const SECRET_MAX_AGE: Duration = Duration::from_secs(4 * 60 * 60);
+// The obfuscated generator needs ~0.1 s in an optimized build and ~0.7 s in an
+// unoptimized one; the limit only has to stop runaway scripts.
+const SCRIPT_TIME_LIMIT: Duration = Duration::from_secs(10);
 static STATE: OnceLock<AsyncMutex<Session>> = OnceLock::new();
 static CACHE_PATH: OnceLock<PathBuf> = OnceLock::new();
 static SCRIPT_PATTERN: LazyLock<Option<regex::Regex>> = LazyLock::new(|| {
@@ -27,7 +36,7 @@ static SCRIPT_PATTERN: LazyLock<Option<regex::Regex>> = LazyLock::new(|| {
 #[derive(Default)]
 struct Session {
     token: Option<String>,
-    secret: Option<String>,
+    secret: Option<(String, Instant)>,
 }
 #[derive(Serialize, Deserialize)]
 struct GuestCache {
@@ -59,8 +68,39 @@ struct Content {
     link: Option<String>,
     #[serde(rename = "canAccess")]
     can_access: Option<bool>,
+    #[serde(default)]
+    password: bool,
+    #[serde(default, rename = "passwordStatus")]
+    password_status: Option<String>,
+    #[serde(default, rename = "isFrozen")]
+    frozen: bool,
+    #[serde(default)]
+    overloaded: bool,
     #[serde(default, deserialize_with = "children_in_order")]
     children: Vec<Content>,
+}
+
+impl Content {
+    /// Access gates arrive as successful responses with `canAccess` false.
+    fn gate_message(&self) -> &'static str {
+        if !self.password {
+            "GoFile content is private or expired"
+        } else if self.password_status.as_deref() == Some("passwordWrong") {
+            "The GoFile password is incorrect"
+        } else {
+            "GoFile content requires a password"
+        }
+    }
+
+    fn unavailable_message(&self) -> Option<&'static str> {
+        if self.frozen {
+            Some("The GoFile file is in cold storage and cannot be downloaded")
+        } else if self.overloaded {
+            Some("The GoFile server hosting this file is overloaded, try again later")
+        } else {
+            None
+        }
+    }
 }
 
 fn children_in_order<'de, D: serde::Deserializer<'de>>(
@@ -87,12 +127,20 @@ pub(crate) fn initialize(directory: PathBuf) {
     let _ = CACHE_PATH.set(directory.join("gofile-guest-token.json"));
 }
 
-fn extract_secret(script: &str) -> Result<String, String> {
+fn extract_secret(script: &str, time_limit: Duration) -> Result<String, String> {
     let runtime = rquickjs::Runtime::new().map_err(|_| "Cannot create GoFile script runtime")?;
     runtime.set_memory_limit(16 * 1024 * 1024);
     runtime.set_max_stack_size(256 * 1024);
-    let deadline = Instant::now() + Duration::from_secs(1);
-    runtime.set_interrupt_handler(Some(Box::new(move || Instant::now() >= deadline)));
+    let deadline = Instant::now() + time_limit;
+    let timed_out = Arc::new(AtomicBool::new(false));
+    let interrupted = timed_out.clone();
+    runtime.set_interrupt_handler(Some(Box::new(move || {
+        let expired = Instant::now() >= deadline;
+        if expired {
+            interrupted.store(true, Ordering::Relaxed);
+        }
+        expired
+    })));
     let context =
         rquickjs::Context::full(&runtime).map_err(|_| "Cannot create GoFile script context")?;
     let raw: String = context
@@ -101,9 +149,13 @@ fn extract_secret(script: &str) -> Result<String, String> {
             ctx.eval::<(), _>(script)?;
             ctx.eval::<String, _>(include_str!("gofile_capture.js"))
         })
-        .map_err(
-            |_| "GoFile website-token generator is unsupported or exceeded its resource limit",
-        )?;
+        .map_err(|_| {
+            if timed_out.load(Ordering::Relaxed) {
+                "GoFile website-token generator exceeded its time limit"
+            } else {
+                "GoFile website-token generator is unsupported or exceeded its memory limit"
+            }
+        })?;
     let suffix = raw
         .strip_prefix("HydraGofileUserAgent::HydraGofileLanguage::HydraGofileToken::")
         .ok_or("GoFile website-token generator format is unsupported")?;
@@ -322,21 +374,36 @@ async fn secret(client: &Client) -> Result<String, String> {
         "https://gofile.io/dist/js/wt.obf.js".into(),
     ]);
     urls.dedup();
+    // Keep the first failure: later candidates are fallback paths that usually just 404.
+    let mut first_error = None;
     for url in urls {
-        let Ok(script) = website_text(client, &url).await else {
-            continue;
+        let script = match website_text(client, &url).await {
+            Ok(script) if script.trim_start().starts_with('<') => {
+                first_error.get_or_insert_with(|| "the script URL returned a web page".to_owned());
+                continue;
+            }
+            Ok(script) => script,
+            Err(error) => {
+                first_error.get_or_insert(error);
+                continue;
+            }
         };
-        if script.trim_start().starts_with('<') {
-            continue;
-        }
-        let result = tokio::task::spawn_blocking(move || extract_secret(&script))
-            .await
-            .map_err(|_| "GoFile script worker failed")?;
-        if let Ok(secret) = result {
-            return Ok(secret);
+        let result =
+            tokio::task::spawn_blocking(move || extract_secret(&script, SCRIPT_TIME_LIMIT))
+                .await
+                .map_err(|_| "GoFile script worker failed")?;
+        match result {
+            Ok(secret) => return Ok(secret),
+            Err(error) => {
+                first_error.get_or_insert(error);
+            }
         }
     }
-    Err("Cannot load the current GoFile website-token generator".into())
+    let reason = first_error.unwrap_or_else(|| "no script URL was available".to_owned());
+    crate::application_log::failure("gofile_website_token", &reason);
+    Err(format!(
+        "Cannot load the current GoFile website-token generator: {reason}"
+    ))
 }
 async fn load_token() -> Option<String> {
     let path = CACHE_PATH.get()?;
@@ -416,6 +483,7 @@ async fn first_file(
     }
     let mut work = vec![Work::Lookup(id.into())];
     let mut visited = HashSet::new();
+    let mut unavailable = None;
     let mut requests = 0;
     while let Some(item) = work.pop() {
         match item {
@@ -439,9 +507,7 @@ async fn first_file(
                     let content: Content = serde_json::from_str(reply.data.get())
                         .map_err(|_| "GoFile content response is invalid")?;
                     if content.can_access == Some(false) {
-                        return Err(
-                            "GoFile content is private, expired or password protected".into()
-                        );
+                        return Err(content.gate_message().into());
                     }
                     pages.push(content);
                     if page >= reply.metadata.total_pages.max(1) {
@@ -453,6 +519,10 @@ async fn first_file(
             }
             Work::Item(content) => {
                 if content.kind == "file" {
+                    if let Some(message) = content.unavailable_message() {
+                        unavailable.get_or_insert(message);
+                        continue;
+                    }
                     if content.link.is_none() {
                         continue;
                     }
@@ -490,7 +560,9 @@ async fn first_file(
             }
         }
     }
-    Err("GoFile folder has no accessible file links".into())
+    Err(unavailable
+        .unwrap_or("GoFile folder has no accessible file links")
+        .into())
 }
 async fn official(
     client: &Client,
@@ -501,14 +573,18 @@ async fn official(
         .get_or_init(|| AsyncMutex::new(Session::default()))
         .lock()
         .await;
-    if state.secret.is_none() {
-        state.secret = Some(secret(client).await?);
+    if state
+        .secret
+        .as_ref()
+        .is_none_or(|(_, loaded)| loaded.elapsed() >= SECRET_MAX_AGE)
+    {
+        state.secret = Some((secret(client).await?, Instant::now()));
     }
     let current_secret = state
         .secret
-        .as_deref()
-        .ok_or("GoFile website token is unavailable")?
-        .to_owned();
+        .as_ref()
+        .map(|(secret, _)| secret.clone())
+        .ok_or("GoFile website token is unavailable")?;
     if state.token.is_none() {
         state.token = load_token().await;
     }
@@ -532,7 +608,7 @@ async fn official(
             state.secret = None;
             let fresh_secret = secret(client).await?;
             let token = create_token(client, &fresh_secret).await?;
-            state.secret = Some(fresh_secret.clone());
+            state.secret = Some((fresh_secret.clone(), Instant::now()));
             state.token = Some(token.clone());
             first_file(client, id, &token, &fresh_secret, password).await
         }
@@ -566,7 +642,10 @@ mod tests {
     #[test]
     fn extracts_secret_by_running_the_website_generator() {
         let script = include_str!("../../scripts/fixtures/gofile-wt.js");
-        assert_eq!(extract_secret(script).unwrap(), "secret::suffix");
+        assert_eq!(
+            extract_secret(script, SCRIPT_TIME_LIMIT).unwrap(),
+            "secret::suffix"
+        );
     }
 
     #[test]
@@ -617,8 +696,68 @@ mod tests {
 
     #[test]
     fn rejects_unrecognized_generators_and_infinite_scripts() {
-        assert!(extract_secret("function generateWT() { return 'invalid'; }").is_err());
-        assert!(extract_secret("while (true) {}").is_err());
-        assert!(extract_secret("require('node:fs').readFileSync('/etc/passwd')").is_err());
+        let limit = Duration::from_millis(200);
+        assert!(extract_secret("function generateWT() { return 'invalid'; }", limit).is_err());
+        assert!(extract_secret("require('node:fs').readFileSync('/etc/passwd')", limit).is_err());
+        assert_eq!(
+            extract_secret("while (true) {}", limit).unwrap_err(),
+            "GoFile website-token generator exceeded its time limit"
+        );
+    }
+
+    #[test]
+    fn gates_report_why_content_is_not_accessible() {
+        let gate = |data: &str| {
+            let reply: Reply =
+                serde_json::from_str(&format!(r#"{{"status":"ok","data":{data}}}"#)).unwrap();
+            let content: Content = serde_json::from_str(reply.data.get()).unwrap();
+            assert_eq!(content.can_access, Some(false));
+            content.gate_message()
+        };
+        assert_eq!(
+            gate(
+                r#"{"canAccess":false,"id":"a","type":"folder","password":true,"passwordStatus":"passwordRequired"}"#
+            ),
+            "GoFile content requires a password"
+        );
+        assert_eq!(
+            gate(
+                r#"{"canAccess":false,"id":"a","type":"folder","password":true,"passwordStatus":"passwordWrong"}"#
+            ),
+            "The GoFile password is incorrect"
+        );
+        assert_eq!(
+            gate(r#"{"canAccess":false,"id":"a","type":"folder","public":false}"#),
+            "GoFile content is private or expired"
+        );
+    }
+
+    #[test]
+    fn frozen_and_overloaded_files_are_reported_instead_of_downloaded() {
+        let file = |flags: &str| -> Content {
+            serde_json::from_str(&format!(
+                r#"{{"id":"f","type":"file","name":"game.zip","link":"https://store1.gofile.io/download/web/f/game.zip"{flags}}}"#
+            ))
+            .unwrap()
+        };
+        assert_eq!(file("").unavailable_message(), None);
+        assert!(file(r#","isFrozen":true"#).unavailable_message().is_some());
+        assert!(
+            file(r#","overloaded":true"#)
+                .unavailable_message()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn decodes_a_single_file_share() {
+        // A share code that points at one file answers with the file itself and empty metadata.
+        let reply: Reply = serde_json::from_str(r#"{"status":"ok","data":{"canAccess":true,"id":"1e5a5690-0000-4000-8000-000000000000","type":"file","name":"game.zip","code":"AbCdEf","size":1024,"servers":["store-na-phx-1"],"link":"https://store-na-phx-1.gofile.io/download/web/1e5a5690-0000-4000-8000-000000000000/game.zip","noAds":true},"metadata":{}}"#).unwrap();
+        let content: Content = serde_json::from_str(reply.data.get()).unwrap();
+        assert_eq!(content.kind, "file");
+        assert_eq!(reply.metadata.total_pages, 0);
+        let value = serde_json::json!({"name": content.name, "link": content.link, "canAccess": content.can_access});
+        let files = crate::download_resolver::gofile_files(&value).unwrap();
+        assert_eq!(files[0].0, "game.zip");
     }
 }
