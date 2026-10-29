@@ -1143,6 +1143,7 @@ mod tests {
                 crate::artwork_scheduler::WorkOrigin::Visible,
             )
         });
+        eprintln!("FUTURE_SIZES asset={asset} publication={publication} metadata={metadata} prefetch={prefetch}");
         assert!(
             publication <= 4096,
             "Artwork publication future occupies {publication} bytes"
