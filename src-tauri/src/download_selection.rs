@@ -67,6 +67,9 @@ pub(crate) async fn inspect(client: &reqwest::Client, uri: &str) -> Result<u64, 
 }
 
 async fn inspect_file(client: &reqwest::Client, uri: &str) -> Result<u64, ResolveError> {
+    if download_resolver::classify(uri)? == Provider::OneFichier {
+        return crate::one_fichier::inspect(client, uri).await;
+    }
     let mut resolved = download_resolver::resolve(client, uri).await?;
     if resolved.files.len() != 1 {
         return Err("Only a single archive per download link is supported".into());

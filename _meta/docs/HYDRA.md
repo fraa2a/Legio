@@ -24,6 +24,7 @@ Supported downloads resolve to a single ZIP, 7z or RAR archive with a known exac
 | FuckingFast | Direct-link extraction and archive validation |
 | Rootz | Page-token/API resolution and archive validation |
 | GoFile | Guest website/session flow, folder lookup and archive validation |
+| 1fichier | Public link checker for size and name, guest download form for the one-time link |
 
 DataNodes, VikingFile, FileKeeper and AkiraBox landing pages do not have supported resolvers. This is not a claim that those websites require payment for all downloads. Free website downloads, public developer APIs and Hydra backend access are separate capabilities.
 
@@ -36,6 +37,14 @@ Native HTTPS transfers from `cdn.taxphobia.top` retain their existing resumable 
 Links retain their JSON order. Each link gets an initial attempt and up to three retries before advancing. GoFile has no automatic priority. A manual choice moves that link to the front of the same release's fallback list; fallback never silently switches build or publisher.
 
 The queue persists link order, active mirror and failed-attempt count through pause, resume and restart. Exhausting the list produces a failed job; explicit Retry starts a fresh bounded cycle. Changing mirrors clears partial bytes, ETag and progress before checking the next exact size.
+
+## 1fichier
+
+Hydra only lists 1fichier as a host that needs a Real-Debrid account, so this resolver is Legio's own and follows the website's behavior for guests. Only `1fichier.com/?id` file pages are recognized. Its alias domains return 404 for known files and are not supported.
+
+Reachability checks use the public link checker (`check_links.pl`), which reports the exact size and file name without using the single free download that guests get per hour. The archive type is therefore taken from the file name instead of the archive signature. Starting a transfer submits the guest download form and follows the one-time direct link, which is requested again whenever the transfer starts or resumes.
+
+When the website asks the guest to wait between downloads, the error states the wait. Guests cannot resume transfers, so pausing and resuming within that hour fails with the same error.
 
 ## GoFile protocol
 

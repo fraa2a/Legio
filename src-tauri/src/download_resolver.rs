@@ -22,6 +22,7 @@ pub(crate) enum Provider {
     Mediafire,
     FuckingFast,
     Rootz,
+    OneFichier,
     Torrent,
     Unsupported,
 }
@@ -72,7 +73,7 @@ impl From<ResolveError> for String {
     }
 }
 
-fn network_error(error: reqwest::Error) -> ResolveError {
+pub(crate) fn network_error(error: reqwest::Error) -> ResolveError {
     ResolveError::Network(error.without_url().to_string())
 }
 
@@ -105,6 +106,8 @@ pub(crate) fn classify(uri: &str) -> Result<Provider, String> {
             Provider::FuckingFast
         } else if host_is(host, "rootz.so") && url.path().starts_with("/d/") {
             Provider::Rootz
+        } else if crate::one_fichier::file_id(&url).is_some() {
+            Provider::OneFichier
         } else {
             Provider::Direct
         },
@@ -181,8 +184,15 @@ async fn follow_redirects(
     Err("Download redirect limit reached".into())
 }
 
-async fn text(client: &Client, url: &str, headers: HeaderMap) -> Result<String, ResolveError> {
-    let mut response = get(client, url, headers).await?;
+pub(crate) async fn text(
+    client: &Client,
+    url: &str,
+    headers: HeaderMap,
+) -> Result<String, ResolveError> {
+    body_text(get(client, url, headers).await?).await
+}
+
+pub(crate) async fn body_text(mut response: Response) -> Result<String, ResolveError> {
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(network_error)? {
         if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
@@ -362,6 +372,7 @@ pub(crate) async fn resolve(client: &Client, uri: &str) -> Result<ResolvedDownlo
             format!("https://www.rootz.so/api/files/proxy-download/{file}")
         }
         Provider::Gofile => return resolve_gofile(client, uri).await,
+        Provider::OneFichier => return crate::one_fichier::resolve(client, uri).await,
         Provider::Torrent => return Err("Torrent engine is not available in this build".into()),
         Provider::Unsupported => {
             return Err(
@@ -425,6 +436,18 @@ mod tests {
         assert_eq!(
             classify("https://real-debrid.com/d/test").unwrap(),
             Provider::Unsupported
+        );
+        assert_eq!(
+            classify("https://1fichier.com/?abc123").unwrap(),
+            Provider::OneFichier
+        );
+        assert_eq!(
+            classify("https://a-15.1fichier.com/c1281161327").unwrap(),
+            Provider::Direct
+        );
+        assert_eq!(
+            classify("https://1fichier.com.attacker.test/?abc123").unwrap(),
+            Provider::Direct
         );
         assert!(classify("file:///etc/passwd").is_err());
     }
