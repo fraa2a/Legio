@@ -137,6 +137,11 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {
             "requires schemaVersion 2",
         ));
     }
+    for entry in &mut manifest.unverified {
+        if let Some(hash) = &mut entry.download.sha256 {
+            hash.make_ascii_lowercase();
+        }
+    }
     let mut entry_ids = HashSet::new();
     let mut seen = HashSet::new();
     let mut archives = HashSet::new();
@@ -201,8 +206,7 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {
                     "is required for verified games",
                 ));
             }
-            if list_name == "verified"
-                && let Some(hash) = &entry.download.sha256
+            if let Some(hash) = &entry.download.sha256
                 && (hash.len() != 64
                     || !hash
                         .bytes()
@@ -210,7 +214,11 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {
             {
                 return Err(invalid_field(
                     format!("{prefix}.download.sha256"),
-                    "must contain 64 lowercase hexadecimal characters",
+                    if list_name == "verified" {
+                        "must contain 64 lowercase hexadecimal characters"
+                    } else {
+                        "must contain 64 hexadecimal characters"
+                    },
                 ));
             }
             if entry.download.size_bytes == Some(0)
@@ -540,7 +548,7 @@ mod tests {
 
     #[test]
     fn only_verified_releases_require_sha256() {
-        for hash in [None, Some(json!(null)), Some(json!("unused"))] {
+        for hash in [None, Some(json!(null))] {
             let mut document = valid();
             let mut entry = document["verified"][0].clone();
             entry["download"].as_object_mut().unwrap().remove("sha256");
@@ -556,6 +564,43 @@ mod tests {
             document["unverified"] = json!([]);
             assert!(parse(document).is_err());
         }
+    }
+
+    #[test]
+    fn unverified_hash_is_optional_but_validated_and_normalized() {
+        let upper = "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789";
+        let mut document = valid();
+        let mut entry = document["verified"][0].clone();
+        document["verified"] = json!([]);
+        entry["download"]["sha256"] = json!(upper);
+        document["unverified"] = json!([entry.clone()]);
+        assert_eq!(
+            parse(document).unwrap().unverified[0].download.sha256,
+            Some(upper.to_ascii_lowercase())
+        );
+
+        for hash in [
+            "unused".to_owned(),
+            "abcd".to_owned(),
+            "g".repeat(64),
+            "a".repeat(65),
+        ] {
+            let mut document = valid();
+            let mut entry = entry.clone();
+            entry["download"]["sha256"] = json!(hash);
+            document["verified"] = json!([]);
+            document["unverified"] = json!([entry]);
+            let error = parse(document).unwrap_err();
+            assert_eq!(error.kind, ManifestErrorKind::InvalidField, "{hash}");
+            assert_eq!(error.field, "unverified[0].download.sha256", "{hash}");
+        }
+
+        let mut document = valid();
+        document["verified"][0]["download"]["sha256"] = json!(upper);
+        assert_eq!(
+            parse(document).unwrap_err().kind,
+            ManifestErrorKind::InvalidField
+        );
     }
 
     #[test]

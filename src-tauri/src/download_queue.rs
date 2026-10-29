@@ -399,7 +399,16 @@ pub(crate) fn enqueue_with_target(
         source_id,
         update,
         None,
+        PlanChoice::Derived,
     )
+}
+
+/// How `enqueue_prepared` fills the mirror plan stored with the new row.
+pub(crate) enum PlanChoice {
+    /// Build a plan from the source's supported candidates.
+    Derived,
+    /// Store this already checked plan, or none for a single native CDN link.
+    Given(Option<crate::download_selection::MirrorPlan>),
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -412,6 +421,7 @@ pub(crate) fn enqueue_prepared(
     source_id: Option<&str>,
     update: Option<(&str, bool)>,
     resolved_size: Option<u64>,
+    plan: PlanChoice,
 ) -> Result<DownloadJob, String> {
     let (source_id, entry, source_verified) = crate::game_updates::find_download(
         database,
@@ -446,25 +456,34 @@ pub(crate) fn enqueue_prepared(
     let id = Uuid::new_v4().to_string();
     let created = now()?;
 
-    let uris = source
-        .as_ref()
-        .and_then(|source| {
-            entry
-                .id
+    let mirror_plan = match plan {
+        PlanChoice::Given(plan) => plan,
+        PlanChoice::Derived => {
+            let mut uris = source
                 .as_ref()
-                .and_then(|id| source.catalog.candidates.get(id))
-        })
-        .cloned()
-        .unwrap_or_else(|| vec![entry.download.url.clone()]);
-    let hydra = source
-        .as_ref()
-        .is_some_and(|source| source.catalog.format == crate::source_catalog::SourceFormat::Hydra);
-    let mirror_plan =
-        if uris.len() == 1 && !hydra && crate::download_selection::native_cdn(&uris[0]) {
-            None
-        } else {
-            Some(
-                serde_json::to_string(&crate::download_selection::MirrorPlan::new(
+                .and_then(|source| {
+                    entry
+                        .id
+                        .as_ref()
+                        .and_then(|id| source.catalog.candidates.get(id))
+                })
+                .cloned()
+                .unwrap_or_else(|| vec![entry.download.url.clone()]);
+            // Unsupported links can never be downloaded; keep them only when
+            // nothing else is left so the job still fails with its own error.
+            if uris
+                .iter()
+                .any(|uri| crate::download_selection::supported(uri))
+            {
+                uris.retain(|uri| crate::download_selection::supported(uri));
+            }
+            let hydra = source.as_ref().is_some_and(|source| {
+                source.catalog.format == crate::source_catalog::SourceFormat::Hydra
+            });
+            if uris.len() == 1 && !hydra && crate::download_selection::native_cdn(&uris[0]) {
+                None
+            } else {
+                Some(crate::download_selection::MirrorPlan::new(
                     uris,
                     if hydra {
                         None
@@ -472,9 +491,11 @@ pub(crate) fn enqueue_prepared(
                         entry.download.size_bytes
                     },
                 ))
-                .map_err(|error| error.to_string())?,
-            )
-        };
+            }
+        }
+    }
+    .map(|plan| serde_json::to_string(&plan).map_err(|error| error.to_string()))
+    .transpose()?;
     database.with_connection(|connection| {
         connection
             .execute(
@@ -640,9 +661,11 @@ fn stage_one(queue: &DownloadQueueState, database: &Database, id: &str) -> Resul
         if verified && hash.is_empty() {
             return Err("SHA-256 is required for verified downloads".into());
         }
-        let update = crate::game_updates::target(database, &id)?.is_some();
-        let verify = (verified && database.settings()?.verify_verified_downloads)
-            || (update && !hash.is_empty());
+        let verify = if verified {
+            database.settings()?.verify_verified_downloads
+        } else {
+            !hash.is_empty()
+        };
         let archive = queue.path(&id, "archive")?;
         let stage = queue.path(&id, "stage")?;
         remove_stage(&stage)?;
@@ -691,6 +714,7 @@ impl Drop for ProcessingReservation {
     fn drop(&mut self) {
         self.ids
             .lock()
+            // Removing this entry is safe even after a panic poisoned the lock; keeping it would block the item forever.
             .unwrap_or_else(|error| error.into_inner())
             .remove(&self.id);
     }
@@ -894,6 +918,23 @@ fn cancellation_error(database: &Database, id: &str, error: &str) -> Result<(), 
     })
 }
 
+/// A part file still open by an active transfer may refuse removal; the
+/// transfer removes it itself when it stops.
+fn remove_cancelled_files(
+    queue: &DownloadQueueState,
+    id: &str,
+    was_downloading: bool,
+) -> Result<(), String> {
+    if let Err(error) = remove_partial(&queue.path(id, "part")?)
+        && (error.kind() != std::io::ErrorKind::PermissionDenied || !was_downloading)
+    {
+        return Err(format!("Could not remove partial download: {error}"));
+    }
+    remove_partial(&queue.path(id, "archive")?)
+        .map_err(|error| format!("Could not remove download files: {error}"))?;
+    finalize_install::remove_stage_directory(&queue.path(id, "stage")?)
+}
+
 fn clean_cancelled(queue: &DownloadQueueState, database: &Database) -> Result<(), String> {
     let ids: Vec<String> = database.with_connection(|connection| {
         let mut statement = connection
@@ -906,15 +947,8 @@ fn clean_cancelled(queue: &DownloadQueueState, database: &Database) -> Result<()
             .map_err(db_error)
     })?;
     for id in ids {
-        if let Err(error) = queue
-            .path(&id, "part")
-            .and_then(|path| remove_partial(&path).map_err(|error| error.to_string()))
-        {
-            cancellation_error(
-                database,
-                &id,
-                &format!("Could not remove partial download: {error}"),
-            )?;
+        if let Err(error) = remove_cancelled_files(queue, &id, false) {
+            cancellation_error(database, &id, &error)?;
         }
     }
     Ok(())
@@ -1763,21 +1797,8 @@ pub async fn queue_download(
             source_id.as_deref(),
             None,
             resolved_size,
+            PlanChoice::Given(mirror_plan),
         )?;
-        if let Some(plan) = mirror_plan {
-            let plan = serde_json::to_string(&plan).map_err(|error| error.to_string())?;
-            app.state::<DatabaseState>()
-                .database()?
-                .with_connection(|connection| {
-                    connection
-                        .execute(
-                            "UPDATE downloads SET mirror_plan=?2 WHERE id=?1",
-                            params![job.id(), plan],
-                        )
-                        .map_err(db_error)?;
-                    Ok(())
-                })?;
-        }
         crate::download_policy::manual_start(
             app.state::<DatabaseState>().database()?,
             &manager,
@@ -1927,10 +1948,7 @@ pub async fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
             DownloadStatus::Cancelled,
         )?;
         queue.interrupt(&id)?;
-        if let Err(error) = remove_partial(&queue.path(&id, "part")?)
-            && (error.kind() != std::io::ErrorKind::PermissionDenied || !was_downloading)
-        {
-            let message = format!("Could not remove partial download: {error}");
+        if let Err(message) = remove_cancelled_files(&queue, &id, was_downloading) {
             cancellation_error(database.database()?, &id, &message)?;
             return Err(message);
         }
@@ -1941,10 +1959,14 @@ pub async fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn get_download_bandwidth_limit(app: AppHandle) -> Result<u64, String> {
-    app.state::<DatabaseState>()
-        .database()?
-        .download_bandwidth_limit()
+pub async fn get_download_bandwidth_limit(app: AppHandle) -> Result<u64, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<DatabaseState>()
+            .database()?
+            .download_bandwidth_limit()
+    })
+    .await
+    .map_err(|error| format!("Bandwidth limit load task failed: {error}"))?
 }
 
 /// Statuses whose entry can be dropped once nothing further can happen to it.
@@ -2104,13 +2126,20 @@ fn reorder(database: &Database, ids: &[String]) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn set_download_bandwidth_limit(app: AppHandle, bytes_per_second: u64) -> Result<(), String> {
-    app.state::<DatabaseState>()
-        .database()?
-        .save_download_bandwidth_limit(bytes_per_second)?;
-    app.state::<DownloadQueueState>()
-        .set_bandwidth_limit(bytes_per_second);
-    Ok(())
+pub async fn set_download_bandwidth_limit(
+    app: AppHandle,
+    bytes_per_second: u64,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<DatabaseState>()
+            .database()?
+            .save_download_bandwidth_limit(bytes_per_second)?;
+        app.state::<DownloadQueueState>()
+            .set_bandwidth_limit(bytes_per_second);
+        Ok(())
+    })
+    .await
+    .map_err(|error| format!("Bandwidth limit save task failed: {error}"))?
 }
 
 fn recover_on_start(app: &AppHandle) -> Result<(), String> {
@@ -2986,7 +3015,8 @@ mod tests {
 
     #[test]
     fn staging_hash_policy_respects_trust_and_the_global_setting() {
-        for (verified, enabled) in [(false, true), (false, false), (true, false)] {
+        // The stored hash never matches the archive, so staging succeeds only when verification is skipped.
+        for (verified, enabled) in [(false, true), (false, false), (true, true), (true, false)] {
             let (database, queue, job, directory) = downloaded_fixture();
             database
                 .save_settings(crate::database::Settings {
@@ -3005,9 +3035,13 @@ mod tests {
                     Ok(())
                 })
                 .unwrap();
-            stage_one(&queue, &database, &job.id).unwrap();
-            assert!(queue.path(&job.id, "archive").unwrap().exists());
-            assert_eq!(status(&database, &job.id).unwrap(), "staged");
+            let skipped = verified && !enabled;
+            assert_eq!(stage_one(&queue, &database, &job.id).is_ok(), skipped);
+            assert_eq!(queue.path(&job.id, "archive").unwrap().exists(), skipped);
+            assert_eq!(
+                status(&database, &job.id).unwrap(),
+                if skipped { "staged" } else { "failed" }
+            );
             drop(database);
             fs::remove_dir_all(directory).unwrap();
         }
@@ -3808,6 +3842,44 @@ mod tests {
         fs::remove_dir_all(directory).unwrap();
     }
 
+    #[test]
+    fn enqueue_stores_the_given_mirror_plan_in_the_new_row() {
+        let (database, directory) = database_with_source();
+        let plan = crate::download_selection::MirrorPlan::new(
+            vec!["https://example.invalid/portal.zip".into()],
+            Some(10),
+        );
+        let job = enqueue_prepared(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+            None,
+            None,
+            None,
+            PlanChoice::Given(Some(plan)),
+        )
+        .unwrap();
+        let stored: Option<String> = database
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT mirror_plan FROM downloads WHERE id = ?1",
+                        [&job.id],
+                        |row| row.get(0),
+                    )
+                    .map_err(db_error)
+            })
+            .unwrap();
+        let stored: crate::download_selection::MirrorPlan =
+            serde_json::from_str(&stored.unwrap()).unwrap();
+        assert_eq!(stored.uris, ["https://example.invalid/portal.zip"]);
+        assert_eq!(stored.expected_size, Some(10));
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
     fn set_status(database: &Database, id: &str, status: &str) {
         database
             .with_connection(|connection| {
@@ -3902,6 +3974,40 @@ mod tests {
         assert!(list(&database).unwrap().is_empty());
         assert!(!partial.exists());
         assert!(!queue.path(&job.id, "archive").unwrap().exists());
+        assert!(!stage.exists());
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn cancelling_a_failed_job_removes_its_archive_and_stage() {
+        let (database, queue, job, directory) = downloaded_fixture();
+        set_status(&database, &job.id, "failed");
+        let archive = queue.path(&job.id, "archive").unwrap();
+        let stage = queue.path(&job.id, "stage").unwrap();
+        fs::create_dir_all(stage.join("Game")).unwrap();
+        fs::write(stage.join("Game/game.exe"), b"binary").unwrap();
+        assert!(archive.exists());
+
+        remove_cancelled_files(&queue, &job.id, false).unwrap();
+
+        assert!(!archive.exists());
+        assert!(!stage.exists());
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn startup_cleanup_removes_the_archive_of_a_cancelled_job() {
+        let (database, queue, job, directory) = downloaded_fixture();
+        set_status(&database, &job.id, "cancelled");
+        let archive = queue.path(&job.id, "archive").unwrap();
+        let stage = queue.path(&job.id, "stage").unwrap();
+        fs::create_dir_all(&stage).unwrap();
+
+        clean_cancelled(&queue, &database).unwrap();
+
+        assert!(!archive.exists());
         assert!(!stage.exists());
         drop(database);
         fs::remove_dir_all(directory).unwrap();

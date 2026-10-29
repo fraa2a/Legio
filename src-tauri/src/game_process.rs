@@ -181,6 +181,7 @@ pub(crate) fn release_native_history(target: &ProcessTarget) {
     if let ProcessTarget::Native { known_pids, .. } = target {
         known_pids
             .lock()
+            // Clearing the history is safe even after a panic poisoned the lock.
             .unwrap_or_else(|error| error.into_inner())
             .identities
             .clear();

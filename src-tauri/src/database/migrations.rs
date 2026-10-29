@@ -705,5 +705,22 @@ pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
             )
             .map_err(database_error)?;
     }
+    if version < 34 {
+        transaction
+            .execute_batch(
+                "ALTER TABLE game_transfers RENAME TO game_transfers_legacy;
+             CREATE TABLE game_transfers (
+                game_id TEXT PRIMARY KEY REFERENCES games(id) ON DELETE RESTRICT,
+                source TEXT NOT NULL, destination TEXT NOT NULL, temporary TEXT NOT NULL,
+                executable_relative TEXT NOT NULL,
+                phase TEXT NOT NULL CHECK (phase IN ('prepared', 'moving', 'copied', 'committed'))
+             );
+             INSERT INTO game_transfers (game_id, source, destination, temporary, executable_relative, phase)
+                SELECT game_id, source, destination, temporary, executable_relative, phase FROM game_transfers_legacy;
+             DROP TABLE game_transfers_legacy;
+             PRAGMA user_version = 34;",
+            )
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }
