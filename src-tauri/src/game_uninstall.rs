@@ -61,42 +61,7 @@ fn checked_target(database: &Database, id: &str, protected: &[PathBuf]) -> Resul
     {
         return Err("This directory contains protected application or user files".into());
     }
-    #[cfg(target_os = "linux")]
-    if [
-        "/usr",
-        "/bin",
-        "/sbin",
-        "/lib",
-        "/lib64",
-        "/etc",
-        "/boot",
-        "/proc",
-        "/sys",
-        "/dev",
-        "/var/lib",
-        "/var/cache",
-        "/var/log",
-    ]
-    .iter()
-    .any(|path| root.starts_with(path))
-        || [
-            "/opt",
-            "/tmp",
-            "/home",
-            "/mnt",
-            "/media",
-            "/var",
-            "/var/tmp",
-            "/run",
-            "/run/media",
-        ]
-        .iter()
-        .any(|path| root == Path::new(path))
-    {
-        return Err("System directories cannot be uninstalled by Legio".into());
-    }
-    #[cfg(windows)]
-    if std::env::var_os("SystemRoot").is_some_and(|path| root.starts_with(Path::new(&path))) {
+    if is_system_directory(&root) {
         return Err("System directories cannot be uninstalled by Legio".into());
     }
     for other in database.games()? {
@@ -147,6 +112,47 @@ fn checked_target(database: &Database, id: &str, protected: &[PathBuf]) -> Resul
         return Err("Close the game before uninstalling its files".into());
     }
     Ok(root)
+}
+
+/// Whether `path` lies in an operating system directory that Legio must never write to or delete.
+#[cfg(target_os = "linux")]
+pub(crate) fn is_system_directory(path: &Path) -> bool {
+    [
+        "/usr",
+        "/bin",
+        "/sbin",
+        "/lib",
+        "/lib64",
+        "/etc",
+        "/boot",
+        "/proc",
+        "/sys",
+        "/dev",
+        "/var/lib",
+        "/var/cache",
+        "/var/log",
+    ]
+    .iter()
+    .any(|system| path.starts_with(system))
+        || [
+            "/opt",
+            "/tmp",
+            "/home",
+            "/mnt",
+            "/media",
+            "/var",
+            "/var/tmp",
+            "/run",
+            "/run/media",
+        ]
+        .iter()
+        .any(|system| path == Path::new(system))
+}
+
+/// Whether `path` lies in an operating system directory that Legio must never write to or delete.
+#[cfg(windows)]
+pub(crate) fn is_system_directory(path: &Path) -> bool {
+    std::env::var_os("SystemRoot").is_some_and(|system| path.starts_with(Path::new(&system)))
 }
 
 fn remove_installation(
@@ -226,7 +232,7 @@ pub struct UninstallResult {
     warnings: Vec<String>,
 }
 
-fn protected_directories(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
+pub(crate) fn protected_directories(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
     let mut paths: Vec<PathBuf> = [
         dirs::home_dir(),
         dirs::desktop_dir(),
