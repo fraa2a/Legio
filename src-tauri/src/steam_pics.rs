@@ -37,7 +37,10 @@ impl PicsAssets {
 
     // Plain raster image for consumers that cannot render .ico files.
     pub(crate) fn community_icon_jpeg_url(&self, app_id: u32) -> Option<String> {
-        let hash = self.0.get("clienticon.jpg").filter(|hash| valid_hash(hash))?;
+        let hash = self
+            .0
+            .get("clienticon.jpg")
+            .filter(|hash| valid_hash(hash))?;
         Some(format!("{COMMUNITY_ICON_CDN}/{app_id}/{hash}.jpg"))
     }
 
