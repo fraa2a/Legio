@@ -252,7 +252,7 @@
         {/if}
         {#if versionOptions.length > 0}
           <ReleasePicker
-            class="min-w-72 max-w-md flex-1"
+            class="min-w-88 max-w-md flex-1"
             {steamAppId}
             options={versionOptions}
             selectedId={selectedVersionId}
