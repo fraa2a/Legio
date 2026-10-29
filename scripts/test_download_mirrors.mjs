@@ -5,7 +5,7 @@ import { JSDOM } from "jsdom";
 import { createModuleLoader, dataModule } from "./test_module_loader.mjs";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBeVisual: true });
-for (const key of ["window", "document", "navigator", "Node", "Text", "Comment", "Element", "HTMLElement", "HTMLMediaElement", "Event", "KeyboardEvent", "MouseEvent"]) {
+for (const key of ["window", "document", "navigator", "Node", "Text", "Comment", "Element", "HTMLElement", "HTMLMediaElement", "Event", "KeyboardEvent", "MouseEvent", "CustomEvent", "getComputedStyle"]) {
   Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
 }
 HTMLElement.prototype.showPopover = function () {};
@@ -13,6 +13,7 @@ const { mount, unmount, flushSync } = await import("svelte");
 const { createClassComponent } = await import("svelte/legacy");
 const english = JSON.parse(await readFile(new URL("../src/lib/i18n/en.json", import.meta.url), "utf8"));
 const { load } = createModuleLoader({
+  "src/lib/utils/motion": dataModule("export const reducedMotion = true;"),
   "src/lib/features/library/SteamArtwork.svelte": dataModule("export default function () {}"),
   "src/lib/i18n": dataModule(`import { writable } from ${JSON.stringify(import.meta.resolve("svelte/store"))}; export const language = writable("en"); const english = ${JSON.stringify(english)}; export const t = value => english[value] ?? value;`),
   "src/lib/i18n/en.json": dataModule(`export default ${JSON.stringify(english)}`),

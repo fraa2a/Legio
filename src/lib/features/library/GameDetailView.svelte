@@ -203,22 +203,24 @@
         {/if}
       </div>
     {/if}
-    <section class="relative isolate aspect-[1920/620] min-h-80 w-full overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200">
-      {#if customBannerUrl !== null}
-        <img src={customBannerUrl} alt={t("Banner personalizzato di {0}", $language, [name])} class="absolute inset-0 size-full object-cover" />
-      {:else if steamAppId !== null}
-        <SteamArtwork
-          {steamAppId}
-          asset="hero"
-          fallbackAsset="header"
-          caption={false}
-          class="absolute inset-0 size-full object-cover"
-        >
-          {#snippet placeholder()}{@render backdrop()}{/snippet}
-        </SteamArtwork>
-      {:else}
-        {@render backdrop()}
-      {/if}
+    <section class="relative isolate z-20 aspect-[1920/620] min-h-80 w-full rounded-2xl">
+      <div class="absolute inset-0 overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200">
+        {#if customBannerUrl !== null}
+          <img src={customBannerUrl} alt={t("Banner personalizzato di {0}", $language, [name])} class="absolute inset-0 size-full object-cover" />
+        {:else if steamAppId !== null}
+          <SteamArtwork
+            {steamAppId}
+            asset="hero"
+            fallbackAsset="header"
+            caption={false}
+            class="absolute inset-0 size-full object-cover"
+          >
+            {#snippet placeholder()}{@render backdrop()}{/snippet}
+          </SteamArtwork>
+        {:else}
+          {@render backdrop()}
+        {/if}
+      </div>
       {#if details !== null && customBannerUrl === null}
         <button type="button" class="absolute inset-0 z-0 cursor-zoom-in" aria-label={t("Ingrandisci copertina", $language)} onclick={() => (artworkOpen = true)}></button>
       {/if}
@@ -255,7 +257,7 @@
         {/if}
         {#if versionOptions.length > 0}
           <ReleasePicker
-            class="min-w-72 max-w-md flex-1"
+            class="min-w-88 max-w-md flex-1"
             {steamAppId}
             options={versionOptions}
             selectedId={selectedVersionId}
