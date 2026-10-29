@@ -1931,10 +1931,14 @@ pub async fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn get_download_bandwidth_limit(app: AppHandle) -> Result<u64, String> {
-    app.state::<DatabaseState>()
-        .database()?
-        .download_bandwidth_limit()
+pub async fn get_download_bandwidth_limit(app: AppHandle) -> Result<u64, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<DatabaseState>()
+            .database()?
+            .download_bandwidth_limit()
+    })
+    .await
+    .map_err(|error| format!("Bandwidth limit load task failed: {error}"))?
 }
 
 /// Statuses whose entry can be dropped once nothing further can happen to it.
@@ -2094,13 +2098,20 @@ fn reorder(database: &Database, ids: &[String]) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn set_download_bandwidth_limit(app: AppHandle, bytes_per_second: u64) -> Result<(), String> {
-    app.state::<DatabaseState>()
-        .database()?
-        .save_download_bandwidth_limit(bytes_per_second)?;
-    app.state::<DownloadQueueState>()
-        .set_bandwidth_limit(bytes_per_second);
-    Ok(())
+pub async fn set_download_bandwidth_limit(
+    app: AppHandle,
+    bytes_per_second: u64,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<DatabaseState>()
+            .database()?
+            .save_download_bandwidth_limit(bytes_per_second)?;
+        app.state::<DownloadQueueState>()
+            .set_bandwidth_limit(bytes_per_second);
+        Ok(())
+    })
+    .await
+    .map_err(|error| format!("Bandwidth limit save task failed: {error}"))?
 }
 
 fn recover_on_start(app: &AppHandle) -> Result<(), String> {
