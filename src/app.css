@@ -96,6 +96,12 @@ html, body, #app { width: 100%; height: 100%; min-width: 0; min-height: 0; }
   -webkit-backdrop-filter: var(--legio-surface-blur);
   backdrop-filter: var(--legio-surface-blur);
 }
+/* Floating lists sit above other surfaces, so they follow the dialog glass. */
+.legio-popover {
+  background-color: color-mix(in srgb, var(--legio-surface) calc(var(--legio-dialog-opacity) * 100%), transparent);
+  -webkit-backdrop-filter: var(--legio-dialog-blur);
+  backdrop-filter: var(--legio-dialog-blur);
+}
 :root[data-transparent="true"] body,
 :root[data-transparent="true"] .legio-backdrop { background: transparent; }
 @layer components {
