@@ -67,6 +67,7 @@ mod playtime_activity;
 mod process_output;
 #[cfg(target_os = "linux")]
 mod proton_runtime;
+mod public_address;
 mod queue_shutdown;
 mod runner_discovery;
 mod settings;

@@ -162,7 +162,9 @@ pub(crate) async fn check_links(
             };
             let client = client.clone();
             tasks.spawn(async move {
-                let result = crate::download_selection::inspect(&client, &uri).await;
+                let result = crate::download_selection::inspect(&client, &uri)
+                    .await
+                    .map_err(|error| error.to_string());
                 (uri, expected, result)
             });
         }

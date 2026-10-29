@@ -1,4 +1,4 @@
-use crate::download_resolver::{self, Provider};
+use crate::download_resolver::{self, Provider, ResolveError};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -55,7 +55,7 @@ pub(crate) fn supported(uri: &str) -> bool {
     matches!(download_resolver::classify(uri), Ok(provider) if !matches!(provider, Provider::Torrent | Provider::Unsupported))
 }
 
-pub(crate) async fn inspect(client: &reqwest::Client, uri: &str) -> Result<u64, String> {
+pub(crate) async fn inspect(client: &reqwest::Client, uri: &str) -> Result<u64, ResolveError> {
     let timeout = if download_resolver::classify(uri)? == Provider::Gofile {
         Duration::from_secs(125)
     } else {
@@ -63,10 +63,10 @@ pub(crate) async fn inspect(client: &reqwest::Client, uri: &str) -> Result<u64, 
     };
     tokio::time::timeout(timeout, inspect_file(client, uri))
         .await
-        .map_err(|_| "Download host lookup timed out".to_owned())?
+        .map_err(|_| ResolveError::Link("Download host lookup timed out".to_owned()))?
 }
 
-async fn inspect_file(client: &reqwest::Client, uri: &str) -> Result<u64, String> {
+async fn inspect_file(client: &reqwest::Client, uri: &str) -> Result<u64, ResolveError> {
     let mut resolved = download_resolver::resolve(client, uri).await?;
     if resolved.files.len() != 1 {
         return Err("Only a single archive per download link is supported".into());
@@ -93,7 +93,7 @@ async fn inspect_file(client: &reqwest::Client, uri: &str) -> Result<u64, String
         response.status(),
         reqwest::StatusCode::OK | reqwest::StatusCode::PARTIAL_CONTENT
     ) {
-        return Err(format!("HTTP {}", response.status()));
+        return Err(ResolveError::Http(response.status()));
     }
     if download_resolver::is_web_page(&response) {
         return Err("The download link returned a web page".into());
@@ -116,7 +116,7 @@ async fn inspect_file(client: &reqwest::Client, uri: &str) -> Result<u64, String
         let Some(chunk) = response
             .chunk()
             .await
-            .map_err(|error| error.without_url().to_string())?
+            .map_err(|error| ResolveError::Link(error.without_url().to_string()))?
         else {
             break;
         };
@@ -190,7 +190,11 @@ mod tests {
         ));
     }
 
-    async fn inspect_fixture(status: &str, content_type: &str, body: &[u8]) -> Result<u64, String> {
+    async fn inspect_fixture(
+        status: &str,
+        content_type: &str,
+        body: &[u8],
+    ) -> Result<u64, ResolveError> {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let uri = format!("http://{}/archive.zip", listener.local_addr().unwrap());
         let response = format!(
