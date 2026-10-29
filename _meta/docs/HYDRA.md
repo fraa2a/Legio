@@ -25,6 +25,7 @@ Supported downloads resolve to a single ZIP, 7z or RAR archive with a known exac
 | Rootz | Page-token/API resolution and archive validation |
 | GoFile | Guest website/session flow, folder lookup and archive validation |
 | 1fichier | Public link checker for size and name, guest download form for the one-time link |
+| Buzzheavier | Page token and `HX-Redirect` download request, archive validation |
 
 DataNodes, VikingFile, FileKeeper and AkiraBox landing pages do not have supported resolvers. This is not a claim that those websites require payment for all downloads. Free website downloads, public developer APIs and Hydra backend access are separate capabilities.
 
@@ -45,6 +46,12 @@ Hydra only lists 1fichier as a host that needs a Real-Debrid account, so this re
 Reachability checks use the public link checker (`check_links.pl`), which reports the exact size and file name without using the single free download that guests get per hour. The archive type is therefore taken from the file name instead of the archive signature. Starting a transfer submits the guest download form and follows the one-time direct link, which is requested again whenever the transfer starts or resumes.
 
 When the website asks the guest to wait between downloads, the error states the wait. Guests cannot resume transfers, so pausing and resuming within that hour fails with the same error.
+
+## Buzzheavier
+
+Hydra's main branch has no Buzzheavier resolver. The flow follows the bzzhr downloader proposed in Hydra pull request 2699, which was not merged, and was checked against the live website. The file page carries a tokenized download request; sending it with the `HX-Request` header answers with the direct link in an `HX-Redirect` header. Direct links on download servers such as `ts.buzzheavier.com` keep the plain direct path.
+
+`buzzheavier.com`, `bzzhr.co` and `bzzhr.to` serve the same file ids. Every request goes to `buzzheavier.com`, because the other two domains were challenged by Cloudflare in every test. Cloudflare also challenges a share of requests from clients that cannot run its script, so each request is retried up to three times before the error reports a browser check. The page request needs a referrer from the website itself; without one the website redirects elsewhere.
 
 ## GoFile protocol
 

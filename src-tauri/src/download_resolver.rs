@@ -23,6 +23,7 @@ pub(crate) enum Provider {
     FuckingFast,
     Rootz,
     OneFichier,
+    Buzzheavier,
     Torrent,
     Unsupported,
 }
@@ -108,6 +109,8 @@ pub(crate) fn classify(uri: &str) -> Result<Provider, String> {
             Provider::Rootz
         } else if crate::one_fichier::file_id(&url).is_some() {
             Provider::OneFichier
+        } else if crate::buzzheavier::file_id(&url).is_some() {
+            Provider::Buzzheavier
         } else {
             Provider::Direct
         },
@@ -373,6 +376,7 @@ pub(crate) async fn resolve(client: &Client, uri: &str) -> Result<ResolvedDownlo
         }
         Provider::Gofile => return resolve_gofile(client, uri).await,
         Provider::OneFichier => return crate::one_fichier::resolve(client, uri).await,
+        Provider::Buzzheavier => return crate::buzzheavier::resolve(client, uri).await,
         Provider::Torrent => return Err("Torrent engine is not available in this build".into()),
         Provider::Unsupported => {
             return Err(
@@ -447,6 +451,21 @@ mod tests {
         );
         assert_eq!(
             classify("https://1fichier.com.attacker.test/?abc123").unwrap(),
+            Provider::Direct
+        );
+        for domain in ["buzzheavier.com", "bzzhr.co", "bzzhr.to"] {
+            assert_eq!(
+                classify(&format!("https://{domain}/nq3n8ffrrryv")).unwrap(),
+                Provider::Buzzheavier,
+                "{domain}"
+            );
+        }
+        assert_eq!(
+            classify("https://ts.buzzheavier.com/d/nq3n8ffrrryv?v=token").unwrap(),
+            Provider::Direct
+        );
+        assert_eq!(
+            classify("https://buzzheavier.com.attacker.test/nq3n8ffrrryv").unwrap(),
             Provider::Direct
         );
         assert!(classify("file:///etc/passwd").is_err());
