@@ -1693,6 +1693,7 @@ pub async fn list_downloads(app: AppHandle) -> Result<Vec<DownloadJob>, String> 
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn queue_download(
     app: AppHandle,
     steam_app_id: u32,
