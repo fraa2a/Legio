@@ -146,7 +146,7 @@ fn atomic_copy(source: &Path, destination: &Path, job: &str) -> Result<(), Strin
         .open(&temporary)
         .map_err(|error| format!("Could not create replacement file: {error}"))?;
     let mut input = fs::File::open(source).map_err(|error| error.to_string())?;
-    io::copy(&mut input, &mut output).map_err(|error| error.to_string())?;
+    crate::filesystem_copy::copy(&mut input, &mut output).map_err(|error| error.to_string())?;
     fs::set_permissions(
         &temporary,
         input
@@ -386,7 +386,7 @@ pub(crate) fn apply(
         }
         database.with_connection(|connection| {
             let transaction = connection.unchecked_transaction().map_err(database_error)?;
-            let changed = transaction.execute("UPDATE downloads SET status = 'installed', error = NULL, updated_at = strftime('%s','now') WHERE id = ?1 AND status = 'staged'", [&job]).map_err(database_error)?;
+            let changed = transaction.execute("UPDATE downloads SET status = 'installed', error = NULL, updated_at = CAST(strftime('%s','now') AS INTEGER) WHERE id = ?1 AND status = 'staged'", [&job]).map_err(database_error)?;
             if changed != 1 { return Err("Update state changed before commit".into()); }
             transaction.execute("UPDATE games SET executable_path = ?2 WHERE id = ?1", params![game_id,target.join(&executable).to_string_lossy()]).map_err(database_error)?;
             crate::game_updates::record_install_on(&transaction, &job, &game_id)?;

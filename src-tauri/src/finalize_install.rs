@@ -279,7 +279,7 @@ pub(crate) fn publish_noreplace(source: &Path, target: &Path) -> io::Result<()> 
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid source path"))?;
     let target = CString::new(target.as_os_str().as_bytes())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid target path"))?;
-    // The C strings are NUL-terminated and remain alive for this syscall.
+    // SAFETY: the C strings are NUL-terminated and remain alive for this syscall.
     let result = unsafe {
         libc::renameat2(
             libc::AT_FDCWD,
@@ -310,7 +310,7 @@ pub(crate) fn publish_noreplace(source: &Path, target: &Path) -> io::Result<()> 
 
     let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
     let target: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
-    // The UTF-16 buffers are terminated and remain alive for this call.
+    // SAFETY: the UTF-16 buffers are terminated and remain alive for this call.
     let result = unsafe {
         windows_sys::Win32::Storage::FileSystem::MoveFileW(source.as_ptr(), target.as_ptr())
     };

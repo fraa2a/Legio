@@ -9,9 +9,9 @@ use serde::{
 };
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     path::PathBuf,
-    sync::{Mutex, OnceLock},
+    sync::{LazyLock, OnceLock},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Mutex as AsyncMutex;
@@ -20,7 +20,9 @@ const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KH
 const LANGUAGE: &str = "en-US";
 static STATE: OnceLock<AsyncMutex<Session>> = OnceLock::new();
 static CACHE_PATH: OnceLock<PathBuf> = OnceLock::new();
-static CDN_CACHE: OnceLock<Mutex<HashMap<String, (Instant, bool)>>> = OnceLock::new();
+static SCRIPT_PATTERN: LazyLock<Option<regex::Regex>> = LazyLock::new(|| {
+    regex::Regex::new(r#"(?i)<script[^>]+src=["']([^"']*wt[^"'/]*\.js)["']"#).ok()
+});
 
 #[derive(Default)]
 struct Session {
@@ -285,8 +287,7 @@ fn api_error(status: &str) -> GofileError {
 }
 
 fn script_url(html: &str) -> Option<String> {
-    let re = regex::Regex::new(r#"(?i)<script[^>]+src=["']([^"']*wt[^"'/]*\.js)["']"#).ok()?;
-    let path = re.captures(html)?.get(1)?.as_str();
+    let path = SCRIPT_PATTERN.as_ref()?.captures(html)?.get(1)?.as_str();
     let url = Url::parse("https://gofile.io/").ok()?.join(path).ok()?;
     let host = url.host_str()?;
     (url.scheme() == "https"
@@ -503,7 +504,7 @@ async fn official(
     if state.secret.is_none() {
         state.secret = Some(secret(client).await?);
     }
-    let secret = state
+    let current_secret = state
         .secret
         .as_deref()
         .ok_or("GoFile website token is unavailable")?
@@ -512,18 +513,28 @@ async fn official(
         state.token = load_token().await;
     }
     if state.token.is_none() {
-        state.token = Some(create_token(client, &secret).await?);
+        match create_token(client, &current_secret).await {
+            Ok(token) => state.token = Some(token),
+            Err(error) => {
+                // A rotated website-token generator makes the cached secret stale.
+                state.secret = None;
+                return Err(error);
+            }
+        }
     }
     let token = state
         .token
         .as_deref()
         .ok_or("GoFile guest token is unavailable")?;
-    let file = match first_file(client, id, token, &secret, password).await {
+    let file = match first_file(client, id, token, &current_secret, password).await {
         Err(GofileError::Unauthorized) => {
             state.token = None;
-            let token = create_token(client, &secret).await?;
+            state.secret = None;
+            let fresh_secret = secret(client).await?;
+            let token = create_token(client, &fresh_secret).await?;
+            state.secret = Some(fresh_secret.clone());
             state.token = Some(token.clone());
-            first_file(client, id, &token, &secret, password).await
+            first_file(client, id, &token, &fresh_secret, password).await
         }
         result => result,
     }?;
@@ -531,51 +542,6 @@ async fn official(
     Ok(file)
 }
 
-fn cdn_is_file(status: u16, content_type: &str) -> bool {
-    let content_type = content_type.to_ascii_lowercase();
-    (200..300).contains(&status)
-        && ![
-            "text/html",
-            "application/xhtml",
-            "text/plain",
-            "application/json",
-        ]
-        .iter()
-        .any(|t| content_type.contains(t))
-}
-async fn alternate(client: &Client, id: &str) -> Option<ResolvedFile> {
-    let cache = CDN_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let cached = cache
-        .lock()
-        .ok()
-        .and_then(|c| c.get(id).copied())
-        .filter(|(expires, _)| *expires > Instant::now());
-    let url = format!("https://gofilecdn.eu.cc/{id}");
-    let available = if let Some((_, available)) = cached {
-        available
-    } else {
-        let mut headers = HeaderMap::new();
-        headers.insert("range", HeaderValue::from_static("bytes=0-0"));
-        headers.insert("user-agent", HeaderValue::from_static(USER_AGENT));
-        let available = matches!(tokio::time::timeout(Duration::from_secs(5), crate::download_resolver::get(client, &url, headers)).await,
-            Ok(Ok(response)) if cdn_is_file(response.status().as_u16(), response.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("")));
-        if let Ok(mut cache) = cache.lock() {
-            cache.retain(|_, (expires, _)| *expires > Instant::now());
-            if cache.len() < 1000 {
-                cache.insert(
-                    id.into(),
-                    (Instant::now() + Duration::from_secs(15), available),
-                );
-            }
-        }
-        available
-    };
-    available.then_some(ResolvedFile {
-        url,
-        name: None,
-        headers: HeaderMap::new(),
-    })
-}
 pub(crate) async fn resolve(
     client: &Client,
     id: &str,
@@ -584,14 +550,9 @@ pub(crate) async fn resolve(
     if !valid_id(id) {
         return Err("Invalid GoFile content ID".into());
     }
-    let result = tokio::time::timeout(Duration::from_secs(120), official(client, id, password))
+    let file = tokio::time::timeout(Duration::from_secs(120), official(client, id, password))
         .await
-        .map_err(|_| "GoFile resolution timed out".to_owned())
-        .and_then(|r| r);
-    let file = match result {
-        Ok(file) => file,
-        Err(error) => alternate(client, id).await.ok_or(error)?,
-    };
+        .map_err(|_| "GoFile resolution timed out".to_owned())??;
     Ok(ResolvedDownload {
         provider: Provider::Gofile,
         files: vec![file],
@@ -652,20 +613,6 @@ mod tests {
             vec!["z", "a"]
         );
         assert_eq!(reply.metadata.total_pages, 2);
-    }
-
-    #[test]
-    fn alternate_cdn_rejects_non_file_responses() {
-        for kind in [
-            "text/plain",
-            "text/html",
-            "application/json",
-            "application/xhtml+xml",
-        ] {
-            assert!(!cdn_is_file(200, kind));
-        }
-        assert!(!cdn_is_file(404, "application/octet-stream"));
-        assert!(cdn_is_file(206, "application/octet-stream"));
     }
 
     #[test]

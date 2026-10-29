@@ -559,13 +559,6 @@ pub(crate) fn flush_registered(database: &Database) {
     }
 }
 
-pub(crate) fn remove_default<R: tauri::Runtime>(
-    app: &tauri::AppHandle<R>,
-    _id: &str,
-) -> Result<(), String> {
-    sync_default(app)
-}
-
 pub(crate) fn initialize(database: &Database, storage: &Path) {
     match libraries(database) {
         Ok(libraries) => {

@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     fs,
     path::{Component, Path, PathBuf},
 };
@@ -86,17 +87,31 @@ pub struct SteamIdentificationPreview {
     pub message: Option<String>,
 }
 
+// Matches the archive entry limit so a fully extracted archive can be scanned.
+const MAX_SCANNED_ENTRIES: usize = 100_000;
+
 pub fn scan_directory(directory: &str, game_name: Option<&str>) -> Result<ExecutableScan, String> {
+    scan_directory_limited(directory, game_name, MAX_SCANNED_ENTRIES)
+}
+
+// Breadth-first so shallow directories, where executables usually live, are
+// visited before the entry budget runs out.
+fn scan_directory_limited(
+    directory: &str,
+    game_name: Option<&str>,
+    max_entries: usize,
+) -> Result<ExecutableScan, String> {
     let root = dunce::canonicalize(directory)
         .map_err(|error| format!("could not open game directory: {error}"))?;
     if !root.is_dir() {
         return Err("game directory is not a directory".to_owned());
     }
     let expected = game_name.map(normalize_name).unwrap_or_default();
-    let mut pending = vec![(root.clone(), 0usize)];
+    let mut pending = VecDeque::from([(root.clone(), 0usize)]);
     let mut candidates = Vec::new();
     let mut visited = 0usize;
-    while let Some((directory, depth)) = pending.pop() {
+    let mut budget_exhausted = false;
+    'scan: while let Some((directory, depth)) = pending.pop_front() {
         let entries = fs::read_dir(&directory).map_err(|error| {
             format!(
                 "could not read game directory {}: {error}",
@@ -107,15 +122,16 @@ pub fn scan_directory(directory: &str, game_name: Option<&str>) -> Result<Execut
             let entry =
                 entry.map_err(|error| format!("could not inspect game directory: {error}"))?;
             visited += 1;
-            if visited > 10_000 {
-                return Err("game directory contains too many files to scan".to_owned());
+            if visited > max_entries {
+                budget_exhausted = true;
+                break 'scan;
             }
             let kind = entry
                 .file_type()
                 .map_err(|error| format!("could not inspect game file: {error}"))?;
             let path = entry.path();
             if kind.is_dir() && depth < 8 {
-                pending.push((path, depth + 1));
+                pending.push_back((path, depth + 1));
             } else if kind.is_file() && is_executable(&path)? && !is_false_positive(&path) {
                 let stem = path
                     .file_stem()
@@ -142,6 +158,9 @@ pub fn scan_directory(directory: &str, game_name: Option<&str>) -> Result<Execut
                 });
             }
         }
+    }
+    if budget_exhausted && candidates.is_empty() {
+        return Err("game directory contains too many files to scan".to_owned());
     }
     candidates.sort_by(|left, right| {
         right
@@ -728,6 +747,50 @@ mod tests {
         fs::write(root.join("B.exe"), []).unwrap();
         let scan = scan_directory(root.to_str().unwrap(), None).unwrap();
         assert_eq!(scan.selected_path, None);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn exhausted_budget_keeps_candidates_found() {
+        let root = fixture();
+        fs::write(root.join("Game.exe"), []).unwrap();
+        fs::create_dir(root.join("assets")).unwrap();
+        for index in 0..10 {
+            fs::write(root.join(format!("assets/data{index}.bin")), []).unwrap();
+        }
+        let scan = scan_directory_limited(root.to_str().unwrap(), None, 5).unwrap();
+        assert_eq!(scan.candidates.len(), 1);
+        assert!(scan.candidates[0].path.ends_with("Game.exe"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn breadth_first_scan_finds_shallow_executable_before_deep_subtree() {
+        let root = fixture();
+        fs::create_dir(root.join("bin")).unwrap();
+        fs::write(root.join("bin/Game.exe"), []).unwrap();
+        let mut deep = root.join("assets");
+        for _ in 0..3 {
+            deep = deep.join("nested");
+        }
+        fs::create_dir_all(&deep).unwrap();
+        for index in 0..50 {
+            fs::write(deep.join(format!("file{index}.dat")), []).unwrap();
+        }
+        let scan = scan_directory_limited(root.to_str().unwrap(), None, 10).unwrap();
+        assert_eq!(scan.candidates.len(), 1);
+        assert!(scan.candidates[0].path.ends_with("Game.exe"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn exhausted_budget_without_candidates_fails() {
+        let root = fixture();
+        for index in 0..10 {
+            fs::write(root.join(format!("data{index}.bin")), []).unwrap();
+        }
+        let error = scan_directory_limited(root.to_str().unwrap(), None, 5).unwrap_err();
+        assert!(error.contains("too many files"));
         fs::remove_dir_all(root).unwrap();
     }
 
