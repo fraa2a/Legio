@@ -4,7 +4,7 @@ import { JSDOM } from "jsdom";
 import { createModuleLoader, dataModule } from "./test_module_loader.mjs";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBeVisual: true });
-for (const key of ["window", "document", "navigator", "Node", "Text", "Comment", "Element", "HTMLElement", "HTMLMediaElement", "HTMLInputElement", "HTMLFormElement", "Event", "KeyboardEvent", "MouseEvent"]) {
+for (const key of ["window", "document", "navigator", "Node", "Text", "Comment", "Element", "HTMLElement", "HTMLMediaElement", "HTMLInputElement", "HTMLFormElement", "Event", "KeyboardEvent", "MouseEvent", "CustomEvent", "getComputedStyle"]) {
   Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
 }
 const { mount, unmount, flushSync } = await import("svelte");
@@ -26,6 +26,7 @@ test("source-distinct versions retain names and stable selection IDs", async () 
 
 test("release picker shows source badges alongside names and keeps the Steam badge", async () => {
   const { load } = createModuleLoader({
+    "src/lib/utils/motion": dataModule("export const reducedMotion = true;"),
     "src/lib/i18n": dataModule(`import { writable } from ${JSON.stringify(import.meta.resolve("svelte/store"))}; export const language = writable("it"); export const t = value => value;`),
     "src/lib/features/library/SteamArtwork.svelte": dataModule("export default function () {}"),
     "src/lib/components/ui/Icon.svelte": dataModule("export default function () {}"),
