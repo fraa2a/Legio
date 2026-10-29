@@ -13,6 +13,7 @@ const { mount, unmount, flushSync } = await import("svelte");
 const { createClassComponent } = await import("svelte/legacy");
 const english = JSON.parse(await readFile(new URL("../src/lib/i18n/en.json", import.meta.url), "utf8"));
 const { load } = createModuleLoader({
+  "src/lib/utils/motion": dataModule("export const reducedMotion = true;"),
   "src/lib/features/library/SteamArtwork.svelte": dataModule("export default function () {}"),
   "src/lib/i18n": dataModule(`import { writable } from ${JSON.stringify(import.meta.resolve("svelte/store"))}; export const language = writable("en"); const english = ${JSON.stringify(english)}; export const t = value => english[value] ?? value;`),
   "src/lib/i18n/en.json": dataModule(`export default ${JSON.stringify(english)}`),

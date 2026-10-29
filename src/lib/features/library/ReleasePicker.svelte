@@ -12,8 +12,10 @@
 
 <script lang="ts">
   import { tick } from "svelte";
+  import { slide } from "svelte/transition";
   import { t, language } from "../../i18n";
   import { formatBytes } from "../../utils/format";
+  import { reducedMotion } from "../../utils/motion";
   import Badge from "../../components/ui/Badge.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import { availabilityMeta } from "../store/source-status";
@@ -160,7 +162,7 @@
       aria-label={t("Seleziona versione: {0}, {1}", $language, [selected.name, selected.subtitle])}
       aria-haspopup="listbox"
       aria-expanded={open}
-      aria-controls={panelId}
+      aria-controls={open ? panelId : undefined}
       disabled={disabled || !hasChoices}
       onkeydown={handleKeydown}
       onclick={() => (open ? close() : void expand())}
@@ -177,13 +179,13 @@
       {#if hasChoices}<span class="shrink-0 text-zinc-400 transition-transform duration-200 light:text-zinc-600 {open ? 'rotate-180' : ''}"><Icon name="chevron-down" size="size-4" /></span>{/if}
     </button>
 
-    <div class="grid transition-[grid-template-rows] duration-200 ease-out {open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}">
+    {#if open}
       <div
         id={panelId}
         role="presentation"
-        inert={!open}
+        transition:slide={{ duration: reducedMotion ? 0 : 200 }}
         onkeydown={handleKeydown}
-        class="min-h-0 overflow-hidden"
+        class="overflow-hidden"
       >
         <div class="flex flex-col gap-2 border-t border-white/10 p-2 light:border-zinc-900/10">
           <div data-group>
@@ -240,6 +242,6 @@
           {/if}
         </div>
       </div>
-    </div>
+    {/if}
   </div>
 </div>
