@@ -5,10 +5,12 @@ import { JSDOM } from "jsdom";
 import { artworkPacket, createModuleLoader, dataModule } from "./test_module_loader.mjs";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBeVisual: true });
-for (const key of ["window", "document", "navigator", "Node", "Text", "Comment", "Element", "HTMLElement", "HTMLMediaElement", "Event", "CustomEvent", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"]) {
+for (const key of ["window", "document", "navigator", "Node", "Text", "Comment", "Element", "HTMLElement", "HTMLMediaElement", "Event", "CustomEvent", "getComputedStyle", "MutationObserver", "requestAnimationFrame", "cancelAnimationFrame"]) {
   const value = dom.window[key];
   Object.defineProperty(globalThis, key, { configurable: true, value: typeof value === "function" && key.endsWith("AnimationFrame") ? value.bind(dom.window) : value });
 }
+// jsdom has no ResizeObserver; the library grid's reflow action only needs it to exist.
+globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 const { mount, unmount, flushSync } = await import("svelte");
 const { writable } = await import("svelte/store");
 const mocks = {
