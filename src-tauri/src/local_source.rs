@@ -5,8 +5,7 @@ pub(crate) fn location(path: &str) -> Result<String, String> {
     if !path.is_absolute() {
         return Err("Select an absolute path to a local JSON source".into());
     }
-    let path = path
-        .canonicalize()
+    let path = dunce::canonicalize(path)
         .map_err(|error| format!("Could not open local source: {error}"))?;
     reqwest::Url::from_file_path(path)
         .map(String::from)

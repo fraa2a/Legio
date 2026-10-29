@@ -39,7 +39,7 @@ pub fn verify_and_stage(
         io::copy(&mut source, &mut hasher)
             .map_err(|error| format!("Cannot verify download: {error}"))?;
         let digest = format!("{:x}", hasher.finalize());
-        if digest != expected_sha256 {
+        if !digest.eq_ignore_ascii_case(expected_sha256) {
             drop(source);
             fs::remove_file(archive).map_err(|error| {
                 format!("Download hash differs and corrupt file could not be removed: {error}")
@@ -471,6 +471,15 @@ mod tests {
         assert!(error.contains("corrupt download was removed"));
         assert!(!archive.exists());
         assert!(!root.join("staging").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn uppercase_expected_hash_matches() {
+        let bytes = include_bytes!("../test-fixtures/archive/safe.zip");
+        let (root, archive) = fixture(bytes, "archive.zip");
+        let hash = format!("{:X}", Sha256::digest(bytes));
+        verify_and_stage(&archive, Some(&hash), &root.join("staging")).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 
