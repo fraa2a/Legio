@@ -1189,6 +1189,7 @@ mod tests {
             "Artwork metadata future occupies {metadata} bytes"
         );
         let prefetch = future_size(|(app, state)| prefetch_steam_hero(app, state, 730));
+        eprintln!("FUTURE_SIZES asset={asset} publication={publication} metadata={metadata} prefetch={prefetch}");
         assert!(
             asset <= 4096,
             "Artwork command future occupies {asset} bytes"
