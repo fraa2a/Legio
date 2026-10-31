@@ -1,5 +1,16 @@
 //! Thunderstore modding: shared domain types and pure helpers.
 
+pub(crate) mod dependencies;
 pub(crate) mod ecosystem;
+pub(crate) mod install_rules;
+pub(crate) mod installer;
+pub(crate) mod loader_install;
+pub(crate) mod local_import;
+pub(crate) mod package_cache;
 pub(crate) mod package_id;
+pub(crate) mod package_manifest;
 pub(crate) mod paths;
+pub(crate) mod profile_commands;
+pub(crate) mod profiles;
+#[cfg(test)]
+mod test_support;
