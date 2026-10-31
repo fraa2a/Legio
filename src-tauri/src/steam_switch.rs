@@ -58,11 +58,14 @@ pub(crate) fn launch(
     check_cancel(cancel)?;
     let game = app.state::<DatabaseState>().database()?.game(game_id)?;
     let steam_app_id = launch_app_id(&game)?;
-    let arguments = app
+    let mut arguments = app
         .state::<DatabaseState>()
         .database()?
         .steam_launch_config(game_id)?
         .arguments;
+    if let Some(plan) = crate::modding::launch::prepare_launch(app, &game)? {
+        arguments.extend(plan.arguments);
+    }
     let steam_root = steam_local::find_steam_root_for_game(&game)?;
     let Some(target_id) = game.steam_account_id.as_deref() else {
         steam_process::ensure_running(&steam_root, SWITCH_TIMEOUT, cancel)?;

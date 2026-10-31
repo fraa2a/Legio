@@ -710,6 +710,31 @@ pub async fn stop_game(app: AppHandle, game_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn get_mod_launch_status(
+    app: AppHandle,
+    game_id: String,
+) -> Result<crate::modding::launch::ModLaunchStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::modding::launch::launch_status(&app, &game_id)
+    })
+    .await
+    .map_err(|error| format!("Mod launch status task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn restore_modded_game_folder(app: AppHandle, game_id: String) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
+        let _operation = manager.operation()?;
+        manager.require_idle(&game_id)?;
+        crate::modding::launch::restore_game_folder_of(&app, &game_id)
+    })
+    .await
+    .map_err(|error| format!("Game folder restore task failed: {error}"))?
+}
+
+#[tauri::command]
 pub async fn inspect_steam_game_launch(
     app: AppHandle,
     game_id: String,
