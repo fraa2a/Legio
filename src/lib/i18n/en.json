@@ -1025,5 +1025,6 @@
   "Genera un nuovo codice": "Generate a new code",
   "Profilo mod (r2modman)": "Mod profile (r2modman)",
   "Seleziona un profilo da importare": "Select a profile to import",
-  "Esporta profilo": "Export profile"
+  "Esporta profilo": "Export profile",
+  "Le modifiche alla configurazione non salvate andranno perse. Continuare?": "Unsaved configuration changes will be lost. Continue?"
 }

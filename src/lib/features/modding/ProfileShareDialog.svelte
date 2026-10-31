@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
   import { t, language } from "../../i18n";
-  import { exportModProfileFile, pickProfileExportPath, shareModProfileCode } from "../../services/mod-profile-exchange";
+  import { pickModProfileExportPath } from "../../services/dialog";
+  import { exportModProfileFile, shareModProfileCode } from "../../services/mod-profile-exchange";
   import type { ModProfile } from "../../services/modding";
   import { toMessage } from "../../utils/errors";
   import Button from "../../components/ui/Button.svelte";
@@ -57,7 +58,7 @@
     exportedPath = null;
     exporting = true;
     try {
-      const destination = await pickProfileExportPath(exportFileName(profile.name));
+      const destination = await pickModProfileExportPath(exportFileName(profile.name));
       if (destination === null) return;
       await exportModProfileFile(gameId, profile.id, destination);
       exportedPath = destination;

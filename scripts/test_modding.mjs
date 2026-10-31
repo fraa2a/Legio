@@ -255,3 +255,19 @@ test("the browser debounces search and installs from results", async () => {
     assert.deepEqual(calls.find(([command]) => command === "install_mods"), ["install_mods", { profileId: "p", packages: [{ fullName: "Owner-More_Suits" }] }]);
   } finally { await view.destroy(); delete globalThis.browserInvoke; }
 });
+
+test("a leave guard holds navigation until it proceeds", async () => {
+  const { load } = createModuleLoader({});
+  const navigation = await import(await load("src/lib/stores/navigation.ts"));
+  navigation.openModManager("g", "game");
+  let pending = null;
+  const release = navigation.setLeaveGuard((proceed) => { pending = proceed; return true; });
+  navigation.closeModManager();
+  assert.deepEqual(get(navigation.selectedModGame), { gameId: "g", returnTo: "game" });
+  pending();
+  assert.equal(get(navigation.selectedGameId), "g");
+  assert.equal(get(navigation.activeSection), "library");
+  navigation.selectSection("mods");
+  assert.equal(get(navigation.activeSection), "mods", "the guard is released after proceeding");
+  release();
+});

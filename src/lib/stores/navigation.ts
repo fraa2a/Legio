@@ -34,29 +34,60 @@ export const selectedModGame = writable<ModManagerSelection | null>(null);
 export const settingsOpen = writable(false);
 export const settingsCategory = writable("general");
 
-export function selectSection(section: Section): void {
-  selectedGameId.set(null);
-  selectedStoreGame.set(null);
-  selectedModGame.set(null);
-  activeSection.set(section);
+// A page with unsaved work can hold navigation until the user confirms. The guard
+// returns true when it took over and will call `proceed` itself.
+type LeaveGuard = (proceed: () => void) => boolean;
+
+let leaveGuard: LeaveGuard | null = null;
+
+export function setLeaveGuard(guard: LeaveGuard): () => void {
+  leaveGuard = guard;
+  return () => {
+    if (leaveGuard === guard) leaveGuard = null;
+  };
 }
 
-export function openGame(gameId: string): void {
+function leave(action: () => void): void {
+  const guard = leaveGuard;
+  if (guard === null || !guard(() => {
+    if (leaveGuard === guard) leaveGuard = null;
+    action();
+  })) action();
+}
+
+export function selectSection(section: Section): void {
+  leave(() => {
+    selectedGameId.set(null);
+    selectedStoreGame.set(null);
+    selectedModGame.set(null);
+    activeSection.set(section);
+  });
+}
+
+function showGame(gameId: string): void {
   selectedModGame.set(null);
   selectedGameId.set(gameId);
   activeSection.set("library");
 }
 
+export function openGame(gameId: string): void {
+  leave(() => showGame(gameId));
+}
+
 export function openModManager(gameId: string, returnTo: ModManagerSelection["returnTo"] = "mods"): void {
-  selectedGameId.set(null);
-  selectedModGame.set({ gameId, returnTo });
-  activeSection.set("mods");
+  leave(() => {
+    selectedGameId.set(null);
+    selectedModGame.set({ gameId, returnTo });
+    activeSection.set("mods");
+  });
 }
 
 export function closeModManager(): void {
-  const selection = get(selectedModGame);
-  if (selection?.returnTo === "game") openGame(selection.gameId);
-  else selectedModGame.set(null);
+  leave(() => {
+    const selection = get(selectedModGame);
+    if (selection?.returnTo === "game") showGame(selection.gameId);
+    else selectedModGame.set(null);
+  });
 }
 
 export function closeGame(): void {

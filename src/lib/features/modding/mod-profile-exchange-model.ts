@@ -1,5 +1,6 @@
 import { t, type Language } from "../../i18n";
-import type { ModInstallProgress, ProfileImportOutcome } from "../../services/mod-profile-exchange";
+import type { ProfileImportOutcome } from "../../services/mod-profile-exchange";
+import type { InstallProgress } from "../../services/modding";
 
 export const maxProfileNameLength = 64;
 const profileCodePattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -45,7 +46,7 @@ export interface ProgressView {
   percent: number | null;
 }
 
-export function describeProgress(progress: ModInstallProgress | null, language?: Language): ProgressView {
+export function describeProgress(progress: InstallProgress | null, language?: Language): ProgressView {
   if (progress === null || progress.stage === "resolving") {
     return { label: t("Risoluzione delle dipendenze...", language), percent: null };
   }

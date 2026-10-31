@@ -11,9 +11,10 @@
   import SegmentedControl from "../../components/ui/SegmentedControl.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
-  import { openModProfileFolder } from "../../services/modding";
+  import { openModProfileFolder, type ModProfile } from "../../services/modding";
   import { games } from "../../stores/games";
   import { launchStateByGame } from "../../stores/launch";
+  import { setLeaveGuard } from "../../stores/navigation";
   import {
     bindGame,
     busyProfiles,
@@ -56,14 +57,24 @@
     profileOptions,
     vanillaProfileValue,
   } from "./modding-model";
+  import ModConfigEditor from "./ModConfigEditor.svelte";
+  import ProfileImportDialog from "./ProfileImportDialog.svelte";
   import ProfileNameDialog from "./ProfileNameDialog.svelte";
+  import ProfileShareDialog from "./ProfileShareDialog.svelte";
 
   let { gameId }: { gameId: string } = $props();
 
   type Tab = "installed" | "browse" | "config";
   type NameDialog = { kind: "create" | "rename" | "duplicate" };
 
-  onMount(() => void loadModdableGames());
+  onMount(() => {
+    void loadModdableGames();
+    return setLeaveGuard((proceed) => {
+      if (!configDirty) return false;
+      discardAction = proceed;
+      return true;
+    });
+  });
 
   const game = $derived($moddableGameById.get(gameId) ?? null);
   const libraryGame = $derived($games.data.find((entry) => entry.id === gameId) ?? null);
@@ -89,6 +100,11 @@
   let deleting = $state(false);
   let cancelling = $state(false);
   let selectRevision = $state(0);
+  let tabRevision = $state(0);
+  let importOpen = $state(false);
+  let shareOpen = $state(false);
+  let configDirty = $state(false);
+  let discardAction = $state<(() => void) | null>(null);
   let autoBindAttempted = false;
 
   // A game opened through its Steam match is bound on first visit, so profiles can be created right away.
@@ -128,6 +144,36 @@
       if (isCancellation(message)) showToast(t("Installazione annullata.", $language), "info");
       else actionError = describeModdingError(message, $language);
     }
+  }
+
+  // Unsaved config edits are lost when the editor goes away, so ask first.
+  function afterDiscard(action: () => void): boolean {
+    if (!configDirty) {
+      action();
+      return true;
+    }
+    discardAction = action;
+    return false;
+  }
+
+  function discardChanges(): void {
+    const action = discardAction;
+    discardAction = null;
+    configDirty = false;
+    action?.();
+  }
+
+  function selectTab(value: string): void {
+    if (!afterDiscard(() => (tab = value as Tab))) tabRevision++;
+  }
+
+  function requestProfile(value: string): void {
+    if (!afterDiscard(() => void changeProfile(value))) selectRevision++;
+  }
+
+  function onImported(imported: ModProfile): void {
+    void modProfiles(gameId).reload();
+    if (!running) afterDiscard(() => void run(() => selectProfile(gameId, imported.id)));
   }
 
   const changeProfile = (value: string) => run(async () => {
@@ -238,19 +284,25 @@
               value={profile?.id ?? vanillaProfileValue}
               {options}
               disabled={running || busy}
-              onChange={(value) => void changeProfile(value)}
+              onChange={requestProfile}
               class="w-64"
             />
           {/key}
           <div role="toolbar" aria-label={t("Azioni del profilo", $language)} class="flex h-10 items-center gap-0.5 rounded-lg border border-white/10 bg-white/5 px-1 light:border-zinc-900/10 light:bg-white">
-            <IconButton label={t("Nuovo profilo", $language)} title={t("Nuovo profilo", $language)} onClick={() => (nameDialog = { kind: "create" })}>
+            <IconButton label={t("Nuovo profilo", $language)} title={t("Nuovo profilo", $language)} onClick={() => afterDiscard(() => (nameDialog = { kind: "create" }))}>
               <Icon name="plus" size="size-4" />
             </IconButton>
             <IconButton label={t("Rinomina profilo", $language)} title={t("Rinomina profilo", $language)} disabled={profile === null} onClick={() => (nameDialog = { kind: "rename" })}>
               <Icon name="pencil" size="size-4" />
             </IconButton>
-            <IconButton label={t("Duplica profilo", $language)} title={t("Duplica profilo", $language)} disabled={profile === null || busy} onClick={() => (nameDialog = { kind: "duplicate" })}>
+            <IconButton label={t("Duplica profilo", $language)} title={t("Duplica profilo", $language)} disabled={profile === null || busy} onClick={() => afterDiscard(() => (nameDialog = { kind: "duplicate" }))}>
               <Icon name="copy" size="size-4" />
+            </IconButton>
+            <IconButton label={t("Importa profilo", $language)} title={t("Importa profilo", $language)} onClick={() => (importOpen = true)}>
+              <Icon name="upload" size="size-4" />
+            </IconButton>
+            <IconButton label={t("Condividi profilo", $language)} title={t("Condividi profilo", $language)} disabled={profile === null} onClick={() => (shareOpen = true)}>
+              <Icon name="share" size="size-4" />
             </IconButton>
             <IconButton label={t("Apri la cartella del profilo", $language)} title={t("Apri la cartella del profilo", $language)} disabled={profile === null} onClick={() => void openFolder()}>
               <Icon name="folder-open" size="size-4" />
@@ -324,25 +376,30 @@
           </EmptyState>
         {/if}
       {:else if ecosystemGameId !== null}
-        <SegmentedControl
-          name="mod-tabs"
-          label={t("Sezione delle mod", $language)}
-          labelHidden
-          class="max-w-md"
-          value={tab}
-          options={[
-            { value: "installed", label: t("Installate", $language) },
-            { value: "browse", label: t("Sfoglia", $language) },
-            { value: "config", label: t("Config", $language) },
-          ]}
-          onChange={(value) => (tab = value as Tab)}
-        />
+        {#key tabRevision}
+          <SegmentedControl
+            name="mod-tabs"
+            label={t("Sezione delle mod", $language)}
+            labelHidden
+            class="max-w-md"
+            value={tab}
+            options={[
+              { value: "installed", label: t("Installate", $language) },
+              { value: "browse", label: t("Sfoglia", $language) },
+              { value: "config", label: t("Config", $language) },
+            ]}
+            onChange={selectTab}
+          />
+        {/key}
         {#if tab === "installed"}
           <InstalledModsList {gameId} {ecosystemGameId} {profile} locked={running} {busy} onBrowse={() => (tab = "browse")} />
         {:else if tab === "browse"}
           <ModBrowser {gameId} {ecosystemGameId} {profile} disabled={running || busy} />
+        {:else}
+          <div class="flex min-h-[32rem] flex-1 flex-col">
+            <ModConfigEditor {gameId} profileId={profile.id} onDirtyChange={(dirty) => (configDirty = dirty)} />
+          </div>
         {/if}
-        <!-- TODO: render ModConfigEditor for the "config" tab once wip/modding-fe-extra is merged. -->
       {/if}
     {/if}
   </div>
@@ -376,5 +433,21 @@
     pending={deleting}
     onConfirm={() => void confirmDelete()}
     onClose={() => (deleteOpen = false)}
+  />
+  <ProfileImportDialog open={importOpen} {gameId} onClose={() => (importOpen = false)} {onImported} />
+
+  {#if profile !== null}
+    <ProfileShareDialog open={shareOpen} {gameId} {profile} onClose={() => (shareOpen = false)} />
+  {/if}
+
+  <ConfirmDialog
+    open={discardAction !== null}
+    title={t("Modifiche non salvate", $language)}
+    message={t("Le modifiche alla configurazione non salvate andranno perse. Continuare?", $language)}
+    confirmLabel={t("Scarta modifiche", $language)}
+    cancelLabel={t("Continua a modificare", $language)}
+    tone="danger"
+    onConfirm={discardChanges}
+    onClose={() => (discardAction = null)}
   />
 {/if}

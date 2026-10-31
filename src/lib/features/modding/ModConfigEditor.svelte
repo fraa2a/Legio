@@ -198,8 +198,8 @@
   }
 </script>
 
-<div class="flex h-full min-h-[26rem] min-w-0 gap-4">
-  <aside class="flex w-72 shrink-0 flex-col gap-3 rounded-2xl legio-glass p-3" aria-label={t("File di configurazione", $language)}>
+<div class="flex h-full min-h-[26rem] min-w-0 flex-col gap-4 lg:flex-row">
+  <aside class="flex max-h-80 shrink-0 flex-col gap-3 rounded-2xl legio-glass p-3 lg:max-h-none lg:w-72" aria-label={t("File di configurazione", $language)}>
     <TextField id="mod-config-filter" label={t("Filtra file", $language)} type="search" placeholder={t("Filtra file...", $language)} bind:value={query} />
     {#if listLoading && files.length === 0}
       <div class="flex items-center gap-3 p-3 text-sm text-zinc-300 light:text-zinc-700" role="status"><Spinner />{t("Caricamento...", $language)}</div>
@@ -257,7 +257,7 @@
           {#if pathParts.directory}<p class="truncate text-xs text-zinc-500">{pathParts.directory}</p>{/if}
         </div>
         {#if config !== null}
-          <SegmentedControl name="mod-config-mode" label={t("Modalità di modifica", $language)} class="w-48 [&_legend]:sr-only" options={modeOptions} value={effectiveMode} disabled={saving} onChange={selectMode} />
+          <SegmentedControl name="mod-config-mode" label={t("Modalità di modifica", $language)} labelHidden class="w-48" options={modeOptions} value={effectiveMode} disabled={saving} onChange={selectMode} />
         {/if}
         <Button label={t("Annulla modifiche", $language)} variant="secondary" size="sm" disabled={!dirty || saving} onClick={discard} />
         <Button label={saving ? t("Salvataggio...", $language) : t("Salva", $language)} size="sm" disabled={!dirty || saving || invalid || sizeError !== null} onClick={() => void save()} />

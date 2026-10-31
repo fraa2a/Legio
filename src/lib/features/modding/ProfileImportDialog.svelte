@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
+  import { get } from "svelte/store";
   import { t, language } from "../../i18n";
-  import {
-    cancelModInstall, importModProfileCode, importModProfileFile, observeModInstallProgress, pickProfileFile,
-    type ModInstallProgress, type ProfileImportOutcome,
-  } from "../../services/mod-profile-exchange";
-  import type { ModProfile } from "../../services/modding";
+  import { pickModProfileFile } from "../../services/dialog";
+  import { importModProfileCode, importModProfileFile, type ProfileImportOutcome } from "../../services/mod-profile-exchange";
+  import { cancelModInstall, observeInstallProgress, type InstallProgress, type ModProfile } from "../../services/modding";
+  import { modProfiles } from "../../stores/modding";
   import { toMessage } from "../../utils/errors";
   import Button from "../../components/ui/Button.svelte";
   import Callout from "../../components/ui/Callout.svelte";
@@ -35,9 +35,10 @@
   let cancelling = $state(false);
   let error = $state<string | null>(null);
   let outcome = $state<ProfileImportOutcome | null>(null);
-  let progress = $state<ModInstallProgress | null>(null);
+  let progress = $state<InstallProgress | null>(null);
   let importProfileId = $state<string | null>(null);
   let unlisten: (() => void) | null = null;
+  let existingProfiles = new Set<string>();
 
   const sourceOptions = $derived([
     { value: "file", label: t("File .r2z", $language) },
@@ -73,15 +74,15 @@
     unlisten = null;
   }
 
-  // The new profile id is unknown until the first event, so lock onto it then.
-  function track(event: ModInstallProgress): void {
-    if (importProfileId === null) importProfileId = event.profileId;
+  // The new profile id is unknown until its first event; installs into existing profiles are ignored.
+  function track(event: InstallProgress): void {
+    if (importProfileId === null && !existingProfiles.has(event.profileId)) importProfileId = event.profileId;
     if (event.profileId === importProfileId) progress = event;
   }
 
   async function chooseFile(): Promise<void> {
     try {
-      const picked = await pickProfileFile();
+      const picked = await pickModProfileFile();
       if (picked !== null) path = picked;
     } catch (reason) {
       error = toMessage(reason);
@@ -96,8 +97,9 @@
     error = null;
     progress = null;
     importProfileId = null;
+    existingProfiles = new Set(get(modProfiles(gameId)).data.map((profile) => profile.id));
     try {
-      unlisten = await observeModInstallProgress(track);
+      unlisten = await observeInstallProgress(track);
       const result = source === "file" && path !== null
         ? await importModProfileFile(gameId, path, profileName)
         : await importModProfileCode(gameId, normalizeProfileCode(code) ?? code, profileName);
