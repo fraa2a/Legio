@@ -22,6 +22,7 @@ use super::{
         InstallOutcome, InstallProgress, InstallStage, ModdingContext, install_packages,
         set_mod_enabled,
     },
+    loader_install::plan_loader_request,
     package_cache::{PackageCache, PackageVersionRecord},
     package_id::{PackageName, PackageVersionId, Version},
     profile_commands::{
@@ -161,6 +162,7 @@ struct Online<'a> {
     cache: PackageCache,
     http: ThunderstoreHttp,
     community: &'a str,
+    operation_id: Option<String>,
     cancel: watch::Receiver<bool>,
 }
 
@@ -180,7 +182,7 @@ impl Online<'_> {
         destination: &Path,
         position: (usize, usize),
     ) -> Result<(), String> {
-        let emit = progress_emitter(self.app);
+        let emit = progress_emitter(self.app, self.operation_id.clone());
         let mut last_report: Option<Instant> = None;
         let on_progress = |received: u64, total: Option<u64>| {
             let finished = total == Some(received);
@@ -189,13 +191,14 @@ impl Online<'_> {
             }
             last_report = Some(Instant::now());
             emit(&InstallProgress {
-                profile_id: profile_id.to_owned(),
-                package: Some(package.id.to_string()),
-                stage: InstallStage::Downloading,
-                current: position.0,
-                total: position.1,
                 downloaded_bytes: Some(received),
                 total_bytes: total,
+                ..InstallProgress::new(
+                    profile_id,
+                    Some(&package.id),
+                    InstallStage::Downloading,
+                    position,
+                )
             });
         };
         // Runs on a blocking thread, never on an executor thread.
@@ -236,6 +239,7 @@ fn with_online<T>(
     app: &AppHandle,
     community: &str,
     profile_id: &str,
+    operation_id: Option<&str>,
     work: impl FnOnce(&Online<'_>) -> Result<T, String>,
 ) -> Result<T, String> {
     let cache = app.state::<PackageCache>().inner().clone();
@@ -247,22 +251,25 @@ fn with_online<T>(
         cache,
         http: app.state::<ThunderstoreHttp>().inner().clone(),
         community,
+        operation_id: operation_id.map(str::to_owned),
         cancel: session.cancel.clone(),
     };
     work(&online)
 }
 
-/// Installs packages from the Thunderstore catalog of `community`.
+/// Installs packages from the Thunderstore catalog of `community`. Progress
+/// events carry `operation_id`.
 pub(crate) fn install_from_catalog(
     app: &AppHandle,
     ctx: &ModdingContext<'_>,
     community: &str,
     profile_id: &str,
+    operation_id: Option<&str>,
     requests: &[InstallRequest],
     mode: ResolveMode,
 ) -> Result<InstallOutcome, String> {
-    with_online(app, community, profile_id, |online| {
-        let emit = progress_emitter(app);
+    with_online(app, community, profile_id, operation_id, |online| {
+        let emit = progress_emitter(app, operation_id.map(str::to_owned));
         let position = Cell::new((0, 0));
         let progress = |progress: &InstallProgress| {
             position.set((progress.current, progress.total));
@@ -292,7 +299,7 @@ pub(crate) fn redownload_package(
     profile_id: &str,
     id: &PackageVersionId,
 ) -> Result<(), String> {
-    with_online(app, community, profile_id, |online| {
+    with_online(app, community, profile_id, None, |online| {
         let package = online
             .source()
             .exact(id)?
@@ -357,6 +364,7 @@ pub async fn install_mods(
     app: AppHandle,
     profile_id: String,
     packages: Vec<ModRequest>,
+    operation_id: Option<String>,
 ) -> Result<ModInstallResult, String> {
     let requests = parse_requests(&packages)?;
     let schema = app.state::<EcosystemStore>().schema().await?;
@@ -374,7 +382,50 @@ pub async fn install_mods(
                     ctx,
                     community,
                     &profile_id,
+                    operation_id.as_deref(),
                     &requests,
+                    ResolveMode::Latest,
+                )
+                .map(ModInstallResult::from)
+            },
+        )
+    })
+    .await
+}
+
+/// Installs the newest version of the game's mod loader into the profile.
+#[tauri::command]
+pub async fn install_mod_loader(
+    app: AppHandle,
+    profile_id: String,
+    operation_id: Option<String>,
+) -> Result<ModInstallResult, String> {
+    let schema = app.state::<EcosystemStore>().schema().await?;
+    run_modding(app, move |app, database, paths, locks| {
+        require_profile_not_running(app, database, paths, &profile_id)?;
+        with_game_rules(
+            database,
+            paths,
+            locks,
+            &schema,
+            &profile_id,
+            |ctx, community| {
+                require_catalog(app, community)?;
+                let cache = app.state::<PackageCache>();
+                let request = plan_loader_request(
+                    ctx,
+                    &CatalogSource {
+                        cache: &cache,
+                        community,
+                    },
+                )?;
+                install_from_catalog(
+                    app,
+                    ctx,
+                    community,
+                    &profile_id,
+                    operation_id.as_deref(),
+                    &[request],
                     ResolveMode::Latest,
                 )
                 .map(ModInstallResult::from)
@@ -412,6 +463,7 @@ pub async fn update_profile_mods(
     app: AppHandle,
     profile_id: String,
     full_names: Option<Vec<String>>,
+    operation_id: Option<String>,
 ) -> Result<ModInstallResult, String> {
     let schema = app.state::<EcosystemStore>().schema().await?;
     run_modding(app, move |app, database, paths, locks| {
@@ -466,6 +518,7 @@ pub async fn update_profile_mods(
                     ctx,
                     community,
                     &profile_id,
+                    operation_id.as_deref(),
                     &requests,
                     ResolveMode::Latest,
                 )?;

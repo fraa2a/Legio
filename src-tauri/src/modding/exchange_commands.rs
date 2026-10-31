@@ -19,11 +19,9 @@ use super::profile_exchange::{
     ExportedMod, ProfileImport, apply_import_files, export_profile, export_profile_to_file,
     read_r2z, read_r2z_file,
 };
-use super::profiles::{create_profile, delete_profile};
+use super::profiles::{create_profile, delete_profile, profile_for_game};
 use super::thunderstore_http::ThunderstoreHttp;
-use crate::database::{Database, ModProfile};
-
-const MAX_PROFILE_NAME_CHARS: usize = 64;
+use crate::database::{Database, MAX_PROFILE_NAME_CHARS, ModProfile};
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -31,7 +29,8 @@ pub(crate) struct ProfileImportOutcome {
     profile: ModProfile,
     /// `Owner-Name-1.2.3` of the mods installed in the new profile.
     installed: Vec<String>,
-    /// Archive entries that were not imported because their type is not allowed.
+    /// Archive entries that were not imported because they are not allowed
+    /// config files in the BepInEx config folder.
     skipped_files: Vec<String>,
     /// Mods of the export that Thunderstore no longer has, in `Owner-Name-1.2.3` form.
     missing_packages: Vec<String>,
@@ -52,10 +51,7 @@ fn export_input(
     game_id: &str,
     profile_id: &str,
 ) -> Result<ExportInput, String> {
-    let profile = database
-        .mod_profile(profile_id)?
-        .filter(|profile| profile.game_id.eq_ignore_ascii_case(game_id))
-        .ok_or_else(|| "The mod profile does not exist".to_owned())?;
+    let (profile, directory) = profile_for_game(database, paths, game_id, profile_id)?;
     let mods = database
         .profile_mods(&profile.id)?
         .into_iter()
@@ -68,7 +64,6 @@ fn export_input(
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
-    let directory = paths.profile_dir(&profile.game_id, &profile.id)?;
     Ok(ExportInput {
         profile,
         directory,
@@ -129,13 +124,14 @@ pub async fn import_mod_profile_file(
     game_id: String,
     path: String,
     profile_name: Option<String>,
+    operation_id: Option<String>,
 ) -> Result<ProfileImportOutcome, String> {
     crate::startup_recovery::wait(&app).await?;
     let path = require_absolute(&path, "Profile import")?;
     let import = tauri::async_runtime::spawn_blocking(move || read_r2z_file(&path))
         .await
         .map_err(|error| format!("Profile file task failed: {error}"))??;
-    import_into_new_profile(app, game_id, import, profile_name).await
+    import_into_new_profile(app, game_id, import, profile_name, operation_id).await
 }
 
 /// Creates a new profile from a Thunderstore profile code.
@@ -145,6 +141,7 @@ pub async fn import_mod_profile_code(
     game_id: String,
     code: String,
     profile_name: Option<String>,
+    operation_id: Option<String>,
 ) -> Result<ProfileImportOutcome, String> {
     crate::startup_recovery::wait(&app).await?;
     let http = app.state::<ThunderstoreHttp>().inner().clone();
@@ -152,7 +149,7 @@ pub async fn import_mod_profile_code(
     let import = tauri::async_runtime::spawn_blocking(move || read_r2z(&archive))
         .await
         .map_err(|error| format!("Profile data task failed: {error}"))??;
-    import_into_new_profile(app, game_id, import, profile_name).await
+    import_into_new_profile(app, game_id, import, profile_name, operation_id).await
 }
 
 async fn import_into_new_profile(
@@ -160,6 +157,7 @@ async fn import_into_new_profile(
     game_id: String,
     import: ProfileImport,
     profile_name: Option<String>,
+    operation_id: Option<String>,
 ) -> Result<ProfileImportOutcome, String> {
     let schema = app.state::<EcosystemStore>().schema().await?;
     run_modding(app, move |app, database, paths, locks| {
@@ -183,6 +181,7 @@ async fn import_into_new_profile(
                     &ctx,
                     &community,
                     profile_id,
+                    operation_id.as_deref(),
                     requests,
                     ResolveMode::Exact,
                 )

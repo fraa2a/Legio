@@ -124,6 +124,7 @@ fn main() {
             "open_mod_profile_folder",
             "list_profile_mods",
             "install_mods",
+            "install_mod_loader",
             "list_mod_updates",
             "update_profile_mods",
             "cancel_mod_install",
