@@ -14,6 +14,7 @@ pub mod archive_install;
 mod artwork_display;
 mod artwork_publication;
 mod artwork_scheduler;
+mod atomic_file;
 mod background_process;
 mod buzzheavier;
 mod catalog;

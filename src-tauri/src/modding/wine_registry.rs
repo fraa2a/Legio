@@ -6,14 +6,12 @@
 // Only Linux patches a Proton prefix; the code stays compiled and tested everywhere.
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::path::Path;
 
 const DLL_OVERRIDES_SECTION: &str = "[Software\\\\Wine\\\\DllOverrides]";
 const UNIX_TO_FILETIME_SECONDS: u64 = 11_644_473_600;
 const BACKUP_NAME: &str = "user.reg.legio.bak";
-const TEMPORARY_NAME: &str = "user.reg.legio.tmp";
 
 /// Sets `name=value` in the DLL overrides section, creating the section when
 /// missing. Returns `None` when the registry already holds the value.
@@ -69,28 +67,8 @@ pub(super) fn patch_user_reg(
         fs::copy(user_reg, &backup)
             .map_err(|error| format!("Could not back up the Wine registry: {error}"))?;
     }
-    write_atomic(user_reg, directory.join(TEMPORARY_NAME), patched.as_bytes())
-}
-
-fn write_atomic(path: &Path, temporary: PathBuf, bytes: &[u8]) -> Result<(), String> {
-    let result = (|| {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&temporary)
-            .map_err(|error| format!("Could not create the temporary Wine registry: {error}"))?;
-        file.write_all(bytes)
-            .and_then(|()| file.sync_all())
-            .map_err(|error| format!("Could not write the temporary Wine registry: {error}"))?;
-        fs::rename(&temporary, path)
-            .map_err(|error| format!("Could not replace the Wine registry: {error}"))
-    })();
-    if result.is_err() {
-        // A leftover temporary file is truncated on the next attempt.
-        let _ = fs::remove_file(&temporary);
-    }
-    result
+    crate::atomic_file::write_atomic(user_reg, patched.as_bytes())
+        .map_err(|error| format!("Could not replace the Wine registry: {error}"))
 }
 
 fn is_section_header(line: &str) -> bool {
@@ -207,7 +185,7 @@ mod tests {
             fs::read_to_string(directory.join(BACKUP_NAME)).unwrap(),
             REGISTRY
         );
-        assert!(!directory.join(TEMPORARY_NAME).exists());
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 2);
 
         patch_user_reg(&user_reg, "winhttp", "native,builtin", 6).unwrap();
         assert_eq!(fs::read_to_string(&user_reg).unwrap(), patched);

@@ -3,7 +3,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::Serialize;
 use uuid::Uuid;
 
-const MAX_PROFILE_NAME_CHARS: usize = 64;
+pub(crate) const MAX_PROFILE_NAME_CHARS: usize = 64;
 const MAX_ECOSYSTEM_ID_CHARS: usize = 128;
 
 /// Thunderstore binding of a game. `active_profile_id` of `None` means vanilla.
@@ -548,23 +548,9 @@ fn require_mod_text(value: &str, label: &str) -> Result<(), String> {
 }
 
 fn validate_relative_paths(paths: &[String]) -> Result<(), String> {
-    for path in paths {
-        let invalid = path.is_empty()
-            || path.starts_with('/')
-            || path.contains('\\')
-            || path.chars().any(char::is_control)
-            || path
-                .split('/')
-                .any(|part| part.is_empty() || part == "." || part == "..")
-            || path
-                .split('/')
-                .next()
-                .is_some_and(|part| part.contains(':'));
-        if invalid {
-            return Err(format!("File path \"{path}\" is not a safe relative path"));
-        }
-    }
-    Ok(())
+    paths
+        .iter()
+        .try_for_each(|path| crate::modding::paths::validate_relative_path(path))
 }
 
 fn is_constraint_violation(error: &rusqlite::Error) -> bool {

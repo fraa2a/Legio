@@ -59,6 +59,33 @@ impl ModdingPaths {
     }
 }
 
+/// Checks a `/`-separated path that is relative to a profile or game folder:
+/// no empty, `.` or `..` parts, no backslashes, colons or control characters,
+/// and no part ending in a dot or space (Windows drops them).
+pub(crate) fn validate_relative_path(path: &str) -> Result<(), String> {
+    let invalid = path.split('/').any(|part| {
+        part.is_empty()
+            || part == "."
+            || part == ".."
+            || part.contains(['\\', ':'])
+            || part.chars().any(char::is_control)
+            || part.ends_with(['.', ' '])
+    });
+    if invalid {
+        Err(format!("File path \"{path}\" is not a safe relative path"))
+    } else {
+        Ok(())
+    }
+}
+
+/// Joins a validated relative path onto `base`.
+pub(crate) fn join_relative(base: &Path, relative: &str) -> Result<PathBuf, String> {
+    validate_relative_path(relative)?;
+    Ok(relative
+        .split('/')
+        .fold(base.to_path_buf(), |path, part| path.join(part)))
+}
+
 fn canonical_id(value: &str, label: &str) -> Result<String, String> {
     Uuid::parse_str(value)
         .map(|id| id.to_string())
@@ -98,6 +125,47 @@ mod tests {
             assert!(paths.game_dir(id).is_err(), "{id}");
             assert!(paths.profile_dir(GAME, id).is_err(), "{id}");
             assert!(paths.profile_dir(id, PROFILE).is_err(), "{id}");
+        }
+    }
+
+    #[test]
+    fn accepts_plain_relative_paths() {
+        for path in [
+            "a",
+            "a/b.txt",
+            "BepInEx/plugins/Owner-Mod/Mod.dll",
+            ".hidden",
+        ] {
+            assert!(validate_relative_path(path).is_ok(), "{path}");
+        }
+        assert_eq!(
+            join_relative(Path::new("base"), "a/b.txt").unwrap(),
+            Path::new("base").join("a").join("b.txt")
+        );
+    }
+
+    #[test]
+    fn rejects_unsafe_relative_paths() {
+        for path in [
+            "",
+            "/abs",
+            "a//b",
+            "a/",
+            ".",
+            "..",
+            "../x",
+            "a/../x",
+            "a/./b",
+            "a\\b",
+            "C:/x",
+            "a/b:stream",
+            "a/b\u{7}",
+            "a/b.",
+            "a /b",
+            "a/b ",
+        ] {
+            assert!(validate_relative_path(path).is_err(), "{path:?}");
+            assert!(join_relative(Path::new("base"), path).is_err(), "{path:?}");
         }
     }
 
