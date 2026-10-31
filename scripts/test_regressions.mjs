@@ -298,6 +298,7 @@ test("native launch events invalidate stale reads and reduce polling during game
       "../services/launch": dataModule("export const launchConfiguredGameWithRunner = async () => {}; export const launchNativeGame = async () => {};"),
       "../services/game-settings": dataModule("export const getCompatibilityLogsDirectory = async () => '';"),
       "../services/window": dataModule("export const hideWindow = async () => {}; export const showWindow = async () => {};"),
+      "../features/modding/modding-model": dataModule("export const describeModdingError = (message) => message;"),
     });
     await launch.startLaunchEvents();
     const pending = launch.launchStates.load();

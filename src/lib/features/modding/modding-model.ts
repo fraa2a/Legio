@@ -1,4 +1,5 @@
 import { t, type Language } from "../../i18n";
+import { toMessage } from "../../utils/errors";
 import type {
   EcosystemGameSummary,
   InstallProgress,
@@ -67,15 +68,17 @@ function hasForbiddenCharacter(value: string): boolean {
   });
 }
 
+export const maxProfileNameLength = 64;
+
 export function profileNameError(
   name: string,
   profiles: readonly ModProfile[],
-  selected: Language,
+  selected?: Language,
   exceptId: string | null = null,
 ): string | null {
   const trimmed = name.trim();
   if (trimmed.length === 0) return t("Inserisci un nome.", selected);
-  if ([...trimmed].length > 64) return t("Il nome può avere al massimo 64 caratteri.", selected);
+  if ([...trimmed].length > maxProfileNameLength) return t("Il nome può avere al massimo {0} caratteri.", selected, [maxProfileNameLength]);
   if (hasForbiddenCharacter(trimmed)) return t("Il nome non può contenere / o \\.", selected);
   const lower = trimmed.toLowerCase();
   if (profiles.some((profile) => profile.id !== exceptId && profile.name.toLowerCase() === lower)) {
@@ -148,25 +151,13 @@ export function installedState(
     : { kind: "outdated", version: mod.version, latestVersion: update.latestVersion };
 }
 
-// BepInEx packs are named BepInExPack or BepInExPack_<Game> depending on the community.
-export function isLoaderPackage(fullName: string): boolean {
-  return /^bepinexpack(?:_|$)/i.test(splitFullName(fullName).name);
-}
+export type LaunchNotice = "none" | "launch-unsupported" | "loader-missing";
 
-export function pickLoaderPackage(candidates: readonly PackageSummary[]): PackageSummary | null {
-  const loaders = candidates.filter((candidate) => isLoaderPackage(candidate.fullName) && !candidate.isDeprecated);
-  loaders.sort((left, right) =>
-    Number(right.isPinned) - Number(left.isPinned) || right.totalDownloads - left.totalDownloads);
-  return loaders[0] ?? null;
-}
-
-export type LaunchNotice = "none" | "vanilla" | "launch-unsupported" | "loader-missing";
-
+// `loaderDeployed` only turns true at launch, so the profile itself decides whether BepInEx is missing.
 export function launchNotice(status: ModLaunchStatus | null): LaunchNotice {
-  if (status === null || !status.bound) return "none";
-  if (status.activeProfileId === null) return "vanilla";
+  if (status === null || !status.bound || status.activeProfileId === null) return "none";
   if (!status.launchSupported) return "launch-unsupported";
-  return status.loaderDeployed ? "none" : "loader-missing";
+  return status.preloaderFound ? "none" : "loader-missing";
 }
 
 export interface BrowserFilters {
@@ -215,12 +206,6 @@ export function appendPage(previous: readonly PackageSummary[], next: readonly P
   return [...previous, ...next.filter((item) => !seen.has(modKey(item.fullName)))];
 }
 
-const catalogFreshSeconds = 60 * 60;
-
-export function isCatalogStale(syncedAt: number | null, nowMilliseconds: number): boolean {
-  return syncedAt === null || nowMilliseconds / 1000 - syncedAt > catalogFreshSeconds;
-}
-
 export function catalogPercent(chunksDone: number, chunksTotal: number): number {
   return chunksTotal <= 0 ? 0 : Math.round((chunksDone / chunksTotal) * 100);
 }
@@ -254,15 +239,39 @@ const knownErrors: Record<string, string> = {
   "Mods are already being downloaded for this profile": "È già in corso un download di mod per questo profilo.",
   "Download cancelled": "Download annullato.",
   "The mod catalog of this game has not been downloaded yet. Refresh it first": "Il catalogo delle mod di questo gioco non è ancora stato scaricato. Aggiornalo prima.",
+  "The active mod profile has no BepInEx loader. Install BepInExPack in the profile first": "Il profilo mod attivo non ha BepInEx. Installalo dal gestore delle mod o scegli Vanilla per avviare senza mod.",
+  "The config file changed on disk; reload it": "Il file è cambiato sul disco: ricaricalo prima di salvare.",
 };
 
-export function describeModdingError(message: string, selected: Language): string {
-  const known = knownErrors[message.trim().replace(/\.$/, "")];
-  return known === undefined ? message : t(known, selected);
+// Errors carrying a name; the first group fills the Italian `{0}`.
+const knownPatterns: [RegExp, string][] = [
+  [/^(.+?) already exists in the game folder and was not installed by Legio\b/, "{0} è già nella cartella del gioco e non è stato installato da Legio. Spostalo o rimuovilo per avviare con le mod."],
+  [/^A mod profile named "(.*)" already exists\.?$/, "Esiste già un profilo chiamato \"{0}\". Scegli un altro nome."],
+];
+
+export function describeModdingError(message: string, selected?: Language): string {
+  const trimmed = message.trim();
+  const known = knownErrors[trimmed.replace(/\.$/, "")];
+  if (known !== undefined) return t(known, selected);
+  for (const [pattern, translation] of knownPatterns) {
+    const match = pattern.exec(trimmed);
+    if (match !== null) return t(translation, selected, [match[1]]);
+  }
+  return message;
 }
 
-export function isCancellation(message: string): boolean {
+function isCancellation(message: string): boolean {
   return message.trim().replace(/\.$/, "") === "Download cancelled";
+}
+
+export type ModdingFailure = { kind: "cancelled"; message: string } | { kind: "error"; message: string };
+
+// A cancelled install is reported as a toast, every other failure inline.
+export function classifyModdingError(error: unknown, selected?: Language): ModdingFailure {
+  const message = toMessage(error);
+  return isCancellation(message)
+    ? { kind: "cancelled", message: t("Installazione annullata.", selected) }
+    : { kind: "error", message: describeModdingError(message, selected) };
 }
 
 // Installed mods whose installed version lists `fullName` among its dependencies.

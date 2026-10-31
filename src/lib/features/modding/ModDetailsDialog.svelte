@@ -105,7 +105,7 @@
             { label: t("Aggiornata", $language), value: formatDate(summary.dateUpdated, $language) },
             { label: t("Dimensione", $language), value: version === null ? "-" : formatBytes(version.fileSize, $language) },
           ] as stat (stat.label)}
-            <div class="rounded-xl bg-white/5 px-3 py-2 light:bg-zinc-900/5">
+            <div class="rounded-lg bg-white/5 p-3 light:bg-zinc-900/5">
               <dt class="text-xs text-zinc-400 light:text-zinc-600">{stat.label}</dt>
               <dd class="mt-0.5 truncate text-sm font-medium tabular-nums text-zinc-100 light:text-zinc-900">{stat.value}</dd>
             </div>

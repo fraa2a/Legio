@@ -66,15 +66,29 @@ test("config model chooses controls, validates numbers and collects only changed
   assert.equal(model.validateEntry(ranged, "2.5"), "Inserisci un numero intero");
   assert.equal(model.validateEntry(ranged, ""), "Inserisci un numero");
 
-  const config = { sections: [{ name: "A", entries: [entry({ key: "x", value: "1" }), entry({ key: "y", value: "2" })] }, { name: "B", entries: [entry({ key: "x", value: "3" })] }] };
+  const config = { sections: [
+    { name: "A", entries: [entry({ key: "x", value: "1", line: 1 }), entry({ key: "y", value: "2", line: 2 })] },
+    { name: "B", entries: [entry({ key: "x", value: "3", line: 4 })] },
+  ] };
   let changes = {};
   changes = model.setChange(changes, "A", config.sections[0].entries[0], "9");
   changes = model.setChange(changes, "A", config.sections[0].entries[1], "2");
   changes = model.setChange(changes, "B", config.sections[1].entries[0], "4");
   changes = model.setChange(changes, "B", config.sections[1].entries[0], "3");
-  assert.deepEqual(model.collectEdits(config, changes), [{ section: "A", key: "x", value: "9" }]);
+  assert.deepEqual(model.collectEdits(config, changes), [{ section: "A", key: "x", value: "9", line: 1 }]);
   assert.equal(model.currentValue("A", config.sections[0].entries[0], changes), "9");
-  assert.deepEqual(model.filterSections(config, "y").map((section) => section.name), ["A"]);
+  assert.deepEqual(model.filterSections(config, "y").map((section) => section.id), ["0"]);
+
+  // Repeated section and key names stay separate entries.
+  const repeated = { sections: [
+    { name: "General", entries: [entry({ key: "x", value: "1", line: 1 })] },
+    { name: "General", entries: [entry({ key: "x", value: "1", line: 4 })] },
+  ] };
+  const edited = model.setChange({}, "General", repeated.sections[1].entries[0], "2");
+  assert.equal(model.currentValue("General", repeated.sections[0].entries[0], edited), "1");
+  assert.deepEqual(model.collectEdits(repeated, edited), [{ section: "General", key: "x", value: "2", line: 4 }]);
+  assert.deepEqual(model.filterSections(repeated, "").map((section) => section.id), ["0", "1"]);
+  assert.deepEqual(model.initialOpenSections(repeated), ["0", "1"]);
 
   const files = [{ relativePath: "plugins/b.cfg", size: 1, modified: 1 }, { relativePath: "a.cfg", size: 1, modified: 1 }, { relativePath: "plugins/A2.txt", size: 1, modified: 1 }];
   assert.deepEqual(model.filterConfigFiles(files, "").map((view) => view.file.relativePath), ["a.cfg", "plugins/A2.txt", "plugins/b.cfg"]);
@@ -83,29 +97,21 @@ test("config model chooses controls, validates numbers and collects only changed
   assert.notEqual(model.textSizeError("a".repeat(model.maxConfigTextBytes + 1)), null);
 });
 
-test("exchange model validates codes and names and describes progress", async () => {
+test("exchange model validates codes and file names", async () => {
   const model = await import(await load("src/lib/features/modding/mod-profile-exchange-model.ts"));
   assert.equal(model.normalizeProfileCode("  123E4567-E89B-12D3-A456-426614174000 "), "123e4567-e89b-12d3-a456-426614174000");
   assert.equal(model.normalizeProfileCode("not-a-code"), null);
   assert.equal(model.profileCodeError(""), null);
   assert.notEqual(model.profileCodeError("abc"), null);
-  assert.equal(model.profileNameError(""), null);
-  assert.notEqual(model.profileNameError("a/b"), null);
-  assert.notEqual(model.profileNameError("x".repeat(65)), null);
-  assert.equal(model.canStartImport("file", null, "", ""), false);
-  assert.equal(model.canStartImport("file", "/a.r2z", "", ""), true);
-  assert.equal(model.canStartImport("code", null, "bad", ""), false);
-  assert.equal(model.canStartImport("code", null, "123e4567-e89b-12d3-a456-426614174000", "bad/name"), false);
+  assert.equal(model.canStartImport("file", null, "", null), false);
+  assert.equal(model.canStartImport("file", "/a.r2z", "", null), true);
+  assert.equal(model.canStartImport("code", null, "bad", null), false);
+  assert.equal(model.canStartImport("code", null, "123e4567-e89b-12d3-a456-426614174000", "invalid name"), false);
   assert.equal(model.exportFileName('My: "Profile"?'), "My- -Profile--.r2z");
   assert.equal(model.exportFileName("..."), "profile.r2z");
   assert.equal(model.fileNameOf("C:\\dir\\pack.r2z"), "pack.r2z");
 
-  assert.deepEqual(model.describeProgress(null), { label: "Risoluzione delle dipendenze...", percent: null });
-  const downloading = { profileId: "p", package: "A-B-1.0.0", stage: "downloading", current: 2, total: 4, downloadedBytes: 50, totalBytes: 100 };
-  assert.deepEqual(model.describeProgress(downloading), { label: "Download di A-B-1.0.0 (2/4)", percent: 38 });
-  assert.equal(model.describeProgress({ ...downloading, stage: "done" }).percent, 100);
   const summary = model.summarizeImport({ profile: {}, installed: ["a"], skippedFiles: [], missingPackages: ["m"], warnings: [] });
-  assert.equal(summary.clean, false);
   assert.equal(summary.installed, 1);
 });
 
@@ -148,7 +154,7 @@ test("config editor saves only changed entries and resets values to their defaul
     assert.ok(target.textContent.includes("Turns it on"));
     assert.equal(buttonWith(target, "Salva").disabled, true);
 
-    typeInto(target.querySelector("#mod-config-General-Greeting"), "Hey");
+    typeInto(target.querySelector("#mod-config-line-5"), "Hey");
     await settle();
     assert.equal(buttonWith(target, "Salva").disabled, false);
     assert.equal(dirtyStates.at(-1), true);
@@ -157,11 +163,11 @@ test("config editor saves only changed entries and resets values to their defaul
 
     const resetButtons = [...target.querySelectorAll('button[aria-label="Ripristina il valore predefinito"]')];
     assert.equal(resetButtons.filter((button) => !button.disabled).length, 3, "Greeting, Speed and the toggled Enabled differ from their defaults");
-    typeInto(target.querySelector("#mod-config-General-Speed"), "99");
+    typeInto(target.querySelector("#mod-config-line-4"), "99");
     await settle();
     assert.equal(buttonWith(target, "Salva").disabled, true, "an out of range number blocks saving");
     assert.ok(target.textContent.includes("Il valore massimo è 10"));
-    typeInto(target.querySelector("#mod-config-General-Speed"), "1.5");
+    typeInto(target.querySelector("#mod-config-line-4"), "1.5");
     await settle();
     assert.equal(buttonWith(target, "Salva").disabled, false);
 
@@ -170,7 +176,7 @@ test("config editor saves only changed entries and resets values to their defaul
     const save = globalThis.extraCalls.find(([command]) => command === "save_mod_config_entries");
     assert.deepEqual(save[1], {
       gameId: "g", profileId: "p", relativePath: "BepInEx.cfg",
-      edits: [{ section: "General", key: "Enabled", value: "false" }, { section: "General", key: "Greeting", value: "Hey" }],
+      edits: [{ section: "General", key: "Enabled", value: "false", line: 2 }, { section: "General", key: "Greeting", value: "Hey", line: 5 }],
     });
     assert.equal(globalThis.extraToasts.length, 1);
     assert.equal(dirtyStates.at(-1), false, "the file is re-read after saving");
@@ -181,13 +187,13 @@ test("config editor picks acceptable values and edits raw text", async () => {
   reset(configInvoke());
   const { target, dispose } = await mountComponent("src/lib/features/modding/ModConfigEditor.svelte", { gameId: "g", profileId: "p" });
   try {
-    target.querySelector("[id$='-Mode']").click();
+    target.querySelector("#mod-config-line-3").click();
     await settle();
     [...target.querySelectorAll('[role="option"]')].find((option) => option.textContent.trim() === "Hard").click();
     await settle();
     buttonWith(target, "Salva").click();
     await settle();
-    assert.deepEqual(globalThis.extraCalls.find(([command]) => command === "save_mod_config_entries")[1].edits, [{ section: "General", key: "Mode", value: "Hard" }]);
+    assert.deepEqual(globalThis.extraCalls.find(([command]) => command === "save_mod_config_entries")[1].edits, [{ section: "General", key: "Mode", value: "Hard", line: 3 }]);
 
     target.querySelector('input[name="mod-config-mode"][value="raw"]').click();
     await settle();
@@ -207,7 +213,7 @@ test("config editor guards unsaved edits and shows plain files as raw text only"
   reset(configInvoke());
   const { target, dispose } = await mountComponent("src/lib/features/modding/ModConfigEditor.svelte", { gameId: "g", profileId: "p" });
   try {
-    typeInto(target.querySelector("#mod-config-General-Greeting"), "Changed");
+    typeInto(target.querySelector("#mod-config-line-5"), "Changed");
     await settle();
     const fileButton = [...target.querySelectorAll("aside button")].find((button) => button.textContent.includes("notes.txt"));
     fileButton.click();
@@ -217,7 +223,7 @@ test("config editor guards unsaved edits and shows plain files as raw text only"
     buttonWith(target, "Continua a modificare").click();
     await settle();
     assert.equal(target.querySelector('[role="dialog"]'), null);
-    assert.equal(target.querySelector("#mod-config-General-Greeting").value, "Changed");
+    assert.equal(target.querySelector("#mod-config-line-5").value, "Changed");
 
     fileButton.click();
     await settle();
@@ -274,18 +280,27 @@ test("import dialog imports a code with progress, a summary and the new profile"
     await settle();
     buttonWith(target, "Importa").click();
     await settle();
-    assert.deepEqual(globalThis.extraCalls.at(-1), ["import_mod_profile_code", { gameId: "g", code, profileName: "Shared" }]);
-    assert.equal(buttonWith(target, "Annulla importazione").disabled, true, "the profile id is unknown before the first event");
+    const [command, args] = globalThis.extraCalls.at(-1);
+    assert.equal(command, "import_mod_profile_code");
+    assert.deepEqual({ ...args, operationId: undefined }, { gameId: "g", code, profileName: "Shared", operationId: undefined });
+    assert.match(args.operationId, /^[0-9a-f-]{36}$/);
+    assert.equal(buttonWith(target, "Annulla"), undefined, "nothing to cancel before the first event");
 
-    globalThis.extraListeners.get("modding-install-progress")({ payload: { profileId: "new", package: "A-B-1.0.0", stage: "downloading", current: 1, total: 2, downloadedBytes: 10, totalBytes: 100 } });
+    const emit = (payload) => globalThis.extraListeners.get("modding-install-progress")({ payload });
+    // An install started elsewhere into another new profile, without this import's operation id.
+    emit({ profileId: "other", operationId: null, cancellable: true, package: "Z-Z-1.0.0", stage: "downloading", current: 1, total: 1, downloadedBytes: 1, totalBytes: 2 });
     await settle();
-    assert.ok(target.textContent.includes("Download di A-B-1.0.0 (1/2)"));
-    assert.equal(target.querySelector('[role="progressbar"]').getAttribute("aria-valuenow"), "5");
-    globalThis.extraListeners.get("modding-install-progress")({ payload: { profileId: "other", package: "Z-Z-1.0.0", stage: "extracting", current: 1, total: 1, downloadedBytes: null, totalBytes: null } });
+    assert.ok(!target.textContent.includes("Z Z"), "events of other operations are ignored");
+    emit({ profileId: "new", operationId: args.operationId, cancellable: false, package: "A-B-1.0.0", stage: "extracting", current: 1, total: 2, downloadedBytes: null, totalBytes: null });
     await settle();
-    assert.ok(!target.textContent.includes("Z-Z-1.0.0"), "events of another profile are ignored");
+    assert.ok(target.textContent.includes("Estrazione"));
+    assert.equal(buttonWith(target, "Annulla"), undefined, "extraction cannot be cancelled");
+    emit({ profileId: "new", operationId: args.operationId, cancellable: true, package: "A-B-1.0.0", stage: "downloading", current: 2, total: 2, downloadedBytes: 10, totalBytes: 100 });
+    await settle();
+    assert.ok(target.textContent.includes("Pacchetto 2 di 2"));
+    assert.equal(target.querySelector('[role="progressbar"]').getAttribute("aria-valuenow"), "10");
 
-    buttonWith(target, "Annulla importazione").click();
+    buttonWith(target, "Annulla").click();
     await settle();
     assert.deepEqual(globalThis.extraCalls.at(-1), ["cancel_mod_install", { profileId: "new" }]);
 
@@ -310,7 +325,11 @@ test("import dialog imports a picked file and shows backend errors", async () =>
     assert.ok(target.textContent.includes("pack.r2z"));
     buttonWith(target, "Importa").click();
     await settle();
-    assert.deepEqual(globalThis.extraCalls.at(-1), ["import_mod_profile_file", { gameId: "g", path: "C:\\profiles\\pack.r2z", profileName: undefined }]);
+    const [command, args] = globalThis.extraCalls.at(-1);
+    assert.equal(command, "import_mod_profile_file");
+    assert.equal(args.path, "C:\\profiles\\pack.r2z");
+    assert.equal(args.profileName, undefined);
+    assert.equal(typeof args.operationId, "string");
     assert.ok(target.querySelector('[role="alert"]').textContent.includes("catalog of this game"));
     assert.ok(buttonWith(target, "Importa"), "the form stays so the user can retry");
   } finally { await dispose(); }
@@ -326,6 +345,7 @@ test("share dialog exports a file, generates a code and copies it", async () => 
   const { target, dispose } = await mountComponent("src/lib/features/modding/ProfileShareDialog.svelte", { open: true, gameId: "g", profile, onClose() {} });
   try {
     assert.ok(target.textContent.includes("Le mod locali non sono incluse"));
+    assert.ok(target.textContent.includes("vengono caricati su Thunderstore in modo pubblico"));
     buttonWith(target, "Esporta file...").click();
     await settle();
     assert.equal(saves[0].defaultPath, "My- Profile.r2z");

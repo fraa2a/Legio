@@ -16,8 +16,9 @@
   import Icon from "../../components/ui/Icon.svelte";
   import SegmentedControl from "../../components/ui/SegmentedControl.svelte";
   import Spinner from "../../components/ui/Spinner.svelte";
-  import TextField from "../../components/ui/TextField.svelte";
+  import TextField, { textFieldClass } from "../../components/ui/TextField.svelte";
   import ModConfigEntry from "./ModConfigEntry.svelte";
+  import { describeModdingError } from "./modding-model";
   import {
     collectEdits, currentValue, fileListPageSize, filterConfigFiles, filterSections, findInvalidEntries,
     initialOpenSections, sectionChangeCount, setChange, splitConfigPath, textSizeError, type ConfigChanges,
@@ -166,8 +167,8 @@
     saveError = null;
   }
 
-  function toggleSection(name: string): void {
-    openSections = openSections.includes(name) ? openSections.filter((open) => open !== name) : [...openSections, name];
+  function toggleSection(id: string): void {
+    openSections = openSections.includes(id) ? openSections.filter((open) => open !== id) : [...openSections, id];
   }
 
   async function save(): Promise<void> {
@@ -182,7 +183,7 @@
       showToast(t("Configurazione salvata.", $language), "success");
       await Promise.all([openFile(path), refreshFiles()]);
     } catch (reason) {
-      if (!disposed) saveError = toMessage(reason);
+      if (!disposed) saveError = describeModdingError(toMessage(reason), $language);
     } finally {
       saving = false;
     }
@@ -279,21 +280,21 @@
               value={rawText}
               disabled={saving}
               oninput={(event) => (rawText = event.currentTarget.value)}
-              class="min-h-[18rem] w-full flex-1 resize-none rounded-lg border border-transparent bg-white/5 px-3 py-2 font-mono text-xs text-zinc-100 outline-none transition-colors focus:border-white/40 disabled:opacity-50 light:bg-white light:text-zinc-900 light:focus:border-zinc-900/40"
+              class="{textFieldClass} min-h-[18rem] flex-1 resize-none font-mono"
             ></textarea>
           </div>
         {:else if config !== null}
           <div class="flex min-h-0 flex-1 flex-col gap-3 p-4">
             <TextField id="mod-config-entry-filter" label={t("Cerca impostazione", $language)} type="search" placeholder={t("Cerca impostazione...", $language)} bind:value={entryQuery} />
             <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
-              {#each sections as section (section.name)}
+              {#each sections as section (section.id)}
                 {@const changedCount = sectionChangeCount(section, changes)}
-                {@const expanded = searching || openSections.includes(section.name)}
+                {@const expanded = searching || openSections.includes(section.id)}
                 <div class="flex flex-col gap-2">
                   <button
                     type="button"
                     aria-expanded={expanded}
-                    onclick={() => toggleSection(section.name)}
+                    onclick={() => toggleSection(section.id)}
                     class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm font-semibold text-zinc-100 transition-colors hover:bg-white/10 light:text-zinc-900 light:hover:bg-zinc-900/10"
                   >
                     <span class="shrink-0 text-zinc-400 transition-transform motion-reduce:transition-none {expanded ? '' : '-rotate-90'}"><Icon name="chevron-down" size="size-4" /></span>
@@ -303,9 +304,9 @@
                   </button>
                   {#if expanded}
                     <div class="flex flex-col gap-2">
-                      {#each section.entries as entry (entry.key)}
+                      {#each section.entries as entry (entry.line)}
                         <ModConfigEntry
-                          id={`mod-config-${section.name}-${entry.key}`.replace(/\s+/g, "-")}
+                          id={`mod-config-line-${entry.line}`}
                           {entry}
                           value={currentValue(section.name, entry, changes)}
                           onChange={(value) => (changes = setChange(changes, section.name, entry, value))}

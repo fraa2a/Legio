@@ -6,6 +6,7 @@
   let {
     id,
     label,
+    labelHidden = false,
     value = $bindable(),
     options,
     disabled = false,
@@ -16,6 +17,7 @@
   }: {
     id: string;
     label: string;
+    labelHidden?: boolean;
     value: string;
     options: { value: string; label: string }[];
     disabled?: boolean;
@@ -113,7 +115,7 @@
 }} />
 
 <div bind:this={root} class="relative flex flex-col {variant === 'hero' ? 'h-15 justify-center rounded-xl border border-white/10 bg-zinc-950/60 backdrop-blur-md hover:bg-zinc-950/75 light:border-zinc-900/10 light:bg-zinc-100/70 light:hover:bg-zinc-200' : 'gap-1.5'} {className}">
-  <span id={`${id}-label`} class="{variant === 'hero' ? 'px-3 pt-1 text-xs' : 'text-sm'} text-zinc-400 light:text-zinc-600">{label}</span>
+  <span id={`${id}-label`} class={labelHidden ? "sr-only" : `${variant === "hero" ? "px-3 pt-1 text-xs" : "text-sm"} text-zinc-400 light:text-zinc-600`}>{label}</span>
   <button
     bind:this={trigger}
     {id}

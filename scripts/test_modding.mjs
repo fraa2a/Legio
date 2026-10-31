@@ -83,31 +83,24 @@ test("profile names follow the backend rules", () => {
   assert.deepEqual(model.profileOptions(profiles, "it").map(option => option.value), ["", "1", "2"]);
 });
 
-test("package ids, installed state and loader detection", () => {
+test("package ids and installed state", () => {
   assert.deepEqual(model.splitPackageId("BepInEx-BepInExPack-5.4.2100"), { fullName: "BepInEx-BepInExPack", version: "5.4.2100" });
   assert.equal(model.displayPackageId("Owner-More_Suits-1.2.0"), "More Suits 1.2.0");
   const installed = model.indexByFullName([{ fullName: "Owner-Mod", version: "1.0.0" }]);
   const updates = model.indexByFullName([{ fullName: "owner-mod", installedVersion: "1.0.0", latestVersion: "2.0.0" }]);
   assert.deepEqual(model.installedState("OWNER-mod", installed, updates), { kind: "outdated", version: "1.0.0", latestVersion: "2.0.0" });
   assert.deepEqual(model.installedState("Owner-Other", installed, updates), { kind: "missing" });
-  assert.equal(model.isLoaderPackage("denikson-BepInExPack_Valheim"), true);
-  assert.equal(model.isLoaderPackage("Someone-BepInExPackager"), false);
-  const loader = model.pickLoaderPackage([
-    summary("Fake-BepInExPack", { totalDownloads: 5 }),
-    summary("Old-BepInExPack", { totalDownloads: 900, isDeprecated: true }),
-    summary("BepInEx-BepInExPack", { totalDownloads: 50 }),
-    summary("Mod-NotALoader", { totalDownloads: 10000 }),
-  ]);
-  assert.equal(loader.fullName, "BepInEx-BepInExPack");
 });
 
 test("launch notices, queries and progress", () => {
   const status = { bound: true, ecosystemGameId: "lc", activeProfileId: "p", launchSupported: true, loaderDeployed: false, preloaderFound: false, doorstopVersion: null };
   assert.equal(model.launchNotice(null), "none");
-  assert.equal(model.launchNotice({ ...status, activeProfileId: null }), "vanilla");
+  assert.equal(model.launchNotice({ ...status, activeProfileId: null }), "none");
   assert.equal(model.launchNotice({ ...status, launchSupported: false }), "launch-unsupported");
   assert.equal(model.launchNotice(status), "loader-missing");
-  assert.equal(model.launchNotice({ ...status, loaderDeployed: true }), "none");
+  // BepInEx in the profile but not yet copied to the game folder, as before the first launch.
+  assert.equal(model.launchNotice({ ...status, preloaderFound: true }), "none");
+  assert.equal(model.launchNotice({ ...status, loaderDeployed: true }), "loader-missing");
   assert.deepEqual(model.packageQuery({ ...model.defaultBrowserFilters, text: "  suits " }, 30), {
     text: "suits", includeDeprecated: false, includeNsfw: false, sort: "mostDownloads", offset: 30, limit: 30,
   });
@@ -116,8 +109,6 @@ test("launch notices, queries and progress", () => {
   assert.equal(model.installPercent(progress), 25);
   assert.equal(model.installPercent({ ...progress, stage: "extracting" }), 25);
   assert.equal(model.installPercent({ ...progress, stage: "resolving", current: 0, total: 0 }), 0);
-  assert.equal(model.isCatalogStale(null, 0), true);
-  assert.equal(model.isCatalogStale(1000, 1000 * 1000 + 60_000), false);
 });
 
 test("dependents, error mapping and game search", () => {
@@ -129,7 +120,17 @@ test("dependents, error mapping and game search", () => {
   assert.deepEqual(model.dependentsOf("a-core", mods, details), ["B-Addon"]);
   assert.equal(model.describeModdingError("Stop the game before changing its installation", "it"), "Chiudi il gioco prima di modificarne l'installazione.");
   assert.equal(model.describeModdingError("Something else", "it"), "Something else");
-  assert.equal(model.isCancellation("Download cancelled"), true);
+  assert.equal(
+    model.describeModdingError("The active mod profile has no BepInEx loader. Install BepInExPack in the profile first.", "it"),
+    "Il profilo mod attivo non ha BepInEx. Installalo dal gestore delle mod o scegli Vanilla per avviare senza mod.",
+  );
+  assert.equal(
+    model.describeModdingError("winhttp.dll already exists in the game folder and was not installed by Legio.", "it"),
+    "winhttp.dll è già nella cartella del gioco e non è stato installato da Legio. Spostalo o rimuovilo per avviare con le mod.",
+  );
+  assert.equal(model.describeModdingError('A mod profile named "Main" already exists', "it"), 'Esiste già un profilo chiamato "Main". Scegli un altro nome.');
+  assert.deepEqual(model.classifyModdingError(new Error("Download cancelled."), "it"), { kind: "cancelled", message: "Installazione annullata." });
+  assert.deepEqual(model.classifyModdingError("Disk full", "it"), { kind: "error", message: "Disk full" });
   const games = [{ id: "lethal-company", displayName: "Lethal Company" }, { id: "valheim", displayName: "Valheim" }];
   assert.deepEqual(model.filterEcosystemGames(games, "LETHAL").map(game => game.id), ["lethal-company"]);
   assert.equal(model.filterEcosystemGames(games, " ").length, 2);
@@ -182,9 +183,9 @@ test("the Mod page shows empty and error states", async () => {
 test("installed mods toggle, update and uninstall with a dependents warning", async () => {
   const calls = [];
   let mods = [
-    { profileId: "p", fullName: "BepInEx-BepInExPack", version: "5.4.0", enabled: true, onlineSource: true, installedAt: 0, installOrder: 0 },
-    { profileId: "p", fullName: "A-Core", version: "1.0.0", enabled: true, onlineSource: true, installedAt: 0, installOrder: 1 },
-    { profileId: "p", fullName: "B-Addon", version: "1.0.0", enabled: true, onlineSource: true, installedAt: 0, installOrder: 2 },
+    { profileId: "p", fullName: "BepInEx-BepInExPack", version: "5.4.0", enabled: true, onlineSource: true, installedAt: 0, installOrder: 0, isLoader: true },
+    { profileId: "p", fullName: "A-Core", version: "1.0.0", enabled: true, onlineSource: true, installedAt: 0, installOrder: 1, isLoader: false },
+    { profileId: "p", fullName: "B-Addon", version: "1.0.0", enabled: true, onlineSource: true, installedAt: 0, installOrder: 2, isLoader: false },
   ];
   const { load } = await fixture("installedInvoke", async (command, args) => {
     calls.push([command, args]);
@@ -236,14 +237,14 @@ test("the browser debounces search and installs from results", async () => {
     gameId: "g", ecosystemGameId: "lethal-company", profile: { id: "p", gameId: "g", name: "Main", createdAt: 0 }, disabled: false,
   });
   try {
-    await wait(200); await settle();
+    await wait(350); await settle();
     const input = view.target.querySelector("#mod-search");
     for (const value of ["s", "su", "suits"]) {
       input.value = value;
       input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
       await settle();
     }
-    await wait(200); await settle();
+    await wait(350); await settle();
     const searches = calls.filter(([command]) => command === "search_mods");
     assert.deepEqual(searches.at(-1), ["search_mods", {
       ecosystemGameId: "lethal-company",
@@ -254,6 +255,78 @@ test("the browser debounces search and installs from results", async () => {
     button(view.target, "Installa").click(); await settle();
     assert.deepEqual(calls.find(([command]) => command === "install_mods"), ["install_mods", { profileId: "p", packages: [{ fullName: "Owner-More_Suits" }] }]);
   } finally { await view.destroy(); delete globalThis.browserInvoke; }
+});
+
+test("rebinding a game with profiles asks for confirmation first", async () => {
+  const { load } = await fixture("rebindInvoke", async (command) => {
+    if (command === "list_ecosystem_games") {
+      return [
+        { id: "lethal-company", displayName: "Lethal Company", packageLoader: "bepinex", supported: true },
+        { id: "valheim", displayName: "Valheim", packageLoader: "bepinex", supported: true },
+      ];
+    }
+    throw new Error(`unexpected ${command}`);
+  });
+  const selected = [];
+  const props = { open: true, gameName: "Alpha", currentId: "lethal-company", profileCount: 2, onClose() {}, onSelect: async (id) => { selected.push(id); } };
+  const view = await render(load, "src/lib/features/modding/EcosystemGameDialog.svelte", props);
+  try {
+    const valheim = button(view.target, "Valheim");
+    assert.equal(valheim.getAttribute("aria-pressed"), "false");
+    valheim.click(); await settle();
+    assert.equal(valheim.getAttribute("aria-pressed"), "true");
+    button(view.target, "Collega").click(); await settle();
+    const confirm = view.target.querySelector('[aria-label="Cambiare gioco Thunderstore?"]');
+    assert.ok(confirm.textContent.includes("I profili di Alpha restano collegati"));
+    assert.deepEqual(selected, [], "nothing changes before the confirmation");
+    button(confirm, "Cambia gioco").click(); await settle();
+    assert.deepEqual(selected, ["valheim"]);
+  } finally { await view.destroy(); }
+
+  const fresh = await render(load, "src/lib/features/modding/EcosystemGameDialog.svelte", { ...props, profileCount: 0 });
+  try {
+    button(fresh.target, "Valheim").click(); await settle();
+    button(fresh.target, "Collega").click(); await settle();
+    assert.deepEqual(selected, ["valheim", "valheim"], "without profiles the game is rebound right away");
+  } finally { await fresh.destroy(); delete globalThis.rebindInvoke; }
+});
+
+test("a new profile is activated and gets BepInEx right away", async () => {
+  const calls = [];
+  let profiles = [];
+  const binding = (activeProfileId) => ({ gameId: "a", ecosystemGameId: "lethal-company", activeProfileId });
+  const { load } = await fixture("createInvoke", async (command, args) => {
+    calls.push([command, args]);
+    if (command === "list_moddable_games") return [moddable("a", "Alpha", { binding: binding(null) })];
+    if (command === "list_mod_profiles") return profiles;
+    if (command === "list_games" || command === "list_profile_mods" || command === "list_mod_updates" || command === "list_mod_categories") return [];
+    if (command === "refresh_mod_catalog") return { ecosystemGameId: "lethal-company", packageCount: 1, syncedAt: 1 };
+    if (command === "get_mod_launch_status") {
+      return { bound: true, ecosystemGameId: "lethal-company", activeProfileId: null, launchSupported: true, loaderDeployed: false, preloaderFound: false, doorstopVersion: null };
+    }
+    if (command === "create_mod_profile") { profiles = [{ id: "p1", gameId: "a", name: args.name, createdAt: 0 }]; return profiles[0]; }
+    if (command === "set_active_mod_profile") return binding(args.profileId);
+    if (command === "install_mod_loader") return { installed: ["BepInEx-BepInExPack-5.4.0"], skipped: [], warnings: [] };
+    if (command === "search_mods") return { total: 0, items: [] };
+    throw new Error(`unexpected ${command}`);
+  }, {
+    "src/lib/features/library/GameIcon.svelte": await stub("<span></span>"),
+    "src/lib/services/dialog": dataModule("export const pickModArchive = async () => null, pickModProfileFile = async () => null, pickModProfileExportPath = async () => null;"),
+  });
+  const view = await render(load, "src/lib/features/modding/GameModsView.svelte", { gameId: "a" });
+  try {
+    button(view.target, "Crea profilo").click(); await settle();
+    const input = view.target.querySelector("#mod-profile-name");
+    input.value = "Main";
+    input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    await settle();
+    view.target.querySelector("form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+    await settle(); await settle();
+    const order = calls.map(([command]) => command);
+    assert.ok(order.indexOf("create_mod_profile") < order.indexOf("set_active_mod_profile"));
+    assert.deepEqual(calls.find(([command]) => command === "install_mod_loader"), ["install_mod_loader", { profileId: "p1" }]);
+    assert.ok(order.indexOf("set_active_mod_profile") < order.indexOf("install_mod_loader"));
+  } finally { await view.destroy(); delete globalThis.createInvoke; }
 });
 
 test("a leave guard holds navigation until it proceeds", async () => {

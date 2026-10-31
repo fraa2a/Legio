@@ -42,7 +42,6 @@
   import AddGameDialog from "./AddGameDialog.svelte";
   import LibraryPickerDialog from "./LibraryPickerDialog.svelte";
   import GameModsPanel from "../modding/GameModsPanel.svelte";
-  import ModProfileChip from "../modding/ModProfileChip.svelte";
   import { acquireGameArtwork, gameArtworkRevision } from "../../services/game-artwork";
   import { toMessage } from "../../utils/errors";
   import { reachableReleases, releaseLinks, sourceNameFor, sourceReleaseId, sourceReleasesFor } from "../store/source-status";
@@ -271,7 +270,6 @@
           />
         {/if}
         {#if game !== null}
-          <ModProfileChip gameId={game.id} />
           <Button label={t("Impostazioni del gioco", $language)} square variant="overlay" size="hero" onClick={() => (gameSettingsOpen = true)}>
             <Icon name="settings" size="size-6" />
           </Button>

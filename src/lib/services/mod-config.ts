@@ -27,10 +27,12 @@ export interface ModConfigFile {
   bepinex: BepInExConfig | null;
 }
 
+// `line` is the `ConfigEntry.line` of the edited entry; the backend refuses the edit if that line changed.
 export interface ConfigEdit {
   section: string;
   key: string;
   value: string;
+  line: number;
 }
 
 export const listModConfigFiles = (gameId: string, profileId: string) =>

@@ -34,7 +34,6 @@
     moddableGames,
     modProfiles,
     modUpdates,
-    profileMods,
     renameProfile,
     restoreGameFolder,
     selectProfile,
@@ -48,10 +47,10 @@
   import ModBrowser from "./ModBrowser.svelte";
   import {
     activeProfile,
+    classifyModdingError,
     copyProfileName,
     describeModdingError,
     installNotice,
-    isCancellation,
     launchNotice,
     moddableGameState,
     profileOptions,
@@ -83,8 +82,6 @@
   const profiles = $derived(modProfiles(gameId));
   const launchStatus = $derived(modLaunchStatus(gameId));
   const profile = $derived(activeProfile(game, $profiles.data));
-  const mods = $derived(profile === null ? null : profileMods(profile.id));
-  const modCount = $derived($mods?.data.length ?? 0);
   const running = $derived(($launchStateByGame.get(gameId)?.status ?? "idle") !== "idle");
   const busy = $derived(profile !== null && $busyProfiles.has(profile.id));
   const progress = $derived(profile === null ? null : ($installProgress.get(profile.id) ?? null));
@@ -140,9 +137,9 @@
     try {
       await action();
     } catch (error) {
-      const message = toMessage(error);
-      if (isCancellation(message)) showToast(t("Installazione annullata.", $language), "info");
-      else actionError = describeModdingError(message, $language);
+      const failure = classifyModdingError(error, $language);
+      if (failure.kind === "cancelled") showToast(failure.message, "info");
+      else actionError = failure.message;
     }
   }
 
@@ -191,10 +188,12 @@
       await renameProfile(gameId, profile.id, name);
       return;
     }
-    const created = kind === "duplicate" && profile !== null
-      ? await duplicateProfile(gameId, profile.id, name)
-      : await createProfile(gameId, name);
-    if (!running) await selectProfile(gameId, created.id);
+    const duplicate = kind === "duplicate" && profile !== null;
+    const created = duplicate ? await duplicateProfile(gameId, profile.id, name) : await createProfile(gameId, name);
+    if (running) return;
+    await selectProfile(gameId, created.id);
+    // Every modded launch needs BepInEx, so a new empty profile gets it right away; copies keep what they had.
+    if (!duplicate) void installBepInEx(created.id);
   }
 
   async function confirmDelete(): Promise<void> {
@@ -224,9 +223,9 @@
     showToast(t("Cartella del gioco ripristinata.", $language), "success");
   });
 
-  const installBepInEx = () => run(async () => {
-    if (profile === null || ecosystemGameId === null || busy || running) return;
-    const result = installNotice(await installLoader(gameId, ecosystemGameId, profile.id), $language);
+  const installBepInEx = (profileId: string) => run(async () => {
+    if (running || $busyProfiles.has(profileId)) return;
+    const result = installNotice(await installLoader(gameId, profileId), $language);
     showToast(result.message, result.tone === "warning" ? "warning" : "success");
   });
 
@@ -257,23 +256,22 @@
     {:else if $moddableGames.status === "loading" || $moddableGames.status === "idle"}
       <StateBlock status="loading" loadingMessage={t("Caricamento...", $language)} error={null} />
     {:else}
-      <p class="legio-glass rounded-xl p-6 text-zinc-400 light:text-zinc-600">{t("Il gioco non è più disponibile.", $language)}</p>
+      <EmptyState icon="mods" title={t("Il gioco non è più disponibile.", $language)} />
     {/if}
   </div>
 {:else}
   <div class="flex min-h-full flex-col gap-4">
     <section class="flex flex-wrap items-end justify-between gap-4 rounded-2xl legio-glass p-5" aria-label={t("Profilo delle mod", $language)}>
-      <div class="flex min-w-0 items-center gap-4">
-        {#if libraryGame !== null}<GameIcon game={libraryGame} class="size-14 shrink-0 rounded-xl object-contain" />{/if}
-        <div class="min-w-0">
-          <h2 class="truncate text-xl font-semibold text-zinc-50 light:text-zinc-900">{game.name}</h2>
-          <p class="mt-0.5 flex min-w-0 items-center gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
-            <span class="truncate">{game.displayName === null ? t("Nessun gioco Thunderstore collegato", $language) : t("Thunderstore: {0}", $language, [game.displayName])}</span>
-            {#if gameState !== "unmatched"}
-              <button type="button" class="shrink-0 rounded px-1 text-xs font-medium text-zinc-300 underline-offset-2 hover:underline light:text-zinc-700" disabled={running} onclick={() => (bindingOpen = true)}>{t("Cambia", $language)}</button>
-            {/if}
-          </p>
-        </div>
+      <div class="flex min-h-10 min-w-0 items-center gap-3">
+        {#if libraryGame !== null}<GameIcon game={libraryGame} class="size-10 shrink-0 rounded-lg object-contain" />{/if}
+        <p class="min-w-0 truncate text-sm text-zinc-400 light:text-zinc-600">
+          {game.displayName === null ? t("Nessun gioco Thunderstore collegato", $language) : t("Thunderstore: {0}", $language, [game.displayName])}
+        </p>
+        {#if gameState !== "unmatched"}
+          <IconButton size="sm" label={t("Cambia gioco Thunderstore", $language)} title={t("Cambia gioco Thunderstore", $language)} disabled={running} onClick={() => (bindingOpen = true)}>
+            <Icon name="pencil" size="size-4" />
+          </IconButton>
+        {/if}
       </div>
       {#if gameState === "ready" && game.binding !== null}
         <div class="flex flex-wrap items-end gap-2">
@@ -288,7 +286,7 @@
               class="w-64"
             />
           {/key}
-          <div role="toolbar" aria-label={t("Azioni del profilo", $language)} class="flex h-10 items-center gap-0.5 rounded-lg border border-white/10 bg-white/5 px-1 light:border-zinc-900/10 light:bg-white">
+          <div class="flex h-10 items-center gap-1">
             <IconButton label={t("Nuovo profilo", $language)} title={t("Nuovo profilo", $language)} onClick={() => afterDiscard(() => (nameDialog = { kind: "create" }))}>
               <Icon name="plus" size="size-4" />
             </IconButton>
@@ -340,12 +338,13 @@
       {/if}
       {#if profile !== null && notice === "launch-unsupported"}
         <Callout tone="warning" title={t("Avvio con mod non disponibile", $language)} message={t("Legio non può caricare le mod di questo gioco su questo sistema, ad esempio per i giochi Linux nativi: il gioco partirà senza mod.", $language)} />
-      {:else if profile !== null && notice === "loader-missing" && modCount > 0 && !busy}
+      {:else if profile !== null && notice === "loader-missing" && !busy}
+        {@const target = profile}
         <Callout
           tone="warning"
-          title={t("BepInEx non è installato", $language)}
-          message={t("Senza BepInEx le mod di questo profilo non vengono caricate.", $language)}
-          onRetry={running ? undefined : () => void installBepInEx()}
+          title={t("BepInEx non è installato in questo profilo", $language)}
+          message={t("Senza BepInEx il gioco non si avvia con questo profilo. Installalo, oppure scegli Vanilla per giocare senza mod.", $language)}
+          onRetry={running ? undefined : () => void installBepInEx(target.id)}
           retryLabel={t("Installa BepInEx", $language)}
         />
       {/if}
@@ -409,6 +408,7 @@
     gameName={game.name}
     currentId={game.binding?.ecosystemGameId ?? null}
     suggestedId={game.ecosystemGameId}
+    profileCount={$profiles.data.length}
     onClose={() => (bindingOpen = false)}
     onSelect={(id) => bindGame(gameId, id)}
   />

@@ -8,6 +8,7 @@ import {
   getModLaunchStatus,
   getModPackage,
   importLocalMod,
+  installModLoader,
   installMods,
   listEcosystemGames,
   listModdableGames,
@@ -19,7 +20,6 @@ import {
   refreshModCatalog,
   renameModProfile,
   restoreModdedGameFolder,
-  searchMods,
   setActiveModProfile,
   setProfileModEnabled,
   uninstallProfileMod,
@@ -41,10 +41,8 @@ import {
   type ProfileMod,
   type UninstallOutcome,
 } from "../services/modding";
-import { t } from "../i18n";
 import { toMessage } from "../utils/errors";
 import { createResource } from "./resource";
-import { pickLoaderPackage } from "../features/modding/modding-model";
 
 type Resource<T> = ReturnType<typeof createResource<T>>;
 
@@ -125,6 +123,8 @@ export async function duplicateProfile(gameId: string, profileId: string, name: 
 
 export async function deleteProfile(gameId: string, profileId: string): Promise<DeleteProfileOutcome> {
   const outcome = await deleteModProfile(profileId);
+  modResources.delete(profileId);
+  updateResources.delete(profileId);
   const binding = get(moddableGameById).get(gameId)?.binding ?? null;
   if (binding?.activeProfileId === profileId) applyBinding({ ...binding, activeProfileId: null });
   await Promise.all([modProfiles(gameId).reload(), modLaunchStatus(gameId).reload()]);
@@ -216,12 +216,8 @@ export async function uninstallMod(gameId: string, profileId: string, fullName: 
   return outcome;
 }
 
-// The backend does not name the loader package, so the catalog is searched for the community's BepInEx pack.
-export async function installLoader(gameId: string, ecosystemGameId: string, profileId: string): Promise<ModInstallResult> {
-  const page = await searchMods(ecosystemGameId, { text: "BepInExPack", limit: 50 });
-  const loader = pickLoaderPackage(page.items);
-  if (loader === null) throw new Error(t("Il pacchetto BepInEx non è nel catalogo di questo gioco."));
-  return installPackages(gameId, profileId, [{ fullName: loader.fullName }]);
+export function installLoader(gameId: string, profileId: string): Promise<ModInstallResult> {
+  return track(gameId, profileId, () => installModLoader(profileId));
 }
 
 export const cancelInstall = (profileId: string) => cancelModInstall(profileId);
@@ -248,6 +244,7 @@ export function catalogFor(state: Readonly<Record<string, CatalogState>>, ecosys
 }
 
 const packageCache = new Map<string, Promise<PackageDetails | null>>();
+const packageCacheLimit = 200;
 
 function patchCatalog(ecosystemGameId: string, changes: Partial<CatalogState>): void {
   catalogState.update((current) => ({ ...current, [ecosystemGameId]: { ...catalogFor(current, ecosystemGameId), ...changes } }));
@@ -281,6 +278,9 @@ export function packageDetails(ecosystemGameId: string, fullName: string): Promi
     pending = getModPackage(ecosystemGameId, fullName);
     pending.catch(() => packageCache.delete(key));
     packageCache.set(key, pending);
+    // Maps keep insertion order, so the first key is the oldest request.
+    const oldest = packageCache.keys().next();
+    if (packageCache.size > packageCacheLimit && oldest.done !== true) packageCache.delete(oldest.value);
   }
   return pending;
 }

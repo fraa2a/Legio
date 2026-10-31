@@ -11,6 +11,7 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import Spinner from "../../components/ui/Spinner.svelte";
+  import TextField from "../../components/ui/TextField.svelte";
   import { exportFileName, fileNameOf } from "./mod-profile-exchange-model";
 
   let { open, gameId, profile, onClose }: {
@@ -106,7 +107,7 @@
     </p>
     <Callout variant="inline" message={t("Le mod locali non sono incluse: chi importa il profilo riceve solo le mod di Thunderstore e i file di configurazione.", $language)} />
 
-    <section class="flex flex-col gap-3 rounded-xl bg-white/5 p-4 light:bg-zinc-900/5" aria-label={t("Esporta in un file", $language)}>
+    <section class="flex flex-col gap-3 rounded-lg bg-white/5 p-3 light:bg-zinc-900/5" aria-label={t("Esporta in un file", $language)}>
       <div>
         <h3 class="text-sm font-semibold text-zinc-100 light:text-zinc-900">{t("Esporta in un file", $language)}</h3>
         <p class="mt-0.5 text-xs text-zinc-400 light:text-zinc-600">{t("Crea un file .r2z compatibile con r2modman.", $language)}</p>
@@ -122,26 +123,23 @@
       </div>
     </section>
 
-    <section class="flex flex-col gap-3 rounded-xl bg-white/5 p-4 light:bg-zinc-900/5" aria-label={t("Codice di condivisione", $language)}>
+    <section class="flex flex-col gap-3 rounded-lg bg-white/5 p-3 light:bg-zinc-900/5" aria-label={t("Codice di condivisione", $language)}>
       <div>
         <h3 class="text-sm font-semibold text-zinc-100 light:text-zinc-900">{t("Codice di condivisione", $language)}</h3>
         <p class="mt-0.5 text-xs text-zinc-400 light:text-zinc-600">{t("Carica il profilo su Thunderstore e genera un codice da incollare. Il codice scade dopo un po' di tempo.", $language)}</p>
       </div>
+      <Callout tone="warning" variant="inline" message={t("Il profilo e tutti i suoi file di configurazione vengono caricati su Thunderstore in modo pubblico: chiunque abbia il codice può scaricarli. Non condividere configurazioni con dati personali.", $language)} />
       {#if codeError !== null}<ErrorBanner message={codeError} />{/if}
       {#if code !== null}
         <div class="flex items-center gap-2">
-          <input
-            readonly
-            value={code}
-            aria-label={t("Codice di condivisione", $language)}
-            onfocus={(event) => event.currentTarget.select()}
-            class="h-10 min-w-0 flex-1 rounded-lg border border-transparent bg-white/5 px-3 font-mono text-sm text-zinc-100 outline-none focus:border-white/40 light:bg-white light:text-zinc-900 light:focus:border-zinc-900/40"
-          />
+          <div class="min-w-0 flex-1">
+            <TextField id="mod-profile-share-code" label={t("Codice di condivisione", $language)} labelHidden readonly monospace value={code} />
+          </div>
           <Button label={copied ? t("Copiato", $language) : t("Copia", $language)} variant="secondary" onClick={() => void copyCode()}>
             {#if copied}<Icon name="check" size="size-4 text-legio-success" />{/if}
           </Button>
         </div>
-        {#if copyError !== null}<p class="text-xs text-legio-error" role="alert">{copyError}</p>{/if}
+        {#if copyError !== null}<ErrorBanner message={copyError} />{/if}
       {/if}
       <div>
         <Button label={generating ? t("Generazione...", $language) : code === null ? t("Genera codice", $language) : t("Genera un nuovo codice", $language)} variant="secondary" disabled={busy} onClick={() => void generateCode()}>

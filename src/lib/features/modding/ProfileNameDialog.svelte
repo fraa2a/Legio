@@ -7,7 +7,7 @@
   import TextField from "../../components/ui/TextField.svelte";
   import type { ModProfile } from "../../services/modding";
   import { toMessage } from "../../utils/errors";
-  import { describeModdingError, profileNameError } from "./modding-model";
+  import { describeModdingError, maxProfileNameLength, profileNameError } from "./modding-model";
 
   let {
     open,
@@ -69,7 +69,8 @@
         bind:value={name}
         oninput={() => (touched = true)}
         disabled={pending}
-        hint={touched && validation !== null ? validation : t("Al massimo 64 caratteri.", $language)}
+        hint={t("Al massimo {0} caratteri.", $language, [maxProfileNameLength])}
+        error={touched ? validation : null}
       />
       {#if error !== null}<ErrorBanner message={error} />{/if}
       <div class="flex justify-end gap-2">

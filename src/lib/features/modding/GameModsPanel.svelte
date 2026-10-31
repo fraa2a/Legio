@@ -2,14 +2,35 @@
   import { onMount } from "svelte";
   import { t, language } from "../../i18n";
   import Button from "../../components/ui/Button.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
   import { launchStateByGame } from "../../stores/launch";
-  import { loadModdableGames, loadOnce, moddableGameById, modProfiles, profileMods, selectProfile } from "../../stores/modding";
+  import {
+    busyProfiles,
+    installLoader,
+    loadModdableGames,
+    loadOnce,
+    modLaunchStatus,
+    moddableGameById,
+    modProfiles,
+    profileMods,
+    selectProfile,
+  } from "../../stores/modding";
   import { openModManager } from "../../stores/navigation";
+  import { showToast } from "../../stores/toast";
   import { toMessage } from "../../utils/errors";
-  import { activeProfile, describeModdingError, moddableGameState, profileOptions, vanillaProfileValue } from "./modding-model";
+  import {
+    activeProfile,
+    classifyModdingError,
+    describeModdingError,
+    installNotice,
+    launchNotice,
+    moddableGameState,
+    profileOptions,
+    vanillaProfileValue,
+  } from "./modding-model";
 
   let { gameId }: { gameId: string } = $props();
 
@@ -23,6 +44,9 @@
   const mods = $derived(profile === null ? null : profileMods(profile.id));
   const modCount = $derived($mods?.data.length ?? 0);
   const running = $derived(($launchStateByGame.get(gameId)?.status ?? "idle") !== "idle");
+  const launchStatus = $derived(modLaunchStatus(gameId));
+  const busy = $derived(profile !== null && $busyProfiles.has(profile.id));
+  const loaderMissing = $derived(profile !== null && launchNotice($launchStatus.data) === "loader-missing");
 
   let error = $state<string | null>(null);
   let pending = $state(false);
@@ -36,6 +60,10 @@
     if (mods !== null) loadOnce(mods);
   });
 
+  $effect(() => {
+    if (bound && profile !== null) loadOnce(launchStatus);
+  });
+
   async function change(value: string): Promise<void> {
     pending = true;
     error = null;
@@ -44,6 +72,21 @@
     } catch (cause) {
       error = describeModdingError(toMessage(cause), $language);
       revision++;
+    } finally {
+      pending = false;
+    }
+  }
+
+  async function installBepInEx(profileId: string): Promise<void> {
+    pending = true;
+    error = null;
+    try {
+      const result = installNotice(await installLoader(gameId, profileId), $language);
+      showToast(result.message, result.tone === "warning" ? "warning" : "success");
+    } catch (cause) {
+      const failure = classifyModdingError(cause, $language);
+      if (failure.kind === "cancelled") showToast(failure.message, "info");
+      else error = failure.message;
     } finally {
       pending = false;
     }
@@ -63,7 +106,7 @@
             label={t("Profilo attivo", $language)}
             value={profile?.id ?? vanillaProfileValue}
             options={profileOptions($profiles.data, $language)}
-            disabled={running || pending}
+            disabled={running || pending || busy}
             onChange={(value) => void change(value)}
           />
         {/key}
@@ -80,6 +123,16 @@
         <p class="text-sm text-zinc-400 light:text-zinc-600">
           {t("Mod disponibili su Thunderstore per {0}. Apri il gestore per creare il primo profilo.", $language, [game.displayName ?? game.name])}
         </p>
+      {/if}
+      {#if loaderMissing && profile !== null}
+        {@const target = profile}
+        <Callout
+          tone="warning"
+          variant="inline"
+          message={t("Questo profilo non ha BepInEx: il gioco non si avvierà finché non lo installi o scegli Vanilla.", $language)}
+          onRetry={running || busy || pending ? undefined : () => void installBepInEx(target.id)}
+          retryLabel={t("Installa BepInEx", $language)}
+        />
       {/if}
       {#if running && bound}<p class="text-xs text-zinc-500">{t("Chiudi il gioco per cambiare profilo.", $language)}</p>{/if}
       {#if error !== null}<ErrorBanner message={error} />{/if}

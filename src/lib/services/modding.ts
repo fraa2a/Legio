@@ -31,6 +31,7 @@ export interface ProfileMod {
   onlineSource: boolean;
   installedAt: number;
   installOrder: number;
+  isLoader: boolean;
 }
 
 export interface CatalogStatus { ecosystemGameId: string; packageCount: number; syncedAt: number }
@@ -104,12 +105,16 @@ export type InstallStage = "resolving" | "downloading" | "extracting" | "install
 
 export interface InstallProgress {
   profileId: string;
+  // Echoes the `operationId` passed to the command that started the install.
+  operationId: string | null;
   package: string | null;
   stage: InstallStage;
   current: number;
   total: number;
   downloadedBytes: number | null;
   totalBytes: number | null;
+  // True only while the running stage stops on `cancel_mod_install`.
+  cancellable: boolean;
 }
 
 export interface ModIcon { bytes: Uint8Array<ArrayBuffer>; contentType: string }
@@ -146,6 +151,7 @@ export const openModProfileFolder = (profileId: string) => invoke<void>("open_mo
 export const listProfileMods = (profileId: string) => invoke<ProfileMod[]>("list_profile_mods", { profileId });
 export const installMods = (profileId: string, packages: ModInstallRequest[]) =>
   invoke<ModInstallResult>("install_mods", { profileId, packages });
+export const installModLoader = (profileId: string) => invoke<ModInstallResult>("install_mod_loader", { profileId });
 export const listModUpdates = (profileId: string) => invoke<ModUpdate[]>("list_mod_updates", { profileId });
 export const updateProfileMods = (profileId: string, fullNames: string[] | null = null) =>
   invoke<ModInstallResult>("update_profile_mods", { profileId, fullNames });
