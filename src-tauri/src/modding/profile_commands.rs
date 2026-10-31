@@ -1,7 +1,8 @@
 //! Tauri commands for mod profiles and the mods installed in them.
 
-use std::{fs, path::Path};
+use std::{fs, path::Path, sync::Arc};
 
+use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use super::ecosystem::EcosystemSchema;
@@ -15,15 +16,29 @@ use super::local_import::{self, LocalImportOutcome};
 use super::paths::ModdingPaths;
 use super::profiles::{
     DeleteProfileOutcome, ProfileLocks, create_profile, delete_profile, duplicate_profile,
-    profile_with_directory, rename_profile, set_active_profile,
+    profile_with_directory, set_active_profile,
 };
 use crate::database::{Database, DatabaseState, GameModding, ModProfile, ProfileMod};
 
-/// Forwards install progress to the frontend.
-pub(crate) fn progress_emitter(app: &AppHandle) -> impl Fn(&InstallProgress) + Send + use<> {
+/// A mod of a profile and whether it is the game's mod loader.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProfileModEntry {
+    #[serde(flatten)]
+    record: ProfileMod,
+    is_loader: bool,
+}
+
+/// Forwards install progress to the frontend, tagged with the caller's
+/// `operation_id`.
+pub(crate) fn progress_emitter(
+    app: &AppHandle,
+    operation_id: Option<String>,
+) -> impl Fn(&InstallProgress) + Send + use<> {
     let app = app.clone();
     move |progress| {
-        if let Err(error) = app.emit(PROGRESS_EVENT, progress) {
+        let event = progress.with_operation(operation_id.as_deref());
+        if let Err(error) = app.emit(PROGRESS_EVENT, event) {
             crate::application_log::failure("publish_modding_progress", error);
         }
     }
@@ -55,8 +70,8 @@ pub async fn rename_mod_profile(
     profile_id: String,
     name: String,
 ) -> Result<ModProfile, String> {
-    run_modding(app, move |_, database, _, locks| {
-        rename_profile(database, locks, &profile_id, &name)
+    run_modding(app, move |_, database, _, _| {
+        database.rename_mod_profile(&profile_id, &name)
     })
     .await
 }
@@ -103,11 +118,33 @@ pub async fn set_active_mod_profile(
 pub async fn list_profile_mods(
     app: AppHandle,
     profile_id: String,
-) -> Result<Vec<ProfileMod>, String> {
-    run_modding(app, move |_, database, _, _| {
-        database.profile_mods(&profile_id)
+) -> Result<Vec<ProfileModEntry>, String> {
+    let schema = local_schema(&app).await;
+    run_modding(app, move |_, database, paths, locks| {
+        let mods = database.profile_mods(&profile_id)?;
+        let entries = schema
+            .map_err(|error| format!("the game list is not available: {error}"))
+            .and_then(|schema| {
+                with_game_rules(database, paths, locks, &schema, &profile_id, |ctx, _| {
+                    Ok(mod_entries(&mods, |name| ctx.find_loader(name).is_some()))
+                })
+            })
+            .unwrap_or_else(|error| {
+                crate::application_log::failure("find_profile_mod_loaders", error);
+                mod_entries(&mods, |_| false)
+            });
+        Ok(entries)
     })
     .await
+}
+
+fn mod_entries(mods: &[ProfileMod], is_loader: impl Fn(&str) -> bool) -> Vec<ProfileModEntry> {
+    mods.iter()
+        .map(|record| ProfileModEntry {
+            is_loader: is_loader(&record.full_name),
+            record: record.clone(),
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -116,7 +153,7 @@ pub async fn uninstall_profile_mod(
     profile_id: String,
     full_name: String,
 ) -> Result<UninstallOutcome, String> {
-    let schema = game_schema(&app).await?;
+    let schema = local_schema(&app).await?;
     run_modding(app, move |app, database, paths, locks| {
         require_profile_not_running(app, database, paths, &profile_id)?;
         with_game_rules(database, paths, locks, &schema, &profile_id, |ctx, _| {
@@ -133,7 +170,7 @@ pub async fn set_profile_mod_enabled(
     full_name: String,
     enabled: bool,
 ) -> Result<(), String> {
-    let schema = game_schema(&app).await?;
+    let schema = local_schema(&app).await?;
     run_modding(app, move |app, database, paths, locks| {
         require_profile_not_running(app, database, paths, &profile_id)?;
         with_game_rules(
@@ -166,8 +203,8 @@ pub async fn import_local_mod(
     profile_id: String,
     archive_path: String,
 ) -> Result<LocalImportOutcome, String> {
-    let progress = progress_emitter(&app);
-    let schema = game_schema(&app).await?;
+    let progress = progress_emitter(&app, None);
+    let schema = local_schema(&app).await?;
     run_modding(app, move |app, database, paths, locks| {
         require_profile_not_running(app, database, paths, &profile_id)?;
         with_game_rules(database, paths, locks, &schema, &profile_id, |ctx, _| {
@@ -189,8 +226,10 @@ pub async fn open_mod_profile_folder(app: AppHandle, profile_id: String) -> Resu
     .await
 }
 
-async fn game_schema(app: &AppHandle) -> Result<std::sync::Arc<EcosystemSchema>, String> {
-    app.state::<EcosystemStore>().schema().await
+/// The schema for actions that never download anything, so they keep
+/// working offline.
+async fn local_schema(app: &AppHandle) -> Result<Arc<EcosystemSchema>, String> {
+    app.state::<EcosystemStore>().cached_schema().await
 }
 
 /// Runs a blocking operation once startup recovery is done.
@@ -257,4 +296,42 @@ pub(crate) fn with_game_rules<T>(
         &rules.context(database, paths, locks),
         &modding.ecosystem_game_id,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::modding::{
+        dependencies::ResolveMode,
+        test_support::{Env, FakeRepo},
+    };
+
+    #[test]
+    fn marks_the_loader_among_the_mods() {
+        let env = Env::new();
+        let mut repo = FakeRepo::default();
+        repo.add(
+            "BepInEx-BepInExPack-5.4.2100",
+            &[],
+            &[("BepInExPack/winhttp.dll", "x")],
+        );
+        repo.add(
+            "Owner-Mod-1.0.0",
+            &["BepInEx-BepInExPack-5.4.2100"],
+            &[("Mod.dll", "x")],
+        );
+        env.install(&repo, &["Owner-Mod"], ResolveMode::Latest)
+            .unwrap();
+        let ctx = env.ctx();
+        let entries = mod_entries(&env.mods(), |name| ctx.find_loader(name).is_some());
+        let flags: Vec<_> = entries
+            .iter()
+            .map(|entry| (entry.record.full_name.as_str(), entry.is_loader))
+            .collect();
+        assert_eq!(flags, [("BepInEx-BepInExPack", true), ("Owner-Mod", false)]);
+        let json = serde_json::to_value(&entries[0]).unwrap();
+        assert_eq!(json["isLoader"], true);
+        assert_eq!(json["fullName"], "BepInEx-BepInExPack");
+        assert_eq!(json["onlineSource"], true);
+    }
 }

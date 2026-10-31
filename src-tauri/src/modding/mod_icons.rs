@@ -15,6 +15,8 @@ use crate::image_format::ImageFormat;
 
 // Thunderstore icons are 256x256 PNGs, usually well under 100 KiB.
 const MAX_ICON_BYTES: usize = 1024 * 1024;
+// About 100 KiB each at most; the oldest are deleted beyond this many.
+const MAX_CACHED_ICONS: usize = 2000;
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -88,12 +90,37 @@ async fn write_cached(
 ) -> std::io::Result<()> {
     tokio::fs::create_dir_all(directory).await?;
     let destination = cached_path(directory, key, format);
-    // A unique partial name keeps concurrent fetches of one icon apart.
-    let partial = directory.join(format!("{key}.{}.part", uuid::Uuid::new_v4()));
-    tokio::fs::write(&partial, bytes).await?;
-    if let Err(error) = tokio::fs::rename(&partial, &destination).await {
-        let _ = tokio::fs::remove_file(&partial).await;
-        return Err(error);
+    let bytes = bytes.to_vec();
+    let directory = directory.to_path_buf();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::atomic_file::write_atomic(&destination, &bytes)?;
+        if let Err(error) = prune_cache(&directory, MAX_CACHED_ICONS) {
+            crate::application_log::failure("prune_mod_icons", error);
+        }
+        Ok(())
+    })
+    .await
+    .map_err(std::io::Error::other)?
+}
+
+/// Deletes the least recently written icons until `limit` remain.
+fn prune_cache(directory: &Path, limit: usize) -> std::io::Result<()> {
+    let mut icons = Vec::new();
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        let metadata = entry.metadata()?;
+        // Names starting with a dot are writes in progress.
+        if metadata.is_file() && !entry.file_name().to_string_lossy().starts_with('.') {
+            icons.push((metadata.modified()?, entry.path()));
+        }
+    }
+    let excess = icons.len().saturating_sub(limit);
+    icons.sort();
+    for (_, path) in icons.into_iter().take(excess) {
+        match std::fs::remove_file(&path) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
+            _ => {}
+        }
     }
     Ok(())
 }
@@ -109,6 +136,8 @@ mod tests {
         diagnostics::Diagnostics,
         modding::test_support::{Reply, TempDir, TestServer},
     };
+
+    use std::time::Duration;
 
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\nicon";
 
@@ -140,6 +169,31 @@ mod tests {
             .collect();
         assert_eq!(files.len(), 1);
         assert!(files[0].ends_with(".png"), "{files:?}");
+    }
+
+    #[test]
+    fn prunes_the_oldest_icons_beyond_the_limit() {
+        let directory = TempDir::new();
+        let now = std::time::SystemTime::now();
+        for index in 0..5_u64 {
+            let path = directory.path().join(format!("{index}.png"));
+            std::fs::write(&path, PNG).unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(now - Duration::from_secs(100 - index))
+                .unwrap();
+        }
+        std::fs::write(directory.path().join(".busy.tmp"), b"x").unwrap();
+        prune_cache(directory.path(), 3).unwrap();
+        let mut names: Vec<_> = std::fs::read_dir(directory.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        assert_eq!(names, [".busy.tmp", "2.png", "3.png", "4.png"]);
+        prune_cache(directory.path(), 3).unwrap();
     }
 
     #[test]

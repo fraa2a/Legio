@@ -13,7 +13,8 @@ use super::paths::ModdingPaths;
 use crate::database::{Database, GameModding, ModProfile, now_milliseconds};
 
 /// Serializes operations on one profile. Install, uninstall, enable, disable,
-/// duplicate and delete all hold the lock of the profile they change.
+/// duplicate and delete all hold the lock of the profile they change, and a
+/// launch holds it while the loader files are copied into the game folder.
 #[derive(Default)]
 pub(crate) struct ProfileLocks {
     busy: Mutex<HashSet<String>>,
@@ -26,6 +27,20 @@ pub(crate) struct ProfileGuard<'a> {
 }
 
 impl ProfileLocks {
+    /// Takes the profile if no other operation holds it.
+    pub(crate) fn try_lock(&self, profile_id: &str) -> Result<Option<ProfileGuard<'_>>, String> {
+        let key = profile_id.to_lowercase();
+        let mut busy = self.busy.lock().map_err(|_| poisoned())?;
+        if busy.contains(&key) {
+            return Ok(None);
+        }
+        busy.insert(key.clone());
+        Ok(Some(ProfileGuard {
+            locks: self,
+            profile_id: key,
+        }))
+    }
+
     /// Waits until no other operation holds the profile.
     pub(crate) fn lock(&self, profile_id: &str) -> Result<ProfileGuard<'_>, String> {
         let key = profile_id.to_lowercase();
@@ -78,6 +93,20 @@ pub(crate) fn profile_with_directory(
     Ok((profile, directory))
 }
 
+/// The profile of `game_id` and its directory.
+pub(crate) fn profile_for_game(
+    database: &Database,
+    paths: &ModdingPaths,
+    game_id: &str,
+    profile_id: &str,
+) -> Result<(ModProfile, PathBuf), String> {
+    let (profile, directory) = profile_with_directory(database, paths, profile_id)?;
+    if !profile.game_id.eq_ignore_ascii_case(game_id) {
+        return Err("Mod profile does not belong to this game".to_owned());
+    }
+    Ok((profile, directory))
+}
+
 pub(crate) fn create_profile(
     database: &Database,
     paths: &ModdingPaths,
@@ -96,16 +125,6 @@ pub(crate) fn create_profile(
         return Err(error);
     }
     Ok(profile)
-}
-
-pub(crate) fn rename_profile(
-    database: &Database,
-    locks: &ProfileLocks,
-    profile_id: &str,
-    name: &str,
-) -> Result<ModProfile, String> {
-    let _guard = locks.lock(profile_id)?;
-    database.rename_mod_profile(profile_id, name)
 }
 
 /// Copies the profile directory and its database records under a new name.
@@ -384,14 +403,45 @@ mod tests {
     }
 
     #[test]
-    fn rename_keeps_the_directory() {
+    fn rename_keeps_the_directory_and_ignores_the_lock() {
         let fixture = Fixture::new();
         let profile = fixture.profile("Main");
-        let renamed =
-            rename_profile(&fixture.database, &fixture.locks, &profile.id, "Other").unwrap();
+        let _busy = fixture.locks.lock(&profile.id).unwrap();
+        let renamed = fixture
+            .database
+            .rename_mod_profile(&profile.id, "Other")
+            .unwrap();
         assert_eq!(renamed.name, "Other");
         assert_eq!(renamed.id, profile.id);
         assert!(fixture.directory_of(&profile).is_dir());
+    }
+
+    #[test]
+    fn finds_a_profile_only_for_its_own_game() {
+        let fixture = Fixture::new();
+        let profile = fixture.profile("Main");
+        let (found, directory) = profile_for_game(
+            &fixture.database,
+            &fixture.paths,
+            &fixture.game_id.to_uppercase(),
+            &profile.id,
+        )
+        .unwrap();
+        assert_eq!(found, profile);
+        assert_eq!(directory, fixture.directory_of(&profile));
+        let other = Uuid::new_v4().to_string();
+        let error =
+            profile_for_game(&fixture.database, &fixture.paths, &other, &profile.id).unwrap_err();
+        assert!(error.contains("does not belong"), "{error}");
+        assert!(
+            profile_for_game(
+                &fixture.database,
+                &fixture.paths,
+                &fixture.game_id,
+                &Uuid::new_v4().to_string()
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -577,6 +627,22 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn try_lock_refuses_a_busy_profile() {
+        let locks = ProfileLocks::default();
+        let profile = Uuid::new_v4().to_string();
+        let held = locks.try_lock(&profile).unwrap().unwrap();
+        assert!(locks.try_lock(&profile.to_uppercase()).unwrap().is_none());
+        assert!(
+            locks
+                .try_lock(&Uuid::new_v4().to_string())
+                .unwrap()
+                .is_some()
+        );
+        drop(held);
+        assert!(locks.try_lock(&profile).unwrap().is_some());
     }
 
     #[test]

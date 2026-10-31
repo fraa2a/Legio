@@ -1,22 +1,21 @@
 //! Config files inside a mod profile: listing, safe access and BepInEx `.cfg` editing.
 
 use std::{
-    fs::{self, OpenOptions},
-    io::{self, Write},
+    fs,
     path::{Path, PathBuf},
     time::UNIX_EPOCH,
 };
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
-use uuid::Uuid;
+use tauri::AppHandle;
 
-use super::paths::ModdingPaths;
-use crate::database::DatabaseState;
+use super::paths::validate_relative_path;
+use super::profile_commands::run_modding;
+use super::profiles::profile_for_game;
 
 const MAX_LISTED_FILES: usize = 5000;
 const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
-const CONFIG_EXTENSIONS: [&str; 6] = ["cfg", "txt", "json", "yml", "yaml", "ini"];
+pub(crate) const CONFIG_EXTENSIONS: [&str; 6] = ["cfg", "txt", "json", "yml", "yaml", "ini"];
 const EXCLUDED_BEPINEX_FOLDERS: [&str; 4] = ["core", "plugins", "patchers", "cache"];
 const EXCLUDED_FILE_NAMES: [&str; 2] = ["doorstop_config.ini", "manifest.json"];
 
@@ -69,6 +68,8 @@ pub(crate) struct ConfigEdit {
     pub(crate) section: String,
     pub(crate) key: String,
     pub(crate) value: String,
+    /// 0-based line of the entry, as listed in [`ConfigEntry::line`].
+    pub(crate) line: usize,
 }
 
 pub(crate) fn list_config_files(profile_dir: &Path) -> Result<Vec<ConfigFileEntry>, String> {
@@ -154,7 +155,8 @@ pub(crate) fn write_config_text(
     if content.len() as u64 > MAX_FILE_BYTES {
         return Err("Config file would be larger than 2 MiB".to_owned());
     }
-    replace_file(&path, content.as_bytes())
+    crate::atomic_file::write_atomic(&path, content.as_bytes())
+        .map_err(|error| format!("Could not write config file: {error}"))
 }
 
 pub(crate) fn read_mod_config(
@@ -185,7 +187,7 @@ pub(crate) fn save_config_entries(
 
 /// Resolves a listed, existing config file and checks that it stays inside the profile.
 fn resolve_config_path(profile_dir: &Path, relative_path: &str) -> Result<PathBuf, String> {
-    validate_relative_path(relative_path)?;
+    validate_relative_path(relative_path).map_err(|_| "Config file path is invalid".to_owned())?;
     if !is_listed_path(relative_path) {
         return Err("Config file type is not supported".to_owned());
     }
@@ -200,18 +202,6 @@ fn resolve_config_path(profile_dir: &Path, relative_path: &str) -> Result<PathBu
         return Err("Config path is not a file".to_owned());
     }
     Ok(path)
-}
-
-fn validate_relative_path(relative_path: &str) -> Result<(), String> {
-    let invalid = relative_path.contains(['\\', ':'])
-        || relative_path
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == "..");
-    if invalid {
-        Err("Config file path is invalid".to_owned())
-    } else {
-        Ok(())
-    }
 }
 
 /// True for paths the listing shows: allowed extension, not an excluded file or folder.
@@ -264,42 +254,6 @@ fn modified_seconds(metadata: &fs::Metadata) -> Result<i64, String> {
         .ok()
         .and_then(|age| i64::try_from(age.as_secs()).ok())
         .ok_or_else(|| "Config file time is outside the supported range".to_owned())
-}
-
-fn replace_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let parent = path.parent().ok_or("Config file has no parent folder")?;
-    let name = path
-        .file_name()
-        .ok_or("Config file has no name")?
-        .to_string_lossy();
-    let temporary = parent.join(format!(".{name}.{}.tmp", Uuid::new_v4()));
-    let permissions = fs::metadata(path)
-        .map_err(|error| format!("Could not inspect config file: {error}"))?
-        .permissions();
-    let result: Result<(), String> = (|| {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)
-            .map_err(|error| format!("Could not create temporary config file: {error}"))?;
-        file.set_permissions(permissions)
-            .map_err(|error| format!("Could not preserve config file permissions: {error}"))?;
-        file.write_all(bytes)
-            .and_then(|()| file.sync_all())
-            .map_err(|error| format!("Could not write config file: {error}"))?;
-        fs::rename(&temporary, path)
-            .map_err(|error| format!("Could not replace config file: {error}"))?;
-        Ok(())
-    })();
-    if let Err(error) = result {
-        return match fs::remove_file(&temporary) {
-            Err(cleanup) if cleanup.kind() != io::ErrorKind::NotFound => Err(format!(
-                "{error}; could not remove temporary config file: {cleanup}"
-            )),
-            _ => Err(error),
-        };
-    }
-    crate::finalize_install::sync_directory(parent)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -359,6 +313,8 @@ pub(crate) fn parse_bepinex_cfg(text: &str) -> BepInExConfig {
 }
 
 /// Replaces only the values of existing entries. Every other byte is kept.
+/// Each edit names the line of its entry; the key and section found there
+/// must match, otherwise the file changed since it was read.
 pub(crate) fn apply_cfg_edits(text: &str, edits: &[ConfigEdit]) -> Result<String, String> {
     let config = parse_bepinex_cfg(text);
     let mut lines: Vec<String> = text.split_inclusive('\n').map(str::to_owned).collect();
@@ -366,20 +322,20 @@ pub(crate) fn apply_cfg_edits(text: &str, edits: &[ConfigEdit]) -> Result<String
         if edit.value.contains(['\r', '\n']) {
             return Err("Config values cannot contain line breaks".to_owned());
         }
-        let entry = config
-            .sections
-            .iter()
-            .find(|section| section.name == edit.section)
-            .and_then(|section| section.entries.iter().find(|entry| entry.key == edit.key))
-            .ok_or_else(|| {
-                format!(
-                    "Config entry {} in section {} was not found",
-                    edit.key, edit.section
-                )
-            })?;
+        let matches_edit = |section: &ConfigSection, entry: &ConfigEntry| {
+            entry.line == edit.line && entry.key == edit.key && section.name == edit.section
+        };
+        if !config.sections.iter().any(|section| {
+            section
+                .entries
+                .iter()
+                .any(|entry| matches_edit(section, entry))
+        }) {
+            return Err("The config file changed on disk; reload it".to_owned());
+        }
         let line = lines
-            .get_mut(entry.line)
-            .ok_or("Config entry line is out of range")?;
+            .get_mut(edit.line)
+            .ok_or("The config file changed on disk; reload it")?;
         *line = replace_value(line, &edit.value)?;
     }
     Ok(lines.concat())
@@ -458,31 +414,17 @@ impl PendingEntry {
     }
 }
 
-fn profile_directory(app: &AppHandle, game_id: &str, profile_id: &str) -> Result<PathBuf, String> {
-    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let profile = app
-        .state::<DatabaseState>()
-        .database()?
-        .mod_profile(profile_id)?
-        .ok_or("Mod profile was not found")?;
-    if !profile.game_id.eq_ignore_ascii_case(game_id) {
-        return Err("Mod profile does not belong to this game".to_owned());
-    }
-    ModdingPaths::new(&data_dir).profile_dir(game_id, profile_id)
-}
-
 #[tauri::command]
 pub async fn list_mod_config_files(
     app: AppHandle,
     game_id: String,
     profile_id: String,
 ) -> Result<Vec<ConfigFileEntry>, String> {
-    crate::startup_recovery::wait(&app).await?;
-    tauri::async_runtime::spawn_blocking(move || {
-        list_config_files(&profile_directory(&app, &game_id, &profile_id)?)
+    run_modding(app, move |_, database, paths, _| {
+        let (_, directory) = profile_for_game(database, paths, &game_id, &profile_id)?;
+        list_config_files(&directory)
     })
     .await
-    .map_err(|e| format!("Config file list task failed: {e}"))?
 }
 
 #[tauri::command]
@@ -492,15 +434,11 @@ pub async fn read_mod_config_file(
     profile_id: String,
     relative_path: String,
 ) -> Result<ModConfigFile, String> {
-    crate::startup_recovery::wait(&app).await?;
-    tauri::async_runtime::spawn_blocking(move || {
-        read_mod_config(
-            &profile_directory(&app, &game_id, &profile_id)?,
-            &relative_path,
-        )
+    run_modding(app, move |_, database, paths, _| {
+        let (_, directory) = profile_for_game(database, paths, &game_id, &profile_id)?;
+        read_mod_config(&directory, &relative_path)
     })
     .await
-    .map_err(|e| format!("Config file read task failed: {e}"))?
 }
 
 #[tauri::command]
@@ -511,16 +449,11 @@ pub async fn save_mod_config_text(
     relative_path: String,
     text: String,
 ) -> Result<(), String> {
-    crate::startup_recovery::wait(&app).await?;
-    tauri::async_runtime::spawn_blocking(move || {
-        write_config_text(
-            &profile_directory(&app, &game_id, &profile_id)?,
-            &relative_path,
-            &text,
-        )
+    run_modding(app, move |_, database, paths, _| {
+        let (_, directory) = profile_for_game(database, paths, &game_id, &profile_id)?;
+        write_config_text(&directory, &relative_path, &text)
     })
     .await
-    .map_err(|e| format!("Config file save task failed: {e}"))?
 }
 
 #[tauri::command]
@@ -531,21 +464,17 @@ pub async fn save_mod_config_entries(
     relative_path: String,
     edits: Vec<ConfigEdit>,
 ) -> Result<(), String> {
-    crate::startup_recovery::wait(&app).await?;
-    tauri::async_runtime::spawn_blocking(move || {
-        save_config_entries(
-            &profile_directory(&app, &game_id, &profile_id)?,
-            &relative_path,
-            &edits,
-        )
+    run_modding(app, move |_, database, paths, _| {
+        let (_, directory) = profile_for_game(database, paths, &game_id, &profile_id)?;
+        save_config_entries(&directory, &relative_path, &edits)
     })
     .await
-    .map_err(|e| format!("Config entry save task failed: {e}"))?
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::Uuid;
 
     const EXAMPLE: &str = "## Settings file was created by plugin X v1.0\n\
 ## Plugin GUID: x.y\n\
@@ -594,11 +523,12 @@ Volume = 50\n";
         }
     }
 
-    fn edit(section: &str, key: &str, value: &str) -> ConfigEdit {
+    fn edit(section: &str, key: &str, value: &str, line: usize) -> ConfigEdit {
         ConfigEdit {
             section: section.to_owned(),
             key: key.to_owned(),
             value: value.to_owned(),
+            line,
         }
     }
 
@@ -644,8 +574,8 @@ Volume = 50\n";
         let updated = apply_cfg_edits(
             &crlf,
             &[
-                edit("General", "Enabled", "false"),
-                edit("Audio", "Volume", "75"),
+                edit("General", "Enabled", "false", 8),
+                edit("Audio", "Volume", "75", 21),
             ],
         )
         .unwrap();
@@ -660,18 +590,51 @@ Volume = 50\n";
     fn keeps_original_spacing_around_equals() {
         let updated = apply_cfg_edits(
             "[A]\r\nKey=old   \r\nOther = x\r\n",
-            &[edit("A", "Key", "new")],
+            &[edit("A", "Key", "new", 1)],
         )
         .unwrap();
         assert_eq!(updated, "[A]\r\nKey=new   \r\nOther = x\r\n");
     }
 
     #[test]
-    fn rejects_unknown_entries_and_line_breaks() {
-        assert!(apply_cfg_edits(EXAMPLE, &[edit("General", "Missing", "1")]).is_err());
-        assert!(apply_cfg_edits(EXAMPLE, &[edit("Missing", "Enabled", "false")]).is_err());
-        assert!(apply_cfg_edits(EXAMPLE, &[edit("General", "Enabled", "a\nb")]).is_err());
-        assert!(apply_cfg_edits(EXAMPLE, &[edit("General", "Enabled", "a\rb")]).is_err());
+    fn rejects_stale_edits_and_line_breaks() {
+        let stale = "The config file changed on disk; reload it";
+        for wrong in [
+            edit("General", "Missing", "1", 8),
+            edit("Missing", "Enabled", "false", 8),
+            edit("General", "Enabled", "false", 7),
+            edit("General", "Enabled", "false", 999),
+            edit("Audio", "Enabled", "false", 8),
+        ] {
+            assert_eq!(apply_cfg_edits(EXAMPLE, &[wrong]).unwrap_err(), stale);
+        }
+        assert!(apply_cfg_edits(EXAMPLE, &[edit("General", "Enabled", "a\nb", 8)]).is_err());
+        assert!(apply_cfg_edits(EXAMPLE, &[edit("General", "Enabled", "a\rb", 8)]).is_err());
+    }
+
+    #[test]
+    fn edits_the_named_line_among_duplicate_keys_and_sections() {
+        let text = "[A]\nKey = 1\nKey = 2\n[A]\nKey = 3\n";
+        let config = parse_bepinex_cfg(text);
+        let lines: Vec<_> = config
+            .sections
+            .iter()
+            .flat_map(|section| section.entries.iter().map(|entry| entry.line))
+            .collect();
+        assert_eq!(lines, [1, 2, 4]);
+
+        assert_eq!(
+            apply_cfg_edits(text, &[edit("A", "Key", "x", 2)]).unwrap(),
+            "[A]\nKey = 1\nKey = x\n[A]\nKey = 3\n"
+        );
+        assert_eq!(
+            apply_cfg_edits(text, &[edit("A", "Key", "y", 4)]).unwrap(),
+            "[A]\nKey = 1\nKey = 2\n[A]\nKey = y\n"
+        );
+        assert_eq!(
+            apply_cfg_edits(text, &[edit("A", "Key", "p", 1), edit("A", "Key", "q", 4)]).unwrap(),
+            "[A]\nKey = p\nKey = 2\n[A]\nKey = q\n"
+        );
     }
 
     #[test]
@@ -789,7 +752,7 @@ Volume = 50\n";
         let profile = TempProfile::new();
         profile.write("config/a.cfg", b"[A]\nKey = 1\n");
         profile.write("config/a.txt", b"[A]\nKey = 1\n");
-        save_config_entries(&profile.0, "config/a.cfg", &[edit("A", "Key", "2")]).unwrap();
+        save_config_entries(&profile.0, "config/a.cfg", &[edit("A", "Key", "2", 1)]).unwrap();
         assert_eq!(
             read_config_text(&profile.0, "config/a.cfg").unwrap(),
             "[A]\nKey = 2\n"

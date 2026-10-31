@@ -2,7 +2,7 @@
 
 use std::{
     path::PathBuf,
-    sync::Arc,
+    sync::{Arc, PoisonError},
     time::{Duration, Instant, SystemTime},
 };
 
@@ -28,6 +28,8 @@ struct Inner {
     url: String,
     cache_path: PathBuf,
     state: Mutex<State>,
+    // Kept apart from `state`, which stays locked for the length of a fetch.
+    latest: std::sync::Mutex<Option<Arc<EcosystemSchema>>>,
 }
 
 #[derive(Default)]
@@ -48,6 +50,20 @@ impl Loaded {
 }
 
 impl EcosystemStore {
+    /// A schema for work that only needs the install rules: the loaded one
+    /// or the disk cache, whatever its age, without touching the network.
+    /// Fetches only when nothing is cached.
+    pub(crate) async fn cached_schema(&self) -> Result<Arc<EcosystemSchema>, String> {
+        if let Some(schema) = self.inner.remembered() {
+            return Ok(schema);
+        }
+        if let Some(loaded) = self.inner.read_cache().await {
+            self.inner.remember(&loaded.schema);
+            return Ok(loaded.schema);
+        }
+        self.schema().await
+    }
+
     pub(crate) fn new(http: ThunderstoreHttp, cache_path: PathBuf, url: &str) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -55,6 +71,7 @@ impl EcosystemStore {
                 url: url.to_owned(),
                 cache_path,
                 state: Mutex::new(State::default()),
+                latest: std::sync::Mutex::new(None),
             }),
         }
     }
@@ -68,6 +85,9 @@ impl EcosystemStore {
         }
         if state.loaded.is_none() {
             state.loaded = inner.read_cache().await;
+            if let Some(loaded) = &state.loaded {
+                inner.remember(&loaded.schema);
+            }
             if let Some(loaded) = state.loaded.as_ref().filter(|loaded| loaded.is_fresh()) {
                 return Ok(loaded.schema.clone());
             }
@@ -84,6 +104,7 @@ impl EcosystemStore {
             Ok(loaded) => {
                 state.last_failure = None;
                 let schema = loaded.schema.clone();
+                inner.remember(&schema);
                 state.loaded = Some(loaded);
                 Ok(schema)
             }
@@ -104,6 +125,17 @@ impl EcosystemStore {
 }
 
 impl Inner {
+    fn remember(&self, schema: &Arc<EcosystemSchema>) {
+        *self.latest.lock().unwrap_or_else(PoisonError::into_inner) = Some(schema.clone());
+    }
+
+    fn remembered(&self) -> Option<Arc<EcosystemSchema>> {
+        self.latest
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
     async fn fetch(&self) -> Result<Loaded, String> {
         let bytes = self.http.get_bytes(&self.url, MAX_SCHEMA_BYTES).await?;
         let (bytes, schema) = parse(bytes).await?;
@@ -115,12 +147,24 @@ impl Inner {
     }
 
     async fn read_cache(&self) -> Option<Loaded> {
-        let metadata = tokio::fs::metadata(&self.cache_path).await.ok()?;
-        if metadata.len() > MAX_SCHEMA_BYTES as u64 {
-            return None;
-        }
-        let fetched_at = metadata.modified().ok()?;
-        let bytes = tokio::fs::read(&self.cache_path).await.ok()?;
+        let read = async {
+            let metadata = tokio::fs::metadata(&self.cache_path).await?;
+            if metadata.len() > MAX_SCHEMA_BYTES as u64 {
+                return Ok(None);
+            }
+            let fetched_at = metadata.modified()?;
+            let bytes = tokio::fs::read(&self.cache_path).await?;
+            Ok::<_, std::io::Error>(Some((bytes, fetched_at)))
+        };
+        let (bytes, fetched_at) = match read.await {
+            Ok(Some(cached)) => cached,
+            Ok(None) => return None,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+            Err(error) => {
+                crate::application_log::failure("ecosystem_schema_cache", error);
+                return None;
+            }
+        };
         match parse(bytes).await {
             Ok((_, schema)) => Some(Loaded {
                 schema: Arc::new(schema),
@@ -140,15 +184,15 @@ impl Inner {
                 .await
                 .map_err(write_error)?;
         }
-        let mut temporary = self.cache_path.clone().into_os_string();
-        temporary.push(".part");
-        let temporary = PathBuf::from(temporary);
-        tokio::fs::write(&temporary, bytes)
-            .await
-            .map_err(write_error)?;
-        tokio::fs::rename(&temporary, &self.cache_path)
-            .await
-            .map_err(write_error)
+        let path = self.cache_path.clone();
+        let bytes = bytes.to_vec();
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::atomic_file::write_atomic(&path, &bytes)
+        })
+        .await
+        .map_err(std::io::Error::other)
+        .and_then(|written| written)
+        .map_err(write_error)
     }
 }
 
@@ -270,6 +314,34 @@ mod tests {
             1,
             "failures are not retried at once"
         );
+    }
+
+    #[test]
+    fn cached_schema_never_waits_for_the_network_when_a_cache_exists() {
+        let directory = TempDir::new();
+        let server = TestServer::start();
+        std::fs::create_dir_all(directory.path().join("modding")).unwrap();
+        std::fs::write(cache_path(&directory), FIXTURE).unwrap();
+        age_cache(&directory, MAX_AGE + Duration::from_secs(60));
+        let store = store(&directory, &server);
+        for _ in 0..2 {
+            let schema = tauri::async_runtime::block_on(store.cached_schema()).unwrap();
+            assert_eq!(schema.games.len(), 3);
+        }
+        assert!(server.requests().is_empty());
+    }
+
+    #[test]
+    fn cached_schema_fetches_when_nothing_is_cached() {
+        let directory = TempDir::new();
+        let server = TestServer::start();
+        server.set("/schema", Reply::ok(FIXTURE.as_bytes().to_vec()));
+        let store = store(&directory, &server);
+        let schema = tauri::async_runtime::block_on(store.cached_schema()).unwrap();
+        assert_eq!(schema.games.len(), 3);
+        assert_eq!(server.requests().len(), 1);
+        tauri::async_runtime::block_on(store.cached_schema()).unwrap();
+        assert_eq!(server.requests().len(), 1);
     }
 
     #[test]

@@ -6,12 +6,15 @@
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
 
-use super::paths::ModdingPaths;
+use super::ecosystem_store::EcosystemStore;
+use super::installer::GameRules;
+use super::paths::{ModdingPaths, validate_relative_path};
+use super::profiles::ProfileLocks;
 use crate::database::{Database, DatabaseState, Game};
 
 const PRELOADERS: [&str; 5] = [
@@ -23,14 +26,16 @@ const PRELOADERS: [&str; 5] = [
 ];
 const DOORSTOP_VERSION_FILE: &str = ".doorstop_version";
 const CORLIB_DIRECTORY: &str = "unstripped_corlib";
-// Package bookkeeping that is not part of a mod loader.
-const UNDEPLOYED_ROOT_FILES: [&str; 4] = ["mods.yml", "manifest.json", "readme.md", "icon.png"];
+const PROFILE_BUSY: &str =
+    "Mods are being changed in the active mod profile. Wait for it to finish and launch again.";
 #[cfg(target_os = "linux")]
 const PROXY_DLL: &str = "winhttp";
 
 /// How the preloader path is written for the process that reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PathStyle {
+    // Linux games always run through Wine; native launches are Windows only.
+    #[cfg_attr(not(windows), allow(dead_code))]
     Native,
     Wine,
 }
@@ -57,20 +62,36 @@ pub(crate) struct ModLaunchStatus {
 
 /// Plan for launching `game`, or `None` when the game launches as usual. May
 /// copy loader files into the game folder and patch the Steam Proton prefix.
+/// Fails while another operation changes the active mod profile.
 pub(crate) fn prepare_launch<R: Runtime>(
     app: &AppHandle<R>,
     game: &Game,
 ) -> Result<Option<ModLaunchPlan>, String> {
     let state = app.state::<DatabaseState>();
     let database = state.database()?;
-    if database.game_modding(&game.id)?.is_none() {
+    let Some(modding) = database.game_modding(&game.id)? else {
         return Ok(None);
-    }
+    };
     let Some(style) = path_style(game) else {
         return Ok(None);
     };
     let paths = ModdingPaths::new(&data_dir(app)?);
-    let plan = prepare(database, &paths, &game.id, &game_directory(game)?, style)?;
+    let game_dir = game_directory(game)?;
+    let plan = match modding.active_profile_id.as_deref() {
+        None => prepare(database, &paths, &game.id, &game_dir, style, &|_| false)?,
+        Some(profile_id) => {
+            let locks = app.state::<ProfileLocks>();
+            let _profile_guard = locks.try_lock(profile_id)?.ok_or(PROFILE_BUSY)?;
+            // The rules only name the loader package, so a stale schema is fine.
+            let schema =
+                tauri::async_runtime::block_on(app.state::<EcosystemStore>().cached_schema())?;
+            let rules = GameRules::from_schema(&schema, &modding.ecosystem_game_id)?;
+            let ctx = rules.context(database, &paths, &locks);
+            prepare(database, &paths, &game.id, &game_dir, style, &|name| {
+                ctx.find_loader(name).is_some()
+            })?
+        }
+    };
     #[cfg(target_os = "linux")]
     if plan.as_ref().is_some_and(|plan| plan.wine_dll_override) && game.steam_install_path.is_some()
     {
@@ -118,18 +139,41 @@ fn restore_game_folder_of<R: Runtime>(app: &AppHandle<R>, game_id: &str) -> Resu
     restore_game_folder(database, &game.id, &game_directory(&game)?)
 }
 
+/// Deletes the loader files of a game that is about to leave the library,
+/// before the records that name them are dropped. A failure is logged and
+/// does not stop the removal.
+pub(crate) fn restore_before_removal<R: Runtime>(app: &AppHandle<R>, game_id: &str) {
+    let outcome = app
+        .state::<DatabaseState>()
+        .database()
+        .and_then(|database| restore_removed_game(database, game_id));
+    if let Err(error) = outcome {
+        crate::application_log::failure("restore_removed_game_folder", error);
+    }
+}
+
+fn restore_removed_game(database: &Database, game_id: &str) -> Result<(), String> {
+    if database.deployed_files(game_id)?.is_empty() {
+        return Ok(());
+    }
+    let game = database.game(game_id)?;
+    restore_game_folder(database, game_id, &game_directory(&game)?)
+}
+
 fn data_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
         .map_err(|error| format!("Could not resolve application data directory: {error}"))
 }
 
+/// `is_loader` tells whether a mod (`Owner-Name`) is the game's mod loader.
 fn prepare(
     database: &Database,
     paths: &ModdingPaths,
     game_id: &str,
     game_dir: &Path,
     style: PathStyle,
+    is_loader: &dyn Fn(&str) -> bool,
 ) -> Result<Option<ModLaunchPlan>, String> {
     let Some(modding) = database.game_modding(game_id)? else {
         return Ok(None);
@@ -140,7 +184,8 @@ fn prepare(
     let profile_dir = paths.profile_dir(game_id, &profile_id)?;
     let preloader = find_preloader(&profile_dir)?;
     let version = doorstop_version(&profile_dir.join(DOORSTOP_VERSION_FILE));
-    deploy_root_files(database, game_id, &profile_dir, game_dir)?;
+    let loader_files = loader_root_files(database, &profile_id, is_loader)?;
+    deploy_root_files(database, game_id, &profile_dir, game_dir, &loader_files)?;
     let preloader = path_argument(&preloader, style)?;
     let corlib = profile_dir.join(CORLIB_DIRECTORY);
     let corlib = if style == PathStyle::Wine && corlib.is_dir() {
@@ -346,44 +391,34 @@ fn patch_steam_prefix(game: &Game) -> Result<(), String> {
     super::wine_registry::patch_user_reg(&prefix.join("user.reg"), PROXY_DLL, "native,builtin", now)
 }
 
-fn root_files(profile_dir: &Path) -> Result<Vec<String>, String> {
-    let entries = fs::read_dir(profile_dir)
-        .map_err(|error| format!("Could not read the mod profile folder: {error}"))?;
-    let mut names = Vec::new();
-    for entry in entries {
-        let entry =
-            entry.map_err(|error| format!("Could not read the mod profile folder: {error}"))?;
-        // file_type does not follow symlinks, so links are never deployed.
-        let is_file = entry
-            .file_type()
-            .map_err(|error| format!("Could not inspect the mod profile folder: {error}"))?
-            .is_file();
-        if !is_file {
-            continue;
-        }
-        let name = entry
-            .file_name()
-            .into_string()
-            .map_err(|_| "A mod profile file has a name that is not valid UTF-8".to_owned())?;
-        if !UNDEPLOYED_ROOT_FILES
-            .iter()
-            .any(|excluded| name.eq_ignore_ascii_case(excluded))
-        {
-            names.push(name);
+/// The files at the profile root that the installed loader package tracks.
+/// Only these are copied next to the game executable: other root files of
+/// the profile (a shared profile could hold any) stay where they are.
+fn loader_root_files(
+    database: &Database,
+    profile_id: &str,
+    is_loader: &dyn Fn(&str) -> bool,
+) -> Result<BTreeSet<String>, String> {
+    let mut files = BTreeSet::new();
+    for record in database.profile_mods(profile_id)? {
+        if record.enabled && is_loader(&record.full_name) {
+            files.extend(
+                database
+                    .profile_mod_files(profile_id, &record.full_name)?
+                    .into_iter()
+                    .filter(|path| !path.contains('/')),
+            );
         }
     }
-    names.sort();
-    Ok(names)
+    Ok(files)
 }
 
-/// Joins a recorded relative path onto the game folder, rejecting anything that could leave it.
+/// Joins a recorded file name onto the game folder, rejecting anything that could leave it.
 fn game_file(game_dir: &Path, relative: &str) -> Result<PathBuf, String> {
-    let path = Path::new(relative);
-    let mut components = path.components();
-    if !matches!(components.next(), Some(Component::Normal(_))) || components.next().is_some() {
+    if relative.contains('/') || validate_relative_path(relative).is_err() {
         return Err(format!("\"{relative}\" is not a file in the game folder"));
     }
-    Ok(game_dir.join(path))
+    Ok(game_dir.join(relative))
 }
 
 fn deploy_root_files(
@@ -391,31 +426,30 @@ fn deploy_root_files(
     game_id: &str,
     profile_dir: &Path,
     game_dir: &Path,
+    wanted: &BTreeSet<String>,
 ) -> Result<(), String> {
-    let wanted: BTreeSet<String> = root_files(profile_dir)?.into_iter().collect();
     let previous: BTreeSet<String> = database.deployed_files(game_id)?.into_iter().collect();
-    for name in &wanted {
+    for name in wanted {
         let target = game_file(game_dir, name)?;
         if !previous.contains(name) && fs::symlink_metadata(&target).is_ok() {
             return Err(format!(
-                "{name} already exists in the game folder and was not installed by Legio. \
-                 Move or remove it to launch with mods."
+                "{name} already exists in the game folder and was not installed by Legio."
             ));
         }
     }
-    if previous != wanted {
+    if previous != *wanted {
         // Recorded before copying so an interrupted deploy can still be restored.
-        let recorded: Vec<String> = previous.union(&wanted).cloned().collect();
+        let recorded: Vec<String> = previous.union(wanted).cloned().collect();
         database.replace_deployed_files(game_id, &recorded)?;
     }
-    for name in &wanted {
+    for name in wanted {
         copy_if_different(&profile_dir.join(name), &game_file(game_dir, name)?)?;
     }
-    if previous != wanted {
-        for name in previous.difference(&wanted) {
+    if previous != *wanted {
+        for name in previous.difference(wanted) {
             remove_deployed_file(&game_file(game_dir, name)?)?;
         }
-        let recorded: Vec<String> = wanted.into_iter().collect();
+        let recorded: Vec<String> = wanted.iter().cloned().collect();
         database.replace_deployed_files(game_id, &recorded)?;
     }
     Ok(())
@@ -477,8 +511,10 @@ fn restore_game_folder(database: &Database, game_id: &str, game_dir: &Path) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::CreateGameInput;
+    use crate::database::{CreateGameInput, ProfileMod};
     use std::time::{Duration, SystemTime};
+
+    const LOADER: &str = "BepInEx-BepInExPack";
 
     struct Fixture {
         directory: PathBuf,
@@ -540,9 +576,33 @@ mod tests {
             fs::write(core.join(preloader), b"preloader").unwrap();
             fs::write(self.profile_dir().join("winhttp.dll"), b"proxy").unwrap();
             fs::write(self.profile_dir().join("doorstop_config.ini"), b"ini").unwrap();
+            let mut tracked = vec![
+                format!("BepInEx/core/{preloader}"),
+                "winhttp.dll".to_owned(),
+                "doorstop_config.ini".to_owned(),
+            ];
             if let Some(version) = doorstop_version {
                 fs::write(self.profile_dir().join(DOORSTOP_VERSION_FILE), version).unwrap();
+                tracked.push(DOORSTOP_VERSION_FILE.to_owned());
             }
+            self.record_mod(LOADER, true, &tracked);
+        }
+
+        fn record_mod(&self, full_name: &str, enabled: bool, tracked: &[String]) {
+            self.database
+                .upsert_profile_mod(&ProfileMod {
+                    profile_id: self.profile_id.clone(),
+                    full_name: full_name.to_owned(),
+                    version: "1.0.0".to_owned(),
+                    enabled,
+                    online_source: true,
+                    installed_at: 1,
+                    install_order: 0,
+                })
+                .unwrap();
+            self.database
+                .replace_profile_mod_files(&self.profile_id, full_name, tracked)
+                .unwrap();
         }
 
         fn prepare(&self, style: PathStyle) -> Result<Option<ModLaunchPlan>, String> {
@@ -552,6 +612,7 @@ mod tests {
                 &self.game_id,
                 &self.game_dir,
                 style,
+                &|name| name == LOADER,
             )
         }
 
@@ -760,8 +821,6 @@ mod tests {
         let fixture = Fixture::new();
         fixture.activate();
         fixture.install_loader("BepInEx.Preloader.dll", Some("4.0.0"));
-        fs::write(fixture.profile_dir().join("mods.yml"), b"x").unwrap();
-        fs::write(fixture.profile_dir().join("manifest.json"), b"x").unwrap();
         fixture.prepare(PathStyle::Native).unwrap();
         let mut deployed: Vec<_> = fs::read_dir(&fixture.game_dir)
             .unwrap()
@@ -777,6 +836,41 @@ mod tests {
             deployed
         );
         assert!(!fixture.game_dir.join("BepInEx").exists());
+    }
+
+    #[test]
+    fn deploys_only_the_files_the_loader_tracks() {
+        let fixture = Fixture::new();
+        fixture.activate();
+        fixture.install_loader("BepInEx.Preloader.dll", None);
+        for stray in ["steam_appid.txt", "boot.ini", "mods.yml", "manifest.json"] {
+            fs::write(fixture.profile_dir().join(stray), b"stray").unwrap();
+        }
+        // A mod that is not the loader cannot put files next to the executable.
+        fs::write(fixture.profile_dir().join("extra.dll"), b"extra").unwrap();
+        fixture.record_mod("Owner-Mod", true, &["extra.dll".to_owned()]);
+
+        fixture.prepare(PathStyle::Native).unwrap();
+        let mut deployed: Vec<_> = fs::read_dir(&fixture.game_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        deployed.sort();
+        assert_eq!(deployed, ["doorstop_config.ini", "winhttp.dll"]);
+        assert_eq!(
+            fixture.database.deployed_files(&fixture.game_id).unwrap(),
+            deployed
+        );
+    }
+
+    #[test]
+    fn a_disabled_loader_deploys_nothing() {
+        let fixture = Fixture::new();
+        fixture.activate();
+        fixture.install_loader("BepInEx.Preloader.dll", None);
+        fixture.record_mod(LOADER, false, &["winhttp.dll".to_owned()]);
+        fixture.prepare(PathStyle::Native).unwrap();
+        assert!(fs::read_dir(&fixture.game_dir).unwrap().next().is_none());
     }
 
     #[test]
@@ -845,6 +939,14 @@ mod tests {
         fixture.install_loader("BepInEx.Preloader.dll", None);
         fixture.prepare(PathStyle::Native).unwrap();
         fs::remove_file(fixture.profile_dir().join("doorstop_config.ini")).unwrap();
+        fixture.record_mod(
+            LOADER,
+            true,
+            &[
+                "BepInEx/core/BepInEx.Preloader.dll".to_owned(),
+                "winhttp.dll".to_owned(),
+            ],
+        );
         fixture.prepare(PathStyle::Native).unwrap();
         assert!(!fixture.game_dir.join("doorstop_config.ini").exists());
         assert_eq!(
@@ -876,9 +978,56 @@ mod tests {
     }
 
     #[test]
+    fn removal_deletes_the_deployed_loader_files() {
+        let fixture = Fixture::new();
+        fixture.activate();
+        fixture.install_loader("BepInEx.Preloader.dll", None);
+        fixture.prepare(PathStyle::Native).unwrap();
+        let executable = fixture.game_dir.join("game.exe");
+        fs::write(&executable, b"exe").unwrap();
+        fixture
+            .database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE games SET executable_path = ?2 WHERE id = ?1",
+                        rusqlite::params![fixture.game_id, executable.to_str().unwrap()],
+                    )
+                    .map_err(|error| error.to_string())
+            })
+            .unwrap();
+
+        restore_removed_game(&fixture.database, &fixture.game_id).unwrap();
+        assert!(!fixture.game_dir.join("winhttp.dll").exists());
+        assert!(!fixture.game_dir.join("doorstop_config.ini").exists());
+        assert!(executable.exists());
+        assert!(
+            fixture
+                .database
+                .deployed_files(&fixture.game_id)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn removal_needs_no_game_folder_without_deployed_files() {
+        let fixture = Fixture::new();
+        fixture.activate();
+        // The game has no installation folder at all.
+        restore_removed_game(&fixture.database, &fixture.game_id).unwrap();
+
+        fixture
+            .database
+            .replace_deployed_files(&fixture.game_id, &strings(&["winhttp.dll"]))
+            .unwrap();
+        assert!(restore_removed_game(&fixture.database, &fixture.game_id).is_err());
+    }
+
+    #[test]
     fn rejects_paths_that_leave_the_game_folder() {
         let base = Path::new("game");
-        for relative in ["", "..", "../x", "a/b", "/etc/passwd", "."] {
+        for relative in ["", "..", "../x", "a/b", "/etc/passwd", ".", "a:b", "a\\b"] {
             assert!(game_file(base, relative).is_err(), "{relative:?}");
         }
         assert_eq!(

@@ -14,6 +14,7 @@ pub mod archive_install;
 mod artwork_display;
 mod artwork_publication;
 mod artwork_scheduler;
+mod atomic_file;
 mod background_process;
 mod buzzheavier;
 mod catalog;
@@ -531,6 +532,7 @@ fn run_application(
             profile_commands::open_mod_profile_folder,
             profile_commands::list_profile_mods,
             install_commands::install_mods,
+            install_commands::install_mod_loader,
             install_commands::list_mod_updates,
             install_commands::update_profile_mods,
             install_commands::cancel_mod_install,
