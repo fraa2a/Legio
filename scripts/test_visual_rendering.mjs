@@ -74,7 +74,7 @@ test("navigation removes previous page content before the new page enters", asyn
   frames.clear();
   const emptyView = dataModule("export default () => {};");
   const mocks = {};
-  for (const [feature, view] of [["home", "HomeView"], ["library", "LibraryView"], ["library", "GameDetailView"], ["store", "StoreView"], ["downloads", "DownloadsView"]]) {
+  for (const [feature, view] of [["home", "HomeView"], ["library", "LibraryView"], ["library", "GameDetailView"], ["store", "StoreView"], ["modding", "ModdingPage"], ["modding", "GameModsView"], ["downloads", "DownloadsView"]]) {
     mocks[`src/lib/features/${feature}/${view}.svelte`] = emptyView;
   }
   const { load } = createModuleLoader(mocks);
@@ -142,7 +142,7 @@ test("navigation_keeps_sidebar_and_canvas_nodes and rapid_navigation_never_repub
   frames.clear();
   const mocks = { "src/lib/services/application-log": dataModule('export const logApplicationEvent = () => new Promise(() => {}); export const logNavigationCheckpoint = () => new Promise(() => {});') };
   const emptyView = dataModule("export default () => {};");
-  for (const [feature, view] of [["home", "HomeView"], ["library", "LibraryView"], ["library", "GameDetailView"], ["store", "StoreView"], ["downloads", "DownloadsView"]]) mocks[`src/lib/features/${feature}/${view}.svelte`] = emptyView;
+  for (const [feature, view] of [["home", "HomeView"], ["library", "LibraryView"], ["library", "GameDetailView"], ["store", "StoreView"], ["modding", "ModdingPage"], ["modding", "GameModsView"], ["downloads", "DownloadsView"]]) mocks[`src/lib/features/${feature}/${view}.svelte`] = emptyView;
   const { load } = createModuleLoader(mocks);
   const navigation = await import(await load("src/lib/stores/navigation.ts"));
   navigation.selectedGameId.set(null); navigation.activeSection.set("home");

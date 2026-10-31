@@ -21,7 +21,7 @@ test("navigation does not wait for logging and ignores superseded requests", asy
   const advance = time => { const scheduled=[...animationFrames.values()];animationFrames.clear();for(const callback of scheduled)callback(time); };
   const emptyView = dataModule("export default () => {};");
   const mocks = { "src/lib/utils/motion": dataModule("export const reducedMotion = false; export const pageTransitionDuration = 210;") };
-  for (const [feature, view] of [["home", "HomeView"], ["library", "LibraryView"], ["library", "GameDetailView"], ["store", "StoreView"], ["downloads", "DownloadsView"]]) mocks[`src/lib/features/${feature}/${view}.svelte`] = emptyView;
+  for (const [feature, view] of [["home", "HomeView"], ["library", "LibraryView"], ["library", "GameDetailView"], ["store", "StoreView"], ["modding", "ModdingPage"], ["modding", "GameModsView"], ["downloads", "DownloadsView"]]) mocks[`src/lib/features/${feature}/${view}.svelte`] = emptyView;
   const { loader, logger } = await fixture(mocks);
   logger.setApplicationLoggingEnabled(true);
   const messages = [];
@@ -308,7 +308,7 @@ test("navigation records library checkpoints without disclosing a selected game 
     "src/lib/utils/motion": dataModule("export const reducedMotion = true; export const fadeDuration = 0; export const pageTransitionDuration = 0;"),
   };
   const emptyView = dataModule("export default () => {};");
-  for (const [feature, view] of [["home", "HomeView"], ["library", "LibraryView"], ["library", "GameDetailView"], ["store", "StoreView"], ["downloads", "DownloadsView"]]) {
+  for (const [feature, view] of [["home", "HomeView"], ["library", "LibraryView"], ["library", "GameDetailView"], ["store", "StoreView"], ["modding", "ModdingPage"], ["modding", "GameModsView"], ["downloads", "DownloadsView"]]) {
     mocks[`src/lib/features/${feature}/${view}.svelte`] = emptyView;
   }
   const loader = createModuleLoader(mocks);
