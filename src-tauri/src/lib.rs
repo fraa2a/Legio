@@ -535,6 +535,7 @@ fn run_application(
             config_files::read_mod_config_file,
             config_files::save_mod_config_text,
             config_files::save_mod_config_entries,
+            commands::export_mod_profile_file,
         ])
         .build(context)?
         .run(|app, event| {

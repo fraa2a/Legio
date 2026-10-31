@@ -15,7 +15,9 @@ pub(crate) mod package_cache;
 pub(crate) mod package_id;
 pub(crate) mod package_manifest;
 pub(crate) mod paths;
+pub(crate) mod profile_codes;
 pub(crate) mod profile_commands;
+pub(crate) mod profile_exchange;
 pub(crate) mod profiles;
 #[cfg(test)]
 mod test_support;

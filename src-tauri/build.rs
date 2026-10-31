@@ -130,6 +130,7 @@ fn main() {
             "read_mod_config_file",
             "save_mod_config_text",
             "save_mod_config_entries",
+            "export_mod_profile_file",
         ]),
     ))
     .expect("Tauri build configuration failed");
