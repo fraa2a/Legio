@@ -11,11 +11,13 @@ use std::{
 use serde::{Deserialize, Serialize};
 use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
+use super::config_files::CONFIG_EXTENSIONS;
 use super::package_id::{PackageName, PackageVersionId, Version};
+use super::paths::validate_relative_path;
+use crate::database::MAX_PROFILE_NAME_CHARS;
 
 const MANIFEST_ENTRY: &str = "export.r2x";
 const CONFIG_ENTRY_DIR: &str = "config";
-const SUPPORTED_EXTENSIONS: [&str; 6] = ["cfg", "txt", "json", "yml", "yaml", "ini"];
 const BLOCKED_EXTENSIONS: [&str; 4] = ["dll", "exe", "bat", "reg"];
 const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ENTRIES: usize = 10_000;
@@ -23,7 +25,6 @@ const MAX_TOTAL_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const MAX_COMPRESSION_RATIO: u64 = 200;
 const MAX_MODS: usize = 5_000;
-const MAX_PROFILE_NAME_CHARS: usize = 64;
 
 /// A mod to write into the export, as tracked by the profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,7 +52,8 @@ pub(crate) struct ProfileImport {
     pub(crate) profile_name: String,
     pub(crate) mods: Vec<ImportedMod>,
     pub(crate) files: Vec<ImportedFile>,
-    /// Archive entries ignored because their type is not an allowed config file.
+    /// Archive entries ignored because they are not allowed config files in
+    /// the BepInEx config folder.
     pub(crate) skipped: Vec<String>,
 }
 
@@ -220,7 +222,7 @@ fn export_entry_name(parts: &[String]) -> Option<String> {
 }
 
 fn has_supported_extension(file_name: &str) -> bool {
-    extension(file_name).is_some_and(|ext| SUPPORTED_EXTENSIONS.contains(&ext.as_str()))
+    extension(file_name).is_some_and(|ext| CONFIG_EXTENSIONS.contains(&ext.as_str()))
 }
 
 fn extension(file_name: &str) -> Option<String> {
@@ -296,7 +298,10 @@ pub(crate) fn read_r2z(bytes: &[u8]) -> Result<ProfileImport, String> {
             skipped.push(name);
             continue;
         }
-        let relative_path = map_to_profile_path(&name);
+        let Some(relative_path) = config_destination(&name) else {
+            skipped.push(name);
+            continue;
+        };
         if !seen.insert(relative_path.to_ascii_lowercase()) {
             return Err(format!("The profile file has a duplicate entry: {name}"));
         }
@@ -346,35 +351,28 @@ fn read_entry(entry: &mut impl Read, declared: u64, name: &str) -> Result<Vec<u8
 
 /// Converts an archive entry name to a safe relative path with `/` separators.
 fn normalize_entry_path(raw: &str) -> Result<String, String> {
-    let invalid = || format!("The profile file has an unsafe path: {raw}");
     let normalized = raw.replace('\\', "/");
-    if normalized.starts_with('/') {
-        return Err(invalid());
-    }
-    let mut parts = Vec::new();
-    for part in normalized.split('/') {
-        if part.is_empty()
-            || part == "."
-            || part == ".."
-            || part.contains(':')
-            || part.chars().any(char::is_control)
-            || part.ends_with(' ')
-            || part.ends_with('.')
-        {
-            return Err(invalid());
-        }
-        parts.push(part);
-    }
-    Ok(parts.join("/"))
+    validate_relative_path(&normalized)
+        .map_err(|_| format!("The profile file has an unsafe path: {raw}"))?;
+    Ok(normalized)
 }
 
-fn map_to_profile_path(name: &str) -> String {
-    match name.split_once('/') {
-        Some((first, rest)) if first.eq_ignore_ascii_case(CONFIG_ENTRY_DIR) => {
-            format!("BepInEx/config/{rest}")
-        }
-        _ => name.to_owned(),
-    }
+/// Where an archive entry goes in the profile. Only the BepInEx config folder
+/// is written: r2modman stores it as `config/`, Legio as `BepInEx/config/`.
+/// Everything else, root files included, is not imported.
+fn config_destination(name: &str) -> Option<String> {
+    let (first, rest) = name.split_once('/')?;
+    let rest = if first.eq_ignore_ascii_case(CONFIG_ENTRY_DIR) {
+        rest
+    } else if first.eq_ignore_ascii_case("BepInEx") {
+        let (second, rest) = rest.split_once('/')?;
+        second
+            .eq_ignore_ascii_case(CONFIG_ENTRY_DIR)
+            .then_some(rest)?
+    } else {
+        return None;
+    };
+    Some(format!("BepInEx/config/{rest}"))
 }
 
 /// Makes an archive-provided name usable as a Legio profile name.
@@ -527,10 +525,8 @@ mod tests {
             fs::read_to_string(target.join("BepInEx/config/a.cfg")).unwrap(),
             "[x]\nkey = 1\n"
         );
-        assert_eq!(
-            fs::read_to_string(target.join("BepInEx/plugins/Mod/settings.json")).unwrap(),
-            "{}"
-        );
+        assert_eq!(import.skipped, ["BepInEx/plugins/Mod/settings.json"]);
+        assert!(!target.join("BepInEx/plugins").exists());
         fs::remove_dir_all(source).unwrap();
         fs::remove_dir_all(target).unwrap();
     }
@@ -588,13 +584,9 @@ mod tests {
         paths.sort();
         assert_eq!(
             paths,
-            [
-                "BepInEx/config/BepInEx.cfg",
-                "BepInEx/config/sub/Other.cfg",
-                "BepInEx/plugins/Mod/data.txt",
-            ]
+            ["BepInEx/config/BepInEx.cfg", "BepInEx/config/sub/Other.cfg"]
         );
-        assert!(import.skipped.is_empty());
+        assert_eq!(import.skipped, ["BepInEx/plugins/Mod/data.txt"]);
     }
 
     #[test]
@@ -631,6 +623,46 @@ mod tests {
         let import = read_r2z(&bytes).unwrap();
         assert_eq!(import.files.len(), 1);
         assert_eq!(import.skipped.len(), 6);
+    }
+
+    #[test]
+    fn imports_only_into_the_bepinex_config_folder() {
+        let bytes = zip_of(&[
+            ("export.r2x", MANIFEST),
+            ("config/a.cfg", b"1"),
+            ("bepinex/CONFIG/sub/b.json", b"2"),
+            ("BepInEx/config/c.ini", b"3"),
+            ("steam_appid.txt", b"480"),
+            ("doorstop_config.ini", b"x"),
+            ("boot.ini", b"x"),
+            ("config", b"x"),
+            ("BepInEx/plugins/Mod/d.cfg", b"x"),
+            ("BepInEx/core/e.json", b"x"),
+            ("other/config/f.cfg", b"x"),
+            ("BepInEx/configs/g.cfg", b"x"),
+        ]);
+        let import = read_r2z(&bytes).unwrap();
+        let mut paths: Vec<_> = import
+            .files
+            .iter()
+            .map(|file| file.relative_path.as_str())
+            .collect();
+        paths.sort();
+        assert_eq!(
+            paths,
+            [
+                "BepInEx/config/a.cfg",
+                "BepInEx/config/c.ini",
+                "BepInEx/config/sub/b.json",
+            ]
+        );
+        assert_eq!(import.skipped.len(), 8);
+        for skipped in ["steam_appid.txt", "doorstop_config.ini", "boot.ini"] {
+            assert!(
+                import.skipped.iter().any(|name| name == skipped),
+                "{skipped}"
+            );
+        }
     }
 
     #[test]

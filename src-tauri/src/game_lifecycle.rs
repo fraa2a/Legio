@@ -1395,6 +1395,7 @@ pub(crate) fn remove_game(app: &AppHandle, id: &str) -> Result<(), String> {
     let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
     let _operation = manager.operation()?;
     manager.require_idle(id)?;
+    crate::modding::launch::restore_before_removal(app, id);
     app.state::<DatabaseState>().database()?.remove_game(id)?;
     cleanup_removed_game(app, id)
 }

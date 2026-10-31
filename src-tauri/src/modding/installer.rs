@@ -4,11 +4,7 @@
 //!
 //! All functions here block. Run them in `spawn_blocking`.
 
-use std::{
-    collections::{HashMap, HashSet},
-    fmt, fs,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashMap, fmt, fs, path::Path};
 
 use serde::Serialize;
 
@@ -16,10 +12,10 @@ use super::archive_cache::{CacheStage, FetchPackage, ensure_cached, package_dir}
 use super::dependencies::{InstallRequest, PackageSource, ResolveMode, package_key, resolve_plan};
 use super::ecosystem::{EcosystemSchema, GameEntry, ModloaderPackage, PackageLoader};
 use super::install_rules::{PlannedFile, plan_install};
-use super::loader_install::plan_loader_install;
+use super::loader_install::{plan_loader_install, unsupported_loader_message};
 use super::package_id::{PackageName, PackageVersionId, Version};
 use super::package_manifest::read_manifest;
-use super::paths::ModdingPaths;
+use super::paths::{ModdingPaths, join_relative};
 use super::profiles::{ProfileLocks, copy_file, profile_with_directory};
 use crate::database::{Database, ModProfile, ProfileMod, now_milliseconds};
 
@@ -33,6 +29,17 @@ pub(crate) struct ModdingContext<'a> {
     pub(crate) locks: &'a ProfileLocks,
     pub(crate) game: &'a GameEntry,
     pub(crate) loaders: &'a [ModloaderPackage],
+}
+
+impl<'a> ModdingContext<'a> {
+    /// The loader package of the game's mod loader named `full_name`
+    /// (`Owner-Name`), if it is one.
+    pub(crate) fn find_loader(&self, full_name: &str) -> Option<&'a ModloaderPackage> {
+        self.loaders.iter().find(|loader| {
+            loader.loader == self.game.package_loader
+                && loader.package_id.eq_ignore_ascii_case(full_name)
+        })
+    }
 }
 
 /// Install rules of one game, copied out of the shared ecosystem schema.
@@ -99,6 +106,38 @@ pub(crate) struct InstallProgress {
     pub(crate) downloaded_bytes: Option<u64>,
     /// Size announced by the server, when it announced one.
     pub(crate) total_bytes: Option<u64>,
+    /// The `operationId` the caller passed to the command, if any.
+    pub(crate) operation_id: Option<String>,
+    /// True while cancelling can stop the work, which is only the download.
+    pub(crate) cancellable: bool,
+}
+
+impl InstallProgress {
+    pub(crate) fn new(
+        profile_id: &str,
+        package: Option<&PackageVersionId>,
+        stage: InstallStage,
+        position: (usize, usize),
+    ) -> Self {
+        Self {
+            profile_id: profile_id.to_owned(),
+            package: package.map(ToString::to_string),
+            stage,
+            current: position.0,
+            total: position.1,
+            downloaded_bytes: None,
+            total_bytes: None,
+            operation_id: None,
+            cancellable: stage == InstallStage::Downloading,
+        }
+    }
+
+    pub(crate) fn with_operation(&self, operation_id: Option<&str>) -> Self {
+        Self {
+            operation_id: operation_id.map(str::to_owned),
+            ..self.clone()
+        }
+    }
 }
 
 pub(crate) type ProgressSink<'a> = &'a dyn Fn(&InstallProgress);
@@ -110,15 +149,7 @@ pub(crate) fn report_progress(
     stage: InstallStage,
     position: (usize, usize),
 ) {
-    progress(&InstallProgress {
-        profile_id: profile_id.to_owned(),
-        package: package.map(ToString::to_string),
-        stage,
-        current: position.0,
-        total: position.1,
-        downloaded_bytes: None,
-        total_bytes: None,
-    });
+    progress(&InstallProgress::new(profile_id, package, stage, position));
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -269,14 +300,10 @@ pub(super) fn install_cached_package(
     // Rejects files owned by another mod before anything is written.
     ctx.database
         .replace_profile_mod_files(&profile.id, &full_name, &tracked)?;
-    let tracked_set: HashSet<&String> = tracked.iter().collect();
-    let stale: Vec<String> = old_files
-        .iter()
-        .filter(|path| !tracked_set.contains(path))
-        .cloned()
-        .collect();
-    if let Err(failure) = remove_files(profile_dir, &stale) {
-        restore_tracked_files(ctx, &profile.id, &full_name, &old_files);
+    // Every old file goes before the copy, so a failed update cannot leave
+    // files of the previous version behind without a record.
+    if let Err(failure) = remove_files(profile_dir, &old_files) {
+        restore_tracked_files(ctx, &profile.id, &full_name, &failure.remaining);
         return Err(InstallError::Failed(failure.error));
     }
 
@@ -356,7 +383,7 @@ pub(crate) fn set_mod_enabled(
     if enabled {
         enable_mod(ctx, &profile, &profile_dir, record, &id)
     } else {
-        if find_loader(ctx, &id.package).is_some() {
+        if ctx.find_loader(&id.package.to_string()).is_some() {
             return Err(InstallError::LoaderCannotBeDisabled(id.package.to_string()));
         }
         let files = ctx
@@ -460,29 +487,18 @@ fn installed_versions(mods: &[ProfileMod]) -> HashMap<String, Version> {
         .collect()
 }
 
-fn find_loader<'a>(
-    ctx: &ModdingContext<'a>,
-    package: &PackageName,
-) -> Option<&'a ModloaderPackage> {
-    let name = package.to_string();
-    ctx.loaders.iter().find(|loader| {
-        loader.loader == ctx.game.package_loader && loader.package_id.eq_ignore_ascii_case(&name)
-    })
-}
-
 fn plan_package(
     ctx: &ModdingContext<'_>,
     package: &PackageName,
     cache_dir: &Path,
 ) -> Result<Vec<PlannedFile>, InstallError> {
-    let planned = match find_loader(ctx, package) {
+    let planned = match ctx.find_loader(&package.to_string()) {
         Some(loader) if loader.loader == PackageLoader::Bepinex => {
             plan_loader_install(cache_dir, &loader.root_folder)
         }
         Some(loader) => {
-            return Err(InstallError::Failed(format!(
-                "The {:?} mod loader is not supported yet",
-                loader.loader
+            return Err(InstallError::Failed(unsupported_loader_message(
+                loader.loader,
             )));
         }
         None => plan_install(
@@ -515,7 +531,7 @@ struct CopyFailure {
 fn copy_planned(profile_dir: &Path, planned: &[PlannedFile]) -> Result<Vec<String>, CopyFailure> {
     let mut written = Vec::new();
     for file in planned {
-        let target = match destination_path(profile_dir, &file.destination) {
+        let target = match join_relative(profile_dir, &file.destination) {
             Ok(target) => target,
             Err(error) => return Err(CopyFailure { written, error }),
         };
@@ -549,24 +565,6 @@ fn prepare_target(target: &Path, replace_existing: bool) -> Result<bool, String>
     }
 }
 
-/// Joins a `/`-separated relative path onto the profile folder, refusing
-/// anything that could leave it.
-fn destination_path(profile_dir: &Path, relative: &str) -> Result<PathBuf, String> {
-    let mut path = profile_dir.to_path_buf();
-    for part in relative.split('/') {
-        if part.is_empty()
-            || part == "."
-            || part == ".."
-            || part.contains(['\\', ':'])
-            || part.chars().any(char::is_control)
-        {
-            return Err(format!("File path \"{relative}\" is not allowed"));
-        }
-        path.push(part);
-    }
-    Ok(path)
-}
-
 struct RemoveFailure {
     /// Files that are still on disk.
     remaining: Vec<String>,
@@ -580,7 +578,7 @@ fn remove_files(profile_dir: &Path, relatives: &[String]) -> Result<(), RemoveFa
     let mut first_error: Option<String> = None;
     for relative in relatives {
         let removed =
-            destination_path(profile_dir, relative).and_then(|path| match fs::remove_file(&path) {
+            join_relative(profile_dir, relative).and_then(|path| match fs::remove_file(&path) {
                 Ok(()) => Ok(()),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
                 Err(error) => Err(format!("Cannot remove {relative}: {error}")),
@@ -602,7 +600,7 @@ fn remove_files(profile_dir: &Path, relatives: &[String]) -> Result<(), RemoveFa
 
 fn prune_empty_directories(profile_dir: &Path, relatives: &[String]) {
     for relative in relatives {
-        let Ok(path) = destination_path(profile_dir, relative) else {
+        let Ok(path) = join_relative(profile_dir, relative) else {
             continue;
         };
         let mut directory = path.parent();
@@ -829,6 +827,15 @@ mod tests {
         let json = serde_json::to_value(&events[1]).unwrap();
         assert_eq!(json["profileId"], env.profile.id.as_str());
         assert_eq!(json["stage"], "downloading");
+        assert_eq!(json["cancellable"], true);
+        assert_eq!(json["operationId"], serde_json::Value::Null);
+        let tagged = serde_json::to_value(events[1].with_operation(Some("op-1"))).unwrap();
+        assert_eq!(tagged["operationId"], "op-1");
+        let cancellable: Vec<_> = events.iter().map(|event| event.cancellable).collect();
+        assert_eq!(
+            cancellable,
+            [false, true, false, false, true, false, false, false]
+        );
     }
 
     #[test]
@@ -1021,29 +1028,64 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_update_leaves_the_mod_uninstalled() {
+    fn a_failed_update_leaves_no_file_of_the_mod() {
         let env = Env::new();
-        let repo = repo();
-        env.install(&repo, &["Owner-Mod-1.0.0"], ResolveMode::Latest)
+        let mut repo = FakeRepo::default();
+        repo.add(
+            "Owner-Wide-1.0.0",
+            &[],
+            &[("b.dll", "b1"), ("c.dll", "c1"), ("d.dll", "d1")],
+        );
+        repo.add(
+            "Owner-Wide-2.0.0",
+            &[],
+            &[("a.dll", "a2"), ("b.dll", "b2"), ("c.dll", "c2")],
+        );
+        env.install(&repo, &["Owner-Wide-1.0.0"], ResolveMode::Latest)
             .unwrap();
-        fs::remove_file(
-            env.profile_dir()
-                .join("BepInEx/plugins/Owner-Mod/manifest.json"),
-        )
-        .unwrap();
-        fs::create_dir_all(
-            env.profile_dir()
-                .join("BepInEx/plugins/Owner-Mod/manifest.json"),
-        )
-        .unwrap();
-        env.install(&repo, &["Owner-Mod-2.0.0"], ResolveMode::Latest)
+        // A folder where the first new file belongs makes the copy fail
+        // before the old files would be overwritten.
+        let blocker = env.profile_dir().join("BepInEx/plugins/Owner-Wide/a.dll");
+        fs::create_dir_all(&blocker).unwrap();
+
+        env.install(&repo, &["Owner-Wide-2.0.0"], ResolveMode::Latest)
             .unwrap_err();
         assert!(
             env.mods()
                 .iter()
-                .all(|record| record.full_name != "Owner-Mod")
+                .all(|record| record.full_name != "Owner-Wide")
         );
-        assert!(!env.exists("BepInEx/plugins/Owner-Mod/Mod.dll"));
+        assert!(env.files_of("Owner-Wide").is_empty());
+        for name in ["b.dll", "c.dll", "d.dll"] {
+            assert!(
+                !env.exists(&format!("BepInEx/plugins/Owner-Wide/{name}")),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_blocked_removal_keeps_the_old_version_recorded() {
+        let env = Env::new();
+        let repo = repo();
+        env.install(&repo, &["Owner-Mod-1.0.0"], ResolveMode::Latest)
+            .unwrap();
+        let blocker = env.profile_dir().join("BepInEx/plugins/Owner-Mod/Mod.dll");
+        fs::remove_file(&blocker).unwrap();
+        fs::create_dir_all(&blocker).unwrap();
+
+        env.install(&repo, &["Owner-Mod-2.0.0"], ResolveMode::Latest)
+            .unwrap_err();
+        let record = env
+            .mods()
+            .into_iter()
+            .find(|record| record.full_name == "Owner-Mod")
+            .unwrap();
+        assert_eq!(record.version, "1.0.0");
+        assert_eq!(
+            env.files_of("Owner-Mod"),
+            ["BepInEx/plugins/Owner-Mod/Mod.dll"]
+        );
     }
 
     #[test]
@@ -1203,20 +1245,6 @@ mod tests {
             env.files_of("Owner-Empty"),
             ["BepInEx/plugins/Owner-Empty/manifest.json"]
         );
-    }
-
-    #[test]
-    fn destination_paths_cannot_leave_the_profile() {
-        let root = Path::new("profile");
-        assert_eq!(
-            destination_path(root, "a/b.txt").unwrap(),
-            root.join("a").join("b.txt")
-        );
-        for bad in [
-            "", "../x", "a/../x", "/abs", "a//b", "a\\b", "C:/x", "a/./b",
-        ] {
-            assert!(destination_path(root, bad).is_err(), "{bad}");
-        }
     }
 
     #[test]
