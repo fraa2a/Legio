@@ -2,6 +2,7 @@
 
 pub(crate) mod archive_cache;
 pub(crate) mod catalog_commands;
+pub(crate) mod config_files;
 pub(crate) mod dependencies;
 pub(crate) mod ecosystem;
 pub(crate) mod ecosystem_store;

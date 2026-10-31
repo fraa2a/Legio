@@ -126,6 +126,10 @@ fn main() {
             "search_mods",
             "get_mod_package",
             "list_mod_categories",
+            "list_mod_config_files",
+            "read_mod_config_file",
+            "save_mod_config_text",
+            "save_mod_config_entries",
         ]),
     ))
     .expect("Tauri build configuration failed");
