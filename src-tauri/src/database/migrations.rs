@@ -739,5 +739,47 @@ pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
             .pragma_update(None, "user_version", 35)
             .map_err(database_error)?;
     }
+    if version < 36 {
+        transaction
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS mod_profiles (
+                id TEXT PRIMARY KEY NOT NULL,
+                game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                UNIQUE (game_id, name COLLATE NOCASE)
+             );
+             CREATE TABLE IF NOT EXISTS game_modding (
+                game_id TEXT PRIMARY KEY NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                ecosystem_game_id TEXT NOT NULL,
+                active_profile_id TEXT REFERENCES mod_profiles(id) ON DELETE SET NULL
+             );
+             CREATE TABLE IF NOT EXISTS mod_profile_mods (
+                profile_id TEXT NOT NULL REFERENCES mod_profiles(id) ON DELETE CASCADE,
+                full_name TEXT NOT NULL,
+                version TEXT NOT NULL,
+                enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+                online_source INTEGER NOT NULL CHECK (online_source IN (0, 1)),
+                installed_at INTEGER NOT NULL,
+                install_order INTEGER NOT NULL,
+                PRIMARY KEY (profile_id, full_name)
+             );
+             CREATE TABLE IF NOT EXISTS mod_profile_files (
+                profile_id TEXT NOT NULL REFERENCES mod_profiles(id) ON DELETE CASCADE,
+                full_name TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
+                PRIMARY KEY (profile_id, relative_path)
+             );
+             CREATE INDEX IF NOT EXISTS mod_profile_files_mod_idx
+                ON mod_profile_files (profile_id, full_name);
+             CREATE TABLE IF NOT EXISTS game_mod_deployed_files (
+                game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                relative_path TEXT NOT NULL,
+                PRIMARY KEY (game_id, relative_path)
+             );
+             PRAGMA user_version = 36;",
+            )
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }

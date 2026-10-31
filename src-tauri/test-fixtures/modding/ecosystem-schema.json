@@ -1,0 +1,386 @@
+{
+  "schemaVersion": "0.3.0",
+  "games": {
+    "lethal-company": {
+      "uuid": "40c7d846-cff1-45fe-8679-4abe993abafb",
+      "label": "lethal-company",
+      "meta": {
+        "displayName": "Lethal Company",
+        "iconUrl": "lethal-company/lethal-company-cover-360x480.webp"
+      },
+      "distributions": [
+        {
+          "platform": "steam",
+          "identifier": "1966720"
+        }
+      ],
+      "r2modman": [
+        {
+          "meta": {
+            "displayName": "Lethal Company",
+            "iconUrl": "lethal-company/lethal-company-cover-360x480.webp"
+          },
+          "internalFolderName": "LethalCompany",
+          "dataFolderName": "Lethal Company_Data",
+          "distributions": [
+            {
+              "platform": "steam",
+              "identifier": "1966720"
+            }
+          ],
+          "settingsIdentifier": "LethalCompany",
+          "packageIndex": "https://thunderstore.io/c/lethal-company/api/v1/package-listing-index/",
+          "steamFolderName": "Lethal Company",
+          "exeNames": [
+            "Lethal Company.exe"
+          ],
+          "gameInstanceType": "game",
+          "gameSelectionDisplayMode": "visible",
+          "additionalSearchStrings": [
+            "lc",
+            "\u81f4\u547d\u516c\u53f8"
+          ],
+          "packageLoader": "bepinex",
+          "installRules": [
+            {
+              "route": "BepInEx/plugins",
+              "defaultFileExtensions": [
+                ".dll"
+              ],
+              "trackingMethod": "subdir",
+              "subRoutes": [],
+              "isDefaultLocation": true
+            },
+            {
+              "route": "BepInEx/core",
+              "defaultFileExtensions": [],
+              "trackingMethod": "subdir",
+              "subRoutes": [],
+              "isDefaultLocation": false
+            },
+            {
+              "route": "BepInEx/patchers",
+              "defaultFileExtensions": [],
+              "trackingMethod": "subdir",
+              "subRoutes": [],
+              "isDefaultLocation": false
+            },
+            {
+              "route": "BepInEx/monomod",
+              "defaultFileExtensions": [
+                ".mm.dll"
+              ],
+              "trackingMethod": "subdir",
+              "subRoutes": [],
+              "isDefaultLocation": false
+            },
+            {
+              "route": "BepInEx/config",
+              "defaultFileExtensions": [],
+              "trackingMethod": "none",
+              "subRoutes": [],
+              "isDefaultLocation": false
+            }
+          ],
+          "relativeFileExclusions": null
+        }
+      ]
+    },
+    "riskofrain2": {
+      "uuid": "da7786df-a437-463a-b495-1f502bfff4bb",
+      "label": "riskofrain2",
+      "meta": {
+        "displayName": "Risk of Rain 2",
+        "iconUrl": "riskofrain2/riskofrain2-cover-360x480.webp"
+      },
+      "distributions": [
+        {
+          "platform": "steam",
+          "identifier": "632360"
+        },
+        {
+          "platform": "epic-games-store",
+          "identifier": "4b3dcc5723454a47a9112d8fe8fd5f5c"
+        },
+        {
+          "platform": "steam",
+          "identifier": "1180760"
+        }
+      ],
+      "r2modman": [
+        {
+          "meta": {
+            "displayName": "Risk of Rain 2",
+            "iconUrl": "riskofrain2/riskofrain2-cover-360x480.webp"
+          },
+          "internalFolderName": "RiskOfRain2",
+          "dataFolderName": "Risk of Rain 2_Data",
+          "distributions": [
+            {
+              "platform": "steam",
+              "identifier": "632360"
+            },
+            {
+              "platform": "epic-games-store",
+              "identifier": "4b3dcc5723454a47a9112d8fe8fd5f5c"
+            }
+          ],
+          "settingsIdentifier": "RiskOfRain2",
+          "packageIndex": "https://thunderstore.io/c/riskofrain2/api/v1/package-listing-index/",
+          "steamFolderName": "Risk of Rain 2",
+          "exeNames": [
+            "Risk of Rain 2.exe"
+          ],
+          "gameInstanceType": "game",
+          "gameSelectionDisplayMode": "visible",
+          "additionalSearchStrings": [
+            "ROR2",
+            "\u96e8\u4e2d\u5192\u96692"
+          ],
+          "packageLoader": "bepinex",
+          "installRules": [
+            {
+              "route": "BepInEx/plugins",
+              "defaultFileExtensions": [
+                ".dll"
+              ],
+              "trackingMethod": "subdir",
+              "subRoutes": [],
+              "isDefaultLocation": true
+            },
+            {
+              "route": "BepInEx/core",
+              "defaultFileExtensions": [],
+              "trackingMethod": "subdir",
+              "subRoutes": [],
+              "isDefaultLocation": false
+            },
+            {
+              "route": "BepInEx/patchers",
+              "defaultFileExtensions": [],
+              "trackingMethod": "subdir",
+              "subRoutes": [],
+              "isDefaultLocation": false
+            },
+            {
+              "route": "BepInEx/monomod",
+              "defaultFileExtensions": [
+                ".mm.dll"
+              ],
+              "trackingMethod": "subdir",
+              "subRoutes": [],
+              "isDefaultLocation": false
+            },
+            {
+              "route": "BepInEx/config",
+              "defaultFileExtensions": [],
+              "trackingMethod": "none",
+              "subRoutes": [],
+              "isDefaultLocation": false
+            }
+          ],
+          "relativeFileExclusions": null
+        },
+        {
+          "meta": {
+            "displayName": "Risk of Rain 2 Dedicated Server",
+            "iconUrl": "riskofrain2/riskofrain2-cover-360x480.webp"
+          },
+          "internalFolderName": "RiskOfRain2",
+          "dataFolderName": "Risk of Rain 2_Data",
+          "distributions": [
+            {
+              "platform": "steam",
+              "identifier": "1180760"
+            }
+          ],
+          "settingsIdentifier": "RiskOfRain2Server",
+          "packageIndex": "https://thunderstore.io/c/riskofrain2/api/v1/package-listing-index/",
+          "steamFolderName": "Risk of Rain 2 Dedicated Server",
+          "exeNames": [
+            "Risk of Rain 2.exe"
+          ],
+          "gameInstanceType": "server",
+          "gameSelectionDisplayMode": "visible",
+          "additionalSearchStrings": [
+            "ROR2",
+            "\u96e8\u4e2d\u5192\u96692"
+          ],
+          "packageLoader": "bepinex",
+          "installRules": [
+            {
+              "route": "BepInEx/plugins",
+              "defaultFileExtensions": [
+                ".dll"
+              ],
+              "trackingMethod": "subdir",
+              "subRoutes": [],
+              "isDefaultLocation": true
+            },
+            {
+              "route": "BepInEx/core",
+              "defaultFileExtensions": [],
+              "trackingMethod": "subdir",
+              "subRoutes": [],
+              "isDefaultLocation": false
+            },
+            {
+              "route": "BepInEx/patchers",
+              "defaultFileExtensions": [],
+              "trackingMethod": "subdir",
+              "subRoutes": [],
+              "isDefaultLocation": false
+            },
+            {
+              "route": "BepInEx/monomod",
+              "defaultFileExtensions": [
+                ".mm.dll"
+              ],
+              "trackingMethod": "subdir",
+              "subRoutes": [],
+              "isDefaultLocation": false
+            },
+            {
+              "route": "BepInEx/config",
+              "defaultFileExtensions": [],
+              "trackingMethod": "none",
+              "subRoutes": [],
+              "isDefaultLocation": false
+            }
+          ],
+          "relativeFileExclusions": null
+        }
+      ]
+    },
+    "backpack-hero": {
+      "uuid": "3465826f-3754-4681-b3fd-f912bc900c5b",
+      "label": "backpack-hero",
+      "meta": {
+        "displayName": "Backpack Hero",
+        "iconUrl": "backpack-hero/backpack-hero-cover-360x480.webp"
+      },
+      "distributions": [
+        {
+          "platform": "steam",
+          "identifier": "1970580"
+        }
+      ],
+      "r2modman": [
+        {
+          "meta": {
+            "displayName": "Backpack Hero",
+            "iconUrl": "backpack-hero/backpack-hero-cover-360x480.webp"
+          },
+          "internalFolderName": "BackpackHero",
+          "dataFolderName": "Backpack Hero_Data",
+          "distributions": [
+            {
+              "platform": "steam",
+              "identifier": "1970580"
+            }
+          ],
+          "settingsIdentifier": "BackpackHero",
+          "packageIndex": "https://thunderstore.io/c/backpack-hero/api/v1/package-listing-index/",
+          "steamFolderName": "Backpack Hero",
+          "exeNames": [
+            "Backpack Hero.exe",
+            "linux.x86_64"
+          ],
+          "gameInstanceType": "game",
+          "gameSelectionDisplayMode": "visible",
+          "additionalSearchStrings": [
+            "bh",
+            "farlands",
+            "\u80cc\u5305\u82f1\u96c4"
+          ],
+          "packageLoader": "melonloader",
+          "installRules": [
+            {
+              "route": "Mods",
+              "defaultFileExtensions": [
+                ".dll"
+              ],
+              "trackingMethod": "state",
+              "subRoutes": [],
+              "isDefaultLocation": false
+            },
+            {
+              "route": "UserData/ModManager",
+              "defaultFileExtensions": [],
+              "trackingMethod": "subdir-no-flatten",
+              "subRoutes": [],
+              "isDefaultLocation": true
+            },
+            {
+              "route": "UserLibs",
+              "defaultFileExtensions": [
+                ".lib.dll"
+              ],
+              "trackingMethod": "state",
+              "subRoutes": [],
+              "isDefaultLocation": false
+            },
+            {
+              "route": "MelonLoader",
+              "defaultFileExtensions": [],
+              "trackingMethod": "state",
+              "subRoutes": [
+                {
+                  "route": "Managed",
+                  "defaultFileExtensions": [
+                    ".managed.dll"
+                  ],
+                  "trackingMethod": "state",
+                  "subRoutes": [],
+                  "isDefaultLocation": false
+                },
+                {
+                  "route": "Libs",
+                  "defaultFileExtensions": [],
+                  "trackingMethod": "state",
+                  "subRoutes": [],
+                  "isDefaultLocation": false
+                }
+              ],
+              "isDefaultLocation": false
+            }
+          ],
+          "relativeFileExclusions": [
+            "manifest.json",
+            "icon.png",
+            "README.md",
+            "LICENCE"
+          ]
+        }
+      ]
+    }
+  },
+  "communities": {
+    "lethal-company": {
+      "displayName": "Lethal Company",
+      "listed": true
+    }
+  },
+  "modloaderPackages": [
+    {
+      "packageId": "bbepis-BepInExPack",
+      "rootFolder": "BepInExPack",
+      "loader": "bepinex"
+    },
+    {
+      "packageId": "BepInEx-BepInExPack",
+      "rootFolder": "BepInExPack",
+      "loader": "bepinex"
+    },
+    {
+      "packageId": "LavaGang-MelonLoader",
+      "rootFolder": "",
+      "loader": "melonloader"
+    },
+    {
+      "packageId": "LavaGang-MelonLoader",
+      "rootFolder": "",
+      "loader": "recursive-melonloader"
+    }
+  ]
+}

@@ -1399,6 +1399,14 @@ pub(crate) fn cleanup_removed_game(app: &AppHandle, id: &str) -> Result<(), Stri
     if let Err(error) = crate::desktop_shortcuts::remove(id) {
         errors.push(format!("desktop shortcuts: {error}"));
     }
+    match app.path().app_data_dir() {
+        Ok(data_dir) => {
+            if let Err(error) = remove_modding_directory(&data_dir, id) {
+                errors.push(format!("mod profiles: {error}"));
+            }
+        }
+        Err(error) => errors.push(format!("mod profiles: {error}")),
+    }
     if errors.is_empty() {
         Ok(())
     } else {
@@ -1406,6 +1414,16 @@ pub(crate) fn cleanup_removed_game(app: &AppHandle, id: &str) -> Result<(), Stri
             "Game was removed, but cleanup failed: {}",
             errors.join("; ")
         ))
+    }
+}
+
+fn remove_modding_directory(data_dir: &Path, game_id: &str) -> Result<(), String> {
+    let directory = crate::modding::paths::ModdingPaths::new(data_dir).game_dir(game_id)?;
+    match fs::remove_dir_all(&directory) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            Err(format!("Could not remove {}: {error}", directory.display()))
+        }
+        _ => Ok(()),
     }
 }
 
@@ -1855,6 +1873,23 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tauri::Manager;
+
+    #[test]
+    fn removes_only_the_game_modding_directory() {
+        let data_dir =
+            std::env::temp_dir().join(format!("legio-modding-cleanup-{}", uuid::Uuid::new_v4()));
+        let removed = "00000000-0000-4000-8000-000000000001";
+        let kept = "00000000-0000-4000-8000-000000000002";
+        let games = data_dir.join("modding").join("games");
+        fs::create_dir_all(games.join(removed).join("profiles")).unwrap();
+        fs::create_dir_all(games.join(kept)).unwrap();
+        remove_modding_directory(&data_dir, removed).unwrap();
+        assert!(!games.join(removed).exists());
+        assert!(games.join(kept).exists());
+        remove_modding_directory(&data_dir, removed).unwrap();
+        assert!(remove_modding_directory(&data_dir, "../x").is_err());
+        fs::remove_dir_all(data_dir).unwrap();
+    }
 
     #[cfg(target_os = "linux")]
     #[test]

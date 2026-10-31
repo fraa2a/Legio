@@ -57,6 +57,7 @@ mod linux_performance;
 mod local_source;
 mod locale;
 mod manual_import;
+mod modding;
 #[cfg(target_os = "linux")]
 mod native_rendering;
 mod network;
