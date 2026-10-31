@@ -491,6 +491,7 @@ fn run_application(
             commands::reset_steam_artwork_cache,
             commands::prefetch_steam_hero,
             runner_discovery::list_compatibility_runners,
+            commands::export_mod_profile_file,
         ])
         .build(context)?
         .run(|app, event| {
