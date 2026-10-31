@@ -2,6 +2,7 @@
   let {
     name,
     label,
+    labelHidden = false,
     options,
     value,
     disabled = false,
@@ -10,6 +11,7 @@
   }: {
     name: string;
     label: string;
+    labelHidden?: boolean;
     options: { value: string; label: string }[];
     value: string | null;
     disabled?: boolean;
@@ -19,7 +21,7 @@
 </script>
 
 <fieldset {disabled} class="min-w-0 {className}">
-  <legend class="mb-1.5 text-sm font-medium text-zinc-100 light:text-zinc-900">{label}</legend>
+  <legend class={labelHidden ? "sr-only" : "mb-1.5 text-sm font-medium text-zinc-100 light:text-zinc-900"}>{label}</legend>
   <div class="flex gap-1 rounded-xl bg-black/20 p-1 light:bg-zinc-900/5">
     {#each options as option (option.value)}
       <label class="min-w-0 flex-1 cursor-pointer has-disabled:cursor-not-allowed has-disabled:opacity-50">

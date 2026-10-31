@@ -28,10 +28,11 @@
 
   const fadeMs = fadeDuration > 0 ? 100 : 0;
 
-  const icons: Record<Section, "home" | "library" | "store" | "downloads"> = {
+  const icons: Record<Section, "home" | "library" | "store" | "mods" | "downloads"> = {
     home: "home",
     library: "library",
     store: "store",
+    mods: "mods",
     downloads: "downloads",
   };
 

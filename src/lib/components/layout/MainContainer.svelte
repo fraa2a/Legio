@@ -6,17 +6,23 @@
   import GameDetailView from "../../features/library/GameDetailView.svelte";
   import LibraryView from "../../features/library/LibraryView.svelte";
   import StoreView from "../../features/store/StoreView.svelte";
-  import { activeSection, selectedGameId } from "../../stores/navigation";
+  import GameModsView from "../../features/modding/GameModsView.svelte";
+  import ModdingPage from "../../features/modding/ModdingPage.svelte";
+  import { activeSection, selectedGameId, selectedModGame } from "../../stores/navigation";
   import { pageTransitionDuration, reducedMotion } from "../../utils/motion";
   import { logApplicationEvent } from "../../services/application-log";
 
   import { animateForeground, type ForegroundAnimation } from "../../utils/foreground-transition";
 
   const gamePrefix = "library:";
+  const modsPrefix = "mods:";
 
   let mounted = $state(false);
 
-  const target = $derived($selectedGameId === null ? $activeSection : `${gamePrefix}${$selectedGameId}`);
+  const target = $derived.by(() => {
+    if ($activeSection === "mods" && $selectedModGame !== null) return `${modsPrefix}${$selectedModGame.gameId}`;
+    return $selectedGameId === null ? $activeSection : `${gamePrefix}${$selectedGameId}`;
+  });
 
   let displayedTarget = $state(untrack(() => target));
   let page: HTMLDivElement | undefined = $state();
@@ -31,7 +37,8 @@
   });
 
   function pageName(value: string): string {
-    return value.startsWith(gamePrefix) ? "game_details" : value;
+    if (value.startsWith(gamePrefix)) return "game_details";
+    return value.startsWith(modsPrefix) ? "mod_manager" : value;
   }
 
   $effect(() => {
@@ -92,6 +99,10 @@
           <GameDetailView gameId={displayedTarget.slice(gamePrefix.length)} />
         {:else if displayedTarget === "store"}
           <StoreView />
+        {:else if displayedTarget === "mods"}
+          <ModdingPage />
+        {:else if displayedTarget.startsWith(modsPrefix)}
+          <GameModsView gameId={displayedTarget.slice(modsPrefix.length)} />
         {:else}
           <DownloadsView />
         {/if}

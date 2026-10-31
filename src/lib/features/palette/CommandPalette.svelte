@@ -14,7 +14,7 @@
   type Entry = PaletteItem & { icon: IconName; run: () => void };
 
   const listId = $props.id();
-  const sectionIcons: Record<Section, IconName> = { home: "home", library: "library", store: "store", downloads: "downloads" };
+  const sectionIcons: Record<Section, IconName> = { home: "home", library: "library", store: "store", mods: "mods", downloads: "downloads" };
 
   let query = $state("");
   let active = $state(0);

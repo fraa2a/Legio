@@ -1,6 +1,6 @@
-import { writable } from "svelte/store";
+import { get, writable } from "svelte/store";
 
-export const sections = ["home", "library", "store", "downloads"] as const;
+export const sections = ["home", "library", "store", "mods", "downloads"] as const;
 
 export type Section = (typeof sections)[number];
 
@@ -8,6 +8,7 @@ export const sectionLabels: Record<Section, string> = {
   home: "Home",
   library: "Libreria",
   store: "Store",
+  mods: "Mod",
   downloads: "Download",
 };
 
@@ -22,18 +23,40 @@ export interface StoreGameSelection {
 
 export const selectedStoreGame = writable<StoreGameSelection | null>(null);
 
+export interface ModManagerSelection {
+  gameId: string;
+  // Back navigation returns to the game page when the manager was opened from it.
+  returnTo: "mods" | "game";
+}
+
+export const selectedModGame = writable<ModManagerSelection | null>(null);
+
 export const settingsOpen = writable(false);
 export const settingsCategory = writable("general");
 
 export function selectSection(section: Section): void {
   selectedGameId.set(null);
   selectedStoreGame.set(null);
+  selectedModGame.set(null);
   activeSection.set(section);
 }
 
 export function openGame(gameId: string): void {
+  selectedModGame.set(null);
   selectedGameId.set(gameId);
   activeSection.set("library");
+}
+
+export function openModManager(gameId: string, returnTo: ModManagerSelection["returnTo"] = "mods"): void {
+  selectedGameId.set(null);
+  selectedModGame.set({ gameId, returnTo });
+  activeSection.set("mods");
+}
+
+export function closeModManager(): void {
+  const selection = get(selectedModGame);
+  if (selection?.returnTo === "game") openGame(selection.gameId);
+  else selectedModGame.set(null);
 }
 
 export function closeGame(): void {
