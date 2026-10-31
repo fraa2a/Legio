@@ -149,7 +149,7 @@ pub async fn open_installed_folder(app: AppHandle) -> Result<(), String> {
 }
 
 #[cfg(target_os = "linux")]
-fn open_directory(path: &Path) -> Result<(), String> {
+pub(crate) fn open_directory(path: &Path) -> Result<(), String> {
     let mut candidates: Vec<(&str, &[&str])> = Vec::new();
     if !default_handler_is_terminal() {
         candidates.push(("gio", &["open"]));
@@ -163,7 +163,7 @@ fn open_directory(path: &Path) -> Result<(), String> {
             Err(error) => last = error,
         }
     }
-    Err(format!("Could not open the install folder: {last}"))
+    Err(format!("Could not open the folder: {last}"))
 }
 
 #[cfg(target_os = "linux")]
@@ -201,12 +201,12 @@ fn default_handler_is_terminal() -> bool {
 }
 
 #[cfg(windows)]
-fn open_directory(path: &Path) -> Result<(), String> {
+pub(crate) fn open_directory(path: &Path) -> Result<(), String> {
     // explorer.exe reports a failure status even when it opens the folder, so
     // only a failed spawn is treated as an error.
     crate::background_process::command("explorer.exe")
         .arg(path)
         .spawn()
         .map(|_| ())
-        .map_err(|error| format!("Could not open the install folder: {error}"))
+        .map_err(|error| format!("Could not open the folder: {error}"))
 }

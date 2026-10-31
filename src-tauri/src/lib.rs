@@ -7,6 +7,8 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 
+use modding::profile_commands;
+
 mod app_profile;
 mod appearance;
 mod application_log;
@@ -304,6 +306,7 @@ fn run_application(
             app.manage(thunderstore);
             app.manage(diagnostics);
             app.manage(queue_shutdown::QueueShutdownState::default());
+            app.manage(modding::profiles::ProfileLocks::default());
             queue_shutdown::start(app.handle().clone());
             app.manage(discord_presence::PresenceService::start(app.handle())?);
             let language = initial_settings.language;
@@ -495,6 +498,17 @@ fn run_application(
             queue_shutdown::set_queue_shutdown,
             installed_folder::open_installed_folder,
             installed_folder::get_installed_folder_info,
+            profile_commands::list_mod_profiles,
+            profile_commands::create_mod_profile,
+            profile_commands::rename_mod_profile,
+            profile_commands::duplicate_mod_profile,
+            profile_commands::delete_mod_profile,
+            profile_commands::set_active_mod_profile,
+            profile_commands::list_profile_mods,
+            profile_commands::uninstall_profile_mod,
+            profile_commands::set_profile_mod_enabled,
+            profile_commands::import_local_mod,
+            profile_commands::open_mod_profile_folder,
             commands::refresh_legio_source,
             commands::check_steam_connectivity,
             commands::search_catalog,
