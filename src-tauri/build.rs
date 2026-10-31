@@ -106,6 +106,13 @@ fn main() {
             "reset_steam_artwork_cache",
             "prefetch_steam_hero",
             "list_compatibility_runners",
+            "list_moddable_games",
+            "list_ecosystem_games",
+            "bind_game_to_ecosystem",
+            "refresh_mod_catalog",
+            "search_mods",
+            "get_mod_package",
+            "list_mod_categories",
         ]),
     ))
     .expect("Tauri build configuration failed");
