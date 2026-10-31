@@ -40,3 +40,12 @@ export function pickSourceFile(): Promise<string | null> {
     filters: [{ name: "JSON (Legio / Hydra)", extensions: ["json"] }],
   });
 }
+
+export function pickModArchive(): Promise<string | null> {
+  return open({
+    title: t("Seleziona l'archivio della mod", undefined),
+    directory: false,
+    multiple: false,
+    filters: [{ name: t("Archivi", undefined), extensions: ["zip", "7z", "rar"] }],
+  });
+}
