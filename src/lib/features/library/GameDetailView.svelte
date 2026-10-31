@@ -41,6 +41,8 @@
   import ReleasePicker, { type ReleaseOption } from "./ReleasePicker.svelte";
   import AddGameDialog from "./AddGameDialog.svelte";
   import LibraryPickerDialog from "./LibraryPickerDialog.svelte";
+  import GameModsPanel from "../modding/GameModsPanel.svelte";
+  import ModProfileChip from "../modding/ModProfileChip.svelte";
   import { acquireGameArtwork, gameArtworkRevision } from "../../services/game-artwork";
   import { toMessage } from "../../utils/errors";
   import { reachableReleases, releaseLinks, sourceNameFor, sourceReleaseId, sourceReleasesFor } from "../store/source-status";
@@ -269,6 +271,7 @@
           />
         {/if}
         {#if game !== null}
+          <ModProfileChip gameId={game.id} />
           <Button label={t("Impostazioni del gioco", $language)} square variant="overlay" size="hero" onClick={() => (gameSettingsOpen = true)}>
             <Icon name="settings" size="size-6" />
           </Button>
@@ -316,6 +319,7 @@
           loading={detailsState?.status === "loading"}
           hasSteamAppId={steamAppId !== null}
         />
+        {#if game !== null}<GameModsPanel gameId={game.id} />{/if}
         {#if storeGame !== null}<Panel title={t("Info gioco", $language)}>
           <div class="flex flex-col gap-3">
             <dl class="grid gap-2 text-sm">
