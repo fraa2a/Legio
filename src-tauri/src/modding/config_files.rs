@@ -1,0 +1,799 @@
+//! Config files inside a mod profile: listing, safe access and BepInEx `.cfg` editing.
+
+use std::{
+    fs::{self, OpenOptions},
+    io::{self, Write},
+    path::{Path, PathBuf},
+    time::UNIX_EPOCH,
+};
+
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Manager};
+use uuid::Uuid;
+
+use super::paths::ModdingPaths;
+use crate::database::DatabaseState;
+
+const MAX_LISTED_FILES: usize = 5000;
+const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
+const CONFIG_EXTENSIONS: [&str; 6] = ["cfg", "txt", "json", "yml", "yaml", "ini"];
+const EXCLUDED_BEPINEX_FOLDERS: [&str; 4] = ["core", "plugins", "patchers", "cache"];
+const EXCLUDED_FILE_NAMES: [&str; 2] = ["doorstop_config.ini", "manifest.json"];
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ConfigFileEntry {
+    pub(crate) relative_path: String,
+    pub(crate) size: u64,
+    pub(crate) modified: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ModConfigFile {
+    pub(crate) relative_path: String,
+    pub(crate) text: String,
+    pub(crate) bepinex: Option<BepInExConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BepInExConfig {
+    pub(crate) sections: Vec<ConfigSection>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ConfigSection {
+    pub(crate) name: String,
+    pub(crate) entries: Vec<ConfigEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ConfigEntry {
+    pub(crate) key: String,
+    pub(crate) value: String,
+    pub(crate) description: Option<String>,
+    pub(crate) setting_type: Option<String>,
+    pub(crate) default_value: Option<String>,
+    pub(crate) acceptable_values: Vec<String>,
+    pub(crate) acceptable_range: Option<(String, String)>,
+    /// 0-based index of the `key = value` line.
+    pub(crate) line: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ConfigEdit {
+    pub(crate) section: String,
+    pub(crate) key: String,
+    pub(crate) value: String,
+}
+
+pub(crate) fn list_config_files(profile_dir: &Path) -> Result<Vec<ConfigFileEntry>, String> {
+    if !profile_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut entries = Vec::new();
+    let mut directories = vec![(profile_dir.to_path_buf(), String::new())];
+    while let Some((directory, prefix)) = directories.pop() {
+        let children = fs::read_dir(&directory)
+            .map_err(|error| format!("Could not read mod profile folder: {error}"))?;
+        for child in children {
+            let child =
+                child.map_err(|error| format!("Could not read mod profile folder: {error}"))?;
+            let file_type = child
+                .file_type()
+                .map_err(|error| format!("Could not inspect mod profile file: {error}"))?;
+            if file_type.is_symlink() {
+                continue;
+            }
+            let name = child.file_name();
+            let name = name
+                .to_str()
+                .ok_or("Mod profile contains a file name that is not UTF-8")?;
+            let relative_path = if prefix.is_empty() {
+                name.to_owned()
+            } else {
+                format!("{prefix}/{name}")
+            };
+            if file_type.is_dir() {
+                if !is_under_excluded_folder(&relative_path) {
+                    directories.push((child.path(), relative_path));
+                }
+            } else if file_type.is_file() && is_listed_path(&relative_path) {
+                if entries.len() == MAX_LISTED_FILES {
+                    return Err(format!(
+                        "Mod profile has more than {MAX_LISTED_FILES} config files"
+                    ));
+                }
+                let metadata = child
+                    .metadata()
+                    .map_err(|error| format!("Could not inspect mod profile file: {error}"))?;
+                entries.push(ConfigFileEntry {
+                    relative_path,
+                    size: metadata.len(),
+                    modified: modified_seconds(&metadata)?,
+                });
+            }
+        }
+    }
+    entries.sort_by(|left, right| {
+        left.relative_path
+            .to_lowercase()
+            .cmp(&right.relative_path.to_lowercase())
+            .then_with(|| left.relative_path.cmp(&right.relative_path))
+    });
+    Ok(entries)
+}
+
+pub(crate) fn read_config_text(profile_dir: &Path, relative_path: &str) -> Result<String, String> {
+    let path = resolve_config_path(profile_dir, relative_path)?;
+    let size = fs::metadata(&path)
+        .map_err(|error| format!("Could not inspect config file: {error}"))?
+        .len();
+    if size > MAX_FILE_BYTES {
+        return Err("Config file is larger than 2 MiB".to_owned());
+    }
+    let bytes = fs::read(&path).map_err(|error| format!("Could not read config file: {error}"))?;
+    let text = String::from_utf8(bytes)
+        .map_err(|error| format!("Config file is not UTF-8 text: {error}"))?;
+    Ok(text
+        .strip_prefix('\u{feff}')
+        .unwrap_or(text.as_str())
+        .to_owned())
+}
+
+pub(crate) fn write_config_text(
+    profile_dir: &Path,
+    relative_path: &str,
+    content: &str,
+) -> Result<(), String> {
+    let path = resolve_config_path(profile_dir, relative_path)?;
+    if content.len() as u64 > MAX_FILE_BYTES {
+        return Err("Config file would be larger than 2 MiB".to_owned());
+    }
+    replace_file(&path, content.as_bytes())
+}
+
+pub(crate) fn read_mod_config(
+    profile_dir: &Path,
+    relative_path: &str,
+) -> Result<ModConfigFile, String> {
+    let text = read_config_text(profile_dir, relative_path)?;
+    let bepinex = is_bepinex_cfg(relative_path).then(|| parse_bepinex_cfg(&text));
+    Ok(ModConfigFile {
+        relative_path: relative_path.to_owned(),
+        text,
+        bepinex,
+    })
+}
+
+pub(crate) fn save_config_entries(
+    profile_dir: &Path,
+    relative_path: &str,
+    edits: &[ConfigEdit],
+) -> Result<(), String> {
+    if !is_bepinex_cfg(relative_path) {
+        return Err("Only .cfg files have editable entries".to_owned());
+    }
+    let text = read_config_text(profile_dir, relative_path)?;
+    let updated = apply_cfg_edits(&text, edits)?;
+    write_config_text(profile_dir, relative_path, &updated)
+}
+
+/// Resolves a listed, existing config file and checks that it stays inside the profile.
+fn resolve_config_path(profile_dir: &Path, relative_path: &str) -> Result<PathBuf, String> {
+    validate_relative_path(relative_path)?;
+    if !is_listed_path(relative_path) {
+        return Err("Config file type is not supported".to_owned());
+    }
+    let root = dunce::canonicalize(profile_dir)
+        .map_err(|error| format!("Could not open mod profile: {error}"))?;
+    let path = dunce::canonicalize(profile_dir.join(relative_path))
+        .map_err(|error| format!("Could not open config file: {error}"))?;
+    if !path.starts_with(&root) {
+        return Err("Config file is outside the mod profile".to_owned());
+    }
+    if !path.is_file() {
+        return Err("Config path is not a file".to_owned());
+    }
+    Ok(path)
+}
+
+fn validate_relative_path(relative_path: &str) -> Result<(), String> {
+    let invalid = relative_path.contains(['\\', ':'])
+        || relative_path
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..");
+    if invalid {
+        Err("Config file path is invalid".to_owned())
+    } else {
+        Ok(())
+    }
+}
+
+/// True for paths the listing shows: allowed extension, not an excluded file or folder.
+fn is_listed_path(relative_path: &str) -> bool {
+    let name = relative_path.rsplit('/').next().unwrap_or(relative_path);
+    !is_under_excluded_folder(relative_path) && is_config_name(name)
+}
+
+fn is_config_name(name: &str) -> bool {
+    if EXCLUDED_FILE_NAMES
+        .iter()
+        .any(|excluded| name.eq_ignore_ascii_case(excluded))
+    {
+        return false;
+    }
+    Path::new(name)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            CONFIG_EXTENSIONS
+                .iter()
+                .any(|allowed| extension.eq_ignore_ascii_case(allowed))
+        })
+}
+
+fn is_under_excluded_folder(relative_path: &str) -> bool {
+    let mut parts = relative_path.split('/');
+    parts
+        .next()
+        .is_some_and(|part| part.eq_ignore_ascii_case("BepInEx"))
+        && parts.next().is_some_and(|folder| {
+            EXCLUDED_BEPINEX_FOLDERS
+                .iter()
+                .any(|excluded| folder.eq_ignore_ascii_case(excluded))
+        })
+}
+
+fn is_bepinex_cfg(relative_path: &str) -> bool {
+    Path::new(relative_path)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("cfg"))
+}
+
+fn modified_seconds(metadata: &fs::Metadata) -> Result<i64, String> {
+    let modified = metadata
+        .modified()
+        .map_err(|error| format!("Could not read config file time: {error}"))?;
+    modified
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|age| i64::try_from(age.as_secs()).ok())
+        .ok_or_else(|| "Config file time is outside the supported range".to_owned())
+}
+
+fn replace_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let parent = path.parent().ok_or("Config file has no parent folder")?;
+    let name = path
+        .file_name()
+        .ok_or("Config file has no name")?
+        .to_string_lossy();
+    let temporary = parent.join(format!(".{name}.{}.tmp", Uuid::new_v4()));
+    let permissions = fs::metadata(path)
+        .map_err(|error| format!("Could not inspect config file: {error}"))?
+        .permissions();
+    let result: Result<(), String> = (|| {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .map_err(|error| format!("Could not create temporary config file: {error}"))?;
+        file.set_permissions(permissions)
+            .map_err(|error| format!("Could not preserve config file permissions: {error}"))?;
+        file.write_all(bytes)
+            .and_then(|()| file.sync_all())
+            .map_err(|error| format!("Could not write config file: {error}"))?;
+        fs::rename(&temporary, path)
+            .map_err(|error| format!("Could not replace config file: {error}"))?;
+        Ok(())
+    })();
+    if let Err(error) = result {
+        return match fs::remove_file(&temporary) {
+            Err(cleanup) if cleanup.kind() != io::ErrorKind::NotFound => Err(format!(
+                "{error}; could not remove temporary config file: {cleanup}"
+            )),
+            _ => Err(error),
+        };
+    }
+    crate::finalize_install::sync_directory(parent)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct KeyLine<'a> {
+    key: &'a str,
+    /// Byte index of the `=` in the line.
+    equals: usize,
+}
+
+fn key_line(line: &str) -> Option<KeyLine<'_>> {
+    let start = line.len() - line.trim_start().len();
+    let rest = &line[start..];
+    if rest.starts_with('#') {
+        return None;
+    }
+    let equals = rest.find('=')?;
+    let key = rest[..equals].trim_end();
+    (!key.is_empty()).then_some(KeyLine {
+        key,
+        equals: start + equals,
+    })
+}
+
+fn section_name(line: &str) -> Option<&str> {
+    line.strip_prefix('[')?.strip_suffix(']')
+}
+
+pub(crate) fn parse_bepinex_cfg(text: &str) -> BepInExConfig {
+    let mut config = BepInExConfig {
+        sections: Vec::new(),
+    };
+    let mut pending = PendingEntry::default();
+    for (index, raw) in text.lines().enumerate() {
+        let line = raw.trim();
+        if line.starts_with('#') {
+            pending.add_comment(line);
+            continue;
+        }
+        // Comments only attach to the key line directly below them.
+        let attached = std::mem::take(&mut pending);
+        if let Some(name) = section_name(line) {
+            config.sections.push(ConfigSection {
+                name: name.to_owned(),
+                entries: Vec::new(),
+            });
+            continue;
+        }
+        let (Some(section), Some(key)) = (config.sections.last_mut(), key_line(raw)) else {
+            continue;
+        };
+        let value = raw[key.equals + 1..].trim();
+        section
+            .entries
+            .push(attached.into_entry(key.key, value, index));
+    }
+    config
+}
+
+/// Replaces only the values of existing entries. Every other byte is kept.
+pub(crate) fn apply_cfg_edits(text: &str, edits: &[ConfigEdit]) -> Result<String, String> {
+    let config = parse_bepinex_cfg(text);
+    let mut lines: Vec<String> = text.split_inclusive('\n').map(str::to_owned).collect();
+    for edit in edits {
+        if edit.value.contains(['\r', '\n']) {
+            return Err("Config values cannot contain line breaks".to_owned());
+        }
+        let entry = config
+            .sections
+            .iter()
+            .find(|section| section.name == edit.section)
+            .and_then(|section| section.entries.iter().find(|entry| entry.key == edit.key))
+            .ok_or_else(|| {
+                format!(
+                    "Config entry {} in section {} was not found",
+                    edit.key, edit.section
+                )
+            })?;
+        let line = lines
+            .get_mut(entry.line)
+            .ok_or("Config entry line is out of range")?;
+        *line = replace_value(line, &edit.value)?;
+    }
+    Ok(lines.concat())
+}
+
+fn replace_value(line: &str, value: &str) -> Result<String, String> {
+    let content = line.trim_end_matches(['\r', '\n']);
+    let equals = key_line(content)
+        .ok_or("Config entry line is invalid")?
+        .equals;
+    let after = &content[equals + 1..];
+    let value_start = equals + 1 + (after.len() - after.trim_start().len());
+    let value_end = (equals + 1 + after.trim_end().len()).max(value_start);
+    let separator = if after.trim().is_empty() && value_start == equals + 1 && !value.is_empty() {
+        " "
+    } else {
+        ""
+    };
+    Ok(format!(
+        "{}{separator}{value}{}",
+        &line[..value_start],
+        &line[value_end..]
+    ))
+}
+
+fn parse_range(text: &str) -> Option<(String, String)> {
+    let (from, to) = text.strip_prefix("From ")?.split_once(" To ")?;
+    Some((from.trim().to_owned(), to.trim().to_owned()))
+}
+
+#[derive(Debug, Default)]
+struct PendingEntry {
+    description: Vec<String>,
+    setting_type: Option<String>,
+    default_value: Option<String>,
+    acceptable_values: Vec<String>,
+    acceptable_range: Option<(String, String)>,
+}
+
+impl PendingEntry {
+    /// `line` is a trimmed line starting with `#`.
+    fn add_comment(&mut self, line: &str) {
+        if let Some(text) = line.strip_prefix("##") {
+            self.description.push(text.trim().to_owned());
+        } else if let Some(text) = line.strip_prefix('#') {
+            let text = text.trim();
+            if let Some(value) = text.strip_prefix("Setting type:") {
+                self.setting_type = Some(value.trim().to_owned());
+            } else if let Some(value) = text.strip_prefix("Default value:") {
+                self.default_value = Some(value.trim().to_owned());
+            } else if let Some(value) = text.strip_prefix("Acceptable values:") {
+                self.acceptable_values = value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+                    .collect();
+            } else if let Some(value) = text.strip_prefix("Acceptable value range:") {
+                self.acceptable_range = parse_range(value.trim());
+            }
+        }
+    }
+
+    fn into_entry(self, key: &str, value: &str, line: usize) -> ConfigEntry {
+        let description = self.description.join("\n").trim().to_owned();
+        ConfigEntry {
+            key: key.to_owned(),
+            value: value.to_owned(),
+            description: (!description.is_empty()).then_some(description),
+            setting_type: self.setting_type,
+            default_value: self.default_value,
+            acceptable_values: self.acceptable_values,
+            acceptable_range: self.acceptable_range,
+            line,
+        }
+    }
+}
+
+fn profile_directory(app: &AppHandle, game_id: &str, profile_id: &str) -> Result<PathBuf, String> {
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let profile = app
+        .state::<DatabaseState>()
+        .database()?
+        .mod_profile(profile_id)?
+        .ok_or("Mod profile was not found")?;
+    if !profile.game_id.eq_ignore_ascii_case(game_id) {
+        return Err("Mod profile does not belong to this game".to_owned());
+    }
+    ModdingPaths::new(&data_dir).profile_dir(game_id, profile_id)
+}
+
+#[tauri::command]
+pub async fn list_mod_config_files(
+    app: AppHandle,
+    game_id: String,
+    profile_id: String,
+) -> Result<Vec<ConfigFileEntry>, String> {
+    crate::startup_recovery::wait(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        list_config_files(&profile_directory(&app, &game_id, &profile_id)?)
+    })
+    .await
+    .map_err(|e| format!("Config file list task failed: {e}"))?
+}
+
+#[tauri::command]
+pub async fn read_mod_config_file(
+    app: AppHandle,
+    game_id: String,
+    profile_id: String,
+    relative_path: String,
+) -> Result<ModConfigFile, String> {
+    crate::startup_recovery::wait(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        read_mod_config(
+            &profile_directory(&app, &game_id, &profile_id)?,
+            &relative_path,
+        )
+    })
+    .await
+    .map_err(|e| format!("Config file read task failed: {e}"))?
+}
+
+#[tauri::command]
+pub async fn save_mod_config_text(
+    app: AppHandle,
+    game_id: String,
+    profile_id: String,
+    relative_path: String,
+    text: String,
+) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        write_config_text(
+            &profile_directory(&app, &game_id, &profile_id)?,
+            &relative_path,
+            &text,
+        )
+    })
+    .await
+    .map_err(|e| format!("Config file save task failed: {e}"))?
+}
+
+#[tauri::command]
+pub async fn save_mod_config_entries(
+    app: AppHandle,
+    game_id: String,
+    profile_id: String,
+    relative_path: String,
+    edits: Vec<ConfigEdit>,
+) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        save_config_entries(
+            &profile_directory(&app, &game_id, &profile_id)?,
+            &relative_path,
+            &edits,
+        )
+    })
+    .await
+    .map_err(|e| format!("Config entry save task failed: {e}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const EXAMPLE: &str = "## Settings file was created by plugin X v1.0\n\
+## Plugin GUID: x.y\n\
+\n\
+[General]\n\
+\n\
+## Enables the thing\n\
+# Setting type: Boolean\n\
+# Default value: true\n\
+Enabled = true\n\
+\n\
+## Pick a mode\n\
+# Setting type: Mode\n\
+# Default value: Fast\n\
+# Acceptable values: Fast, Slow\n\
+Mode = Fast\n\
+\n\
+[Audio]\n\
+## Volume\n\
+# Setting type: Int32\n\
+# Default value: 50\n\
+# Acceptable value range: From 0 To 100\n\
+Volume = 50\n";
+
+    /// Removes its folder when dropped, including after a failed assertion.
+    struct TempProfile(PathBuf);
+
+    impl TempProfile {
+        fn new() -> Self {
+            let path =
+                std::env::temp_dir().join(format!("legio-modding-config-{}", Uuid::new_v4()));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+
+        fn write(&self, relative_path: &str, bytes: &[u8]) {
+            let path = self.0.join(relative_path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, bytes).unwrap();
+        }
+    }
+
+    impl Drop for TempProfile {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+
+    fn edit(section: &str, key: &str, value: &str) -> ConfigEdit {
+        ConfigEdit {
+            section: section.to_owned(),
+            key: key.to_owned(),
+            value: value.to_owned(),
+        }
+    }
+
+    #[test]
+    fn parses_bepinex_entries() {
+        let config = parse_bepinex_cfg(EXAMPLE);
+        let names: Vec<_> = config.sections.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["General", "Audio"]);
+
+        let enabled = &config.sections[0].entries[0];
+        assert_eq!(enabled.key, "Enabled");
+        assert_eq!(enabled.value, "true");
+        assert_eq!(enabled.description.as_deref(), Some("Enables the thing"));
+        assert_eq!(enabled.setting_type.as_deref(), Some("Boolean"));
+        assert_eq!(enabled.default_value.as_deref(), Some("true"));
+        assert!(enabled.acceptable_values.is_empty());
+        assert_eq!(enabled.acceptable_range, None);
+        assert_eq!(enabled.line, 8);
+
+        let mode = &config.sections[0].entries[1];
+        assert_eq!(mode.description.as_deref(), Some("Pick a mode"));
+        assert_eq!(mode.acceptable_values, ["Fast", "Slow"]);
+        assert_eq!(mode.line, 14);
+
+        let volume = &config.sections[1].entries[0];
+        assert_eq!(volume.setting_type.as_deref(), Some("Int32"));
+        assert_eq!(
+            volume.acceptable_range,
+            Some(("0".to_owned(), "100".to_owned()))
+        );
+        assert_eq!(volume.line, 21);
+    }
+
+    #[test]
+    fn keeps_header_comments_out_of_entries() {
+        let config = parse_bepinex_cfg("## Header\n[A]\nKey = 1\n");
+        assert_eq!(config.sections[0].entries[0].description, None);
+    }
+
+    #[test]
+    fn applies_edits_preserving_bytes() {
+        let crlf = EXAMPLE.replace('\n', "\r\n");
+        let updated = apply_cfg_edits(
+            &crlf,
+            &[
+                edit("General", "Enabled", "false"),
+                edit("Audio", "Volume", "75"),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            updated,
+            crlf.replace("Enabled = true", "Enabled = false")
+                .replace("Volume = 50", "Volume = 75")
+        );
+    }
+
+    #[test]
+    fn keeps_original_spacing_around_equals() {
+        let updated = apply_cfg_edits(
+            "[A]\r\nKey=old   \r\nOther = x\r\n",
+            &[edit("A", "Key", "new")],
+        )
+        .unwrap();
+        assert_eq!(updated, "[A]\r\nKey=new   \r\nOther = x\r\n");
+    }
+
+    #[test]
+    fn rejects_unknown_entries_and_line_breaks() {
+        assert!(apply_cfg_edits(EXAMPLE, &[edit("General", "Missing", "1")]).is_err());
+        assert!(apply_cfg_edits(EXAMPLE, &[edit("Missing", "Enabled", "false")]).is_err());
+        assert!(apply_cfg_edits(EXAMPLE, &[edit("General", "Enabled", "a\nb")]).is_err());
+        assert!(apply_cfg_edits(EXAMPLE, &[edit("General", "Enabled", "a\rb")]).is_err());
+    }
+
+    #[test]
+    fn rejects_unsafe_paths() {
+        let profile = TempProfile::new();
+        profile.write("config/a.cfg", b"x=1\n");
+        profile.write("config/a.exe", b"");
+        for path in [
+            "",
+            "/config/a.cfg",
+            "\\config\\a.cfg",
+            "config\\a.cfg",
+            "config/../a.cfg",
+            "../config/a.cfg",
+            "./config/a.cfg",
+            "config/./a.cfg",
+            "config//a.cfg",
+            "C:/config/a.cfg",
+            "config/a.cfg:stream",
+            "config/a.exe",
+            "config/missing.cfg",
+            "BepInEx/core/a.cfg",
+            "doorstop_config.ini",
+        ] {
+            assert!(resolve_config_path(&profile.0, path).is_err(), "{path}");
+        }
+        assert!(resolve_config_path(&profile.0, "config/a.cfg").is_ok());
+    }
+
+    #[test]
+    fn lists_profile_config_files() {
+        let profile = TempProfile::new();
+        profile.write("alpha.txt", b"a");
+        profile.write("config/a.cfg", b"x=1\n");
+        profile.write("BepInEx/config/b.JSON", b"{}");
+        profile.write("BepInEx/core/c.cfg", b"");
+        profile.write("bepinex/CORE/c2.cfg", b"");
+        profile.write("BepInEx/plugins/d.txt", b"");
+        profile.write("BepInEx/patchers/e.yml", b"");
+        profile.write("BepInEx/cache/f.yaml", b"");
+        profile.write("doorstop_config.ini", b"");
+        profile.write("MANIFEST.json", b"");
+        profile.write("readme.md", b"");
+        profile.write("plugin.dll", b"");
+
+        let entries = list_config_files(&profile.0).unwrap();
+        let paths: Vec<_> = entries.iter().map(|e| e.relative_path.as_str()).collect();
+        assert_eq!(
+            paths,
+            ["alpha.txt", "BepInEx/config/b.JSON", "config/a.cfg"]
+        );
+        assert_eq!(entries[2].size, 4);
+        assert!(entries[2].modified > 0);
+    }
+
+    #[test]
+    fn lists_nothing_for_missing_profile() {
+        let profile = TempProfile::new();
+        let missing = profile.0.join("missing");
+        assert!(list_config_files(&missing).unwrap().is_empty());
+    }
+
+    #[test]
+    fn caps_listed_files() {
+        let profile = TempProfile::new();
+        for index in 0..=MAX_LISTED_FILES {
+            profile.write(&format!("many/{index:05}.cfg"), b"");
+        }
+        assert!(list_config_files(&profile.0).is_err());
+        fs::remove_file(profile.0.join("many/00000.cfg")).unwrap();
+        assert_eq!(
+            list_config_files(&profile.0).unwrap().len(),
+            MAX_LISTED_FILES
+        );
+    }
+
+    #[test]
+    fn caps_file_size() {
+        let profile = TempProfile::new();
+        let limit = usize::try_from(MAX_FILE_BYTES).unwrap();
+        profile.write("config/full.cfg", &vec![b'a'; limit]);
+        profile.write("config/over.cfg", &vec![b'a'; limit + 1]);
+        assert_eq!(
+            read_config_text(&profile.0, "config/full.cfg")
+                .unwrap()
+                .len(),
+            limit
+        );
+        assert!(read_config_text(&profile.0, "config/over.cfg").is_err());
+        assert!(write_config_text(&profile.0, "config/full.cfg", &"b".repeat(limit + 1)).is_err());
+    }
+
+    #[test]
+    fn strips_bom_and_replaces_existing_files() {
+        let profile = TempProfile::new();
+        profile.write("config/bom.cfg", b"\xEF\xBB\xBFa = b\n");
+        assert_eq!(
+            read_config_text(&profile.0, "config/bom.cfg").unwrap(),
+            "a = b\n"
+        );
+        write_config_text(&profile.0, "config/bom.cfg", "x = 1\n").unwrap();
+        assert_eq!(
+            read_config_text(&profile.0, "config/bom.cfg").unwrap(),
+            "x = 1\n"
+        );
+        let names: Vec<_> = fs::read_dir(profile.0.join("config"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names.len(), 1);
+    }
+
+    #[test]
+    fn saves_entries_only_for_cfg_files() {
+        let profile = TempProfile::new();
+        profile.write("config/a.cfg", b"[A]\nKey = 1\n");
+        profile.write("config/a.txt", b"[A]\nKey = 1\n");
+        save_config_entries(&profile.0, "config/a.cfg", &[edit("A", "Key", "2")]).unwrap();
+        assert_eq!(
+            read_config_text(&profile.0, "config/a.cfg").unwrap(),
+            "[A]\nKey = 2\n"
+        );
+        assert!(save_config_entries(&profile.0, "config/a.txt", &[]).is_err());
+    }
+}

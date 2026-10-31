@@ -7,6 +7,8 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 
+use modding::config_files;
+
 mod app_profile;
 mod appearance;
 mod application_log;
@@ -491,6 +493,10 @@ fn run_application(
             commands::reset_steam_artwork_cache,
             commands::prefetch_steam_hero,
             runner_discovery::list_compatibility_runners,
+            config_files::list_mod_config_files,
+            config_files::read_mod_config_file,
+            config_files::save_mod_config_text,
+            config_files::save_mod_config_entries,
         ])
         .build(context)?
         .run(|app, event| {
