@@ -937,6 +937,8 @@
   "È già in corso un download di mod per questo profilo.": "Mods are already being downloaded for this profile.",
   "Download annullato.": "Download cancelled.",
   "Il catalogo delle mod di questo gioco non è ancora stato scaricato. Aggiornalo prima.": "The mod catalog of this game has not been downloaded yet. Refresh it first.",
+  "Il loader di mod di questo gioco non è presente nel catalogo mod.": "The mod loader of this game is not in the mod catalog.",
+  "Le mod del profilo attivo sono in fase di modifica. Attendi il termine e avvia di nuovo.": "Mods are being changed in the active mod profile. Wait for it to finish and launch again.",
   "Valori da {0} a {1}": "Values from {0} to {1}",
   "Inserisci un numero": "Enter a number",
   "Inserisci un numero intero": "Enter a whole number",

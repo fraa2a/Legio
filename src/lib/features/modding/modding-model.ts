@@ -239,6 +239,8 @@ const knownErrors: Record<string, string> = {
   "Mods are already being downloaded for this profile": "È già in corso un download di mod per questo profilo.",
   "Download cancelled": "Download annullato.",
   "The mod catalog of this game has not been downloaded yet. Refresh it first": "Il catalogo delle mod di questo gioco non è ancora stato scaricato. Aggiornalo prima.",
+  "The mod loader of this game is not in the mod catalog": "Il loader di mod di questo gioco non è presente nel catalogo mod.",
+  "Mods are being changed in the active mod profile. Wait for it to finish and launch again": "Le mod del profilo attivo sono in fase di modifica. Attendi il termine e avvia di nuovo.",
   "The active mod profile has no BepInEx loader. Install BepInExPack in the profile first": "Il profilo mod attivo non ha BepInEx. Installalo dal gestore delle mod o scegli Vanilla per avviare senza mod.",
   "The config file changed on disk; reload it": "Il file è cambiato sul disco: ricaricalo prima di salvare.",
 };

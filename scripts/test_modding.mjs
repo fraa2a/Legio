@@ -129,6 +129,14 @@ test("dependents, error mapping and game search", () => {
     "winhttp.dll è già nella cartella del gioco e non è stato installato da Legio. Spostalo o rimuovilo per avviare con le mod.",
   );
   assert.equal(model.describeModdingError('A mod profile named "Main" already exists', "it"), 'Esiste già un profilo chiamato "Main". Scegli un altro nome.');
+  assert.equal(
+    model.describeModdingError("Mods are being changed in the active mod profile. Wait for it to finish and launch again.", "it"),
+    "Le mod del profilo attivo sono in fase di modifica. Attendi il termine e avvia di nuovo.",
+  );
+  assert.equal(
+    model.describeModdingError("The mod loader of this game is not in the mod catalog", "it"),
+    "Il loader di mod di questo gioco non è presente nel catalogo mod.",
+  );
   assert.deepEqual(model.classifyModdingError(new Error("Download cancelled."), "it"), { kind: "cancelled", message: "Installazione annullata." });
   assert.deepEqual(model.classifyModdingError("Disk full", "it"), { kind: "error", message: "Disk full" });
   const games = [{ id: "lethal-company", displayName: "Lethal Company" }, { id: "valheim", displayName: "Valheim" }];
