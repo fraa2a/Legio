@@ -85,7 +85,8 @@ mod webkit_features;
 mod window_scale;
 
 use modding::{
-    catalog_commands, config_files, exchange_commands, install_commands, launch, profile_commands,
+    catalog_commands, config_files, exchange_commands, install_commands, launch, mod_icons,
+    package_page, profile_commands,
 };
 
 struct TrayAvailable(bool);
@@ -519,6 +520,8 @@ fn run_application(
             catalog_commands::search_mods,
             catalog_commands::get_mod_package,
             catalog_commands::list_mod_categories,
+            mod_icons::get_mod_icon,
+            package_page::open_mod_package_page,
             profile_commands::list_mod_profiles,
             profile_commands::create_mod_profile,
             profile_commands::rename_mod_profile,

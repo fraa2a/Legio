@@ -113,6 +113,8 @@ fn main() {
             "search_mods",
             "get_mod_package",
             "list_mod_categories",
+            "get_mod_icon",
+            "open_mod_package_page",
             "list_mod_profiles",
             "create_mod_profile",
             "rename_mod_profile",

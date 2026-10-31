@@ -49,6 +49,11 @@ impl ModdingPaths {
             .join(canonical_id(profile_id, "profile")?))
     }
 
+    /// Thunderstore package icons, named by the hash of their address.
+    pub(crate) fn icon_cache_dir(&self) -> PathBuf {
+        self.root.join("icons")
+    }
+
     pub(crate) fn temp_dir(&self) -> PathBuf {
         self.root.join("temp")
     }
