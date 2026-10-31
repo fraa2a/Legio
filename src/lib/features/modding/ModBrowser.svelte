@@ -13,7 +13,7 @@
   import TextField from "../../components/ui/TextField.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
   import { listModCategories, searchMods, type ModProfile, type PackageSort, type PackageSummary } from "../../services/modding";
-  import { catalogFor, catalogs, installPackages, modUpdates, profileMods, refreshCatalog } from "../../stores/modding";
+  import { catalogFor, catalogs, installPackages, loadOnce, modUpdates, profileMods, refreshCatalog } from "../../stores/modding";
   import type { LoadStatus } from "../../stores/resource";
   import { showToast } from "../../stores/toast";
   import { toMessage } from "../../utils/errors";
@@ -22,13 +22,12 @@
     appendPage,
     browserPageSize,
     catalogPercent,
+    classifyModdingError,
     defaultBrowserFilters,
-    describeModdingError,
     formatCount,
     indexByFullName,
     installedState,
     installNotice,
-    isCancellation,
     packageQuery,
     packageTitle,
     sortOptions,
@@ -95,10 +94,16 @@
     }
   }
 
+  // The active profile can change while this tab is open, and its mods may not be loaded yet.
+  $effect(() => {
+    loadOnce(mods);
+    loadOnce(updates);
+  });
+
   $effect(() => {
     void syncedAt;
     void JSON.stringify(filters);
-    const timer = setTimeout(() => void search(0), 150);
+    const timer = setTimeout(() => void search(0), 300);
     return () => clearTimeout(timer);
   });
 
@@ -122,9 +127,9 @@
       if (next.tone === "success" && next.items.length === 0) showToast(next.message, "success");
       else notice = next;
     } catch (error) {
-      const message = toMessage(error);
-      if (isCancellation(message)) showToast(t("Installazione annullata.", $language), "info");
-      else actionError = describeModdingError(message, $language);
+      const failure = classifyModdingError(error, $language);
+      if (failure.kind === "cancelled") showToast(failure.message, "info");
+      else actionError = failure.message;
     }
   }
 
@@ -134,7 +139,7 @@
 </script>
 
 <div class="flex flex-col gap-4">
-  <div class="flex flex-wrap items-center gap-3 rounded-2xl legio-glass px-4 py-3">
+  <div class="flex flex-wrap items-center gap-3 rounded-xl legio-glass p-3">
     <div class="min-w-0 flex-1 basis-56 text-sm">
       {#if catalog.refreshing}
         <p class="text-zinc-200 light:text-zinc-800" role="status">
@@ -180,12 +185,12 @@
     <Callout tone={notice.tone} message={notice.message} items={notice.items} onDismiss={() => (notice = null)} />
   {/if}
 
-  <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_14rem_14rem]">
-    <div class="sm:col-span-2 xl:col-span-1">
+  <div class="flex flex-wrap gap-3">
+    <div class="min-w-64 flex-[2]">
       <TextField id="mod-search" type="search" label={t("Cerca", $language)} placeholder={t("Nome, autore o descrizione", $language)} bind:value={filters.text} />
     </div>
-    <SelectField id="mod-category" label={t("Categoria", $language)} value={filters.category} options={categoryOptions} onChange={(value) => (filters.category = value)} />
-    <SelectField id="mod-sort" label={t("Ordina per", $language)} value={filters.sort} options={sortOptions($language)} onChange={(value) => (filters.sort = value as PackageSort)} />
+    <SelectField id="mod-category" label={t("Categoria", $language)} class="min-w-48 flex-1 sm:max-w-64" value={filters.category} options={categoryOptions} onChange={(value) => (filters.category = value)} />
+    <SelectField id="mod-sort" label={t("Ordina per", $language)} class="min-w-48 flex-1 sm:max-w-64" value={filters.sort} options={sortOptions($language)} onChange={(value) => (filters.sort = value as PackageSort)} />
   </div>
   <div class="flex flex-wrap gap-x-8 gap-y-2">
     <Toggle label={t("Mostra mod deprecate", $language)} checked={filters.includeDeprecated} onChange={(value) => (filters.includeDeprecated = value)} />
@@ -216,7 +221,7 @@
             aria-label={t("Dettagli di {0}", $language, [packageTitle(item.name)])}
             onclick={() => (selected = item)}
           >
-            <ModIcon source={item.icon} class="size-14 rounded-lg" />
+            <ModIcon source={item.icon} class="size-12 rounded-lg" />
             <span class="min-w-0 flex-1">
               <span class="flex flex-wrap items-center gap-2">
                 <span class="min-w-0 truncate font-medium text-zinc-50 light:text-zinc-900">{packageTitle(item.name)}</span>

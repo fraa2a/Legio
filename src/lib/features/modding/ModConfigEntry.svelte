@@ -23,7 +23,7 @@
   const range = $derived(rangeHint(entry, $language));
 </script>
 
-<div class="flex flex-col gap-2 rounded-xl bg-white/5 p-3 [contain-intrinsic-size:auto_6rem] [content-visibility:auto] light:bg-zinc-900/5">
+<div class="flex flex-col gap-2 rounded-lg bg-white/5 p-3 [contain-intrinsic-size:auto_6rem] [content-visibility:auto] light:bg-zinc-900/5">
   <div class="flex items-center justify-between gap-3">
     <div class="min-w-0 flex-1">
       {#if control === "boolean"}
@@ -50,18 +50,11 @@
     <p class="text-xs whitespace-pre-line text-zinc-400 light:text-zinc-600">{entry.description}</p>
   {/if}
   {#if control === "choice"}
-    <SelectField {id} label={entry.key} class="[&>span]:sr-only" value={value} options={choiceOptions(entry, value)} onChange={onChange} />
+    <SelectField {id} label={entry.key} labelHidden value={value} options={choiceOptions(entry, value)} onChange={onChange} />
   {:else if control === "number"}
-    <div class="[&_label]:sr-only">
-      <TextField {id} label={entry.key} type="number" inputmode={isIntegerEntry(entry) ? "numeric" : "text"} {value} oninput={onChange} />
-    </div>
+    <TextField {id} label={entry.key} labelHidden type="number" inputmode={isIntegerEntry(entry) ? "numeric" : "text"} {value} {error} oninput={onChange} />
   {:else if control === "text"}
-    <div class="[&_label]:sr-only">
-      <TextField {id} label={entry.key} {value} oninput={onChange} />
-    </div>
-  {/if}
-  {#if error}
-    <p class="text-xs text-legio-error" role="alert">{error}</p>
+    <TextField {id} label={entry.key} labelHidden {value} {error} oninput={onChange} />
   {/if}
   {#if entry.defaultValue !== null || range}
     <p class="text-xs text-zinc-500">

@@ -39,5 +39,7 @@
     </div>
     <ProgressBar value={percent} tone="accent" label={t("Avanzamento dell'installazione", $language)} class="mt-2 h-1.5" />
   </div>
-  <Button label={cancelling ? t("Annullamento...", $language) : t("Annulla", $language)} variant="danger-soft" size="sm" disabled={cancelling} onClick={onCancel} />
+  {#if cancelling || progress?.cancellable === true}
+    <Button label={cancelling ? t("Annullamento...", $language) : t("Annulla", $language)} variant="danger-soft" size="sm" disabled={cancelling} onClick={onCancel} />
+  {/if}
 </section>

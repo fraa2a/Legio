@@ -16,7 +16,6 @@
   import type { ModProfile, PackageDetails, ProfileMod } from "../../services/modding";
   import {
     importLocalArchive,
-    installLoader,
     modUpdates,
     packageDetails,
     profileMods,
@@ -25,15 +24,12 @@
     updateMods,
   } from "../../stores/modding";
   import { showToast } from "../../stores/toast";
-  import { toMessage } from "../../utils/errors";
   import {
+    classifyModdingError,
     dependentsOf,
-    describeModdingError,
     displayPackageId,
     indexByFullName,
     installNotice,
-    isCancellation,
-    isLoaderPackage,
     modKey,
     packageTitle,
     splitFullName,
@@ -98,9 +94,9 @@
   const removeDependents = $derived(removeTarget === null ? [] : dependentsOf(removeTarget.fullName, $mods.data, details));
 
   function fail(error: unknown): void {
-    const message = toMessage(error);
-    if (isCancellation(message)) showToast(t("Installazione annullata.", $language), "info");
-    else actionError = describeModdingError(message, $language);
+    const failure = classifyModdingError(error, $language);
+    if (failure.kind === "cancelled") showToast(failure.message, "info");
+    else actionError = failure.message;
   }
 
   async function run(action: () => Promise<void>): Promise<void> {
@@ -129,7 +125,6 @@
 
   const updateAll = () => run(async () => showInstall(await updateMods(gameId, profile.id)));
   const updateOne = (mod: ProfileMod) => run(async () => showInstall(await updateMods(gameId, profile.id, [mod.fullName])));
-  const installBepInEx = () => run(async () => showInstall(await installLoader(gameId, ecosystemGameId, profile.id)));
 
   const importArchive = () => run(async () => {
     const path = await pickModArchive();
@@ -193,7 +188,6 @@
     >
       <div class="flex flex-wrap justify-center gap-2">
         <Button label={t("Sfoglia le mod", $language)} onClick={onBrowse} />
-        <Button label={t("Installa solo BepInEx", $language)} variant="secondary" {disabled} onClick={() => void installBepInEx()} />
         <Button label={t("Importa mod locale", $language)} variant="secondary" {disabled} onClick={() => void importArchive()} />
       </div>
     </EmptyState>
@@ -220,14 +214,13 @@
           {@const title = packageTitle(name.name)}
           {@const detail = details[modKey(mod.fullName)] ?? null}
           {@const update = updateIndex.get(modKey(mod.fullName))}
-          {@const loader = isLoaderPackage(mod.fullName)}
           <li class="flex flex-wrap items-center gap-3 rounded-xl legio-glass p-3">
-            <ModIcon source={detail?.icon ?? null} class="size-11 rounded-lg {mod.enabled ? '' : 'opacity-50 grayscale'}" />
+            <ModIcon source={detail?.icon ?? null} class="size-12 rounded-lg {mod.enabled ? '' : 'opacity-50 grayscale'}" />
             <div class="min-w-0 flex-1 basis-48">
               <div class="flex flex-wrap items-center gap-2">
                 <p class="min-w-0 truncate font-medium {mod.enabled ? 'text-zinc-50 light:text-zinc-900' : 'text-zinc-400 light:text-zinc-500'}">{title}</p>
                 <span class="text-xs tabular-nums text-zinc-500">{mod.version}</span>
-                {#if loader}<Badge tone="info" title={t("Loader", $language)} />{/if}
+                {#if mod.isLoader}<Badge tone="info" title={t("Loader", $language)} />{/if}
                 {#if !mod.onlineSource}<Badge title={t("Locale", $language)} />{/if}
                 {#if !mod.enabled}<Badge title={t("Disattivata", $language)} />{/if}
                 {#if update !== undefined}<Badge tone="success" title={t("Aggiornamento {0}", $language, [update.latestVersion])} />{/if}
@@ -241,12 +234,12 @@
                 <Button label={t("Aggiorna", $language)} variant="secondary" size="sm" {disabled} onClick={() => void updateOne(mod)} />
               {/if}
               {#key toggleRevision}
-                <span title={loader ? t("Il loader resta sempre attivo", $language) : undefined}>
+                <span title={mod.isLoader ? t("Il loader resta sempre attivo", $language) : undefined}>
                   <Toggle
                     labelHidden
                     label={t("Attiva {0}", $language, [title])}
                     checked={mod.enabled}
-                    disabled={disabled || loader}
+                    disabled={disabled || mod.isLoader}
                     onChange={(enabled) => void toggle(mod, enabled)}
                   />
                 </span>

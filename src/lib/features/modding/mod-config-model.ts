@@ -32,10 +32,6 @@ export function filterConfigFiles(files: readonly ConfigFileEntry[], query: stri
     .sort((a, b) => a.file.relativePath.localeCompare(b.file.relativePath, undefined, { sensitivity: "base", numeric: true }));
 }
 
-export function isCfgPath(relativePath: string): boolean {
-  return relativePath.toLowerCase().endsWith(".cfg");
-}
-
 const typeName = (entry: ConfigEntry): string => (entry.settingType ?? "").trim().toLowerCase();
 
 export function isIntegerEntry(entry: ConfigEntry): boolean {
@@ -79,32 +75,29 @@ export function validateEntry(entry: ConfigEntry, value: string, language?: Lang
   return null;
 }
 
-export const entryId = (section: string, key: string): string => `${section}\u0000${key}`;
+// Files may repeat section and key names, so entries are told apart by their line.
+export const entryId = (section: string, entry: ConfigEntry): string => `${section}\u0000${entry.line}`;
 
 export type ConfigChanges = Record<string, string>;
 
 export function currentValue(section: string, entry: ConfigEntry, changes: ConfigChanges): string {
-  return changes[entryId(section, entry.key)] ?? entry.value;
+  return changes[entryId(section, entry)] ?? entry.value;
 }
 
 export function setChange(changes: ConfigChanges, section: string, entry: ConfigEntry, value: string): ConfigChanges {
-  const id = entryId(section, entry.key);
+  const id = entryId(section, entry);
   const next = { ...changes };
   if (value === entry.value) delete next[id];
   else next[id] = value;
   return next;
 }
 
-export function canResetEntry(section: string, entry: ConfigEntry, changes: ConfigChanges): boolean {
-  return entry.defaultValue !== null && currentValue(section, entry, changes) !== entry.defaultValue;
-}
-
 export function collectEdits(config: BepInExConfig, changes: ConfigChanges): ConfigEdit[] {
   const edits: ConfigEdit[] = [];
   for (const section of config.sections) {
     for (const entry of section.entries) {
-      const value = changes[entryId(section.name, entry.key)];
-      if (value !== undefined && value !== entry.value) edits.push({ section: section.name, key: entry.key, value });
+      const value = changes[entryId(section.name, entry)];
+      if (value !== undefined && value !== entry.value) edits.push({ section: section.name, key: entry.key, value, line: entry.line });
     }
   }
   return edits;
@@ -114,34 +107,41 @@ export function findInvalidEntries(config: BepInExConfig, changes: ConfigChanges
   let invalid = 0;
   for (const section of config.sections) {
     for (const entry of section.entries) {
-      const value = changes[entryId(section.name, entry.key)];
+      const value = changes[entryId(section.name, entry)];
       if (value !== undefined && validateEntry(entry, value) !== null) invalid += 1;
     }
   }
   return invalid;
 }
 
-export function sectionChangeCount(section: BepInExConfig["sections"][number], changes: ConfigChanges): number {
-  return section.entries.filter((entry) => changes[entryId(section.name, entry.key)] !== undefined).length;
+// `id` is the position in the file, since section names can repeat.
+export interface ConfigSectionView {
+  id: string;
+  name: string;
+  entries: ConfigEntry[];
 }
 
-export function filterSections(config: BepInExConfig, query: string): BepInExConfig["sections"] {
+export function sectionChangeCount(section: ConfigSectionView, changes: ConfigChanges): number {
+  return section.entries.filter((entry) => changes[entryId(section.name, entry)] !== undefined).length;
+}
+
+export function filterSections(config: BepInExConfig, query: string): ConfigSectionView[] {
   const needle = query.trim().toLowerCase();
-  if (needle.length === 0) return config.sections;
   return config.sections
-    .map((section) => ({
+    .map((section, index) => ({
+      id: String(index),
       name: section.name,
-      entries: section.entries.filter((entry) =>
+      entries: needle.length === 0 ? section.entries : section.entries.filter((entry) =>
         section.name.toLowerCase().includes(needle) || entry.key.toLowerCase().includes(needle) || (entry.description ?? "").toLowerCase().includes(needle)),
     }))
-    .filter((section) => section.entries.length > 0);
+    .filter((section) => needle.length === 0 || section.entries.length > 0);
 }
 
 // Big files start folded so the first paint stays cheap.
 export function initialOpenSections(config: BepInExConfig): string[] {
   const total = config.sections.reduce((sum, section) => sum + section.entries.length, 0);
   const open = total > largeConfigEntries ? config.sections.slice(0, 1) : config.sections;
-  return open.map((section) => section.name);
+  return open.map((_section, index) => String(index));
 }
 
 export function textSizeError(text: string, language?: Language): string | null {
