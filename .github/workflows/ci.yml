@@ -130,6 +130,9 @@ jobs:
       - name: Test launcher settings and updater
         run: corepack pnpm test:launcher
 
+      - name: Test modding config editor and profile exchange
+        run: corepack pnpm test:modding-extra
+
       - name: Test release manifest
         run: python -B -m unittest discover -s scripts
 

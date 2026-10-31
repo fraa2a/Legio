@@ -8,6 +8,7 @@
   import CircleCheck from "@lucide/svelte/icons/circle-check";
   import Clock from "@lucide/svelte/icons/clock";
   import Download from "@lucide/svelte/icons/download";
+  import FileCode from "@lucide/svelte/icons/file-code";
   import Folder from "@lucide/svelte/icons/folder";
   import Globe from "@lucide/svelte/icons/globe";
   import HardDriveDownload from "@lucide/svelte/icons/hard-drive-download";
@@ -43,6 +44,7 @@
     "store": Store,
     "downloads": HardDriveDownload,
     "settings": Settings,
+    "file-code": FileCode,
     "folder": Folder,
     "image": Image,
     "wrench": Wrench,
