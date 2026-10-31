@@ -84,6 +84,8 @@ mod startup_recovery;
 mod webkit_features;
 mod window_scale;
 
+use modding::catalog_commands;
+
 struct TrayAvailable(bool);
 struct LaunchEvents(tauri::async_runtime::JoinHandle<()>);
 #[derive(Default)]
@@ -285,6 +287,21 @@ fn run_application(
                 )
                 .map_err(std::io::Error::other)?,
             );
+            let modding_paths = modding::paths::ModdingPaths::new(&app.path().app_data_dir()?);
+            let thunderstore = modding::thunderstore_http::ThunderstoreHttp::new(
+                &app.package_info().version.to_string(),
+                diagnostics.clone(),
+            )
+            .map_err(std::io::Error::other)?;
+            app.manage(modding::ecosystem_store::EcosystemStore::new(
+                thunderstore.clone(),
+                modding_paths.ecosystem_cache(),
+                modding::ecosystem_store::SCHEMA_URL,
+            ));
+            app.manage(modding::package_cache::PackageCache::new(
+                modding_paths.package_db(),
+            ));
+            app.manage(thunderstore);
             app.manage(diagnostics);
             app.manage(queue_shutdown::QueueShutdownState::default());
             queue_shutdown::start(app.handle().clone());
@@ -491,6 +508,13 @@ fn run_application(
             commands::reset_steam_artwork_cache,
             commands::prefetch_steam_hero,
             runner_discovery::list_compatibility_runners,
+            catalog_commands::list_moddable_games,
+            catalog_commands::list_ecosystem_games,
+            catalog_commands::bind_game_to_ecosystem,
+            catalog_commands::refresh_mod_catalog,
+            catalog_commands::search_mods,
+            catalog_commands::get_mod_package,
+            catalog_commands::list_mod_categories,
         ])
         .build(context)?
         .run(|app, event| {

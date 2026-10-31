@@ -2,6 +2,7 @@ mod migrations;
 mod modding;
 mod sessions;
 use migrations::migrate;
+pub(crate) use modding::GameModding;
 #[cfg(test)]
 pub(crate) use sessions::RunningGamePresence;
 
