@@ -79,10 +79,7 @@ pub(crate) fn prepare_launch<R: Runtime>(
     Ok(plan)
 }
 
-pub(crate) fn launch_status<R: Runtime>(
-    app: &AppHandle<R>,
-    game_id: &str,
-) -> Result<ModLaunchStatus, String> {
+fn launch_status<R: Runtime>(app: &AppHandle<R>, game_id: &str) -> Result<ModLaunchStatus, String> {
     let state = app.state::<DatabaseState>();
     let database = state.database()?;
     let game = database.game(game_id)?;
@@ -90,11 +87,31 @@ pub(crate) fn launch_status<R: Runtime>(
     status(database, &paths, &game.id, path_style(&game).is_some())
 }
 
+#[tauri::command]
+pub async fn get_mod_launch_status(
+    app: AppHandle,
+    game_id: String,
+) -> Result<ModLaunchStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || launch_status(&app, &game_id))
+        .await
+        .map_err(|error| format!("Mod launch status task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn restore_modded_game_folder(app: AppHandle, game_id: String) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
+        let _operation = manager.operation()?;
+        manager.require_idle(&game_id)?;
+        restore_game_folder_of(&app, &game_id)
+    })
+    .await
+    .map_err(|error| format!("Game folder restore task failed: {error}"))?
+}
+
 /// Deletes the loader files Legio copied into the game folder.
-pub(crate) fn restore_game_folder_of<R: Runtime>(
-    app: &AppHandle<R>,
-    game_id: &str,
-) -> Result<(), String> {
+fn restore_game_folder_of<R: Runtime>(app: &AppHandle<R>, game_id: &str) -> Result<(), String> {
     let state = app.state::<DatabaseState>();
     let database = state.database()?;
     let game = database.game(game_id)?;

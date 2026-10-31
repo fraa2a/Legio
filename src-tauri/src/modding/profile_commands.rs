@@ -4,10 +4,12 @@ use std::{fs, path::Path};
 
 use tauri::{AppHandle, Emitter, Manager};
 
-use super::ecosystem::{EcosystemSchema, GameEntry, ModloaderPackage};
+use super::ecosystem::EcosystemSchema;
+use super::ecosystem_store::EcosystemStore;
+use super::install_commands::redownload_package;
 use super::installer::{
-    InstallProgress, ModdingContext, PROGRESS_EVENT, UninstallOutcome, set_mod_enabled,
-    uninstall_mod,
+    GameRules, InstallError, InstallProgress, ModdingContext, PROGRESS_EVENT, UninstallOutcome,
+    set_mod_enabled, uninstall_mod,
 };
 use super::local_import::{self, LocalImportOutcome};
 use super::paths::ModdingPaths;
@@ -16,12 +18,6 @@ use super::profiles::{
     profile_with_directory, rename_profile, set_active_profile,
 };
 use crate::database::{Database, DatabaseState, GameModding, ModProfile, ProfileMod};
-
-/// Install rules of one game, read from the cached ecosystem schema.
-struct GameRules {
-    entry: GameEntry,
-    loaders: Vec<ModloaderPackage>,
-}
 
 /// Forwards install progress to the frontend.
 pub(crate) fn progress_emitter(app: &AppHandle) -> impl Fn(&InstallProgress) + Send + use<> {
@@ -95,7 +91,9 @@ pub async fn set_active_mod_profile(
     game_id: String,
     profile_id: Option<String>,
 ) -> Result<GameModding, String> {
-    run_modding(app, move |_, database, _, _| {
+    run_modding(app, move |app, database, _, _| {
+        app.state::<crate::game_lifecycle::GameLaunchManager>()
+            .require_idle(&game_id)?;
         set_active_profile(database, &game_id, profile_id.as_deref())
     })
     .await
@@ -118,9 +116,10 @@ pub async fn uninstall_profile_mod(
     profile_id: String,
     full_name: String,
 ) -> Result<UninstallOutcome, String> {
+    let schema = game_schema(&app).await?;
     run_modding(app, move |app, database, paths, locks| {
         require_profile_not_running(app, database, paths, &profile_id)?;
-        with_game_rules(database, paths, locks, &profile_id, |ctx| {
+        with_game_rules(database, paths, locks, &schema, &profile_id, |ctx, _| {
             uninstall_mod(ctx, &profile_id, &full_name).map_err(|error| error.to_string())
         })
     })
@@ -134,12 +133,29 @@ pub async fn set_profile_mod_enabled(
     full_name: String,
     enabled: bool,
 ) -> Result<(), String> {
+    let schema = game_schema(&app).await?;
     run_modding(app, move |app, database, paths, locks| {
         require_profile_not_running(app, database, paths, &profile_id)?;
-        with_game_rules(database, paths, locks, &profile_id, |ctx| {
-            set_mod_enabled(ctx, &profile_id, &full_name, enabled)
-                .map_err(|error| error.to_string())
-        })
+        with_game_rules(
+            database,
+            paths,
+            locks,
+            &schema,
+            &profile_id,
+            |ctx, community| match set_mod_enabled(ctx, &profile_id, &full_name, enabled) {
+                // Enabling copies from the package cache, so a lost cache
+                // is downloaded once and the attempt repeated.
+                Err(InstallError::CacheMissing {
+                    package,
+                    online_source: true,
+                }) => {
+                    redownload_package(app, ctx, community, &profile_id, &package)?;
+                    set_mod_enabled(ctx, &profile_id, &full_name, enabled)
+                        .map_err(|error| error.to_string())
+                }
+                result => result.map_err(|error| error.to_string()),
+            },
+        )
     })
     .await
 }
@@ -151,9 +167,10 @@ pub async fn import_local_mod(
     archive_path: String,
 ) -> Result<LocalImportOutcome, String> {
     let progress = progress_emitter(&app);
+    let schema = game_schema(&app).await?;
     run_modding(app, move |app, database, paths, locks| {
         require_profile_not_running(app, database, paths, &profile_id)?;
-        with_game_rules(database, paths, locks, &profile_id, |ctx| {
+        with_game_rules(database, paths, locks, &schema, &profile_id, |ctx, _| {
             local_import::import_local_mod(ctx, &profile_id, Path::new(&archive_path), &progress)
                 .map_err(|error| error.to_string())
         })
@@ -172,8 +189,12 @@ pub async fn open_mod_profile_folder(app: AppHandle, profile_id: String) -> Resu
     .await
 }
 
+async fn game_schema(app: &AppHandle) -> Result<std::sync::Arc<EcosystemSchema>, String> {
+    app.state::<EcosystemStore>().schema().await
+}
+
 /// Runs a blocking operation once startup recovery is done.
-async fn run_modding<T, F>(app: AppHandle, operation: F) -> Result<T, String>
+pub(crate) async fn run_modding<T, F>(app: AppHandle, operation: F) -> Result<T, String>
 where
     T: Send + 'static,
     F: FnOnce(&AppHandle, &Database, &ModdingPaths, &ProfileLocks) -> Result<T, String>
@@ -200,7 +221,7 @@ where
 }
 
 /// Refuses to change files of the profile the running game uses.
-fn require_profile_not_running(
+pub(crate) fn require_profile_not_running(
     app: &AppHandle,
     database: &Database,
     paths: &ModdingPaths,
@@ -217,40 +238,23 @@ fn require_profile_not_running(
     Ok(())
 }
 
-fn with_game_rules<T>(
+/// Runs `operation` with the install rules of the profile's game and the
+/// Thunderstore game id it is bound to.
+pub(crate) fn with_game_rules<T>(
     database: &Database,
     paths: &ModdingPaths,
     locks: &ProfileLocks,
+    schema: &EcosystemSchema,
     profile_id: &str,
-    operation: impl FnOnce(&ModdingContext<'_>) -> Result<T, String>,
+    operation: impl FnOnce(&ModdingContext<'_>, &str) -> Result<T, String>,
 ) -> Result<T, String> {
     let (profile, _) = profile_with_directory(database, paths, profile_id)?;
     let modding = database
         .game_modding(&profile.game_id)?
         .ok_or_else(|| "The game is not set up for mods".to_owned())?;
-    let rules = read_game_rules(paths, &modding.ecosystem_game_id)?;
-    operation(&ModdingContext {
-        database,
-        paths,
-        locks,
-        game: &rules.entry,
-        loaders: &rules.loaders,
-    })
-}
-
-fn read_game_rules(paths: &ModdingPaths, ecosystem_game_id: &str) -> Result<GameRules, String> {
-    let bytes = fs::read(paths.ecosystem_cache())
-        .map_err(|error| format!("The Thunderstore game list is not available: {error}"))?;
-    let schema: EcosystemSchema = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("The stored Thunderstore game list is invalid: {error}"))?;
-    let entry = schema
-        .games
-        .get(ecosystem_game_id)
-        .and_then(|game| game.game_entry())
-        .cloned()
-        .ok_or_else(|| format!("Thunderstore has no mod support for {ecosystem_game_id}"))?;
-    Ok(GameRules {
-        entry,
-        loaders: schema.modloader_packages,
-    })
+    let rules = GameRules::from_schema(schema, &modding.ecosystem_game_id)?;
+    operation(
+        &rules.context(database, paths, locks),
+        &modding.ecosystem_game_id,
+    )
 }

@@ -2,7 +2,7 @@
 //! catalog.
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use super::{
     ecosystem::{EcosystemSchema, PackageLoader},
@@ -11,7 +11,10 @@ use super::{
     package_id::PackageName,
     thunderstore_http::ThunderstoreHttp,
 };
-use crate::database::{Database, DatabaseState, GameModding};
+use crate::{
+    database::{Database, DatabaseState, GameModding},
+    game_lifecycle::GameLaunchManager,
+};
 
 const PROGRESS_EVENT: &str = "modding-catalog-progress";
 
@@ -74,6 +77,7 @@ pub async fn list_ecosystem_games(
 
 #[tauri::command]
 pub async fn bind_game_to_ecosystem(
+    app: AppHandle,
     state: State<'_, DatabaseState>,
     ecosystem: State<'_, EcosystemStore>,
     game_id: String,
@@ -83,6 +87,12 @@ pub async fn bind_game_to_ecosystem(
     require_package_index(&schema, &ecosystem_game_id)?;
     let database = state.shared_database()?;
     let binding = tauri::async_runtime::spawn_blocking(move || {
+        let is_rebinding = database
+            .game_modding(&game_id)?
+            .is_some_and(|binding| binding.ecosystem_game_id != ecosystem_game_id);
+        if is_rebinding {
+            app.state::<GameLaunchManager>().require_idle(&game_id)?;
+        }
         database.set_game_modding(&game_id, &ecosystem_game_id)
     })
     .await

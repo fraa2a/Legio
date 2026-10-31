@@ -7,8 +7,6 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 
-use modding::{config_files, profile_commands};
-
 mod app_profile;
 mod appearance;
 mod application_log;
@@ -86,7 +84,9 @@ mod startup_recovery;
 mod webkit_features;
 mod window_scale;
 
-use modding::catalog_commands;
+use modding::{
+    catalog_commands, config_files, exchange_commands, install_commands, launch, profile_commands,
+};
 
 struct TrayAvailable(bool);
 struct LaunchEvents(tauri::async_runtime::JoinHandle<()>);
@@ -307,6 +307,7 @@ fn run_application(
             app.manage(diagnostics);
             app.manage(queue_shutdown::QueueShutdownState::default());
             app.manage(modding::profiles::ProfileLocks::default());
+            app.manage(modding::install_commands::InstallCancellations::default());
             queue_shutdown::start(app.handle().clone());
             app.manage(discord_presence::PresenceService::start(app.handle())?);
             let language = initial_settings.language;
@@ -460,8 +461,6 @@ fn run_application(
             commands::get_compatibility_logs_directory,
             commands::cancel_game_launch,
             commands::stop_game,
-            commands::get_mod_launch_status,
-            commands::restore_modded_game_folder,
             commands::inspect_steam_game_launch,
             commands::list_saved_steam_accounts,
             commands::set_game_steam_account_preference,
@@ -500,17 +499,6 @@ fn run_application(
             queue_shutdown::set_queue_shutdown,
             installed_folder::open_installed_folder,
             installed_folder::get_installed_folder_info,
-            profile_commands::list_mod_profiles,
-            profile_commands::create_mod_profile,
-            profile_commands::rename_mod_profile,
-            profile_commands::duplicate_mod_profile,
-            profile_commands::delete_mod_profile,
-            profile_commands::set_active_mod_profile,
-            profile_commands::list_profile_mods,
-            profile_commands::uninstall_profile_mod,
-            profile_commands::set_profile_mod_enabled,
-            profile_commands::import_local_mod,
-            profile_commands::open_mod_profile_folder,
             commands::refresh_legio_source,
             commands::check_steam_connectivity,
             commands::search_catalog,
@@ -531,11 +519,31 @@ fn run_application(
             catalog_commands::search_mods,
             catalog_commands::get_mod_package,
             catalog_commands::list_mod_categories,
+            profile_commands::list_mod_profiles,
+            profile_commands::create_mod_profile,
+            profile_commands::rename_mod_profile,
+            profile_commands::duplicate_mod_profile,
+            profile_commands::delete_mod_profile,
+            profile_commands::set_active_mod_profile,
+            profile_commands::open_mod_profile_folder,
+            profile_commands::list_profile_mods,
+            install_commands::install_mods,
+            install_commands::list_mod_updates,
+            install_commands::update_profile_mods,
+            install_commands::cancel_mod_install,
+            profile_commands::uninstall_profile_mod,
+            profile_commands::set_profile_mod_enabled,
+            profile_commands::import_local_mod,
             config_files::list_mod_config_files,
             config_files::read_mod_config_file,
             config_files::save_mod_config_text,
             config_files::save_mod_config_entries,
-            commands::export_mod_profile_file,
+            exchange_commands::export_mod_profile_file,
+            exchange_commands::share_mod_profile_code,
+            exchange_commands::import_mod_profile_file,
+            exchange_commands::import_mod_profile_code,
+            launch::get_mod_launch_status,
+            launch::restore_modded_game_folder,
         ])
         .build(context)?
         .run(|app, event| {

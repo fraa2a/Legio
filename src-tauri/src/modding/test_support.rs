@@ -319,11 +319,17 @@ impl Reply {
     }
 }
 
+struct Received {
+    path: String,
+    head: String,
+    body: Vec<u8>,
+}
+
 /// Serves registered paths over plain HTTP on 127.0.0.1 until dropped.
 pub(crate) struct TestServer {
     address: String,
     routes: Arc<Mutex<HashMap<String, Reply>>>,
-    requests: Arc<Mutex<Vec<(String, String)>>>,
+    requests: Arc<Mutex<Vec<Received>>>,
     stop: Arc<AtomicBool>,
 }
 
@@ -368,7 +374,18 @@ impl TestServer {
             .lock()
             .unwrap()
             .iter()
-            .map(|(path, _)| path.clone())
+            .map(|received| received.path.clone())
+            .collect()
+    }
+
+    /// Request bodies received for `path`.
+    pub(crate) fn bodies(&self, path: &str) -> Vec<Vec<u8>> {
+        self.requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|received| received.path == path)
+            .map(|received| received.body.clone())
             .collect()
     }
 
@@ -378,8 +395,8 @@ impl TestServer {
             .lock()
             .unwrap()
             .iter()
-            .filter(|(requested, _)| requested == path)
-            .map(|(_, head)| head.to_ascii_lowercase())
+            .filter(|received| received.path == path)
+            .map(|received| received.head.to_ascii_lowercase())
             .collect()
     }
 
@@ -399,7 +416,7 @@ impl Drop for TestServer {
 fn serve(
     mut stream: TcpStream,
     routes: &Mutex<HashMap<String, Reply>>,
-    requests: &Mutex<Vec<(String, String)>>,
+    requests: &Mutex<Vec<Received>>,
     stop: &AtomicBool,
 ) {
     if stream
@@ -422,7 +439,23 @@ fn serve(
         .nth(1)
         .unwrap_or_default()
         .to_owned();
-    requests.lock().unwrap().push((path.clone(), head));
+    let length = head
+        .lines()
+        .find_map(|line| {
+            line.to_ascii_lowercase()
+                .strip_prefix("content-length: ")
+                .and_then(|value| value.trim().parse::<usize>().ok())
+        })
+        .unwrap_or(0);
+    let mut body = vec![0; length];
+    if stream.read_exact(&mut body).is_err() {
+        return;
+    }
+    requests.lock().unwrap().push(Received {
+        path: path.clone(),
+        head,
+        body,
+    });
     let reply = routes
         .lock()
         .unwrap()

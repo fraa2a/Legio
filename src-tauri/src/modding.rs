@@ -6,6 +6,8 @@ pub(crate) mod config_files;
 pub(crate) mod dependencies;
 pub(crate) mod ecosystem;
 pub(crate) mod ecosystem_store;
+pub(crate) mod exchange_commands;
+pub(crate) mod install_commands;
 pub(crate) mod install_rules;
 pub(crate) mod installer;
 pub(crate) mod launch;

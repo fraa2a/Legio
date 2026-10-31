@@ -12,11 +12,11 @@ use std::{
 
 use serde::Serialize;
 
+use super::archive_cache::{CacheStage, FetchPackage, ensure_cached, package_dir};
 use super::dependencies::{InstallRequest, PackageSource, ResolveMode, package_key, resolve_plan};
-use super::ecosystem::{GameEntry, ModloaderPackage, PackageLoader};
+use super::ecosystem::{EcosystemSchema, GameEntry, ModloaderPackage, PackageLoader};
 use super::install_rules::{PlannedFile, plan_install};
 use super::loader_install::plan_loader_install;
-use super::archive_cache::{CacheStage, FetchPackage, ensure_cached, package_dir};
 use super::package_id::{PackageName, PackageVersionId, Version};
 use super::package_manifest::read_manifest;
 use super::paths::ModdingPaths;
@@ -33,6 +33,45 @@ pub(crate) struct ModdingContext<'a> {
     pub(crate) locks: &'a ProfileLocks,
     pub(crate) game: &'a GameEntry,
     pub(crate) loaders: &'a [ModloaderPackage],
+}
+
+/// Install rules of one game, copied out of the shared ecosystem schema.
+pub(crate) struct GameRules {
+    entry: GameEntry,
+    loaders: Vec<ModloaderPackage>,
+}
+
+impl GameRules {
+    pub(crate) fn from_schema(
+        schema: &EcosystemSchema,
+        ecosystem_game_id: &str,
+    ) -> Result<Self, String> {
+        let entry = schema
+            .games
+            .get(ecosystem_game_id)
+            .and_then(|game| game.game_entry())
+            .cloned()
+            .ok_or_else(|| format!("Thunderstore has no mod support for {ecosystem_game_id}"))?;
+        Ok(Self {
+            entry,
+            loaders: schema.modloader_packages.clone(),
+        })
+    }
+
+    pub(crate) fn context<'a>(
+        &'a self,
+        database: &'a Database,
+        paths: &'a ModdingPaths,
+        locks: &'a ProfileLocks,
+    ) -> ModdingContext<'a> {
+        ModdingContext {
+            database,
+            paths,
+            locks,
+            game: &self.entry,
+            loaders: &self.loaders,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -56,6 +95,10 @@ pub(crate) struct InstallProgress {
     /// 1-based position of the package among those being installed.
     pub(crate) current: usize,
     pub(crate) total: usize,
+    /// Bytes received so far, only while downloading a package.
+    pub(crate) downloaded_bytes: Option<u64>,
+    /// Size announced by the server, when it announced one.
+    pub(crate) total_bytes: Option<u64>,
 }
 
 pub(crate) type ProgressSink<'a> = &'a dyn Fn(&InstallProgress);
@@ -73,6 +116,8 @@ pub(crate) fn report_progress(
         stage,
         current: position.0,
         total: position.1,
+        downloaded_bytes: None,
+        total_bytes: None,
     });
 }
 
@@ -91,9 +136,19 @@ pub(crate) enum InstallError {
 impl fmt::Display for InstallError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::CacheMissing { package, .. } => write!(
+            Self::CacheMissing {
+                package,
+                online_source: true,
+            } => write!(
                 formatter,
                 "The stored files of {package} are missing and must be downloaded again"
+            ),
+            Self::CacheMissing {
+                package,
+                online_source: false,
+            } => write!(
+                formatter,
+                "The stored files of {package} are missing. Import the archive again"
             ),
             Self::LoaderCannotBeDisabled(package) => {
                 write!(formatter, "The mod loader {package} cannot be disabled")

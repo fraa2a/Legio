@@ -4,11 +4,11 @@ use std::path::Path;
 
 use serde::Serialize;
 
+use super::archive_cache::{package_dir, publish_directory, stage_archive};
 use super::installer::{
     InstallError, InstallStage, ModdingContext, ProgressSink, install_cached_package,
     report_progress,
 };
-use super::archive_cache::{package_dir, publish_directory, stage_archive};
 use super::package_id::{PackageName, PackageVersionId, Version};
 use super::package_manifest::{PackageManifest, read_manifest, write_manifest};
 use super::profiles::profile_with_directory;

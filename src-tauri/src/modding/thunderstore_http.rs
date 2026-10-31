@@ -89,6 +89,44 @@ impl ThunderstoreHttp {
         result.map_err(|error| describe(&error))
     }
 
+    /// One GET attempt that keeps the failure type, for callers that react to
+    /// the status code or retry on their own schedule.
+    pub(crate) async fn try_get_bytes(
+        &self,
+        url: &str,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, NetworkError> {
+        require_allowed(url)?;
+        self.get_bytes_once(url, max_bytes).await
+    }
+
+    /// One POST attempt with the given body and content type.
+    pub(crate) async fn try_post_bytes(
+        &self,
+        url: &str,
+        content_type: &'static str,
+        body: Vec<u8>,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, NetworkError> {
+        require_allowed(url)?;
+        let mut log = self.diagnostics.request(Operation::Thunderstore);
+        let result = async {
+            let response = self
+                .client
+                .post(url)
+                .header(reqwest::header::CONTENT_TYPE, content_type)
+                .body(body)
+                .timeout(Duration::from_secs(API_REQUEST_TIMEOUT_SECONDS))
+                .send()
+                .await
+                .map_err(network_error)?;
+            NetworkState::read_bounded_to(response, max_bytes, &mut log).await
+        }
+        .await;
+        log.finish(&result);
+        result
+    }
+
     async fn get_bytes_once(&self, url: &str, max_bytes: usize) -> Result<Vec<u8>, NetworkError> {
         let mut log = self.diagnostics.request(Operation::Thunderstore);
         let result = async {
@@ -270,7 +308,7 @@ fn network_error(error: reqwest::Error) -> NetworkError {
     }
 }
 
-fn describe(error: &NetworkError) -> String {
+pub(crate) fn describe(error: &NetworkError) -> String {
     match error {
         NetworkError::Timeout => "Thunderstore did not respond in time".to_owned(),
         NetworkError::Transport { message } => format!("Could not reach Thunderstore: {message}"),

@@ -206,10 +206,12 @@ fn export_entry_name(parts: &[String]) -> Option<String> {
     if !has_supported_extension(file_name) || file_name.ends_with("mods.yml") {
         return None;
     }
-    if lowered.len() == 4 && lowered[0] == "bepinex" && lowered[1] == "plugins" {
-        if file_name == "manifest.json" {
-            return None;
-        }
+    if lowered.len() == 4
+        && lowered[0] == "bepinex"
+        && lowered[1] == "plugins"
+        && file_name == "manifest.json"
+    {
+        return None;
     }
     if lowered.len() >= 3 && lowered[0] == "bepinex" && lowered[1] == "config" {
         return Some(format!("{CONFIG_ENTRY_DIR}/{}", parts[2..].join("/")));
@@ -395,8 +397,8 @@ fn sanitize_profile_name(raw: &str) -> Result<String, String> {
     Ok(cleaned)
 }
 
-/// Writes the imported config files into `profile_dir` (a staging directory
-/// for new profiles). Paths were validated when the archive was read.
+/// Writes the imported config files into `profile_dir`. Paths were validated
+/// when the archive was read.
 pub(crate) fn apply_import_files(import: &ProfileImport, profile_dir: &Path) -> Result<(), String> {
     for file in &import.files {
         let target = profile_dir.join(&file.relative_path);
@@ -408,19 +410,6 @@ pub(crate) fn apply_import_files(import: &ProfileImport, profile_dir: &Path) -> 
             .map_err(|error| format!("Could not write {}: {error}", target.display()))?;
     }
     Ok(())
-}
-
-/// Moves a fully built staging directory into place. The target must not exist.
-pub(crate) fn promote_staged_profile(staging_dir: &Path, profile_dir: &Path) -> Result<(), String> {
-    if profile_dir.exists() {
-        return Err("The profile directory already exists".to_owned());
-    }
-    if let Some(parent) = profile_dir.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("Could not create {}: {error}", parent.display()))?;
-    }
-    fs::rename(staging_dir, profile_dir)
-        .map_err(|error| format!("Could not move the imported profile into place: {error}"))
 }
 
 #[cfg(test)]
@@ -736,20 +725,6 @@ mod tests {
         let bytes = writer.finish().unwrap().into_inner();
         assert!(bytes.len() <= MAX_ARCHIVE_BYTES);
         assert!(read_r2z(&bytes).unwrap_err().contains("too much data"));
-    }
-
-    #[test]
-    fn promotes_staged_profile_once() {
-        let root = temp_dir();
-        let staging = root.join("staging");
-        let target = root.join("profiles/p1");
-        fs::create_dir_all(&staging).unwrap();
-        write(&staging, "a.cfg", "a");
-        promote_staged_profile(&staging, &target).unwrap();
-        assert!(target.join("a.cfg").is_file());
-        fs::create_dir_all(&staging).unwrap();
-        assert!(promote_staged_profile(&staging, &target).is_err());
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

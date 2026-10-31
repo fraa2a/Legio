@@ -710,31 +710,6 @@ pub async fn stop_game(app: AppHandle, game_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn get_mod_launch_status(
-    app: AppHandle,
-    game_id: String,
-) -> Result<crate::modding::launch::ModLaunchStatus, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        crate::modding::launch::launch_status(&app, &game_id)
-    })
-    .await
-    .map_err(|error| format!("Mod launch status task failed: {error}"))?
-}
-
-#[tauri::command]
-pub async fn restore_modded_game_folder(app: AppHandle, game_id: String) -> Result<(), String> {
-    crate::startup_recovery::wait(&app).await?;
-    tauri::async_runtime::spawn_blocking(move || {
-        let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
-        let _operation = manager.operation()?;
-        manager.require_idle(&game_id)?;
-        crate::modding::launch::restore_game_folder_of(&app, &game_id)
-    })
-    .await
-    .map_err(|error| format!("Game folder restore task failed: {error}"))?
-}
-
-#[tauri::command]
 pub async fn inspect_steam_game_launch(
     app: AppHandle,
     game_id: String,
@@ -1158,50 +1133,6 @@ pub fn take_source_links(
     state: State<'_, crate::source_links::SourceLinks>,
 ) -> Result<crate::source_links::PendingLinks, String> {
     state.take()
-}
-
-#[tauri::command]
-pub async fn export_mod_profile_file(
-    app: AppHandle,
-    game_id: String,
-    profile_id: String,
-    destination_path: String,
-) -> Result<(), String> {
-    crate::startup_recovery::wait(&app).await?;
-    tauri::async_runtime::spawn_blocking(move || {
-        let destination = std::path::Path::new(&destination_path);
-        if !destination.is_absolute() {
-            return Err("Profile export paths must be absolute".to_owned());
-        }
-        let state = app.state::<DatabaseState>();
-        let database = state.database()?;
-        let profile = database
-            .mod_profile(&profile_id)?
-            .filter(|profile| profile.game_id.eq_ignore_ascii_case(&game_id))
-            .ok_or_else(|| "The mod profile does not exist".to_owned())?;
-        let mods = database
-            .profile_mods(&profile_id)?
-            .into_iter()
-            .map(|entry| {
-                Ok(crate::modding::profile_exchange::ExportedMod {
-                    package: entry.full_name.parse()?,
-                    version: entry.version.parse()?,
-                    enabled: entry.enabled,
-                })
-            })
-            .collect::<Result<Vec<_>, String>>()?;
-        let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-        let profile_dir = crate::modding::paths::ModdingPaths::new(&data_dir)
-            .profile_dir(&game_id, &profile_id)?;
-        crate::modding::profile_exchange::export_profile_to_file(
-            &profile_dir,
-            &profile.name,
-            &mods,
-            destination,
-        )
-    })
-    .await
-    .map_err(|e| format!("Profile export task failed: {e}"))?
 }
 
 #[cfg(test)]

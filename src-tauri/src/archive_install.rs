@@ -605,6 +605,19 @@ mod tests {
     }
 
     #[test]
+    fn empty_zip_is_rejected_before_staging() {
+        use zip::ZipWriter;
+        let bytes = ZipWriter::new(io::Cursor::new(Vec::new()))
+            .finish()
+            .unwrap()
+            .into_inner();
+        let (root, _, result) = run_fixture(&bytes, "empty.zip");
+        assert!(result.unwrap_err().contains("no files"));
+        assert!(!root.join("staging").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn malicious_zip_entries_leave_no_staging_content() {
         for (name, bytes, message) in [
             (
