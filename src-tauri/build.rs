@@ -55,6 +55,8 @@ fn main() {
             "get_compatibility_logs_directory",
             "cancel_game_launch",
             "stop_game",
+            "get_mod_launch_status",
+            "restore_modded_game_folder",
             "inspect_steam_game_launch",
             "list_saved_steam_accounts",
             "set_game_steam_account_preference",

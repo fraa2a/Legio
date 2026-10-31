@@ -422,7 +422,10 @@ impl GameLaunchManager {
         if !game_directory.is_dir() || !executable.starts_with(&game_directory) {
             return Err("Executable is outside the installation root".to_owned());
         }
-        let config = database.native_launch_config(&game_id)?;
+        let mut config = database.native_launch_config(&game_id)?;
+        if let Some(plan) = crate::modding::launch::prepare_launch(&app, &game)? {
+            config.arguments.extend(plan.arguments);
+        }
         validate_launch_arguments(&config.arguments)?;
         let working_directory =
             game_working_directory(config.working_directory.as_deref(), parent)?;
@@ -606,6 +609,14 @@ impl GameLaunchManager {
             .path()
             .app_data_dir()
             .map_err(|error| format!("Could not resolve application data directory: {error}"))?;
+        if let Some(plan) = crate::modding::launch::prepare_launch(&app, &game)? {
+            config.arguments_after.extend(plan.arguments);
+            if plan.wine_dll_override {
+                config
+                    .dll_overrides
+                    .insert("winhttp".to_owned(), "n,b".to_owned());
+            }
+        }
         validate_launch_arguments(&config.arguments_before)?;
         validate_launch_arguments(&config.arguments_after)?;
         validate_launch_environment(&config.environment)?;

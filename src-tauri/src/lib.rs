@@ -440,6 +440,8 @@ fn run_application(
             commands::get_compatibility_logs_directory,
             commands::cancel_game_launch,
             commands::stop_game,
+            commands::get_mod_launch_status,
+            commands::restore_modded_game_folder,
             commands::inspect_steam_game_launch,
             commands::list_saved_steam_accounts,
             commands::set_game_steam_account_preference,
