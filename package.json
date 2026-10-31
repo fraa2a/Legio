@@ -31,7 +31,8 @@
     "test:visual": "node --conditions=browser --test scripts/test_visual_rendering.mjs scripts/test_dither_renderer.mjs",
     "test:artwork-work": "node --conditions=browser --test scripts/test_artwork_work.mjs",
     "test:details-cache": "node --conditions=browser --test scripts/test_steam_details_cache.mjs",
-    "test:modding": "node --conditions=browser --test scripts/test_modding.mjs"
+    "test:modding": "node --conditions=browser --test scripts/test_modding.mjs",
+    "test:modding-extra": "node --conditions=browser --test scripts/test_modding_extra.mjs"
   },
   "dependencies": {
     "@lucide/svelte": "1.54.0",

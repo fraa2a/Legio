@@ -133,6 +133,9 @@ jobs:
       - name: Test mod manager
         run: corepack pnpm test:modding
 
+      - name: Test modding config editor and profile exchange
+        run: corepack pnpm test:modding-extra
+
       - name: Test release manifest
         run: python -B -m unittest discover -s scripts
 
