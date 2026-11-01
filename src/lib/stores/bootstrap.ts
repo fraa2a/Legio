@@ -6,6 +6,7 @@ import { games } from "./games";
 import { bandwidthLimit, downloads, installedFolder, startDownloadProgressPolling } from "./downloads";
 import { startQueueShutdown } from "./queue-shutdown";
 import { startSourceLinks } from "./source-links";
+import { startModLinks } from "./mod-links";
 import { source, refreshSource } from "./source";
 import { checkConnectivity, network } from "./network";
 import { hasPendingLaunch, launchError, launchStates, startLaunchEvents } from "./launch";
@@ -63,6 +64,7 @@ export async function hydrateApp(): Promise<void> {
     if (get(settings).data.syncSteamGames && !get(hasPendingLaunch)) await importSteamLibrary();
   }
   await startSourceLinks();
+  await startModLinks();
   void loadNews();
   await Promise.all([checkConnectivity(), refreshSource()]);
 }

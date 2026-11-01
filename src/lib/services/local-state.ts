@@ -29,6 +29,7 @@ export interface Settings {
   diagnosticsEnabled: boolean;
   applicationLoggingEnabled: boolean;
   deferExtractionWhilePlaying: boolean;
+  thunderstoreLinksEnabled: boolean;
 }
 
 export interface Game {

@@ -14,6 +14,7 @@ pub(crate) mod launch;
 pub(crate) mod loader_install;
 pub(crate) mod local_import;
 pub(crate) mod mod_icons;
+pub(crate) mod mod_links;
 pub(crate) mod package_cache;
 pub(crate) mod package_id;
 pub(crate) mod package_manifest;

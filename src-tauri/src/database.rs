@@ -261,6 +261,8 @@ pub struct Settings {
     pub application_logging_enabled: bool,
     #[serde(default)]
     pub defer_extraction_while_playing: bool,
+    #[serde(default)]
+    pub thunderstore_links_enabled: bool,
 }
 
 fn default_true() -> bool {
@@ -316,6 +318,7 @@ impl Default for Settings {
             diagnostics_enabled: false,
             application_logging_enabled: false,
             defer_extraction_while_playing: false,
+            thunderstore_links_enabled: false,
         }
     }
 }

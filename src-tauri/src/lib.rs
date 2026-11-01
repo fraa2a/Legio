@@ -87,7 +87,7 @@ mod window_scale;
 
 use modding::{
     catalog_commands, config_files, exchange_commands, install_commands, launch, mod_icons,
-    package_page, profile_commands,
+    mod_links, package_page, profile_commands,
 };
 
 struct TrayAvailable(bool);
@@ -151,6 +151,9 @@ fn run_application(
                 if let Err(error) = source_links::forward(&handle, &args) {
                     application_log::failure("forward_source_link", error);
                 }
+                if let Err(error) = mod_links::forward(&handle, &args) {
+                    application_log::failure("forward_mod_link", error);
+                }
                 match desktop_shortcuts::requested_game_id(
                     args.into_iter().skip(1).map(std::ffi::OsString::from),
                 ) {
@@ -184,6 +187,11 @@ fn run_application(
                     .map_err(std::io::Error::other)?;
             }
             app.manage(source_links);
+            let mod_links = mod_links::ModLinks::default();
+            mod_links
+                .enqueue(std::env::args_os().skip(1))
+                .map_err(std::io::Error::other)?;
+            app.manage(mod_links);
             gofile::initialize(app.path().app_data_dir()?);
             let database = database::DatabaseState::new(app.path().app_data_dir());
             let initial_settings = database
@@ -192,6 +200,14 @@ fn run_application(
                 .map_err(std::io::Error::other)?;
             app.state::<application_log::ApplicationLog>()
                 .set_enabled(initial_settings.application_logging_enabled);
+            // Reclaims the scheme after an update or reinstall moved the executable.
+            if initial_settings.thunderstore_links_enabled
+                && !tauri::is_dev()
+                && !cfg!(debug_assertions)
+                && let Err(error) = mod_links::set_registered(app.handle(), true)
+            {
+                application_log::failure("register_mod_links", error);
+            }
             if let Some(window) = app.get_webview_window("main") {
                 window_scale::install(&window)?;
             }
@@ -549,6 +565,8 @@ fn run_application(
             exchange_commands::import_mod_profile_code,
             launch::get_mod_launch_status,
             launch::restore_modded_game_folder,
+            mod_links::take_mod_links,
+            mod_links::resolve_mod_link,
         ])
         .build(context)?
         .run(|app, event| {

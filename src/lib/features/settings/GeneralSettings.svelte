@@ -1,5 +1,6 @@
 <script lang="ts">
   import DiscordPresenceSettings from "./DiscordPresenceSettings.svelte";
+  import ThunderstoreLinkSettings from "./ThunderstoreLinkSettings.svelte";
   import { t, language } from "../../i18n";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
@@ -72,6 +73,8 @@
   </SettingsGroup>
 
   <DiscordPresenceSettings />
+
+  <ThunderstoreLinkSettings />
 
 
 
