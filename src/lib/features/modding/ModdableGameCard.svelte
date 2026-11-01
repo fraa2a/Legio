@@ -4,7 +4,9 @@
   import Badge from "../../components/ui/Badge.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import type { ModdableGame } from "../../services/modding";
-  import { loadOnce, modProfiles, profileMods } from "../../stores/modding";
+  import { games } from "../../stores/games";
+  import { loadOnce, moddableGames, modProfiles, profileMods } from "../../stores/modding";
+  import { hasDuplicateName, instanceLocation } from "../library/instance-options";
   import { activeProfile, moddableGameState } from "./modding-model";
 
   let { game, onOpen }: { game: ModdableGame; onOpen: () => void } = $props();
@@ -15,6 +17,7 @@
   const profile = $derived(activeProfile(game, $profiles.data));
   const mods = $derived(profile === null ? null : profileMods(profile.id));
   const modCount = $derived(mods === null ? 0 : $mods?.data.length ?? 0);
+  const location = $derived(hasDuplicateName(game, $moddableGames.data) ? instanceLocation($games.data.find((entry) => entry.id === game.gameId)) : null);
   const monogram = $derived(game.name.trim().charAt(0).toUpperCase() || "?");
 
   $effect(() => {
@@ -59,6 +62,7 @@
     </div>
     <div class="mt-auto bg-gradient-to-t from-zinc-950/85 via-zinc-950/55 to-transparent px-3 pt-10 pb-3 light:from-zinc-50/95 light:via-zinc-50/70">
       <p class="truncate font-semibold text-zinc-50 light:text-zinc-900">{game.name}</p>
+      {#if location !== null}<p class="truncate text-xs text-zinc-400 light:text-zinc-600" title={location}>{location}</p>{/if}
       <p class="truncate text-xs text-zinc-300 light:text-zinc-700">{summary}</p>
     </div>
   </button>
