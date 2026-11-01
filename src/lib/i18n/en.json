@@ -1131,5 +1131,8 @@
   "Profilo \"{0}\" aggiornato: {1} mod installate.": "Profile \"{0}\" updated: {1} mods installed.",
   "Aggiornamento del catalogo mod": "Mod catalog update",
   "Aggiornamento del catalogo mod...": "Updating the mod catalog...",
-  "Le mod vengono installate nella versione indicata dal profilo. Se il catalogo mod del gioco manca o è incompleto, viene scaricato prima dell'import.": "Mods are installed in the version listed by the profile. If the game's mod catalog is missing or incomplete, it is downloaded before the import."
+  "Le mod vengono installate nella versione indicata dal profilo. Se il catalogo mod del gioco manca o è incompleto, viene scaricato prima dell'import.": "Mods are installed in the version listed by the profile. If the game's mod catalog is missing or incomplete, it is downloaded before the import.",
+  "Non è stato possibile rimuovere la registrazione di Legio: i link di Thunderstore si aprono ancora con Legio.": "Legio's registration could not be removed: Thunderstore links still open with Legio.",
+  "I link di Thunderstore sono ancora gestiti da un altro programma, che Legio non ha modificato.": "Thunderstore links are still handled by another program, which Legio did not change.",
+  "Questa versione della mod non è nel catalogo di questi giochi, nemmeno dopo l'aggiornamento: potrebbe essere stata rimossa da Thunderstore.": "This version of the mod is not in the catalog of these games, even after refreshing it: it may have been removed from Thunderstore."
 }

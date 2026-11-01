@@ -13,6 +13,7 @@ pub(crate) mod install_commands;
 pub(crate) mod install_rules;
 pub(crate) mod installer;
 pub(crate) mod launch;
+pub(crate) mod link_registration;
 pub(crate) mod loader_install;
 pub(crate) mod local_import;
 pub(crate) mod markdown_html;

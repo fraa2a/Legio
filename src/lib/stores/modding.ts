@@ -259,8 +259,9 @@ function patchCatalog(ecosystemGameId: string, changes: Partial<CatalogState>): 
   catalogState.update((current) => ({ ...current, [ecosystemGameId]: { ...catalogFor(current, ecosystemGameId), ...changes } }));
 }
 
-export async function refreshCatalog(ecosystemGameId: string, force: boolean): Promise<void> {
-  if (catalogFor(get(catalogState), ecosystemGameId).refreshing) return;
+const catalogSyncs = new Map<string, Promise<void>>();
+
+async function syncCatalog(ecosystemGameId: string, force: boolean): Promise<void> {
   patchCatalog(ecosystemGameId, { refreshing: true, error: null, progress: null });
   try {
     const status = await refreshModCatalog(ecosystemGameId, force);
@@ -274,10 +275,20 @@ export async function refreshCatalog(ecosystemGameId: string, force: boolean): P
   }
 }
 
+// A sync already running for the game is shared, so callers can wait for it instead of starting another.
+export function refreshCatalog(ecosystemGameId: string, force: boolean): Promise<void> {
+  const running = catalogSyncs.get(ecosystemGameId);
+  if (running !== undefined) return running;
+  const sync = syncCatalog(ecosystemGameId, force).finally(() => catalogSyncs.delete(ecosystemGameId));
+  catalogSyncs.set(ecosystemGameId, sync);
+  return sync;
+}
+
 // The backend skips the download within an hour of the last check, so this is cheap to call on open.
 export function ensureCatalog(ecosystemGameId: string): Promise<void> {
-  const state = catalogFor(get(catalogState), ecosystemGameId);
-  return state.status === null && !state.refreshing ? refreshCatalog(ecosystemGameId, false) : Promise.resolve();
+  const running = catalogSyncs.get(ecosystemGameId);
+  if (running !== undefined) return running;
+  return catalogFor(get(catalogState), ecosystemGameId).status === null ? refreshCatalog(ecosystemGameId, false) : Promise.resolve();
 }
 
 export function packageDetails(ecosystemGameId: string, fullName: string): Promise<PackageDetails | null> {

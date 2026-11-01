@@ -23,6 +23,7 @@
     linkInstallState,
     linkProfile,
     linkProfileOptions,
+    missingVersionNames,
   } from "./mod-link-model";
   import { classifyModdingError, installNotice, packageTitle, type ResultNotice } from "./modding-model";
 
@@ -48,6 +49,7 @@
   const installState = $derived(target === null ? "ready" : linkInstallState(profile, target.version, running, busy));
   const installNote = $derived(linkInstallNote(installState, profile, $language));
   const unsyncedNames = $derived(resolution?.unsynced.map((game) => game.name) ?? []);
+  const missingNames = $derived(resolution === null ? [] : missingVersionNames(resolution));
 
   $effect(() => {
     const current = target;
@@ -152,11 +154,20 @@
         <ErrorBanner message={loadError} onRetry={() => void begin(target)} retryLabel={t("Riprova", $language)} />
         <div class="flex justify-end"><Button label={t("Chiudi", $language)} variant="secondary" onClick={close} /></div>
       {:else if candidate === null}
-        <Callout
-          tone="warning"
-          variant="inline"
-          message={t("Nessun gioco della libreria usa questa mod: collega il gioco a Thunderstore dalla pagina Mod.", $language)}
-        />
+        {#if missingNames.length > 0}
+          <Callout
+            tone="warning"
+            variant="inline"
+            message={t("Questa versione della mod non è nel catalogo di questi giochi, nemmeno dopo l'aggiornamento: potrebbe essere stata rimossa da Thunderstore.", $language)}
+            items={missingNames}
+          />
+        {:else}
+          <Callout
+            tone="warning"
+            variant="inline"
+            message={t("Nessun gioco della libreria usa questa mod: collega il gioco a Thunderstore dalla pagina Mod.", $language)}
+          />
+        {/if}
         {#if unsyncedNames.length > 0}
           <Callout
             variant="inline"

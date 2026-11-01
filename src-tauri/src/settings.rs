@@ -17,10 +17,14 @@ pub(crate) fn save(app: &AppHandle, settings: Settings) -> Result<Settings, Stri
     }
     if saved.thunderstore_links_enabled != previous.thunderstore_links_enabled
         && let Err(error) =
-            crate::modding::mod_links::set_registered(app, saved.thunderstore_links_enabled)
+            crate::modding::link_registration::set_registered(app, saved.thunderstore_links_enabled)
     {
-        state.database()?.save_settings(previous.clone())?;
-        return Err(error);
+        if saved.thunderstore_links_enabled {
+            state.database()?.save_settings(previous.clone())?;
+            return Err(error);
+        }
+        // Turning the option off is saved even if the registration stays; the settings page reports who still handles the links.
+        crate::application_log::failure("release_mod_links", error);
     }
     app.state::<crate::download_queue::DownloadQueueState>()
         .set_defer_extraction(saved.defer_extraction_while_playing);

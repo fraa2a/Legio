@@ -1,13 +1,12 @@
 //! Thunderstore "Install with Mod Manager" links,
 //! `ror2mm://v1/install/thunderstore.io/<owner>/<name>/<version>/`: parsing,
-//! the queue the frontend drains, the opt-in scheme registration and the
-//! lookup of the library games a link can be installed into.
+//! the queue the frontend drains and the lookup of the library games a link
+//! can be installed into.
 
 use std::{collections::HashMap, ffi::OsString, sync::Mutex};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_deep_link::DeepLinkExt;
 
 use super::{
     catalog_commands::supports_loader,
@@ -157,23 +156,6 @@ pub(crate) fn forward(app: &AppHandle, arguments: &[String]) -> Result<(), Strin
     Ok(())
 }
 
-/// Claims or releases the `ror2mm` scheme for this app. Another manager's
-/// registration is left alone when releasing.
-pub(crate) fn set_registered(app: &AppHandle, enabled: bool) -> Result<(), String> {
-    let deep_link = app.deep_link();
-    if enabled {
-        return deep_link
-            .register(SCHEME)
-            .map_err(|error| format!("Could not register Thunderstore links: {error}"));
-    }
-    if deep_link.is_registered(SCHEME).unwrap_or(false) {
-        deep_link
-            .unregister(SCHEME)
-            .map_err(|error| format!("Could not release Thunderstore links: {error}"))?;
-    }
-    Ok(())
-}
-
 #[tauri::command]
 pub fn take_mod_links(state: State<'_, ModLinks>) -> Result<Vec<ModLinkRequest>, String> {
     state.take()
@@ -214,17 +196,30 @@ pub(crate) struct UnsyncedGame {
     ecosystem_game_id: String,
 }
 
+/// A bound game whose synced catalog lacks the requested version. The local
+/// copy may just be old, so the frontend refreshes it and resolves again.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MissingGame {
+    game_id: String,
+    name: String,
+    ecosystem_game_id: String,
+    /// Whether the catalog has other versions of the package.
+    package_known: bool,
+}
+
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ModLinkResolution {
     package: Option<ModLinkPackage>,
     candidates: Vec<ModLinkCandidate>,
     unsynced: Vec<UnsyncedGame>,
+    missing: Vec<MissingGame>,
 }
 
 enum Lookup {
     Unsynced,
-    Missing,
+    Missing { package_known: bool },
     Found(PackageVersionRecord),
 }
 
@@ -238,7 +233,9 @@ fn catalog_lookup(
     }
     Ok(match cache.version(community, id)? {
         Some(record) => Lookup::Found(record),
-        None => Lookup::Missing,
+        None => Lookup::Missing {
+            package_known: cache.latest_version(community, &id.package)?.is_some(),
+        },
     })
 }
 
@@ -253,6 +250,7 @@ fn resolve(
         package: None,
         candidates: Vec::new(),
         unsynced: Vec::new(),
+        missing: Vec::new(),
     };
     let mut lookups: HashMap<String, Lookup> = HashMap::new();
     for game in database.visible_games()? {
@@ -291,7 +289,13 @@ fn resolve(
                     active_profile_id: binding.active_profile_id,
                 });
             }
-            Some(Lookup::Missing) | None => {}
+            Some(Lookup::Missing { package_known }) => resolution.missing.push(MissingGame {
+                game_id: game.id,
+                name: game.name,
+                ecosystem_game_id: community,
+                package_known: *package_known,
+            }),
+            None => {}
         }
     }
     resolution
@@ -531,18 +535,33 @@ mod tests {
     }
 
     #[test]
-    fn omits_games_whose_catalog_lacks_the_package() {
+    fn reports_games_whose_catalog_lacks_the_version() {
         let directory = TempDir::new();
         let database = Database::open(directory.path()).unwrap();
         let schema: EcosystemSchema = serde_json::from_str(FIXTURE).unwrap();
         add_game(&database, "Lethal Company", Some("lethal-company"));
-        let resolution = resolve(&database, &schema, &id("Owner-Name-1.2.3"), |_, _| {
-            Ok(Lookup::Missing)
-        })
+        let ror2 = add_game(&database, "Risk of Rain 2", Some("riskofrain2"));
+        let resolution = resolve(
+            &database,
+            &schema,
+            &id("Owner-Name-1.2.3"),
+            |community, _| {
+                Ok(Lookup::Missing {
+                    package_known: community == "riskofrain2",
+                })
+            },
+        )
         .unwrap();
         assert_eq!(resolution.package, None);
         assert!(resolution.candidates.is_empty());
         assert!(resolution.unsynced.is_empty());
+        let known: Vec<_> = resolution
+            .missing
+            .iter()
+            .map(|game| (game.name.as_str(), game.package_known))
+            .collect();
+        assert_eq!(known, [("Lethal Company", false), ("Risk of Rain 2", true)]);
+        assert_eq!(resolution.missing[1].game_id, ror2);
     }
 
     #[test]

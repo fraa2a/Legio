@@ -1,14 +1,18 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
   import { appInfo } from "../../stores/app-info";
-  import { defaultSettings, settings, updateSettings } from "../../stores/settings";
+  import { setModLinksEnabled } from "../../stores/mod-links";
+  import { defaultSettings, settings } from "../../stores/settings";
   import { toMessage } from "../../utils/errors";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import ToggleSetting from "../../components/ui/ToggleSetting.svelte";
+  import Callout from "../../components/ui/Callout.svelte";
+  import { linkReleaseNote } from "../modding/mod-link-model";
 
   let saving = $state(false);
   let error = $state<string | null>(null);
+  let note = $state<string | null>(null);
 
   // The scheme can only be claimed at runtime on Windows and Linux.
   const supported = $derived($appInfo.data.platform !== "macos");
@@ -16,8 +20,10 @@
   async function save(enabled: boolean): Promise<void> {
     saving = true;
     error = null;
+    note = null;
     try {
-      await updateSettings({ thunderstoreLinksEnabled: enabled });
+      const handler = await setModLinksEnabled(enabled);
+      note = handler === null ? null : linkReleaseNote(handler, $language);
     } catch (cause) {
       error = toMessage(cause);
     } finally {
@@ -36,5 +42,6 @@
   {#if !supported}
     <p class="text-xs text-zinc-500">{t("Non disponibile su macOS.", $language)}</p>
   {/if}
+  {#if note !== null}<Callout tone="warning" variant="inline" message={note} />{/if}
   {#if error}<ErrorBanner message={error} />{/if}
 </SettingsGroup>
