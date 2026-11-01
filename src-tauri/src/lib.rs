@@ -87,7 +87,7 @@ mod window_scale;
 
 use modding::{
     catalog_commands, config_files, exchange_commands, install_commands, launch, mod_icons,
-    package_page, profile_commands,
+    package_document, package_page, profile_commands,
 };
 
 struct TrayAvailable(bool);
@@ -549,6 +549,8 @@ fn run_application(
             exchange_commands::import_mod_profile_code,
             launch::get_mod_launch_status,
             launch::restore_modded_game_folder,
+            package_document::get_mod_package_document,
+            package_page::open_mod_external_link,
         ])
         .build(context)?
         .run(|app, event| {

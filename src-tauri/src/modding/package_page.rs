@@ -1,6 +1,7 @@
-//! Opens Thunderstore package pages in the default browser.
+//! Opens Thunderstore package pages and package author links in the default
+//! browser.
 
-use super::thunderstore_http::is_allowed_url;
+use super::{external_url::parse_external_url, thunderstore_http::is_allowed_url};
 
 #[tauri::command]
 pub async fn open_mod_package_page(url: String) -> Result<(), String> {
@@ -8,6 +9,16 @@ pub async fn open_mod_package_page(url: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || open_in_browser(&url))
         .await
         .map_err(|error| format!("Package page task failed: {error}"))?
+}
+
+/// Opens a link from a readme or package metadata. Only plain web addresses
+/// are accepted, and the system browser handles them, never the webview.
+#[tauri::command]
+pub async fn open_mod_external_link(url: String) -> Result<(), String> {
+    let url = parse_external_url(&url).ok_or_else(|| "The link is not a web address".to_owned())?;
+    tauri::async_runtime::spawn_blocking(move || open_in_browser(&url))
+        .await
+        .map_err(|error| format!("Link task failed: {error}"))?
 }
 
 fn parse_page_url(url: &str) -> Result<reqwest::Url, String> {
@@ -25,7 +36,7 @@ fn open_in_browser(url: &reqwest::Url) -> Result<(), String> {
         .arg(url.as_str())
         .spawn()
         .map(|_| ())
-        .map_err(|error| format!("Could not open the package page: {error}"))
+        .map_err(|error| format!("Could not open the page in the browser: {error}"))
 }
 
 #[cfg(target_os = "linux")]
@@ -36,7 +47,7 @@ fn open_in_browser(url: &reqwest::Url) -> Result<(), String> {
     command
         .spawn()
         .map(|_| ())
-        .map_err(|error| format!("Could not open the package page: {error}"))
+        .map_err(|error| format!("Could not open the page in the browser: {error}"))
 }
 
 #[cfg(test)]

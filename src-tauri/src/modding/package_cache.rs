@@ -19,11 +19,12 @@ use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
 
 use super::{
+    external_url::parse_external_url,
     package_id::{PackageName, PackageVersionId, Version},
     thunderstore_http::ThunderstoreHttp,
 };
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const STALE_AFTER_SECONDS: i64 = 60 * 60;
 const MAX_INDEX_BYTES: usize = 2 * 1024 * 1024;
 const MAX_INDEX_JSON_BYTES: usize = 8 * 1024 * 1024;
@@ -33,6 +34,7 @@ const MAX_CHUNK_JSON_BYTES: usize = 256 * 1024 * 1024;
 const DEFAULT_PAGE_SIZE: u32 = 30;
 const MAX_PAGE_SIZE: u32 = 200;
 const MAX_QUERY_TERMS: usize = 8;
+const MAX_QUERY_CATEGORIES: usize = 64;
 // Packages parsed ahead of the database writer.
 const PIPELINE_DEPTH: usize = 2;
 
@@ -70,14 +72,29 @@ pub(crate) enum PackageSort {
     Alphabetical,
 }
 
+/// How `PackageQuery::categories` combine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum CategoryMode {
+    /// In at least one of the categories.
+    #[default]
+    Any,
+    /// In every one of the categories.
+    All,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct PackageQuery {
     /// Whitespace separated terms, all of which must match the package name,
     /// owner or description.
     pub(crate) text: String,
-    /// Packages in at least one of these categories; empty means any.
+    /// Packages in these categories, matched according to `category_mode`;
+    /// empty means any.
     pub(crate) categories: Vec<String>,
+    pub(crate) category_mode: CategoryMode,
+    /// Packages in none of these categories. Wins over `categories`.
+    pub(crate) excluded_categories: Vec<String>,
     pub(crate) include_deprecated: bool,
     pub(crate) include_nsfw: bool,
     pub(crate) sort: PackageSort,
@@ -91,6 +108,8 @@ impl Default for PackageQuery {
         Self {
             text: String::new(),
             categories: Vec::new(),
+            category_mode: CategoryMode::default(),
+            excluded_categories: Vec::new(),
             include_deprecated: false,
             include_nsfw: false,
             sort: PackageSort::default(),
@@ -135,6 +154,8 @@ pub(crate) struct PackageSummary {
 pub(crate) struct PackageDetails {
     #[serde(flatten)]
     pub(crate) summary: PackageSummary,
+    /// Web address the author asks donations to go to.
+    pub(crate) donation_link: Option<String>,
     /// Newest first.
     pub(crate) versions: Vec<PackageVersionDetails>,
 }
@@ -152,6 +173,8 @@ pub(crate) struct PackageVersionDetails {
     pub(crate) dependencies: Vec<String>,
     pub(crate) downloads: u64,
     pub(crate) date_created: String,
+    /// The website the author set in the version manifest.
+    pub(crate) website_url: Option<String>,
 }
 
 /// What the installer needs to fetch and resolve one package version.
@@ -527,6 +550,7 @@ fn prepare_schema(connection: &Connection) -> Result<(), String> {
                  latest_version TEXT NOT NULL,
                  description TEXT NOT NULL,
                  icon TEXT NOT NULL,
+                 donation_link TEXT NOT NULL,
                  search_text TEXT NOT NULL,
                  PRIMARY KEY (community, full_name)
              ) WITHOUT ROWID;
@@ -555,6 +579,7 @@ fn prepare_schema(connection: &Connection) -> Result<(), String> {
                  dependencies TEXT NOT NULL,
                  downloads INTEGER NOT NULL,
                  date_created TEXT NOT NULL,
+                 website_url TEXT NOT NULL,
                  PRIMARY KEY (community, package_full_name, version_number)
              ) WITHOUT ROWID;
              PRAGMA user_version = {SCHEMA_VERSION};
@@ -588,6 +613,10 @@ fn to_unsigned(value: i64) -> u64 {
     u64::try_from(value).unwrap_or(0)
 }
 
+fn non_empty(value: String) -> Option<String> {
+    (!value.is_empty()).then_some(value)
+}
+
 fn to_signed(value: u64) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
 }
@@ -603,6 +632,7 @@ struct ParsedPackage {
     rating_score: i64,
     date_created: String,
     date_updated: String,
+    donation_link: String,
     versions: Vec<ParsedVersion>,
 }
 
@@ -615,6 +645,7 @@ struct ParsedVersion {
     dependencies: Vec<String>,
     downloads: u64,
     date_created: String,
+    website_url: String,
 }
 
 #[derive(Deserialize)]
@@ -636,6 +667,8 @@ struct RawPackage {
     is_deprecated: bool,
     #[serde(default)]
     has_nsfw_content: bool,
+    #[serde(default)]
+    donation_link: Option<String>,
     #[serde(default)]
     categories: Vec<String>,
     #[serde(default)]
@@ -659,12 +692,23 @@ struct RawVersion {
     downloads: u64,
     #[serde(default)]
     date_created: String,
+    #[serde(default)]
+    website_url: Option<String>,
     #[serde(default = "default_active")]
     is_active: bool,
 }
 
 fn default_active() -> bool {
     true
+}
+
+/// Author links reach the UI and the system browser, so anything that is not
+/// a plain web address is dropped while the catalog is read.
+fn web_address(value: Option<String>) -> String {
+    value
+        .and_then(|value| parse_external_url(&value))
+        .map(String::from)
+        .unwrap_or_default()
 }
 
 /// A chunk is a gzipped JSON array of packages. Entries that cannot be read
@@ -706,6 +750,7 @@ fn parse_package(raw: RawPackage) -> Option<ParsedPackage> {
                 dependencies: version.dependencies,
                 downloads: version.downloads,
                 date_created: version.date_created,
+                website_url: web_address(version.website_url),
             })
         })
         .collect();
@@ -722,6 +767,7 @@ fn parse_package(raw: RawPackage) -> Option<ParsedPackage> {
         rating_score: raw.rating_score,
         date_created: raw.date_created,
         date_updated: raw.date_updated,
+        donation_link: web_address(raw.donation_link),
         versions,
     })
 }
@@ -783,8 +829,8 @@ fn insert_packages(
             "INSERT OR REPLACE INTO packages (
                  community, full_name, owner, name, package_url, is_deprecated, is_pinned,
                  has_nsfw_content, rating_score, date_created, date_updated, total_downloads,
-                 latest_version, description, icon, search_text
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                 latest_version, description, icon, donation_link, search_text
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         )
         .map_err(database_error)?;
     let mut insert_category = transaction
@@ -797,8 +843,8 @@ fn insert_packages(
         .prepare_cached(
             "INSERT OR REPLACE INTO package_versions (
                  community, package_full_name, version_number, major, minor, patch, description,
-                 icon, download_url, file_size, dependencies, downloads, date_created
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                 icon, download_url, file_size, dependencies, downloads, date_created, website_url
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         )
         .map_err(database_error)?;
     for package in packages {
@@ -839,6 +885,7 @@ fn insert_packages(
                 latest.version.to_string(),
                 latest.description,
                 latest.icon,
+                package.donation_link,
                 search_text,
             ])
             .map_err(database_error)?;
@@ -865,6 +912,7 @@ fn insert_packages(
                     dependencies,
                     to_signed(version.downloads),
                     version.date_created,
+                    version.website_url,
                 ])
                 .map_err(database_error)?;
         }
@@ -925,6 +973,34 @@ fn escape_like(term: &str) -> String {
     escaped
 }
 
+fn distinct_categories(categories: &[String]) -> Vec<String> {
+    let mut distinct: Vec<String> = Vec::new();
+    for category in categories {
+        if distinct.len() == MAX_QUERY_CATEGORIES {
+            break;
+        }
+        if !distinct.contains(category) {
+            distinct.push(category.clone());
+        }
+    }
+    distinct
+}
+
+/// `quantifier` is `EXISTS` or `NOT EXISTS`: whether the package has any of `categories`.
+fn push_category_condition(
+    conditions: &mut String,
+    values: &mut Vec<Value>,
+    quantifier: &str,
+    categories: &[String],
+) {
+    let placeholders = vec!["?"; categories.len()].join(", ");
+    conditions.push_str(&format!(
+        " AND {quantifier} (SELECT 1 FROM package_categories c WHERE c.community = p.community
+          AND c.full_name = p.full_name AND c.category IN ({placeholders}))"
+    ));
+    values.extend(categories.iter().cloned().map(Value::Text));
+}
+
 fn search(
     connection: &Connection,
     community: &str,
@@ -947,13 +1023,21 @@ fn search(
     if !query.include_nsfw {
         conditions.push_str(" AND p.has_nsfw_content = 0");
     }
-    if !query.categories.is_empty() {
-        let placeholders = vec!["?"; query.categories.len()].join(", ");
-        conditions.push_str(&format!(
-            " AND EXISTS (SELECT 1 FROM package_categories c WHERE c.community = p.community
-              AND c.full_name = p.full_name AND c.category IN ({placeholders}))"
-        ));
-        values.extend(query.categories.iter().cloned().map(Value::Text));
+    let included = distinct_categories(&query.categories);
+    let excluded = distinct_categories(&query.excluded_categories);
+    // `All` needs one membership test per category; `Any` a single test over the set.
+    let membership_groups: Vec<&[String]> = if included.is_empty() {
+        Vec::new()
+    } else if query.category_mode == CategoryMode::All {
+        included.chunks(1).collect()
+    } else {
+        vec![included.as_slice()]
+    };
+    for group in membership_groups {
+        push_category_condition(&mut conditions, &mut values, "EXISTS", group);
+    }
+    if !excluded.is_empty() {
+        push_category_condition(&mut conditions, &mut values, "NOT EXISTS", &excluded);
     }
 
     let total: i64 = connection
@@ -1014,10 +1098,17 @@ fn package_details(
         return Ok(None);
     };
     summary.categories = package_categories(connection, community, &full_name)?;
+    let donation_link: String = connection
+        .query_row(
+            "SELECT donation_link FROM packages WHERE community = ?1 AND full_name = ?2",
+            params![community, full_name],
+            |row| row.get(0),
+        )
+        .map_err(database_error)?;
     let mut statement = connection
         .prepare(
             "SELECT version_number, description, icon, download_url, file_size, dependencies,
-                    downloads, date_created
+                    downloads, date_created, website_url
              FROM package_versions WHERE community = ?1 AND package_full_name = ?2
              ORDER BY major DESC, minor DESC, patch DESC",
         )
@@ -1036,12 +1127,17 @@ fn package_details(
                 dependencies: serde_json::from_str(&dependencies).unwrap_or_default(),
                 downloads: to_unsigned(row.get(6)?),
                 date_created: row.get(7)?,
+                website_url: non_empty(row.get(8)?),
             })
         })
         .map_err(database_error)?
         .collect::<Result<_, _>>()
         .map_err(database_error)?;
-    Ok(Some(PackageDetails { summary, versions }))
+    Ok(Some(PackageDetails {
+        summary,
+        donation_link: non_empty(donation_link),
+        versions,
+    }))
 }
 
 /// A specific version, or the highest one when `version` is `None`.
@@ -1560,6 +1656,137 @@ mod tests {
         assert_eq!(
             fixture.cache.categories(COMMUNITY).unwrap(),
             ["Cosmetics", "Mods", "Tools"]
+        );
+    }
+
+    #[test]
+    fn matches_all_categories_or_any() {
+        let fixture = Fixture::synced();
+        let names = |mode, categories: &[&str]| {
+            fixture.names(&PackageQuery {
+                categories: categories.iter().map(|c| (*c).to_owned()).collect(),
+                category_mode: mode,
+                sort: PackageSort::Alphabetical,
+                ..query()
+            })
+        };
+        assert_eq!(
+            names(CategoryMode::All, &["Mods", "Tools"]),
+            ["Alice-Big_Mod"]
+        );
+        assert_eq!(names(CategoryMode::All, &["Mods", "Mods"]).len(), 2);
+        assert_eq!(names(CategoryMode::All, &["Tools"]).len(), 2);
+        assert!(names(CategoryMode::All, &["Mods", "Unknown"]).is_empty());
+        assert!(names(CategoryMode::All, &["Mods", "Cosmetics"]).is_empty());
+        assert_eq!(names(CategoryMode::Any, &["Mods", "Tools"]).len(), 3);
+        assert_eq!(names(CategoryMode::All, &[]).len(), 3, "no categories");
+    }
+
+    #[test]
+    fn excludes_categories() {
+        let fixture = Fixture::synced();
+        let names = |categories: &[&str], excluded: &[&str]| {
+            fixture.names(&PackageQuery {
+                categories: categories.iter().map(|c| (*c).to_owned()).collect(),
+                excluded_categories: excluded.iter().map(|c| (*c).to_owned()).collect(),
+                sort: PackageSort::Alphabetical,
+                ..query()
+            })
+        };
+        assert_eq!(names(&[], &["Tools"]), ["Bob-Small_Mod"]);
+        assert_eq!(names(&[], &["Tools", "Mods"]), Vec::<String>::new());
+        assert_eq!(names(&["Mods"], &["Tools"]), ["Bob-Small_Mod"]);
+        assert!(names(&["Tools"], &["Tools"]).is_empty(), "exclusion wins");
+        assert_eq!(names(&[], &["Unknown"]).len(), 3);
+        let with_nsfw = fixture.names(&PackageQuery {
+            excluded_categories: vec!["Cosmetics".to_owned()],
+            include_nsfw: true,
+            include_deprecated: true,
+            ..query()
+        });
+        assert_eq!(with_nsfw.len(), 4);
+        assert!(!with_nsfw.contains(&"Dave-Adult_Mod".to_owned()));
+    }
+
+    #[test]
+    fn reads_category_filters_from_the_frontend() {
+        let parsed: PackageQuery = serde_json::from_value(json!({
+            "categories": ["A", "B"], "categoryMode": "all", "excludedCategories": ["C"]
+        }))
+        .unwrap();
+        assert_eq!(parsed.category_mode, CategoryMode::All);
+        assert_eq!(parsed.excluded_categories, ["C"]);
+        let defaults: PackageQuery = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(defaults.category_mode, CategoryMode::Any);
+        assert!(defaults.excluded_categories.is_empty());
+    }
+
+    #[test]
+    fn stores_donation_and_website_links() {
+        let fixture = Fixture::new();
+        let mut with_links = package(
+            "Alice",
+            "Linked",
+            "2025-01-01T00:00:00+00:00",
+            1,
+            &[],
+            (false, false),
+            vec![
+                version("Linked", "2.0.0", 1, &[]),
+                version("Linked", "1.0.0", 1, &[]),
+                version("Linked", "0.5.0", 1, &[]),
+            ],
+        );
+        with_links["donation_link"] = json!("https://ko-fi.com/alice");
+        with_links["versions"][0]["website_url"] = json!("https://example.com/linked");
+        with_links["versions"][1]["website_url"] = json!("javascript:alert(1)");
+        with_links["versions"][2]["website_url"] = json!(null);
+        let mut bad_donation = package(
+            "Bob",
+            "Plain",
+            "2025-01-01T00:00:00+00:00",
+            1,
+            &[],
+            (false, false),
+            vec![version("Plain", "1.0.0", 1, &[])],
+        );
+        bad_donation["donation_link"] = json!("file:///C:/Windows");
+        fixture.server.set(
+            "/chunk1",
+            Reply::ok(gzip(&json!([with_links, bad_donation]))),
+        );
+        fixture
+            .server
+            .set("/index", Reply::ok(gzip(&json!([fixture.chunks[0]]))));
+        fixture.sync(true).unwrap();
+
+        let linked = fixture
+            .cache
+            .package(COMMUNITY, &"Alice-Linked".parse().unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            linked.donation_link.as_deref(),
+            Some("https://ko-fi.com/alice")
+        );
+        let websites: Vec<_> = linked
+            .versions
+            .iter()
+            .map(|version| version.website_url.as_deref())
+            .collect();
+        assert_eq!(websites, [Some("https://example.com/linked"), None, None]);
+        let plain = fixture
+            .cache
+            .package(COMMUNITY, &"Bob-Plain".parse().unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(plain.donation_link, None);
+        assert_eq!(plain.versions[0].website_url, None);
+        let value = serde_json::to_value(&linked).unwrap();
+        assert_eq!(value["donationLink"], "https://ko-fi.com/alice");
+        assert_eq!(
+            value["versions"][0]["websiteUrl"],
+            "https://example.com/linked"
         );
     }
 
