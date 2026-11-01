@@ -35,8 +35,8 @@
     if (!bound) return t("Pronto per le mod", $language);
     if (profile === null) {
       const count = $profiles.data.length;
-      if (count === 0) return t("Vanilla · nessun profilo", $language);
-      return count === 1 ? t("Vanilla · 1 profilo", $language) : t("Vanilla · {0} profili", $language, [count]);
+      if (count === 0) return t("Nessun profilo mod", $language);
+      return count === 1 ? t("1 profilo mod, non attivo", $language) : t("{0} profili mod, nessuno attivo", $language, [count]);
     }
     return modCount === 1 ? t("{0} · 1 mod", $language, [profile.name]) : t("{0} · {1} mod", $language, [profile.name, modCount]);
   });
