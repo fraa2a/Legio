@@ -156,6 +156,12 @@ const progressState = writable<ReadonlyMap<string, InstallProgress>>(new Map(), 
 
 export const installProgress: Readable<ReadonlyMap<string, InstallProgress>> = { subscribe: progressState.subscribe };
 
+// The catalog download an install runs first when the game's catalog was never fetched.
+const catalogDownloadState = writable<CatalogProgress | null>(null, (set) =>
+  listenWhileObserved(observeCatalogProgress, (progress) => set(progress.chunksDone >= progress.chunksTotal ? null : progress)));
+
+export const catalogDownload: Readable<CatalogProgress | null> = { subscribe: catalogDownloadState.subscribe };
+
 function listenWhileObserved<T>(
   observe: (callback: (payload: T) => void) => Promise<() => void>,
   callback: (payload: T) => void,
@@ -186,6 +192,7 @@ async function track<T>(gameId: string, profileId: string, operation: () => Prom
       next.delete(profileId);
       return next;
     });
+    catalogDownloadState.set(null);
     progressState.update((current) => {
       if (!current.has(profileId)) return current;
       const next = new Map(current);

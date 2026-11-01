@@ -4,8 +4,9 @@
   import ProgressBar from "../../components/ui/ProgressBar.svelte";
   import Spinner from "../../components/ui/Spinner.svelte";
   import type { InstallProgress } from "../../services/modding";
+  import { catalogDownload } from "../../stores/modding";
   import { formatBytes } from "../../utils/format";
-  import { displayPackageId, installPercent, installStageLabel } from "./modding-model";
+  import { catalogPercent, displayPackageId, installPercent, installStageLabel } from "./modding-model";
 
   let {
     progress,
@@ -17,9 +18,14 @@
     onCancel: () => void;
   } = $props();
 
-  const title = $derived(progress === null ? t("Preparazione...", $language) : installStageLabel(progress, $language));
+  // Before the first install of a game the catalog is downloaded, with no install progress yet.
+  const catalog = $derived(progress === null ? $catalogDownload : null);
+  const catalogDone = $derived(catalog === null ? 0 : catalogPercent(catalog.chunksDone, catalog.chunksTotal));
+  const title = $derived(progress !== null
+    ? installStageLabel(progress, $language)
+    : catalog === null ? t("Preparazione...", $language) : t("Aggiornamento del catalogo: {0}%", $language, [catalogDone]));
   const packageName = $derived(progress?.package == null ? null : displayPackageId(progress.package));
-  const percent = $derived(progress === null ? 0 : installPercent(progress));
+  const percent = $derived(progress === null ? catalogDone : installPercent(progress));
   const bytes = $derived(progress?.stage === "downloading" && progress.downloadedBytes !== null
     ? progress.totalBytes === null
       ? formatBytes(progress.downloadedBytes, $language)

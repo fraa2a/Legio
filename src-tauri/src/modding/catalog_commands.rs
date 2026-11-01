@@ -31,6 +31,8 @@ pub(crate) struct ModdableGame {
     steam_app_id: Option<u32>,
     /// The bound Thunderstore game, or the one matching the Steam app.
     ecosystem_game_id: Option<String>,
+    /// The Thunderstore game the Steam app id matches, whatever the binding.
+    steam_match_id: Option<String>,
     display_name: Option<String>,
     package_loader: Option<PackageLoader>,
     supported: bool,
@@ -227,12 +229,13 @@ fn moddable_games(
         .into_iter()
         .map(|game| {
             let binding = database.game_modding(&game.id)?;
+            let steam_match_id = game
+                .steam_app_id
+                .and_then(|app_id| schema.find_by_steam_app(app_id).first().copied())
+                .map(|found| found.ecosystem_game_id);
             let ecosystem_game_id = match &binding {
                 Some(binding) => Some(binding.ecosystem_game_id.as_str()),
-                None => game
-                    .steam_app_id
-                    .and_then(|app_id| schema.find_by_steam_app(app_id).first().copied())
-                    .map(|found| found.ecosystem_game_id),
+                None => steam_match_id,
             };
             let ecosystem_game = ecosystem_game_id.and_then(|id| {
                 let game = schema.games.get(id)?;
@@ -243,6 +246,7 @@ fn moddable_games(
                 name: game.name,
                 steam_app_id: game.steam_app_id,
                 ecosystem_game_id: ecosystem_game.map(|(id, _, _)| id.to_owned()),
+                steam_match_id: steam_match_id.map(str::to_owned),
                 display_name: ecosystem_game.map(|(_, game, _)| game.meta.display_name.clone()),
                 package_loader: ecosystem_game.map(|(_, _, entry)| entry.package_loader),
                 supported: ecosystem_game
@@ -294,6 +298,7 @@ mod tests {
         assert_eq!(lethal.package_loader, Some(PackageLoader::Bepinex));
         assert!(lethal.supported);
         assert_eq!(lethal.binding, None);
+        assert_eq!(lethal.steam_match_id.as_deref(), Some("lethal-company"));
 
         let ror2 = find(&ror2);
         assert_eq!(ror2.ecosystem_game_id.as_deref(), Some("riskofrain2"));
@@ -304,6 +309,7 @@ mod tests {
         assert_eq!(manual.package_loader, Some(PackageLoader::Melonloader));
         assert!(!manual.supported);
         assert_eq!(manual.binding.as_ref().unwrap().active_profile_id, None);
+        assert_eq!(manual.steam_match_id, None);
 
         let unknown = find(&unknown);
         assert_eq!(unknown.ecosystem_game_id, None);
@@ -322,6 +328,7 @@ mod tests {
         database.set_game_modding(&lethal, "riskofrain2").unwrap();
         let games = moddable_games(&database, &schema()).unwrap();
         assert_eq!(games[0].ecosystem_game_id.as_deref(), Some("riskofrain2"));
+        assert_eq!(games[0].steam_match_id.as_deref(), Some("lethal-company"));
     }
 
     #[test]

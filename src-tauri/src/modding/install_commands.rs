@@ -5,6 +5,7 @@
 use std::{
     cell::Cell,
     collections::{HashMap, HashSet},
+    future::Future,
     path::Path,
     sync::Mutex,
     time::{Duration, Instant},
@@ -17,7 +18,9 @@ use tokio::sync::watch;
 use super::{
     archive_cache::ensure_cached,
     cache_management::CACHE_CLEARING,
+    catalog_commands::sync_catalog,
     dependencies::{InstallRequest, PackageSource, ResolveMode, ResolvedPackage},
+    ecosystem::EcosystemSchema,
     ecosystem_store::EcosystemStore,
     installer::{
         InstallOutcome, InstallProgress, InstallStage, ModdingContext, install_packages,
@@ -232,13 +235,54 @@ fn download_limit(file_size: u64) -> u64 {
 
 fn require_synced(cache: &PackageCache, community: &str) -> Result<(), String> {
     cache.status(community)?.map(|_| ()).ok_or_else(|| {
-        "The mod catalog of this game has not been downloaded yet. Refresh it first".to_owned()
+        "The mod catalog of this game is not available yet. Try again in a moment".to_owned()
     })
 }
 
-/// Fails unless the mod catalog of `community` was synced at least once.
-pub(crate) fn require_catalog(app: &AppHandle, community: &str) -> Result<(), String> {
-    require_synced(&app.state::<PackageCache>(), community)
+/// Runs `download` unless the catalog is already there, so the first install
+/// of a game does not depend on the user refreshing the catalog by hand.
+async fn ensure_synced<F>(is_synced: bool, download: impl FnOnce() -> F) -> Result<(), String>
+where
+    F: Future<Output = Result<(), String>>,
+{
+    if is_synced {
+        return Ok(());
+    }
+    download()
+        .await
+        .map_err(|error| format!("The mod catalog could not be downloaded: {error}"))
+}
+
+/// Downloads the catalog of the profile's game when it never was.
+async fn ensure_catalog(
+    app: &AppHandle,
+    schema: &EcosystemSchema,
+    profile_id: &str,
+) -> Result<(), String> {
+    let profile_id = profile_id.to_owned();
+    let (community, is_synced) = run_modding(app.clone(), move |app, database, paths, _| {
+        let (profile, _) = profile_with_directory(database, paths, &profile_id)?;
+        let community = database
+            .game_modding(&profile.game_id)?
+            .ok_or_else(|| "The game is not set up for mods".to_owned())?
+            .ecosystem_game_id;
+        let is_synced = app.state::<PackageCache>().status(&community)?.is_some();
+        Ok((community, is_synced))
+    })
+    .await?;
+    ensure_synced(is_synced, || async {
+        sync_catalog(
+            app,
+            schema,
+            &app.state::<PackageCache>(),
+            &app.state::<ThunderstoreHttp>(),
+            &community,
+            false,
+        )
+        .await
+        .map(|_| ())
+    })
+    .await
 }
 
 fn with_online<T>(
@@ -379,6 +423,7 @@ pub async fn install_mods(
 ) -> Result<ModInstallResult, String> {
     let requests = parse_requests(&packages)?;
     let schema = app.state::<EcosystemStore>().schema().await?;
+    ensure_catalog(&app, &schema, &profile_id).await?;
     run_modding(app, move |app, database, paths, locks| {
         require_profile_not_running(app, database, paths, &profile_id)?;
         with_game_rules(
@@ -412,6 +457,7 @@ pub async fn install_mod_loader(
     operation_id: Option<String>,
 ) -> Result<ModInstallResult, String> {
     let schema = app.state::<EcosystemStore>().schema().await?;
+    ensure_catalog(&app, &schema, &profile_id).await?;
     run_modding(app, move |app, database, paths, locks| {
         require_profile_not_running(app, database, paths, &profile_id)?;
         with_game_rules(
@@ -421,7 +467,6 @@ pub async fn install_mod_loader(
             &schema,
             &profile_id,
             |ctx, community| {
-                require_catalog(app, community)?;
                 let cache = app.state::<PackageCache>();
                 let request = plan_loader_request(
                     ctx,
@@ -477,6 +522,7 @@ pub async fn update_profile_mods(
     operation_id: Option<String>,
 ) -> Result<ModInstallResult, String> {
     let schema = app.state::<EcosystemStore>().schema().await?;
+    ensure_catalog(&app, &schema, &profile_id).await?;
     run_modding(app, move |app, database, paths, locks| {
         require_profile_not_running(app, database, paths, &profile_id)?;
         with_game_rules(
@@ -486,7 +532,6 @@ pub async fn update_profile_mods(
             &schema,
             &profile_id,
             |ctx, community| {
-                require_catalog(app, community)?;
                 let wanted: Option<HashSet<String>> =
                     full_names.map(|names| names.iter().map(|name| name.to_lowercase()).collect());
                 let updates = find_updates(
@@ -570,6 +615,27 @@ mod tests {
         assert_eq!(download_limit(1000), 1000 + 100 + SIZE_MARGIN_BYTES);
         assert_eq!(download_limit(u64::MAX), MAX_PACKAGE_BYTES);
         assert_eq!(download_limit(MAX_PACKAGE_BYTES), MAX_PACKAGE_BYTES);
+    }
+
+    #[tokio::test]
+    async fn skips_the_download_when_synced() {
+        let result = ensure_synced(true, || async { Err("downloaded".to_owned()) }).await;
+        assert_eq!(result, Ok(()));
+    }
+
+    #[tokio::test]
+    async fn downloads_when_never_synced() {
+        let result = ensure_synced(false, || async { Ok(()) }).await;
+        assert_eq!(result, Ok(()));
+    }
+
+    #[tokio::test]
+    async fn explains_a_failed_first_download() {
+        let result = ensure_synced(false, || async { Err("offline".to_owned()) }).await;
+        assert_eq!(
+            result,
+            Err("The mod catalog could not be downloaded: offline".to_owned())
+        );
     }
 
     #[test]

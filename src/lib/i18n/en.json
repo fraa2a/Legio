@@ -934,7 +934,7 @@
   "Chiudi il gioco prima di modificarne l'installazione.": "Stop the game before changing its installation.",
   "È già in corso un download di mod per questo profilo.": "Mods are already being downloaded for this profile.",
   "Download annullato.": "Download cancelled.",
-  "Il catalogo delle mod di questo gioco non è ancora stato scaricato. Aggiornalo prima.": "The mod catalog of this game has not been downloaded yet. Refresh it first.",
+  "Il catalogo delle mod di questo gioco non è ancora disponibile. Riprova tra poco.": "The mod catalog of this game is not available yet. Try again in a moment.",
   "Il loader di mod di questo gioco non è presente nel catalogo mod.": "The mod loader of this game is not in the mod catalog.",
   "Le mod del profilo attivo sono in fase di modifica. Attendi il termine e avvia di nuovo.": "Mods are being changed in the active mod profile. Wait for it to finish and launch again.",
   "Valori da {0} a {1}": "Values from {0} to {1}",
@@ -1144,5 +1144,6 @@
   "Attiva profilo": "Activate profile",
   "Spazio occupato dal profilo": "Disk space used by the profile",
   "Nessun profilo": "No profiles",
-  "Crea un profilo per installare mod: ogni profilo ha le sue mod e le sue configurazioni. Per giocare senza mod scegli Vanilla nella pagina del gioco.": "Create a profile to install mods: each profile has its own mods and configuration. To play without mods, choose Vanilla on the game page."
+  "Crea un profilo per installare mod: ogni profilo ha le sue mod e le sue configurazioni. Per giocare senza mod scegli Vanilla nella pagina del gioco.": "Create a profile to install mods: each profile has its own mods and configuration. To play without mods, choose Vanilla on the game page.",
+  "Impossibile scaricare il catalogo delle mod: {0}": "The mod catalog could not be downloaded: {0}"
 }

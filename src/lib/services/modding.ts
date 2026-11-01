@@ -13,6 +13,8 @@ export interface ModdableGame {
   name: string;
   steamAppId: number | null;
   ecosystemGameId: string | null;
+  // The Thunderstore game the Steam app id matches, whatever the binding.
+  steamMatchId: string | null;
   displayName: string | null;
   packageLoader: PackageLoader | null;
   supported: boolean;
