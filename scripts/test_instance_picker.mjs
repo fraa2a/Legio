@@ -47,8 +47,9 @@ test("only supported bound instances get profile entries, grouped under their in
   assert.deepEqual([...states.keys()], ["g1"]);
   const options = model.instanceReleaseOptions(bases, states);
   assert.deepEqual(options.map((option) => option.id), ["g1", "g1:pa", "g1:pb", "g2", "g3"]);
-  assert.deepEqual(options.map((option) => option.profileName), [undefined, "Alpha", "beta", undefined, undefined]);
-  assert.equal(options[1].name, "Valheim");
+  assert.deepEqual(options.map((option) => option.profileOf), [undefined, "Valheim", "Valheim", undefined, undefined]);
+  assert.deepEqual(options.map((option) => option.lastProfile), [undefined, false, true, undefined, undefined]);
+  assert.equal(options[1].name, "Alpha");
   assert.equal(options[1].subtitle, "Mai giocato");
   assert.equal(options[1].isSteam, undefined);
 });
@@ -84,7 +85,7 @@ test("instances with the same name are told apart by their location", () => {
   assert.equal(model.hasDuplicateName(games[2], games), false);
 });
 
-test("the picker shows the mod and profile badges and indents profile entries", async () => {
+test("the picker titles profile entries with the profile name and draws a tree connector", async () => {
   const Component = (await import(await load("src/lib/features/library/ReleasePicker.svelte"))).default;
   const target = document.createElement("div"); document.body.append(target);
   const chosen = [];
@@ -93,16 +94,18 @@ test("the picker shows the mod and profile badges and indents profile entries", 
   try {
     await settle();
     const trigger = target.querySelector("button");
-    assert.match(trigger.textContent, /Valheim/);
-    assert.match(trigger.textContent, /Modded/);
     assert.match(trigger.textContent, /Hardcore/);
+    assert.match(trigger.textContent, /Modded/);
+    assert.match(trigger.textContent, /Valheim/);
     trigger.click(); await settle();
     const rows = [...target.querySelectorAll('[role="option"]')];
     assert.equal(rows.length, 2);
     assert.doesNotMatch(rows[0].textContent, /Modded/);
     assert.match(rows[1].textContent, /Modded/);
     assert.equal(rows[1].getAttribute("aria-selected"), "true");
-    assert.ok(rows[1].classList.contains("ml-5"));
+    assert.match(rows[1].querySelector("span span.font-semibold").textContent, /^Hardcore$/);
+    assert.equal(rows[1].querySelectorAll('[aria-hidden="true"] > span').length >= 1, true);
+    assert.equal(rows[0].querySelectorAll("span.w-9").length, 0);
     rows[0].click(); await settle();
     assert.deepEqual(chosen, ["g1"]);
   } finally { await unmount(instance); target.remove(); }

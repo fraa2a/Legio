@@ -7,8 +7,10 @@
     sizeBytes?: number | null;
     availability?: "verified" | "unverified";
     isSteam?: boolean;
-    // Set on the entry of a mod profile based on the instance the entry names.
-    profileName?: string;
+    // Set on the entry of a mod profile: the name of the instance it is based on.
+    profileOf?: string;
+    // The last profile of its instance closes the tree connector.
+    lastProfile?: boolean;
     disabled?: boolean;
   }
 </script>
@@ -147,13 +149,17 @@
 {/snippet}
 
 {#snippet badges(option: ReleaseOption)}
-  {#if option.profileName !== undefined}
-    <Badge tone="info" title={t("Con mod", $language)} />
-    <span class="max-w-32 min-w-0 shrink" title={option.profileName}><Badge title={option.profileName} /></span>
-  {/if}
-  {#if option.sourceName}<span class="max-w-32 min-w-0 shrink" title={option.sourceName}><Badge title={option.sourceName} /></span>{/if}
+  {#if option.profileOf !== undefined}<Badge tone="info" title={t("Con mod", $language)} />{/if}
+  {#if option.sourceName}<span class="flex max-w-32 min-w-0 shrink items-center" title={option.sourceName}><Badge title={option.sourceName} /></span>{/if}
   {#if option.isSteam}<Badge tone="info" title="STEAM" />{/if}
   {#if option.availability}<Badge tone={availabilityMeta[option.availability].tone} title={t(availabilityMeta[option.availability].label, $language)} />{/if}
+{/snippet}
+
+{#snippet connector(last: boolean)}
+  <span class="relative -my-2 w-9 shrink-0 self-stretch" aria-hidden="true">
+    <span class="absolute left-1/2 -top-0.5 {last ? 'h-[calc(50%+2px)] rounded-bl-md border-b' : '-bottom-0.5'} w-4 border-l-2 border-white/25 light:border-zinc-900/25"></span>
+    {#if !last}<span class="absolute top-1/2 left-1/2 w-4 border-t-2 border-white/25 light:border-zinc-900/25"></span>{/if}
+  </span>
 {/snippet}
 
 <svelte:window
@@ -166,7 +172,7 @@
     <button
       bind:this={trigger}
       type="button"
-      aria-label={t("Seleziona versione: {0}, {1}", $language, [selected.profileName === undefined ? selected.name : `${selected.name} (${selected.profileName})`, selected.subtitle])}
+      aria-label={t("Seleziona versione: {0}, {1}", $language, [selected.profileOf === undefined ? selected.name : `${selected.profileOf} (${selected.name})`, selected.subtitle])}
       aria-haspopup="listbox"
       aria-expanded={open}
       aria-controls={open ? panelId : undefined}
@@ -175,13 +181,13 @@
       onclick={() => (open ? close() : void expand())}
       class="flex h-15 w-full shrink-0 items-center gap-3 px-3 text-left transition-colors enabled:hover:bg-white/10 disabled:cursor-default light:enabled:hover:bg-zinc-900/5"
     >
-      {@render icon(selected.name, "size-10")}
+      {@render icon(selected.profileOf ?? selected.name, "size-10")}
       <span class="flex min-w-0 flex-1 flex-col gap-0.5">
         <span class="flex min-w-0 items-center gap-1.5">
-          <span class="truncate text-base leading-5 font-semibold">{selected.name}</span>
+          <span class="min-w-0 truncate text-base leading-5 font-semibold">{selected.name}</span>
           {@render badges(selected)}
         </span>
-        <span class="truncate text-xs leading-4 text-zinc-400 light:text-zinc-600">{details(selected)}{chosenLink === null ? "" : ` · ${chosenLink}`}</span>
+        <span class="truncate text-xs leading-4 text-zinc-400 light:text-zinc-600">{selected.profileOf === undefined ? "" : `${selected.profileOf} · `}{details(selected)}{chosenLink === null ? "" : ` · ${chosenLink}`}</span>
       </span>
       {#if hasChoices}<span class="shrink-0 text-zinc-400 transition-transform duration-200 light:text-zinc-600 {open ? 'rotate-180' : ''}"><Icon name="chevron-down" size="size-4" /></span>{/if}
     </button>
@@ -206,12 +212,13 @@
                   tabindex={option.id === selectedId ? 0 : -1}
                   disabled={option.disabled}
                   onclick={() => choose(option.id)}
-                  class="flex min-h-14 items-center gap-3 rounded-lg px-2 py-2 text-left outline-none enabled:hover:bg-white/10 focus-visible:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50 aria-selected:bg-white/10 light:enabled:hover:bg-zinc-900/5 light:focus-visible:bg-zinc-900/5 light:aria-selected:bg-zinc-900/10 {option.profileName === undefined ? '' : 'ml-5 rounded-l-none border-l-2 border-white/15 light:border-zinc-900/15'}"
+                  class="flex min-h-14 items-center gap-3 rounded-lg px-2 py-2 text-left outline-none enabled:hover:bg-white/10 focus-visible:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50 aria-selected:bg-white/10 light:enabled:hover:bg-zinc-900/5 light:focus-visible:bg-zinc-900/5 light:aria-selected:bg-zinc-900/10 "
                 >
-                  {@render icon(option.name, option.profileName === undefined ? "size-9" : "size-7")}
+                  {#if option.profileOf !== undefined}{@render connector(option.lastProfile === true)}{/if}
+                  {@render icon(option.profileOf ?? option.name, "size-9")}
                   <span class="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span class="flex min-w-0 items-center gap-1.5">
-                      <span class="truncate text-sm font-semibold text-zinc-100 light:text-zinc-900">{option.name}</span>
+                      <span class="min-w-0 truncate text-sm font-semibold text-zinc-100 light:text-zinc-900">{option.name}</span>
                       {@render badges(option)}
                     </span>
                     <span class="truncate text-xs text-zinc-400 light:text-zinc-600">{details(option)}</span>

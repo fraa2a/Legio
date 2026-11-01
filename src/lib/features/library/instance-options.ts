@@ -56,7 +56,7 @@ export function changesProfile(target: InstanceTarget, state: InstanceModState |
   return state !== undefined && state.activeProfileId !== target.profileId;
 }
 
-// Each instance is followed by one entry per mod profile, all based on that instance.
+// Each instance is followed by one entry per mod profile, titled with the profile name and based on that instance.
 export function instanceReleaseOptions(bases: readonly ReleaseOption[], states: ReadonlyMap<string, InstanceModState>): ReleaseOption[] {
   return bases.flatMap((base) => {
     const state = states.get(base.id);
@@ -64,11 +64,12 @@ export function instanceReleaseOptions(bases: readonly ReleaseOption[], states: 
     const blocked = (profileId: string | null) => state.locked && state.activeProfileId !== profileId;
     const profiles = [...state.profiles]
       .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }))
-      .map((profile): ReleaseOption => ({
+      .map((profile, index, sorted): ReleaseOption => ({
         id: instanceOptionId(base.id, profile.id),
-        name: base.name,
+        name: profile.name,
         subtitle: base.subtitle,
-        profileName: profile.name,
+        profileOf: base.name,
+        lastProfile: index === sorted.length - 1,
         disabled: blocked(profile.id),
       }));
     return [{ ...base, disabled: blocked(null) }, ...profiles];
