@@ -14,6 +14,7 @@ pub mod archive_install;
 mod artwork_display;
 mod artwork_publication;
 mod artwork_scheduler;
+mod atomic_file;
 mod background_process;
 mod buzzheavier;
 mod catalog;
@@ -57,6 +58,7 @@ mod linux_performance;
 mod local_source;
 mod locale;
 mod manual_import;
+mod modding;
 #[cfg(target_os = "linux")]
 mod native_rendering;
 mod network;
@@ -82,6 +84,12 @@ mod startup_recovery;
 #[cfg(target_os = "linux")]
 mod webkit_features;
 mod window_scale;
+
+use modding::{
+    cache_management, catalog_commands, config_files, exchange_commands, install_commands, launch,
+    link_registration, mod_icons, mod_links, package_document, package_page, profile_commands,
+    support_report,
+};
 
 struct TrayAvailable(bool);
 struct LaunchEvents(tauri::async_runtime::JoinHandle<()>);
@@ -144,6 +152,9 @@ fn run_application(
                 if let Err(error) = source_links::forward(&handle, &args) {
                     application_log::failure("forward_source_link", error);
                 }
+                if let Err(error) = mod_links::forward(&handle, &args) {
+                    application_log::failure("forward_mod_link", error);
+                }
                 match desktop_shortcuts::requested_game_id(
                     args.into_iter().skip(1).map(std::ffi::OsString::from),
                 ) {
@@ -177,6 +188,11 @@ fn run_application(
                     .map_err(std::io::Error::other)?;
             }
             app.manage(source_links);
+            let mod_links = mod_links::ModLinks::default();
+            mod_links
+                .enqueue(std::env::args_os().skip(1))
+                .map_err(std::io::Error::other)?;
+            app.manage(mod_links);
             gofile::initialize(app.path().app_data_dir()?);
             let database = database::DatabaseState::new(app.path().app_data_dir());
             let initial_settings = database
@@ -185,6 +201,12 @@ fn run_application(
                 .map_err(std::io::Error::other)?;
             app.state::<application_log::ApplicationLog>()
                 .set_enabled(initial_settings.application_logging_enabled);
+            // Reclaims the scheme after an update or reinstall moved the executable.
+            if initial_settings.thunderstore_links_enabled
+                && let Err(error) = link_registration::set_registered(app.handle(), true)
+            {
+                application_log::failure("register_mod_links", error);
+            }
             if let Some(window) = app.get_webview_window("main") {
                 window_scale::install(&window)?;
             }
@@ -284,8 +306,25 @@ fn run_application(
                 )
                 .map_err(std::io::Error::other)?,
             );
+            let modding_paths = modding::paths::ModdingPaths::new(&app.path().app_data_dir()?);
+            let thunderstore = modding::thunderstore_http::ThunderstoreHttp::new(
+                &app.package_info().version.to_string(),
+                diagnostics.clone(),
+            )
+            .map_err(std::io::Error::other)?;
+            app.manage(modding::ecosystem_store::EcosystemStore::new(
+                thunderstore.clone(),
+                modding_paths.ecosystem_cache(),
+                modding::ecosystem_store::SCHEMA_URL,
+            ));
+            app.manage(modding::package_cache::PackageCache::new(
+                modding_paths.package_db(),
+            ));
+            app.manage(thunderstore);
             app.manage(diagnostics);
             app.manage(queue_shutdown::QueueShutdownState::default());
+            app.manage(modding::profiles::ProfileLocks::default());
+            app.manage(modding::install_commands::InstallCancellations::default());
             queue_shutdown::start(app.handle().clone());
             app.manage(discord_presence::PresenceService::start(app.handle())?);
             let language = initial_settings.language;
@@ -490,6 +529,54 @@ fn run_application(
             commands::reset_steam_artwork_cache,
             commands::prefetch_steam_hero,
             runner_discovery::list_compatibility_runners,
+            catalog_commands::list_moddable_games,
+            catalog_commands::list_ecosystem_games,
+            catalog_commands::bind_game_to_ecosystem,
+            catalog_commands::refresh_mod_catalog,
+            catalog_commands::search_mods,
+            catalog_commands::get_mod_package,
+            catalog_commands::list_mod_categories,
+            mod_icons::get_mod_icon,
+            package_page::open_mod_package_page,
+            profile_commands::list_mod_profiles,
+            profile_commands::create_mod_profile,
+            profile_commands::rename_mod_profile,
+            profile_commands::duplicate_mod_profile,
+            profile_commands::delete_mod_profile,
+            profile_commands::set_active_mod_profile,
+            profile_commands::open_mod_profile_folder,
+            profile_commands::list_profile_mods,
+            install_commands::install_mods,
+            install_commands::install_mod_loader,
+            install_commands::list_mod_updates,
+            install_commands::update_profile_mods,
+            install_commands::cancel_mod_install,
+            profile_commands::uninstall_profile_mod,
+            profile_commands::set_profile_mod_enabled,
+            profile_commands::import_local_mod,
+            config_files::list_mod_config_files,
+            config_files::read_mod_config_file,
+            config_files::save_mod_config_text,
+            config_files::save_mod_config_entries,
+            exchange_commands::export_mod_profile_file,
+            exchange_commands::share_mod_profile_code,
+            exchange_commands::import_mod_profile_file,
+            exchange_commands::import_mod_profile_code,
+            launch::get_mod_launch_status,
+            launch::restore_modded_game_folder,
+            cache_management::get_mod_cache_usage,
+            cache_management::clear_mod_cache,
+            config_files::delete_mod_config_file,
+            config_files::open_mod_config_file,
+            support_report::read_mod_log,
+            support_report::open_mod_log,
+            support_report::build_mod_support_report,
+            package_document::get_mod_package_document,
+            package_page::open_mod_external_link,
+            profile_commands::set_all_profile_mods_enabled,
+            mod_links::take_mod_links,
+            mod_links::resolve_mod_link,
+            link_registration::get_mod_link_handler,
         ])
         .build(context)?
         .run(|app, event| {

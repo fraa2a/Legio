@@ -22,6 +22,7 @@ pub enum Operation {
     SteamDetails,
     SteamAsset,
     SteamConnectivity,
+    Thunderstore,
 }
 
 #[derive(Clone, Copy, Serialize)]

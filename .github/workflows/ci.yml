@@ -130,6 +130,19 @@ jobs:
       - name: Test launcher settings and updater
         run: corepack pnpm test:launcher
 
+      - name: Test mod manager
+        run: corepack pnpm test:modding
+
+      - name: Test modding config editor and profile exchange
+        run: corepack pnpm test:modding-extra
+
+      - name: Test game instance picker
+        run: corepack pnpm test:instances
+      - name: Test mod browser filters and documents
+        run: corepack pnpm test:modding-browser
+      - name: Test Thunderstore mod links
+        run: corepack pnpm test:modding-links
+
       - name: Test release manifest
         run: python -B -m unittest discover -s scripts
 

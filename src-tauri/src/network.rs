@@ -216,7 +216,7 @@ impl NetworkState {
         result
     }
 
-    async fn read_bounded_to(
+    pub(crate) async fn read_bounded_to(
         mut response: reqwest::Response,
         limit: usize,
         log: &mut RequestLog<'_>,

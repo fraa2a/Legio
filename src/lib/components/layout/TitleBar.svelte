@@ -6,9 +6,11 @@
   import {
     activeSection,
     closeGame,
+    closeModManager,
     closeStoreGame,
     sectionLabels,
     selectedGameId,
+    selectedModGame,
     selectedStoreGame,
   } from "../../stores/navigation";
   import {
@@ -51,8 +53,14 @@
       : null,
   );
   const storeGame = $derived($activeSection === "store" ? $selectedStoreGame : null);
-  const detail = $derived(storeGame ?? game);
-  const backLabel = $derived(storeGame !== null ? t("Risultati", $language) : t("Libreria", $language));
+  const modSelection = $derived($activeSection === "mods" ? $selectedModGame : null);
+  const modGameName = $derived(modSelection === null ? "" : ($games.data.find((entry) => entry.id === modSelection.gameId)?.name ?? ""));
+  const detail = $derived(storeGame ?? game ?? (modSelection === null ? null : { name: t("Mod di {0}", $language, [modGameName]) }));
+  const backLabel = $derived.by(() => {
+    if (storeGame !== null) return t("Risultati", $language);
+    if (modSelection !== null) return modSelection.returnTo === "game" ? modGameName : t("Mod", $language);
+    return t("Libreria", $language);
+  });
   const onboarding = $derived($settings.status === "ready" && !$settings.data.onboardingCompleted);
   const title = $derived(onboarding ? t("Configurazione iniziale", $language) : (detail?.name ?? t(sectionLabels[$activeSection], $language)));
   const libraryList = $derived($activeSection === "library" && $selectedGameId === null);
@@ -110,6 +118,7 @@
 
   function navigateBack(): void {
     if (storeGame !== null) closeStoreGame();
+    else if (modSelection !== null) closeModManager();
     else closeGame();
   }
 

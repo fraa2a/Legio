@@ -422,7 +422,10 @@ impl GameLaunchManager {
         if !game_directory.is_dir() || !executable.starts_with(&game_directory) {
             return Err("Executable is outside the installation root".to_owned());
         }
-        let config = database.native_launch_config(&game_id)?;
+        let mut config = database.native_launch_config(&game_id)?;
+        if let Some(plan) = crate::modding::launch::prepare_launch(&app, &game)? {
+            config.arguments.extend(plan.arguments);
+        }
         validate_launch_arguments(&config.arguments)?;
         let working_directory =
             game_working_directory(config.working_directory.as_deref(), parent)?;
@@ -606,6 +609,14 @@ impl GameLaunchManager {
             .path()
             .app_data_dir()
             .map_err(|error| format!("Could not resolve application data directory: {error}"))?;
+        if let Some(plan) = crate::modding::launch::prepare_launch(&app, &game)? {
+            config.arguments_after.extend(plan.arguments);
+            if plan.wine_dll_override {
+                config
+                    .dll_overrides
+                    .insert("winhttp".to_owned(), "n,b".to_owned());
+            }
+        }
         validate_launch_arguments(&config.arguments_before)?;
         validate_launch_arguments(&config.arguments_after)?;
         validate_launch_environment(&config.environment)?;
@@ -1384,6 +1395,7 @@ pub(crate) fn remove_game(app: &AppHandle, id: &str) -> Result<(), String> {
     let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
     let _operation = manager.operation()?;
     manager.require_idle(id)?;
+    crate::modding::launch::restore_before_removal(app, id);
     app.state::<DatabaseState>().database()?.remove_game(id)?;
     cleanup_removed_game(app, id)
 }
@@ -1399,6 +1411,14 @@ pub(crate) fn cleanup_removed_game(app: &AppHandle, id: &str) -> Result<(), Stri
     if let Err(error) = crate::desktop_shortcuts::remove(id) {
         errors.push(format!("desktop shortcuts: {error}"));
     }
+    match app.path().app_data_dir() {
+        Ok(data_dir) => {
+            if let Err(error) = remove_modding_directory(&data_dir, id) {
+                errors.push(format!("mod profiles: {error}"));
+            }
+        }
+        Err(error) => errors.push(format!("mod profiles: {error}")),
+    }
     if errors.is_empty() {
         Ok(())
     } else {
@@ -1406,6 +1426,16 @@ pub(crate) fn cleanup_removed_game(app: &AppHandle, id: &str) -> Result<(), Stri
             "Game was removed, but cleanup failed: {}",
             errors.join("; ")
         ))
+    }
+}
+
+fn remove_modding_directory(data_dir: &Path, game_id: &str) -> Result<(), String> {
+    let directory = crate::modding::paths::ModdingPaths::new(data_dir).game_dir(game_id)?;
+    match fs::remove_dir_all(&directory) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            Err(format!("Could not remove {}: {error}", directory.display()))
+        }
+        _ => Ok(()),
     }
 }
 
@@ -1855,6 +1885,23 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tauri::Manager;
+
+    #[test]
+    fn removes_only_the_game_modding_directory() {
+        let data_dir =
+            std::env::temp_dir().join(format!("legio-modding-cleanup-{}", uuid::Uuid::new_v4()));
+        let removed = "00000000-0000-4000-8000-000000000001";
+        let kept = "00000000-0000-4000-8000-000000000002";
+        let games = data_dir.join("modding").join("games");
+        fs::create_dir_all(games.join(removed).join("profiles")).unwrap();
+        fs::create_dir_all(games.join(kept)).unwrap();
+        remove_modding_directory(&data_dir, removed).unwrap();
+        assert!(!games.join(removed).exists());
+        assert!(games.join(kept).exists());
+        remove_modding_directory(&data_dir, removed).unwrap();
+        assert!(remove_modding_directory(&data_dir, "../x").is_err());
+        fs::remove_dir_all(data_dir).unwrap();
+    }
 
     #[cfg(target_os = "linux")]
     #[test]

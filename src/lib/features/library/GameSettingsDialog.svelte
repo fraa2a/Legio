@@ -21,6 +21,7 @@
   import GameSettingsPanel from "./GameSettingsPanel.svelte";
   import SteamAccountPanel from "./SteamAccountPanel.svelte";
   import SteamLaunchSettings from "./SteamLaunchSettings.svelte";
+  import GameModSettings from "../modding/GameModSettings.svelte";
   import { launchStateByGame } from "../../stores/launch";
   import { appInfo } from "../../stores/app-info";
 
@@ -36,8 +37,9 @@
     { id: "locations", label: t("Posizioni", $language), icon: "folder" },
     { id: "customization", label: t("Personalizzazione", $language), icon: "image" },
     { id: "compatibility", label: t("Compatibilità", $language), icon: "wrench" },
+    { id: "mods", label: t("Mod", $language), icon: "mods" },
     { id: "danger", label: t("Zona pericolosa", $language), icon: "warning" },
-  ] satisfies { id: string; label: string; icon: "settings" | "folder" | "image" | "wrench" | "warning" }[]);
+  ] satisfies { id: string; label: string; icon: "settings" | "folder" | "image" | "wrench" | "mods" | "warning" }[]);
   const categories = $derived((steamManaged || $appInfo.data.platform !== "linux" || (game.executablePath !== null && !/\.exe$/i.test(game.executablePath)))
     ? allCategories.filter((category) => category.id !== "compatibility")
     : allCategories);
@@ -151,6 +153,8 @@
             <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Seleziona prima un eseguibile per configurare il runner e gli argomenti di avvio.", $language)}</p>
           </Panel>
         {/if}
+      {:else if selectedCategory === "mods"}
+        {#key game.id}<GameModSettings {game} />{/key}
       {:else}
         <div class="flex flex-col gap-4">
           <PlaytimePanel {game} />

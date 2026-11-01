@@ -1,6 +1,8 @@
 mod migrations;
+mod modding;
 mod sessions;
 use migrations::migrate;
+pub(crate) use modding::{GameModding, MAX_PROFILE_NAME_CHARS, ModProfile, ProfileMod};
 #[cfg(test)]
 pub(crate) use sessions::RunningGamePresence;
 
@@ -16,7 +18,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 35;
+const SCHEMA_VERSION: i64 = 37;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -259,6 +261,8 @@ pub struct Settings {
     pub application_logging_enabled: bool,
     #[serde(default)]
     pub defer_extraction_while_playing: bool,
+    #[serde(default)]
+    pub thunderstore_links_enabled: bool,
 }
 
 fn default_true() -> bool {
@@ -314,6 +318,7 @@ impl Default for Settings {
             diagnostics_enabled: false,
             application_logging_enabled: false,
             defer_extraction_while_playing: false,
+            thunderstore_links_enabled: false,
         }
     }
 }

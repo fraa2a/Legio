@@ -37,6 +37,11 @@ uuid = { version = "1", features = ["v4"] }
 webp = { version = "0.3", default-features = false }
 tauri-plugin-single-instance = "2"
 tauri-plugin-deep-link = "2"
+flate2 = "1.1.10"
+serde_yaml_ng = "0.10.0"
+zip = { version = "9.2.0", default-features = false, features = ["deflate"] }
+base64 = "0.22"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }

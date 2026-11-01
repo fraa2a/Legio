@@ -16,12 +16,30 @@ use std::os::unix::fs::PermissionsExt;
 const MAX_ENTRIES: usize = 100_000;
 const MAX_EXPANSION_RATIO: u64 = 200;
 
+/// Extraction behavior that callers opt into. The default keeps every entry name strict.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct StageOptions {
+    /// Reads `\` in entry names as `/`, as written by some Windows archivers. Every other
+    /// path check still applies to the normalized name.
+    pub normalize_backslashes: bool,
+}
+
 /// Checks an optional SHA-256 hash and extracts ordinary files into an empty staging path.
 /// The caller owns the staging path and passes it to finalization only after success.
 pub fn verify_and_stage(
     archive: &Path,
     expected_sha256: Option<&str>,
     stage: &Path,
+) -> Result<(), String> {
+    verify_and_stage_with(archive, expected_sha256, stage, StageOptions::default())
+}
+
+/// Same as [`verify_and_stage`] with explicit [`StageOptions`].
+pub fn verify_and_stage_with(
+    archive: &Path,
+    expected_sha256: Option<&str>,
+    stage: &Path,
+    options: StageOptions,
 ) -> Result<(), String> {
     let metadata = fs::symlink_metadata(archive)
         .map_err(|error| format!("Cannot inspect download: {error}"))?;
@@ -79,7 +97,7 @@ pub fn verify_and_stage(
     fs::create_dir_all(staging_parent)
         .map_err(|error| format!("Cannot create staging parent: {error}"))?;
     fs::create_dir(stage).map_err(|error| format!("Cannot create staging directory: {error}"))?;
-    let result = extract(source, stage, archive_bytes);
+    let result = extract(source, stage, archive_bytes, options);
     if let Err(error) = result {
         fs::remove_dir_all(stage).map_err(|cleanup| {
             format!(
@@ -92,7 +110,12 @@ pub fn verify_and_stage(
     Ok(())
 }
 
-fn extract(source: File, stage: &Path, archive_bytes: u64) -> Result<(), String> {
+fn extract(
+    source: File,
+    stage: &Path,
+    archive_bytes: u64,
+    options: StageOptions,
+) -> Result<(), String> {
     let entries = ArchiveIteratorBuilder::new(source)
         .mtree_format(false)
         .build()
@@ -110,6 +133,11 @@ fn extract(source: File, stage: &Path, archive_bytes: u64) -> Result<(), String>
                 if seen.len() >= MAX_ENTRIES {
                     return Err("Archive contains too many files. Choose a smaller archive".into());
                 }
+                let name = if options.normalize_backslashes {
+                    name.replace('\\', "/")
+                } else {
+                    name
+                };
                 let relative = safe_relative_path(&name)?;
                 let key = relative.to_string_lossy().to_lowercase();
                 if !seen.insert(key) {
@@ -394,6 +422,53 @@ mod tests {
         assert_eq!(safe_relative_path("Game/").unwrap(), PathBuf::from("Game"));
     }
 
+    fn backslash_zip() -> Vec<u8> {
+        use zip::{ZipWriter, write::SimpleFileOptions};
+        let mut writer = ZipWriter::new(io::Cursor::new(Vec::new()));
+        for name in ["Pack\\plugins\\mod.dll", "Pack\\readme.txt"] {
+            writer
+                .start_file(name, SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(b"data").unwrap();
+        }
+        writer.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn backslash_names_are_normalized_on_request() {
+        let (root, archive) = fixture(&backslash_zip(), "backslash.zip");
+        let stage = root.join("staging");
+        let options = StageOptions {
+            normalize_backslashes: true,
+        };
+        verify_and_stage_with(&archive, None, &stage, options).unwrap();
+        assert_eq!(
+            fs::read(stage.join("Pack/plugins/mod.dll")).unwrap(),
+            b"data"
+        );
+        assert_eq!(fs::read(stage.join("Pack/readme.txt")).unwrap(), b"data");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn normalized_names_still_reject_traversal() {
+        use zip::{ZipWriter, write::SimpleFileOptions};
+        let mut writer = ZipWriter::new(io::Cursor::new(Vec::new()));
+        writer
+            .start_file("..\\escape.txt", SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(b"x").unwrap();
+        let bytes = writer.finish().unwrap().into_inner();
+        let (root, archive) = fixture(&bytes, "escape.zip");
+        let options = StageOptions {
+            normalize_backslashes: true,
+        };
+        let stage = root.join("staging");
+        assert!(verify_and_stage_with(&archive, None, &stage, options).is_err());
+        assert!(!root.join("escape.txt").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn truncated_rar5_returns_an_error_without_panicking() {
         for length in 8..12 {
@@ -525,6 +600,19 @@ mod tests {
         bytes[eocd + 4] = 1;
         let (root, _, result) = run_fixture(&bytes, "split.zip");
         assert!(result.unwrap_err().contains("Multipart ZIP"));
+        assert!(!root.join("staging").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn empty_zip_is_rejected_before_staging() {
+        use zip::ZipWriter;
+        let bytes = ZipWriter::new(io::Cursor::new(Vec::new()))
+            .finish()
+            .unwrap()
+            .into_inner();
+        let (root, _, result) = run_fixture(&bytes, "empty.zip");
+        assert!(result.unwrap_err().contains("no files"));
         assert!(!root.join("staging").exists());
         fs::remove_dir_all(root).unwrap();
     }

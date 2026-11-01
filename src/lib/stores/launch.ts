@@ -20,6 +20,7 @@ import { launchConfiguredGameWithRunner, launchNativeGame } from "../services/la
 import { getCompatibilityLogsDirectory } from "../services/game-settings";
 import { settings } from "./settings";
 import { hideWindow, showWindow } from "../services/window";
+import { describeModdingError } from "../features/modding/modding-model";
 
 export const launchStates = createResource<GameLaunchState[]>([], listGameLaunchStates);
 
@@ -49,14 +50,15 @@ const hiddenForSession = new Set<string>();
 const restoreOnExit = new Set<string>();
 const reportedErrors = new Map<string, string>();
 const reportedLogErrors = new Map<string, string>();
-launchError.subscribe((message) => { if (message) showToast(message, "error"); });
+launchError.subscribe((message) => { if (message) showToast(describeModdingError(message), "error"); });
 
 launchStates.subscribe((state) => {
   for (const launch of state.data) {
     if (launch.error && reportedErrors.get(launch.gameId) !== launch.error) {
       reportedErrors.set(launch.gameId, launch.error);
       const logPath = launch.compatibilityLogPath;
-      showToast(logPath ? `${launch.error} ${t("Log degli avvii: {0}", undefined, [logPath])}` : launch.error, "error");
+      const message = describeModdingError(launch.error);
+      showToast(logPath ? `${message} ${t("Log degli avvii: {0}", undefined, [logPath])}` : message, "error");
     } else if (!launch.error) reportedErrors.delete(launch.gameId);
     if (launch.compatibilityLogError && reportedLogErrors.get(launch.gameId) !== launch.compatibilityLogError) {
       reportedLogErrors.set(launch.gameId, launch.compatibilityLogError);

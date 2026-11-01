@@ -1,5 +1,5 @@
 import { t } from "../i18n";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 
 function defaultPath(value: string | null | undefined): string | undefined {
   return value !== null && value !== undefined && value.length > 0 ? value : undefined;
@@ -39,4 +39,23 @@ export function pickSourceFile(): Promise<string | null> {
     multiple: false,
     filters: [{ name: "JSON (Legio / Hydra)", extensions: ["json"] }],
   });
+}
+
+export function pickModArchive(): Promise<string | null> {
+  return open({
+    title: t("Seleziona l'archivio della mod", undefined),
+    directory: false,
+    multiple: false,
+    filters: [{ name: t("Archivi", undefined), extensions: ["zip", "7z", "rar"] }],
+  });
+}
+
+const modProfileFilters = () => [{ name: t("Profilo mod (r2modman)", undefined), extensions: ["r2z"] }];
+
+export function pickModProfileFile(): Promise<string | null> {
+  return open({ title: t("Seleziona un profilo da importare", undefined), directory: false, multiple: false, filters: modProfileFilters() });
+}
+
+export function pickModProfileExportPath(defaultName: string): Promise<string | null> {
+  return save({ title: t("Esporta profilo", undefined), defaultPath: defaultName, filters: modProfileFilters() });
 }

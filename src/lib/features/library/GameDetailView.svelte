@@ -41,10 +41,15 @@
   import ReleasePicker, { type ReleaseOption } from "./ReleasePicker.svelte";
   import AddGameDialog from "./AddGameDialog.svelte";
   import LibraryPickerDialog from "./LibraryPickerDialog.svelte";
+  import GameModsPanel from "../modding/GameModsPanel.svelte";
   import { acquireGameArtwork, gameArtworkRevision } from "../../services/game-artwork";
   import { toMessage } from "../../utils/errors";
   import { reachableReleases, releaseLinks, sourceNameFor, sourceReleaseId, sourceReleasesFor } from "../store/source-status";
   import { nextVersionAfterRemoval } from "./library-model";
+  import { changesProfile, hasModProfiles, instanceModStates, instanceReleaseOptions, parseInstanceOptionId, selectedInstanceId } from "./instance-options";
+  import { busyProfiles, loadModdableGames, loadOnce, modProfiles, moddableGameById, profilesOfGames, selectProfile } from "../../stores/modding";
+  import { describeModdingError } from "../modding/modding-model";
+  import { showToast } from "../../stores/toast";
 
   let { storeGame = null, gameId = null }: { storeGame?: StoreGameSelection | null; gameId?: string | null } = $props();
 
@@ -70,13 +75,18 @@
   const job = $derived(storeGame === null || entry === null ? null : ($downloads.data.find((candidate) => candidate.steamAppId === steamAppId && (candidate.sourceId && candidate.sourceEntryId ? candidate.sourceId === entry.sourceId && candidate.sourceEntryId === entry.id : candidate.url === entry.download.url && candidate.releaseVersion === entry.release.version) && candidate.status !== "installed" && candidate.status !== "cancelled") ?? null));
   const downloadProgress = $derived(job === null ? 0 : downloadProgressPercent(job));
   const libraryVersions = $derived(game === null ? [] : $games.data.filter((candidate) => candidate.steamAppId === null ? candidate.id === game.id : candidate.steamAppId === game.steamAppId));
+  const moddableVersionIds = $derived(libraryVersions.filter((candidate) => hasModProfiles($moddableGameById.get(candidate.id))).map((candidate) => candidate.id));
+  const versionProfiles = $derived(profilesOfGames(moddableVersionIds));
+  const modStates = $derived(instanceModStates(moddableVersionIds, $moddableGameById, $versionProfiles, (id, activeProfileId) =>
+    ($launchStateByGame.get(id)?.status ?? "idle") !== "idle" || (activeProfileId !== null && $busyProfiles.has(activeProfileId))));
+  let switchingVersion = $state(false);
   const versionOptions: ReleaseOption[] = $derived(storeGame !== null
     ? releases.map((release) => ({ id: sourceReleaseId(release.entry), name: release.entry.name, sourceName: sourceNameFor(release.entry, $source.data.sources), subtitle: t("Versione {0}", $language, [release.entry.release.version]), sizeBytes: release.entry.download.sizeBytes ?? (linkSizes === null ? null : releaseLinks(release.entry, $source.data.sources).map(uri => linkSizes?.[uri]).find(size => size !== undefined) ?? null), availability: release.availability }))
-    : libraryVersions.map((candidate) => {
+    : instanceReleaseOptions(libraryVersions.map((candidate) => {
       const lastPlayed = $playtime.data.find((summary) => summary.gameId === candidate.id)?.lastPlayedAt ?? null;
       return { id: candidate.id, name: candidate.name, subtitle: lastPlayed === null ? t("Mai giocato", $language) : t("Ultima partita: {0}", $language, [formatDateTime(lastPlayed / 1000, $language)]), isSteam: candidate.steamInstallPath !== null };
-    }));
-  const selectedVersionId = $derived(storeGame !== null ? (entry === null ? "" : sourceReleaseId(entry)) : (game?.id ?? ""));
+    }), modStates));
+  const selectedVersionId = $derived(storeGame !== null ? (entry === null ? "" : sourceReleaseId(entry)) : (game === null ? "" : selectedInstanceId(game.id, modStates.get(game.id))));
 
   let artworkOpen = $state(false);
   let addVersionOpen = $state(false);
@@ -96,6 +106,7 @@
 
   onMount(() => {
     if (storeGame !== null) return;
+    void loadModdableGames();
     return startVisibleRefresh(() => void playtime.load(), 30000);
   });
 
@@ -111,6 +122,10 @@
       (cause: unknown) => { if (!cancelled) linkError = toMessage(cause); },
     );
     return () => { cancelled = true; };
+  });
+
+  $effect(() => {
+    for (const id of moddableVersionIds) loadOnce(modProfiles(id));
   });
 
   $effect(() => {
@@ -183,10 +198,25 @@
     void startDownload(entry.download.url, entry.release.version, false);
   }
 
-  function selectVersion(id: string): void {
+  async function selectVersion(id: string): Promise<void> {
     selectedMirror = "auto";
-    if (storeGame !== null) selectedReleaseId = id;
-    else openGame(id);
+    if (storeGame !== null) {
+      selectedReleaseId = id;
+      return;
+    }
+    const target = parseInstanceOptionId(id);
+    if (changesProfile(target, modStates.get(target.gameId))) {
+      switchingVersion = true;
+      try {
+        await selectProfile(target.gameId, target.profileId);
+      } catch (cause) {
+        showToast(describeModdingError(toMessage(cause), $language), "error");
+        return;
+      } finally {
+        switchingVersion = false;
+      }
+    }
+    openGame(target.gameId);
   }
 </script>
 
@@ -261,7 +291,8 @@
             {steamAppId}
             options={versionOptions}
             selectedId={selectedVersionId}
-            onSelect={selectVersion}
+            onSelect={(id) => void selectVersion(id)}
+            disabled={switchingVersion}
             onAdd={game !== null && libraryVersions.length === 1 && steamAppId !== null ? () => { addVersionOpen = true; } : undefined}
             links={storeGame !== null && entry !== null ? mirrorUris : []}
             bind:link={selectedMirror}
@@ -316,6 +347,7 @@
           loading={detailsState?.status === "loading"}
           hasSteamAppId={steamAppId !== null}
         />
+        {#if game !== null}<GameModsPanel gameId={game.id} />{/if}
         {#if storeGame !== null}<Panel title={t("Info gioco", $language)}>
           <div class="flex flex-col gap-3">
             <dl class="grid gap-2 text-sm">
