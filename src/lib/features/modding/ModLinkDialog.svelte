@@ -25,7 +25,7 @@
     linkProfileOptions,
     missingVersionNames,
   } from "./mod-link-model";
-  import { classifyModdingError, installNotice, packageTitle, type ResultNotice } from "./modding-model";
+  import { classifyModdingError, describeModdingError, installNotice, packageTitle, type ResultNotice } from "./modding-model";
 
   const request = $derived($currentModLink);
   const target = $derived(request?.target ?? null);
@@ -79,7 +79,7 @@
       gameId = first?.gameId ?? null;
       profileId = first === null ? null : defaultLinkProfileId(first);
     } catch (error) {
-      if (mine === generation) loadError = toMessage(error);
+      if (mine === generation) loadError = describeModdingError(toMessage(error), $language);
     } finally {
       if (mine === generation) resolving = false;
     }
@@ -116,7 +116,7 @@
       await cancelInstall(profile.id);
     } catch (error) {
       cancelling = false;
-      actionError = toMessage(error);
+      actionError = describeModdingError(toMessage(error), $language);
     }
   }
 
