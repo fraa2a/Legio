@@ -34,6 +34,7 @@
     moddableGames,
     modProfiles,
     modUpdates,
+    profileMods,
     renameProfile,
     restoreGameFolder,
     selectProfile,
@@ -170,6 +171,8 @@
 
   function onImported(imported: ModProfile): void {
     void modProfiles(gameId).reload();
+    // An update keeps the profile id, so its cached mod list is stale.
+    void profileMods(imported.id).reload();
     if (!running) afterDiscard(() => void run(() => selectProfile(gameId, imported.id)));
   }
 
@@ -434,7 +437,7 @@
     onConfirm={() => void confirmDelete()}
     onClose={() => (deleteOpen = false)}
   />
-  <ProfileImportDialog open={importOpen} {gameId} onClose={() => (importOpen = false)} {onImported} />
+  <ProfileImportDialog open={importOpen} {gameId} activeProfileId={profile?.id ?? null} onClose={() => (importOpen = false)} {onImported} />
 
   {#if profile !== null}
     <ProfileShareDialog open={shareOpen} {gameId} {profile} onClose={() => (shareOpen = false)} />

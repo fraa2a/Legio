@@ -114,24 +114,30 @@ pub async fn refresh_mod_catalog(
     force: bool,
 ) -> Result<CatalogStatus, String> {
     let schema = ecosystem.schema().await?;
-    let index_url = require_package_index(&schema, &ecosystem_game_id)?;
+    sync_catalog(&app, &schema, &packages, &http, &ecosystem_game_id, force).await
+}
+
+/// Syncs the catalog of `ecosystem_game_id`, publishing `modding-catalog-progress`.
+pub(crate) async fn sync_catalog(
+    app: &AppHandle,
+    schema: &EcosystemSchema,
+    packages: &PackageCache,
+    http: &ThunderstoreHttp,
+    ecosystem_game_id: &str,
+    force: bool,
+) -> Result<CatalogStatus, String> {
+    let index_url = require_package_index(schema, ecosystem_game_id)?;
     let status = packages
-        .sync(
-            &http,
-            &ecosystem_game_id,
-            &index_url,
-            force,
-            |done, total| {
-                let progress = CatalogProgress {
-                    community: &ecosystem_game_id,
-                    chunks_done: done,
-                    chunks_total: total,
-                };
-                if let Err(error) = app.emit(PROGRESS_EVENT, progress) {
-                    crate::application_log::failure("publish_mod_catalog_progress", error);
-                }
-            },
-        )
+        .sync(http, ecosystem_game_id, &index_url, force, |done, total| {
+            let progress = CatalogProgress {
+                community: ecosystem_game_id,
+                chunks_done: done,
+                chunks_total: total,
+            };
+            if let Err(error) = app.emit(PROGRESS_EVENT, progress) {
+                crate::application_log::failure("publish_mod_catalog_progress", error);
+            }
+        })
         .await;
     match status {
         Ok(status) => {

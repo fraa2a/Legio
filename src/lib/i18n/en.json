@@ -987,7 +987,6 @@
   "Codice del profilo": "Profile code",
   "Nome del profilo (facoltativo)": "Profile name (optional)",
   "Usa il nome del profilo importato": "Use the imported profile name",
-  "Serve il catalogo mod del gioco già scaricato. Le mod vengono installate nella versione indicata dal profilo.": "The game's mod catalog must already be downloaded. Mods are installed in the version listed by the profile.",
   "Importa": "Import",
   "Impossibile copiare negli appunti. Seleziona il codice e copialo a mano.": "Could not copy to the clipboard. Select the code and copy it by hand.",
   "Condividi profilo": "Share profile",
@@ -1124,5 +1123,13 @@
   "Link di Thunderstore": "Thunderstore links",
   "Apri i link Mod Manager di Thunderstore con Legio": "Open Thunderstore Mod Manager links with Legio",
   "Il pulsante \"Install with Mod Manager\" di Thunderstore apre Legio al posto del gestore mod attuale (per esempio r2modman) e propone di installare la mod in uno dei tuoi giochi. Disattivando l'opzione, Legio lascia il collegamento; r2modman lo riprende al prossimo avvio.": "Thunderstore's \"Install with Mod Manager\" button opens Legio instead of the current mod manager (for example r2modman) and offers to install the mod into one of your games. When turned off, Legio releases the link; r2modman takes it back on its next launch.",
-  "Non disponibile su macOS.": "Not available on macOS."
+  "Non disponibile su macOS.": "Not available on macOS.",
+  "Aggiorna un profilo esistente": "Update an existing profile",
+  "Destinazione": "Destination",
+  "Profilo da aggiornare": "Profile to update",
+  "Le mod attuali del profilo verranno sostituite da quelle importate, comprese le mod locali.": "The profile's current mods will be replaced by the imported ones, local mods included.",
+  "Profilo \"{0}\" aggiornato: {1} mod installate.": "Profile \"{0}\" updated: {1} mods installed.",
+  "Aggiornamento del catalogo mod": "Mod catalog update",
+  "Aggiornamento del catalogo mod...": "Updating the mod catalog...",
+  "Le mod vengono installate nella versione indicata dal profilo. Se il catalogo mod del gioco manca o è incompleto, viene scaricato prima dell'import.": "Mods are installed in the version listed by the profile. If the game's mod catalog is missing or incomplete, it is downloaded before the import."
 }

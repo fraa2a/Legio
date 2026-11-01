@@ -3,22 +3,26 @@
   import { t, language } from "../../i18n";
   import { pickModProfileFile } from "../../services/dialog";
   import { importModProfileCode, importModProfileFile, type ProfileImportOutcome } from "../../services/mod-profile-exchange";
-  import { cancelModInstall, observeInstallProgress, type InstallProgress, type ModProfile } from "../../services/modding";
+  import { cancelModInstall, observeCatalogProgress, observeInstallProgress, type CatalogProgress, type InstallProgress, type ModProfile } from "../../services/modding";
   import { modProfiles } from "../../stores/modding";
   import { toMessage } from "../../utils/errors";
   import Button from "../../components/ui/Button.svelte";
   import Callout from "../../components/ui/Callout.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
+  import ProgressBar from "../../components/ui/ProgressBar.svelte";
   import SegmentedControl from "../../components/ui/SegmentedControl.svelte";
+  import SelectField from "../../components/ui/SelectField.svelte";
+  import Spinner from "../../components/ui/Spinner.svelte";
   import TextField from "../../components/ui/TextField.svelte";
   import InstallProgressCard from "./InstallProgressCard.svelte";
-  import { canStartImport, fileNameOf, normalizeProfileCode, profileCodeError, summarizeImport, type ImportSource } from "./mod-profile-exchange-model";
-  import { describeModdingError, maxProfileNameLength, profileNameError } from "./modding-model";
+  import { canStartImport, defaultTargetProfileId, fileNameOf, importTargetProfileId, normalizeProfileCode, profileCodeError, summarizeImport, type ImportSource, type ImportTarget } from "./mod-profile-exchange-model";
+  import { catalogPercent, describeModdingError, maxProfileNameLength, profileNameError } from "./modding-model";
 
-  let { open, gameId, onClose, onImported }: {
+  let { open, gameId, activeProfileId, onClose, onImported }: {
     open: boolean;
     gameId: string;
+    activeProfileId: string | null;
     onClose: () => void;
     onImported: (profile: ModProfile) => void;
   } = $props();
@@ -27,24 +31,35 @@
   let path = $state<string | null>(null);
   let code = $state("");
   let name = $state("");
+  let target = $state<ImportTarget>("new");
+  let targetProfileId = $state<string | null>(null);
   let pending = $state(false);
   let cancelling = $state(false);
   let error = $state<string | null>(null);
   let outcome = $state<ProfileImportOutcome | null>(null);
   let progress = $state<InstallProgress | null>(null);
+  let catalogProgress = $state<CatalogProgress | null>(null);
+  let updated = $state(false);
   let operationId: string | null = null;
-  let unlisten: (() => void) | null = null;
+  let unlisteners: (() => void)[] = [];
 
   const sourceOptions = $derived([
     { value: "file", label: t("File .r2z", $language) },
     { value: "code", label: t("Codice", $language) },
   ]);
   const profiles = $derived(modProfiles(gameId));
+  const targetOptions = $derived([
+    { value: "new", label: t("Nuovo profilo", $language) },
+    ...($profiles.data.length > 0 ? [{ value: "existing", label: t("Aggiorna un profilo esistente", $language) }] : []),
+  ]);
+  const profileChoices = $derived($profiles.data.map((profile) => ({ value: profile.id, label: profile.name })));
   const codeError = $derived(profileCodeError(code, $language));
   // The name is optional: left empty, the backend keeps the imported profile's own name.
   const nameError = $derived(name.trim().length === 0 ? null : profileNameError(name, $profiles.data, $language));
-  const ready = $derived(canStartImport(source, path, code, nameError));
+  const ready = $derived(canStartImport(source, path, code, nameError, target, targetProfileId));
   const summary = $derived(outcome === null ? null : summarizeImport(outcome));
+  // The catalog is refreshed before any install starts, so its progress shows only until the first install event.
+  const refreshingCatalog = $derived(catalogProgress !== null && progress === null);
 
   $effect(() => {
     if (open) untrack(reset);
@@ -57,17 +72,21 @@
     path = null;
     code = "";
     name = "";
+    target = "new";
+    targetProfileId = defaultTargetProfileId($profiles.data, activeProfileId);
     pending = false;
     cancelling = false;
     error = null;
     outcome = null;
     progress = null;
+    catalogProgress = null;
+    updated = false;
     operationId = null;
   }
 
   function stopListening(): void {
-    unlisten?.();
-    unlisten = null;
+    for (const unlisten of unlisteners) unlisten();
+    unlisteners = [];
   }
 
   function track(event: InstallProgress): void {
@@ -85,18 +104,21 @@
 
   async function startImport(): Promise<void> {
     if (!ready || pending) return;
-    const profileName = name.trim().length > 0 ? name.trim() : undefined;
+    const profileName = target === "new" && name.trim().length > 0 ? name.trim() : undefined;
+    const targetId = importTargetProfileId(target, targetProfileId);
     pending = true;
     cancelling = false;
     error = null;
     progress = null;
+    catalogProgress = null;
+    updated = targetId !== undefined;
     const operation = crypto.randomUUID();
     operationId = operation;
     try {
-      unlisten = await observeInstallProgress(track);
+      unlisteners = [await observeInstallProgress(track), await observeCatalogProgress((event) => (catalogProgress = event))];
       const result = source === "file" && path !== null
-        ? await importModProfileFile(gameId, path, operation, profileName)
-        : await importModProfileCode(gameId, normalizeProfileCode(code) ?? code, operation, profileName);
+        ? await importModProfileFile(gameId, path, operation, profileName, targetId)
+        : await importModProfileCode(gameId, normalizeProfileCode(code) ?? code, operation, profileName, targetId);
       outcome = result;
       onImported(result.profile);
     } catch (reason) {
@@ -126,7 +148,9 @@
       <Callout
         tone="success"
         variant="inline"
-        message={t("Profilo \"{0}\" importato: {1} mod installate.", $language, [outcome.profile.name, summary.installed])}
+        message={updated
+          ? t("Profilo \"{0}\" aggiornato: {1} mod installate.", $language, [outcome.profile.name, summary.installed])
+          : t("Profilo \"{0}\" importato: {1} mod installate.", $language, [outcome.profile.name, summary.installed])}
       />
       {#if summary.missingPackages.length > 0}
         <Callout
@@ -148,6 +172,14 @@
         <Callout tone="warning" title={t("Avvisi", $language)} items={summary.warnings} />
       {/if}
       <div class="flex justify-end"><Button label={t("Chiudi", $language)} onClick={close} /></div>
+    {:else if pending && refreshingCatalog && catalogProgress !== null}
+      <section class="flex flex-wrap items-center gap-4 rounded-2xl legio-glass p-4" aria-label={t("Aggiornamento del catalogo mod", $language)}>
+        <Spinner />
+        <div class="min-w-0 flex-1 basis-56" role="status" aria-live="polite">
+          <p class="truncate text-sm font-medium text-zinc-100 light:text-zinc-900">{t("Aggiornamento del catalogo mod...", $language)}</p>
+          <ProgressBar value={catalogPercent(catalogProgress.chunksDone, catalogProgress.chunksTotal)} tone="accent" label={t("Avanzamento del catalogo", $language)} class="mt-2 h-1.5" />
+        </div>
+      </section>
     {:else if pending}
       <InstallProgressCard {progress} {cancelling} onCancel={() => void cancelImport()} />
     {:else}
@@ -162,15 +194,27 @@
       {:else}
         <TextField id="mod-profile-import-code" label={t("Codice del profilo", $language)} placeholder="123e4567-e89b-12d3-a456-426614174000" error={codeError} bind:value={code} />
       {/if}
-      <TextField
-        id="mod-profile-import-name"
-        label={t("Nome del profilo (facoltativo)", $language)}
-        placeholder={t("Usa il nome del profilo importato", $language)}
-        hint={t("Al massimo {0} caratteri.", $language, [maxProfileNameLength])}
-        error={nameError}
-        bind:value={name}
-      />
-      <Callout variant="inline" message={t("Serve il catalogo mod del gioco già scaricato. Le mod vengono installate nella versione indicata dal profilo.", $language)} />
+      <SelectField id="mod-profile-import-target" label={t("Destinazione", $language)} options={targetOptions} value={target} onChange={(value) => (target = value as ImportTarget)} />
+      {#if target === "existing"}
+        <SelectField
+          id="mod-profile-import-target-profile"
+          label={t("Profilo da aggiornare", $language)}
+          options={profileChoices}
+          value={targetProfileId ?? ""}
+          onChange={(value) => (targetProfileId = value)}
+        />
+        <Callout tone="warning" variant="inline" message={t("Le mod attuali del profilo verranno sostituite da quelle importate, comprese le mod locali.", $language)} />
+      {:else}
+        <TextField
+          id="mod-profile-import-name"
+          label={t("Nome del profilo (facoltativo)", $language)}
+          placeholder={t("Usa il nome del profilo importato", $language)}
+          hint={t("Al massimo {0} caratteri.", $language, [maxProfileNameLength])}
+          error={nameError}
+          bind:value={name}
+        />
+      {/if}
+      <Callout variant="inline" message={t("Le mod vengono installate nella versione indicata dal profilo. Se il catalogo mod del gioco manca o è incompleto, viene scaricato prima dell'import.", $language)} />
       {#if error !== null}<ErrorBanner message={error} />{/if}
       <div class="flex justify-end gap-2">
         <Button label={t("Annulla", $language)} variant="secondary" onClick={close} />
