@@ -1059,8 +1059,6 @@
   "Tocca una categoria per includerla, ancora per escluderla, una terza volta per rimuoverla.": "Click a category to include it, again to exclude it, a third time to clear it.",
   "Una mod deve avere": "A mod must have",
   "Nessuna categoria disponibile.": "No categories available.",
-  "Panoramica": "Overview",
-  "Sezione": "Section",
   "Nessun readme": "No readme",
   "Nessun changelog": "No changelog",
   "Sito web": "Website",
@@ -1141,5 +1139,9 @@
   "{0} profili mod, nessuno attivo": "{0} mod profiles, none active",
   "1 profilo mod": "1 mod profile",
   "{0} profili mod": "{0} mod profiles",
-  "{0} è un programma per gestire le mod, non una mod, e non si può installare.": "{0} is a mod manager application, not a mod, and cannot be installed."
+  "{0} è un programma per gestire le mod, non una mod, e non si può installare.": "{0} is a mod manager application, not a mod, and cannot be installed.",
+  "Mod aperte": "Open mods",
+  "Chiudi {0}": "Close {0}",
+  "Chiudi il pannello": "Close the panel",
+  "Documento": "Document"
 }
