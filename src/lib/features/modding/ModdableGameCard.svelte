@@ -17,7 +17,8 @@
   const profiles = $derived(modProfiles(game.gameId));
   const profile = $derived(activeProfile(game, $profiles.data));
   const mods = $derived(profile === null ? null : profileMods(profile.id));
-  const modCount = $derived(mods === null ? 0 : $mods?.data.length ?? 0);
+  const modCount = $derived(mods === null ? 0 : ($mods?.data.filter((mod) => !mod.isLoader).length ?? 0));
+  const profileCount = $derived($profiles.data.length);
   const location = $derived(hasDuplicateName(game, $moddableGames.data) ? instanceLocation($games.data.find((entry) => entry.id === game.gameId)) : null);
   const monogram = $derived(game.name.trim().charAt(0).toUpperCase() || "?");
 
@@ -58,10 +59,13 @@
         <Badge tone="warning" title={t("Loader non supportato", $language)} />
       {:else if modState === "unmatched"}
         <Badge title={t("Da collegare", $language)} />
-      {:else if profile !== null}
-        <span class="flex items-center gap-1 rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-100 light:bg-zinc-100/70 light:text-zinc-900">
+      {:else if profileCount > 0}
+        <span
+          class="flex items-center gap-1 rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-100 light:bg-zinc-100/70 light:text-zinc-900"
+          title={profileCount === 1 ? t("1 profilo mod", $language) : t("{0} profili mod", $language, [profileCount])}
+        >
           <Icon name="mods" size="h-3.5 w-3.5" />
-          {modCount}
+          {profileCount}
         </span>
       {/if}
     </div>

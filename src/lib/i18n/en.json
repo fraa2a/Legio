@@ -1138,5 +1138,7 @@
   "Impossibile scaricare il catalogo delle mod: {0}": "The mod catalog could not be downloaded: {0}",
   "Nessun profilo mod": "No mod profiles",
   "1 profilo mod, non attivo": "1 mod profile, not active",
-  "{0} profili mod, nessuno attivo": "{0} mod profiles, none active"
+  "{0} profili mod, nessuno attivo": "{0} mod profiles, none active",
+  "1 profilo mod": "1 mod profile",
+  "{0} profili mod": "{0} mod profiles"
 }
