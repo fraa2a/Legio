@@ -21,6 +21,10 @@ const API_REQUEST_TIMEOUT_SECONDS: u64 = 120;
 const MAX_REDIRECTS: usize = 5;
 const THUNDERSTORE_HOST: &str = "thunderstore.io";
 const REDIRECT_REJECTED: &str = "Thunderstore sent a redirect that is not allowed";
+/// The list of non-mod packages r2modman excludes. The develop branch is the
+/// one maintainers update first; master only changes with a release.
+pub(crate) const MOD_EXCLUSIONS_URL: &str =
+    "https://raw.githubusercontent.com/ebkr/r2modmanPlus/develop/modExclusions.md";
 
 /// Client for `thunderstore.io` and its CDN subdomains.
 #[derive(Clone)]
@@ -80,6 +84,23 @@ impl ThunderstoreHttp {
     /// Retries once after a transport failure.
     pub(crate) async fn get_bytes(&self, url: &str, max_bytes: usize) -> Result<Vec<u8>, String> {
         require_allowed(url).map_err(|error| describe(&error))?;
+        self.get_bytes_retrying(url, max_bytes).await
+    }
+
+    /// Like `get_bytes`, and the only call that also accepts
+    /// `MOD_EXCLUSIONS_URL`, the one address outside Thunderstore Legio reads.
+    pub(crate) async fn get_exclusion_list(
+        &self,
+        url: &str,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, String> {
+        if url != MOD_EXCLUSIONS_URL {
+            require_allowed(url).map_err(|error| describe(&error))?;
+        }
+        self.get_bytes_retrying(url, max_bytes).await
+    }
+
+    async fn get_bytes_retrying(&self, url: &str, max_bytes: usize) -> Result<Vec<u8>, String> {
         let first = self.get_bytes_once(url, max_bytes).await;
         let result = if matches!(first, Err(NetworkError::Transport { .. })) {
             self.get_bytes_once(url, max_bytes).await
@@ -431,6 +452,22 @@ mod tests {
         assert!(error.contains("not a Thunderstore address"), "{error}");
         let error = tauri::async_runtime::block_on(http().get_bytes("not a url", 100)).unwrap_err();
         assert!(error.contains("not a Thunderstore address"), "{error}");
+    }
+
+    #[test]
+    fn only_the_exclusion_list_may_use_the_github_address() {
+        let other = MOD_EXCLUSIONS_URL.replace("modExclusions.md", "other.md");
+        for url in [MOD_EXCLUSIONS_URL, other.as_str()] {
+            let error = tauri::async_runtime::block_on(http().get_bytes(url, 100)).unwrap_err();
+            assert!(
+                error.contains("not a Thunderstore address"),
+                "{url}: {error}"
+            );
+        }
+        let error =
+            tauri::async_runtime::block_on(http().get_exclusion_list(&other, 100)).unwrap_err();
+        assert!(error.contains("not a Thunderstore address"), "{error}");
+        assert!(!is_allowed_url(&parse(MOD_EXCLUSIONS_URL)));
     }
 
     #[test]

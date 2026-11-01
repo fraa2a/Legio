@@ -20,7 +20,8 @@ use tokio::sync::mpsc;
 
 use super::{
     external_url::parse_external_url,
-    package_id::{MOD_MANAGER_PACKAGES, PackageName, PackageVersionId, Version},
+    mod_exclusions::{ExclusionList, ModExclusions},
+    package_id::{PackageName, PackageVersionId, Version},
     thunderstore_http::ThunderstoreHttp,
 };
 
@@ -47,6 +48,7 @@ pub(crate) struct PackageCache {
 
 struct Inner {
     path: PathBuf,
+    exclusions: ModExclusions,
     reader: Mutex<Option<Connection>>,
     sync_lock: tokio::sync::Mutex<()>,
 }
@@ -189,10 +191,11 @@ pub(crate) struct PackageVersionRecord {
 }
 
 impl PackageCache {
-    pub(crate) fn new(path: PathBuf) -> Self {
+    pub(crate) fn new(path: PathBuf, exclusions: ModExclusions) -> Self {
         Self {
             inner: Arc::new(Inner {
                 path,
+                exclusions,
                 reader: Mutex::new(None),
                 sync_lock: tokio::sync::Mutex::new(()),
             }),
@@ -209,7 +212,8 @@ impl PackageCache {
         community: &str,
         query: &PackageQuery,
     ) -> Result<PackagePage, String> {
-        self.with_reader(|connection| search(connection, community, query))
+        let excluded = self.inner.exclusions.list();
+        self.with_reader(|connection| search(connection, community, query, &excluded))
     }
 
     pub(crate) fn package(
@@ -217,6 +221,9 @@ impl PackageCache {
         community: &str,
         name: &PackageName,
     ) -> Result<Option<PackageDetails>, String> {
+        if self.is_excluded(name) {
+            return Ok(None);
+        }
         self.with_reader(|connection| package_details(connection, community, name))
     }
 
@@ -225,6 +232,9 @@ impl PackageCache {
         community: &str,
         id: &PackageVersionId,
     ) -> Result<Option<PackageVersionRecord>, String> {
+        if self.is_excluded(&id.package) {
+            return Ok(None);
+        }
         self.with_reader(|connection| {
             version_record(connection, community, &id.package, Some(&id.version))
         })
@@ -235,7 +245,17 @@ impl PackageCache {
         community: &str,
         name: &PackageName,
     ) -> Result<Option<PackageVersionRecord>, String> {
+        if self.is_excluded(name) {
+            return Ok(None);
+        }
         self.with_reader(|connection| version_record(connection, community, name, None))
+    }
+
+    /// Whether `name` is on the exclusion list: listed by Thunderstore but not
+    /// a mod. Such packages never appear in lookups. Reads the list from disk
+    /// the first time, so call it from a blocking thread.
+    pub(crate) fn is_excluded(&self, name: &PackageName) -> bool {
+        self.inner.exclusions.list().contains(name)
     }
 
     /// Category names in alphabetical order.
@@ -284,6 +304,8 @@ impl PackageCache {
         }
 
         let compressed = http.get_bytes(index_url, MAX_INDEX_BYTES).await?;
+        // Only once Thunderstore answered, so an offline start does not wait for GitHub too.
+        self.inner.exclusions.refresh(http).await;
         let hash = hex_digest(&compressed);
         if let Some(known) = &known
             && known.index_hash == hash
@@ -1031,6 +1053,7 @@ fn search(
     connection: &Connection,
     community: &str,
     query: &PackageQuery,
+    excluded_packages: &ExclusionList,
 ) -> Result<PackagePage, String> {
     let mut conditions = String::from("p.community = ?");
     let mut values = vec![Value::Text(community.to_owned())];
@@ -1043,9 +1066,11 @@ fn search(
         conditions.push_str(" AND p.search_text LIKE ? ESCAPE '\\'");
         values.push(Value::Text(format!("%{}%", escape_like(term))));
     }
-    for manager in MOD_MANAGER_PACKAGES {
-        conditions.push_str(" AND p.full_name <> ? COLLATE NOCASE");
-        values.push(Value::Text(manager.to_owned()));
+    if !excluded_packages.is_empty() {
+        let names = excluded_packages.names();
+        let marks = vec!["?"; names.len()].join(",");
+        conditions.push_str(&format!(" AND lower(p.full_name) NOT IN ({marks})"));
+        values.extend(names.into_iter().map(|name| Value::Text(name.to_owned())));
     }
     if !query.include_deprecated {
         conditions.push_str(" AND p.is_deprecated = 0");
@@ -1364,6 +1389,13 @@ mod tests {
         (first, second)
     }
 
+    fn exclusions(directory: &TempDir, server: &TestServer) -> ModExclusions {
+        ModExclusions::new(
+            directory.path().join("modding").join("exclusions.md"),
+            &server.url("/exclusions"),
+        )
+    }
+
     struct Fixture {
         _directory: TempDir,
         server: TestServer,
@@ -1382,8 +1414,18 @@ mod tests {
             server.set("/chunk1", Reply::ok(gzip(&first)));
             server.set("/chunk2", Reply::ok(gzip(&second)));
             server.set("/index", Reply::ok(gzip(&json!(chunks))));
-            let cache =
-                PackageCache::new(directory.path().join("modding").join("packages.sqlite3"));
+            server.set(
+                "/exclusions",
+                Reply::ok(
+                    b"Nobody-Excluded
+"
+                    .to_vec(),
+                ),
+            );
+            let cache = PackageCache::new(
+                directory.path().join("modding").join("packages.sqlite3"),
+                exclusions(&directory, &server),
+            );
             let http = ThunderstoreHttp::new(
                 "0.1.0",
                 Diagnostics::new(Err("test logs disabled".to_owned())),
@@ -1610,7 +1652,7 @@ mod tests {
     }
 
     #[test]
-    fn never_lists_mod_manager_applications() {
+    fn hides_excluded_packages_everywhere() {
         let fixture = Fixture::new();
         let chunk = json!([
             package(
@@ -1636,6 +1678,15 @@ mod tests {
         fixture
             .server
             .set("/index", Reply::ok(gzip(&json!([fixture.chunks[0]]))));
+        // Thunderstore names compare ignoring case.
+        fixture.server.set(
+            "/exclusions",
+            Reply::ok(
+                b"EBKR-r2Modman
+"
+                .to_vec(),
+            ),
+        );
         fixture.sync(true).unwrap();
         let everything = PackageQuery {
             include_deprecated: true,
@@ -1647,6 +1698,65 @@ mod tests {
             fixture.cache.search(COMMUNITY, &everything).unwrap().total,
             1
         );
+
+        let manager: PackageName = "ebkr-r2modman".parse().unwrap();
+        let id = PackageVersionId::new(manager.clone(), "3.2.21".parse().unwrap());
+        assert!(fixture.cache.is_excluded(&manager));
+        assert_eq!(fixture.cache.package(COMMUNITY, &manager).unwrap(), None);
+        assert_eq!(fixture.cache.version(COMMUNITY, &id).unwrap(), None);
+        assert_eq!(
+            fixture.cache.latest_version(COMMUNITY, &manager).unwrap(),
+            None
+        );
+        let good: PackageName = "Good-Mod".parse().unwrap();
+        assert!(!fixture.cache.is_excluded(&good));
+        assert!(
+            fixture
+                .cache
+                .latest_version(COMMUNITY, &good)
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn a_new_exclusion_list_applies_without_resyncing_the_packages() {
+        let fixture = Fixture::synced();
+        assert!(
+            fixture
+                .names(&query())
+                .contains(&"Alice-Big_Mod".to_owned())
+        );
+        // Same index hash, so only the exclusion list is fetched again.
+        std::fs::remove_file(
+            fixture
+                ._directory
+                .path()
+                .join("modding")
+                .join("exclusions.md"),
+        )
+        .unwrap();
+        fixture.server.set(
+            "/exclusions",
+            Reply::ok(
+                b"Alice-Big_Mod
+"
+                .to_vec(),
+            ),
+        );
+        fixture.sync(true).unwrap();
+        assert!(
+            !fixture
+                .names(&query())
+                .contains(&"Alice-Big_Mod".to_owned())
+        );
+        let chunk_fetches = fixture
+            .server
+            .requests()
+            .iter()
+            .filter(|path| *path == "/chunk1")
+            .count();
+        assert_eq!(chunk_fetches, 1);
     }
 
     #[test]
@@ -2059,7 +2169,10 @@ mod tests {
         let connection = open_connection(&fixture.cache.inner.path).unwrap();
         connection.execute_batch("PRAGMA user_version = 0").unwrap();
         drop(connection);
-        let fresh = PackageCache::new(fixture.cache.inner.path.clone());
+        let fresh = PackageCache::new(
+            fixture.cache.inner.path.clone(),
+            exclusions(&fixture._directory, &fixture.server),
+        );
         assert_eq!(fresh.status(COMMUNITY).unwrap(), None);
     }
 

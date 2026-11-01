@@ -319,6 +319,10 @@ fn run_application(
             ));
             app.manage(modding::package_cache::PackageCache::new(
                 modding_paths.package_db(),
+                modding::mod_exclusions::ModExclusions::new(
+                    modding_paths.exclusions_cache(),
+                    modding::thunderstore_http::MOD_EXCLUSIONS_URL,
+                ),
             ));
             app.manage(thunderstore);
             app.manage(diagnostics);

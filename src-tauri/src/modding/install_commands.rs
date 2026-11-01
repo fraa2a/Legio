@@ -143,8 +143,20 @@ struct CatalogSource<'a> {
     community: &'a str,
 }
 
+impl CatalogSource<'_> {
+    /// Excluded packages are not in the catalog lookups; refusing them by name
+    /// tells the user why instead of reporting them as missing.
+    fn refuse_excluded(&self, package: &PackageName) -> Result<(), String> {
+        if self.cache.is_excluded(package) {
+            return Err(format!("{package} is not a mod and cannot be installed"));
+        }
+        Ok(())
+    }
+}
+
 impl PackageSource for CatalogSource<'_> {
     fn latest(&self, package: &PackageName) -> Result<Option<ResolvedPackage>, String> {
+        self.refuse_excluded(package)?;
         Ok(self
             .cache
             .latest_version(self.community, package)?
@@ -152,6 +164,7 @@ impl PackageSource for CatalogSource<'_> {
     }
 
     fn exact(&self, id: &PackageVersionId) -> Result<Option<ResolvedPackage>, String> {
+        self.refuse_excluded(&id.package)?;
         Ok(self.cache.version(self.community, id)?.map(resolved))
     }
 }
@@ -608,6 +621,9 @@ pub fn cancel_mod_install(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::modding::{
+        dependencies::resolve_plan, mod_exclusions::ModExclusions, test_support::TempDir,
+    };
 
     #[test]
     fn limits_downloads_by_declared_size() {
@@ -661,6 +677,42 @@ mod tests {
             };
             assert!(parse_requests(&[request]).is_err(), "{name}");
         }
+    }
+
+    #[test]
+    fn refuses_excluded_packages_as_roots_and_dependencies() {
+        let directory = TempDir::new();
+        let list = directory.path().join("exclusions.md");
+        std::fs::write(
+            &list,
+            "ebkr-r2modman
+",
+        )
+        .unwrap();
+        let cache = PackageCache::new(
+            directory.path().join("packages.sqlite3"),
+            ModExclusions::new(list, "http://127.0.0.1:9/exclusions"),
+        );
+        let source = CatalogSource {
+            cache: &cache,
+            community: "lethal-company",
+        };
+        let manager: PackageName = "Ebkr-R2modman".parse().unwrap();
+        let id = PackageVersionId::new(manager.clone(), Version::new(3, 2, 21));
+        for error in [
+            source.latest(&manager).unwrap_err(),
+            source.exact(&id).unwrap_err(),
+        ] {
+            assert_eq!(error, "Ebkr-R2modman is not a mod and cannot be installed");
+        }
+        let request = InstallRequest {
+            package: manager,
+            version: None,
+        };
+        let error =
+            resolve_plan(&[request], &source, ResolveMode::Latest, &HashMap::new()).unwrap_err();
+        assert!(error.contains("not a mod"), "{error}");
+        assert_eq!(source.latest(&"Good-Mod".parse().unwrap()), Ok(None));
     }
 
     #[test]
