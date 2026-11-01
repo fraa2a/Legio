@@ -6,7 +6,6 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import IconButton from "../../components/ui/IconButton.svelte";
-  import ProgressBar from "../../components/ui/ProgressBar.svelte";
   import RefreshIcon from "../../components/ui/RefreshIcon.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
@@ -16,7 +15,7 @@
   import type { LoadStatus } from "../../stores/resource";
   import { showToast } from "../../stores/toast";
   import { toMessage } from "../../utils/errors";
-  import { formatDate, formatDateTime, regionalLocale } from "../../utils/format";
+  import { formatDate, regionalLocale } from "../../utils/format";
   import {
     activeFilterCount,
     appendPage,
@@ -132,43 +131,46 @@
     }
   }
 
+  const refreshTitle = $derived(!catalog.refreshing
+    ? t("Aggiorna il catalogo", $language)
+    : catalog.progress === null || catalog.progress.chunksTotal === 0
+      ? t("Aggiornamento del catalogo...", $language)
+      : t("Aggiornamento del catalogo: {0}%", $language, [catalogPercent(catalog.progress.chunksDone, catalog.progress.chunksTotal)]));
   const emptyMessage = $derived(syncedAt === null
     ? t("Il catalogo di questo gioco non è ancora stato scaricato.", $language)
     : t("Nessuna mod corrisponde ai filtri.", $language));
 </script>
 
 <div class="flex flex-col gap-4">
-  <div class="flex flex-wrap items-center gap-3 rounded-xl legio-glass p-3">
-    <div class="min-w-0 flex-1 basis-56 text-sm">
-      {#if catalog.refreshing}
-        <p class="text-zinc-200 light:text-zinc-800" role="status">
-          {catalog.progress === null || catalog.progress.chunksTotal === 0
-            ? t("Aggiornamento del catalogo...", $language)
-            : t("Aggiornamento del catalogo: {0}%", $language, [catalogPercent(catalog.progress.chunksDone, catalog.progress.chunksTotal)])}
-        </p>
-        <ProgressBar
-          value={catalog.progress === null ? 0 : catalogPercent(catalog.progress.chunksDone, catalog.progress.chunksTotal)}
-          tone="accent"
-          label={t("Avanzamento del catalogo", $language)}
-          class="mt-2"
-        />
-      {:else if catalog.status !== null}
-        <p class="text-zinc-300 light:text-zinc-700">
-          {t("{0} pacchetti nel catalogo", $language, [formatCount(catalog.status.packageCount, locale)])}
-          <span class="text-zinc-500"> · {t("aggiornato il {0}", $language, [formatDateTime(catalog.status.syncedAt, $language)])}</span>
-        </p>
-      {:else}
-        <p class="text-zinc-400 light:text-zinc-600">{t("Catalogo Thunderstore non ancora scaricato.", $language)}</p>
-      {/if}
+  <div class="flex flex-col gap-3 rounded-2xl legio-glass p-4">
+    <div class="flex flex-wrap items-end gap-3">
+      <div class="min-w-64 flex-[2]">
+        <TextField id="mod-search" type="search" label={t("Cerca", $language)} placeholder={t("Nome, autore o descrizione", $language)} bind:value={filters.text} />
+      </div>
+      <SelectField id="mod-sort" label={t("Ordina per", $language)} class="min-w-48 flex-1 sm:max-w-64" value={filters.sort} options={sortOptions($language)} onChange={(value) => (filters.sort = value as PackageSort)} />
+      <div class="flex h-10 items-center gap-2">
+        <Button
+          label={filterCount === 0 ? t("Filtri", $language) : t("Filtri ({0})", $language, [filterCount])}
+          variant="secondary"
+          pressed={filterCount > 0}
+          onClick={() => (filtersOpen = true)}
+        >
+          <Icon name="funnel" size="size-4" />
+        </Button>
+        <IconButton
+          size="lg"
+          variant="soft"
+          label={t("Aggiorna il catalogo", $language)}
+          title={refreshTitle}
+          onClick={() => void refreshCatalog(ecosystemGameId, true)}
+        >
+          <RefreshIcon spinning={catalog.refreshing} />
+        </IconButton>
+      </div>
     </div>
-    <IconButton
-      label={t("Aggiorna il catalogo", $language)}
-      title={t("Aggiorna il catalogo", $language)}
-      disabled={catalog.refreshing}
-      onClick={() => void refreshCatalog(ecosystemGameId, true)}
-    >
-      <RefreshIcon spinning={catalog.refreshing} />
-    </IconButton>
+    {#if items.length > 0}
+      <p class="text-xs text-zinc-400 light:text-zinc-600">{t("{0} risultati", $language, [total])}</p>
+    {/if}
   </div>
 
   {#if catalog.error !== null}
@@ -184,23 +186,6 @@
     <Callout tone={notice.tone} message={notice.message} items={notice.items} onDismiss={() => (notice = null)} />
   {/if}
 
-  <div class="flex flex-wrap gap-3">
-    <div class="min-w-64 flex-[2]">
-      <TextField id="mod-search" type="search" label={t("Cerca", $language)} placeholder={t("Nome, autore o descrizione", $language)} bind:value={filters.text} />
-    </div>
-    <SelectField id="mod-sort" label={t("Ordina per", $language)} class="min-w-48 flex-1 sm:max-w-64" value={filters.sort} options={sortOptions($language)} onChange={(value) => (filters.sort = value as PackageSort)} />
-    <div class="flex items-end">
-      <Button
-        label={filterCount === 0 ? t("Filtri", $language) : t("Filtri ({0})", $language, [filterCount])}
-        variant="secondary"
-        pressed={filterCount > 0}
-        onClick={() => (filtersOpen = true)}
-      >
-        <Icon name="funnel" size="size-4" />
-      </Button>
-    </div>
-  </div>
-
   <StateBlock
     {status}
     hasData={items.length > 0}
@@ -214,7 +199,6 @@
   />
 
   {#if items.length > 0}
-    <p class="text-xs text-zinc-500">{t("{0} risultati", $language, [total])}</p>
     <ul class="flex flex-col gap-2">
       {#each items as item (item.fullName)}
         {@const installState = installedState(item.fullName, installed, updateIndex)}

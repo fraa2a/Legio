@@ -267,6 +267,16 @@ pub async fn open_mod_profile_folder(app: AppHandle, profile_id: String) -> Resu
     .await
 }
 
+/// Bytes used by the profile folder; a missing folder counts as empty.
+#[tauri::command]
+pub async fn get_mod_profile_size(app: AppHandle, profile_id: String) -> Result<u64, String> {
+    run_modding(app, move |_, database, paths, _| {
+        let (_, directory) = profile_with_directory(database, paths, &profile_id)?;
+        super::cache_management::directory_size(&directory)
+    })
+    .await
+}
+
 /// The schema for actions that never download anything, so they keep
 /// working offline.
 async fn local_schema(app: &AppHandle) -> Result<Arc<EcosystemSchema>, String> {

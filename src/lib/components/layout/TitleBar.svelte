@@ -29,6 +29,7 @@
   import { settings, updateSettings } from "../../stores/settings";
   import { showToast } from "../../stores/toast";
   import { toMessage } from "../../utils/errors";
+  import { titleBarContent } from "../../stores/title-bar";
 
   let savingLibraryView = $state(false);
 
@@ -62,13 +63,16 @@
     return t("Libreria", $language);
   });
   const onboarding = $derived($settings.status === "ready" && !$settings.data.onboardingCompleted);
-  const title = $derived(onboarding ? t("Configurazione iniziale", $language) : (detail?.name ?? t(sectionLabels[$activeSection], $language)));
+  const pageTitle = $derived(onboarding ? t("Configurazione iniziale", $language) : (detail?.name ?? t(sectionLabels[$activeSection], $language)));
+  const pageContent = $derived(onboarding ? null : $titleBarContent);
+  const title = $derived(pageContent?.title ?? pageTitle);
   const libraryList = $derived($activeSection === "library" && $selectedGameId === null);
   const storeList = $derived($activeSection === "store" && $selectedStoreGame === null);
   const searchList = $derived(libraryList || storeList);
 
+  // Page-provided titles change with page state, so they do not move the focus.
   $effect(() => {
-    void title;
+    void pageTitle;
     if (searchList) searchInput?.focus();
     else heading?.focus();
   });
@@ -132,7 +136,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div class="my-1.5 grid shrink-0 grid-cols-[minmax(auto,1fr)_minmax(0,32rem)_minmax(auto,1fr)] items-center gap-2" data-tauri-drag-region>
-  <div class="col-start-1 flex items-center">
+  <div class="col-start-1 flex min-w-0 items-center gap-2">
     {#if libraryList}
       <div class="legio-glass flex h-11 items-center rounded-xl p-1">
         <IconButton size="lg" label={t("Aggiungi gioco", $language)} title={t("Aggiungi gioco", $language)} onClick={() => addGameDialogOpen.set(true)}>
@@ -161,6 +165,7 @@
         </button>
       </div>
     {/if}
+    {#if pageContent?.start}{@render pageContent.start()}{/if}
   </div>
   {#if searchList}
     <div class="legio-glass col-start-2 flex h-11 w-full min-w-0 max-w-lg justify-self-center items-center gap-2 rounded-xl px-3">
@@ -196,7 +201,8 @@
       </h1>
     </div>
   {/if}
-  <div class="col-start-3 flex items-center justify-end">
+  <div class="col-start-3 flex min-w-0 items-center justify-end gap-2">
+    {#if pageContent?.end}{@render pageContent.end()}{/if}
     <div class="legio-glass flex h-11 items-center gap-1 rounded-xl p-1">
       <IconButton size="lg" label={t("Riduci a icona", $language)} onClick={handleMinimize}>
         <Icon name="minimize" />
