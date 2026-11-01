@@ -138,6 +138,8 @@ jobs:
 
       - name: Test game instance picker
         run: corepack pnpm test:instances
+      - name: Test mod browser filters and documents
+        run: corepack pnpm test:modding-browser
 
       - name: Test release manifest
         run: python -B -m unittest discover -s scripts

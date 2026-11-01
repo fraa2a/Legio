@@ -36,11 +36,15 @@ export interface ProfileMod {
 
 export interface CatalogStatus { ecosystemGameId: string; packageCount: number; syncedAt: number }
 
+export type CategoryMode = "any" | "all";
+
 export type PackageSort = "lastUpdated" | "mostDownloads" | "topRated" | "newest" | "alphabetical";
 
 export interface PackageQuery {
   text?: string;
   categories?: string[];
+  categoryMode?: CategoryMode;
+  excludedCategories?: string[];
   includeDeprecated?: boolean;
   includeNsfw?: boolean;
   sort?: PackageSort;
@@ -78,9 +82,12 @@ export interface PackageVersionDetails {
   dependencies: string[];
   downloads: number;
   dateCreated: string;
+  websiteUrl: string | null;
 }
 
-export type PackageDetails = PackageSummary & { versions: PackageVersionDetails[] };
+export type PackageDetails = PackageSummary & { donationLink: string | null; versions: PackageVersionDetails[] };
+
+export type PackageDocument = "readme" | "changelog";
 
 export interface ModInstallRequest { fullName: string; version?: string }
 export interface ModInstallResult { installed: string[]; skipped: string[]; warnings: string[] }
@@ -183,3 +190,8 @@ export const clearModCache = (kind: ModCacheKind) => invoke<void>("clear_mod_cac
 export const readModLog = (gameId: string) => invoke<string>("read_mod_log", { gameId });
 export const openModLog = (gameId: string) => invoke<void>("open_mod_log", { gameId });
 export const buildModSupportReport = (gameId: string) => invoke<string>("build_mod_support_report", { gameId });
+
+// Sanitized HTML, or null when the version has no such document.
+export const getModPackageDocument = (fullName: string, version: string, document: PackageDocument) =>
+  invoke<string | null>("get_mod_package_document", { fullName, version, document });
+export const openModExternalLink = (url: string) => invoke<void>("open_mod_external_link", { url });

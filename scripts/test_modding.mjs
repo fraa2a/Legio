@@ -104,7 +104,7 @@ test("launch notices, queries and progress", () => {
   assert.deepEqual(model.packageQuery({ ...model.defaultBrowserFilters, text: "  suits " }, 30), {
     text: "suits", includeDeprecated: false, includeNsfw: false, sort: "mostDownloads", offset: 30, limit: 30,
   });
-  assert.deepEqual(model.packageQuery({ ...model.defaultBrowserFilters, category: "Items" }, 0).categories, ["Items"]);
+  assert.deepEqual(model.packageQuery({ ...model.defaultBrowserFilters, categories: ["Items"] }, 0).categories, ["Items"]);
   const progress = { profileId: "p", package: null, stage: "downloading", current: 2, total: 4, downloadedBytes: 50, totalBytes: 200 };
   assert.equal(model.installPercent(progress), 25);
   assert.equal(model.installPercent({ ...progress, stage: "extracting" }), 25);

@@ -148,6 +148,8 @@ fn main() {
             "read_mod_log",
             "open_mod_log",
             "build_mod_support_report",
+            "get_mod_package_document",
+            "open_mod_external_link",
         ]),
     ))
     .expect("Tauri build configuration failed");

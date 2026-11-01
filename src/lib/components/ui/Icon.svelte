@@ -44,6 +44,8 @@
   import Upload from "@lucide/svelte/icons/upload";
   import Wrench from "@lucide/svelte/icons/wrench";
   import X from "@lucide/svelte/icons/x";
+  import Funnel from "@lucide/svelte/icons/funnel";
+  import Heart from "@lucide/svelte/icons/heart";
 
   const icons = {
     "home": House,
@@ -91,6 +93,8 @@
     "copy": Copy,
     "external-link": ExternalLink,
     "thumbs-up": ThumbsUp,
+    "funnel": Funnel,
+    "heart": Heart,
   };
 
   export type IconName = keyof typeof icons;

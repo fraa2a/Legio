@@ -33,7 +33,8 @@
     "test:details-cache": "node --conditions=browser --test scripts/test_steam_details_cache.mjs",
     "test:modding": "node --conditions=browser --test scripts/test_modding.mjs",
     "test:modding-extra": "node --conditions=browser --test scripts/test_modding_extra.mjs",
-    "test:instances": "node --conditions=browser --test scripts/test_instance_picker.mjs"
+    "test:instances": "node --conditions=browser --test scripts/test_instance_picker.mjs",
+    "test:modding-browser": "node --conditions=browser --test scripts/test_modding_browser.mjs"
   },
   "dependencies": {
     "@lucide/svelte": "1.54.0",

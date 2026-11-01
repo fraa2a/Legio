@@ -1,6 +1,7 @@
 import { t, type Language } from "../../i18n";
 import { toMessage } from "../../utils/errors";
 import type {
+  CategoryMode,
   EcosystemGameSummary,
   InstallProgress,
   ModInstallResult,
@@ -162,7 +163,9 @@ export function launchNotice(status: ModLaunchStatus | null): LaunchNotice {
 
 export interface BrowserFilters {
   text: string;
-  category: string;
+  categories: string[];
+  categoryMode: CategoryMode;
+  excludedCategories: string[];
   sort: PackageSort;
   includeDeprecated: boolean;
   includeNsfw: boolean;
@@ -170,7 +173,9 @@ export interface BrowserFilters {
 
 export const defaultBrowserFilters: BrowserFilters = {
   text: "",
-  category: "",
+  categories: [],
+  categoryMode: "any",
+  excludedCategories: [],
   sort: "mostDownloads",
   includeDeprecated: false,
   includeNsfw: false,
@@ -182,12 +187,48 @@ export function packageQuery(filters: BrowserFilters, offset: number, limit = br
   const text = filters.text.trim();
   return {
     ...(text === "" ? {} : { text }),
-    ...(filters.category === "" ? {} : { categories: [filters.category] }),
+    ...(filters.categories.length === 0 ? {} : { categories: filters.categories, categoryMode: filters.categoryMode }),
+    ...(filters.excludedCategories.length === 0 ? {} : { excludedCategories: filters.excludedCategories }),
     includeDeprecated: filters.includeDeprecated,
     includeNsfw: filters.includeNsfw,
     sort: filters.sort,
     offset,
     limit,
+  };
+}
+
+export type CategoryState = "neutral" | "included" | "excluded";
+
+export function categoryState(filters: BrowserFilters, category: string): CategoryState {
+  if (filters.categories.includes(category)) return "included";
+  return filters.excludedCategories.includes(category) ? "excluded" : "neutral";
+}
+
+// Chips cycle neutral, included, excluded, neutral.
+export function cycleCategory(filters: BrowserFilters, category: string): BrowserFilters {
+  const without = (list: string[]) => list.filter((entry) => entry !== category);
+  const next = { ...filters, categories: without(filters.categories), excludedCategories: without(filters.excludedCategories) };
+  switch (categoryState(filters, category)) {
+    case "neutral": return { ...next, categories: [...next.categories, category] };
+    case "included": return { ...next, excludedCategories: [...next.excludedCategories, category] };
+    case "excluded": return next;
+  }
+}
+
+export function activeFilterCount(filters: BrowserFilters): number {
+  return filters.categories.length + filters.excludedCategories.length
+    + Number(filters.includeDeprecated) + Number(filters.includeNsfw);
+}
+
+// Keeps the search text and the sort order.
+export function clearFilterOptions(filters: BrowserFilters): BrowserFilters {
+  return {
+    ...filters,
+    categories: [],
+    categoryMode: "any",
+    excludedCategories: [],
+    includeDeprecated: false,
+    includeNsfw: false,
   };
 }
 

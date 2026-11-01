@@ -87,7 +87,7 @@ mod window_scale;
 
 use modding::{
     cache_management, catalog_commands, config_files, exchange_commands, install_commands, launch,
-    mod_icons, package_page, profile_commands, support_report,
+    mod_icons, package_document, package_page, profile_commands, support_report,
 };
 
 struct TrayAvailable(bool);
@@ -556,6 +556,8 @@ fn run_application(
             support_report::read_mod_log,
             support_report::open_mod_log,
             support_report::build_mod_support_report,
+            package_document::get_mod_package_document,
+            package_page::open_mod_external_link,
         ])
         .build(context)?
         .run(|app, event| {
