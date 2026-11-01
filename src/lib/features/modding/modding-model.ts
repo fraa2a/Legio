@@ -4,7 +4,6 @@ import type {
   EcosystemGameSummary,
   InstallProgress,
   ModInstallResult,
-  PackageDetails,
   ModdableGame,
   ModLaunchStatus,
   ModProfile,
@@ -276,18 +275,150 @@ export function classifyModdingError(error: unknown, selected?: Language): Moddi
     : { kind: "error", message: describeModdingError(message, selected) };
 }
 
-// Installed mods whose installed version lists `fullName` among its dependencies.
-export function dependentsOf(
-  fullName: string,
-  mods: readonly ProfileMod[],
-  details: Readonly<Record<string, PackageDetails | null>>,
-): string[] {
+// Installed mods that list `fullName` among their declared dependencies.
+export function dependentsOf(fullName: string, mods: readonly ProfileMod[]): string[] {
   const target = modKey(fullName);
-  return mods.filter((mod) => {
-    if (modKey(mod.fullName) === target) return false;
-    const version = details[modKey(mod.fullName)]?.versions.find((entry) => entry.versionNumber === mod.version);
-    return version?.dependencies.some((dependency) => modKey(splitPackageId(dependency).fullName) === target) ?? false;
-  }).map((mod) => mod.fullName);
+  return mods
+    .filter((mod) => modKey(mod.fullName) !== target && mod.dependencies.some((dependency) => modKey(dependency) === target))
+    .map((mod) => mod.fullName);
+}
+
+export interface DependencyIssues { missing: string[]; disabled: string[] }
+
+// Per mod (by `modKey`), the declared dependencies absent from the profile and the ones installed but off.
+// A disabled mod needs nothing, so it is only checked for missing packages.
+export function dependencyIssues(mods: readonly ProfileMod[]): Map<string, DependencyIssues> {
+  const installed = indexByFullName(mods);
+  const issues = new Map<string, DependencyIssues>();
+  for (const mod of mods) {
+    const found: DependencyIssues = { missing: [], disabled: [] };
+    for (const dependency of mod.dependencies) {
+      const key = modKey(dependency);
+      if (key === modKey(mod.fullName)) continue;
+      const target = installed.get(key);
+      if (target === undefined) found.missing.push(dependency);
+      else if (mod.enabled && !target.enabled) found.disabled.push(target.fullName);
+    }
+    if (found.missing.length > 0 || found.disabled.length > 0) issues.set(modKey(mod.fullName), found);
+  }
+  return issues;
+}
+
+export function dependencyIssueLabels(issues: DependencyIssues, selected: Language): string[] {
+  const title = (fullName: string) => packageTitle(splitFullName(fullName).name);
+  return [
+    ...issues.missing.map((name) => t("Dipendenza mancante: {0}", selected, [title(name)])),
+    ...issues.disabled.map((name) => t("Dipendenza disattivata: {0}", selected, [title(name)])),
+  ];
+}
+
+// Disabled mods to switch on, dependencies first, so that `fullNames` end up enabled with everything they need.
+export function enablePlan(fullNames: readonly string[], mods: readonly ProfileMod[]): string[] {
+  const installed = indexByFullName(mods);
+  const visited = new Set<string>();
+  const order: string[] = [];
+  const visit = (fullName: string): void => {
+    const mod = installed.get(modKey(fullName));
+    if (mod === undefined || visited.has(modKey(mod.fullName))) return;
+    visited.add(modKey(mod.fullName));
+    for (const dependency of mod.dependencies) visit(dependency);
+    if (!mod.enabled) order.push(mod.fullName);
+  };
+  fullNames.forEach(visit);
+  return order;
+}
+
+// Enabled mods that need `fullName`, directly or through other enabled mods, the most dependent first.
+export function enabledDependents(fullName: string, mods: readonly ProfileMod[]): string[] {
+  const enabled = mods.filter((mod) => mod.enabled);
+  const visited = new Set([modKey(fullName)]);
+  const order: string[] = [];
+  const visit = (name: string): void => {
+    for (const dependent of dependentsOf(name, enabled)) {
+      if (visited.has(modKey(dependent))) continue;
+      visited.add(modKey(dependent));
+      visit(dependent);
+      order.push(dependent);
+    }
+  };
+  visit(fullName);
+  return order;
+}
+
+// What a one-click fix does: install the missing packages, switch on the disabled ones with their own needs.
+export function dependencyFix(issues: DependencyIssues, mods: readonly ProfileMod[]): { install: string[]; enable: string[] } {
+  return { install: issues.missing, enable: enablePlan(issues.disabled, mods) };
+}
+
+export type InstalledSort = "order" | "name" | "date";
+export type DisabledPosition = "mixed" | "first" | "last";
+
+export interface InstalledFilters {
+  text: string;
+  sort: InstalledSort;
+  descending: boolean;
+  disabled: DisabledPosition;
+  onlyUpdates: boolean;
+}
+
+export const defaultInstalledFilters: InstalledFilters = {
+  text: "",
+  sort: "order",
+  descending: false,
+  disabled: "mixed",
+  onlyUpdates: false,
+};
+
+export function installedSortOptions(selected: Language): { value: InstalledSort; label: string }[] {
+  return [
+    { value: "order", label: t("Ordine di installazione", selected) },
+    { value: "name", label: t("Nome", selected) },
+    { value: "date", label: t("Data di installazione", selected) },
+  ];
+}
+
+export function disabledPositionOptions(selected: Language): { value: DisabledPosition; label: string }[] {
+  return [
+    { value: "mixed", label: t("Disattivate: in ordine", selected) },
+    { value: "first", label: t("Disattivate: per prime", selected) },
+    { value: "last", label: t("Disattivate: per ultime", selected) },
+  ];
+}
+
+export function hasInstalledFilters(filters: InstalledFilters): boolean {
+  return filters.text.trim() !== "" || filters.onlyUpdates;
+}
+
+function matchesText(mod: ProfileMod, words: readonly string[]): boolean {
+  const { owner, name } = splitFullName(mod.fullName);
+  const haystack = foldText(`${owner} ${name} ${packageTitle(name)}`);
+  return words.every((word) => haystack.includes(word));
+}
+
+// The loader row stays on top whatever the sort; the other rows are searched, filtered and ordered.
+export function arrangeInstalledMods(
+  mods: readonly ProfileMod[],
+  filters: InstalledFilters,
+  updates: ReadonlySet<string>,
+): ProfileMod[] {
+  const words = foldText(filters.text).split(/\s+/).filter((word) => word.length > 0);
+  const kept = mods.filter((mod) => matchesText(mod, words) && (!filters.onlyUpdates || updates.has(modKey(mod.fullName))));
+  const byOrder = (left: ProfileMod, right: ProfileMod) => left.installOrder - right.installOrder;
+  const byName = (left: ProfileMod, right: ProfileMod) =>
+    packageTitle(splitFullName(left.fullName).name).localeCompare(packageTitle(splitFullName(right.fullName).name), undefined, { sensitivity: "base" })
+    || left.fullName.localeCompare(right.fullName, undefined, { sensitivity: "base" });
+  const byDate = (left: ProfileMod, right: ProfileMod) => left.installedAt - right.installedAt || byOrder(left, right);
+  const compare = filters.sort === "name" ? byName : filters.sort === "date" ? byDate : byOrder;
+  const direction = filters.descending ? -1 : 1;
+  const loaders = kept.filter((mod) => mod.isLoader).sort(byOrder);
+  const sorted = kept.filter((mod) => !mod.isLoader).sort((left, right) => direction * compare(left, right));
+  if (filters.disabled === "mixed") return [...loaders, ...sorted];
+  const disabledFirst = filters.disabled === "first";
+  return [
+    ...loaders,
+    ...sorted.filter((mod) => mod.enabled !== disabledFirst),
+    ...sorted.filter((mod) => mod.enabled === disabledFirst),
+  ];
 }
 
 export interface ResultNotice { tone: "success" | "info" | "warning"; message: string; items: string[] }

@@ -141,6 +141,7 @@ fn main() {
             "import_mod_profile_code",
             "get_mod_launch_status",
             "restore_modded_game_folder",
+            "set_all_profile_mods_enabled",
         ]),
     ))
     .expect("Tauri build configuration failed");

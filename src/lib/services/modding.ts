@@ -32,6 +32,8 @@ export interface ProfileMod {
   installedAt: number;
   installOrder: number;
   isLoader: boolean;
+  // Packages (`Owner-Name`) the installed version declares, read from its stored manifest.
+  dependencies: string[];
 }
 
 export interface CatalogStatus { ecosystemGameId: string; packageCount: number; syncedAt: number }
@@ -86,6 +88,8 @@ export interface ModInstallRequest { fullName: string; version?: string }
 export interface ModInstallResult { installed: string[]; skipped: string[]; warnings: string[] }
 export interface ModUpdate { fullName: string; installedVersion: string; latestVersion: string }
 export interface UninstallOutcome { dependents: string[] }
+export interface ToggleFailure { fullName: string; message: string }
+export interface ToggleAllOutcome { changed: number; failed: ToggleFailure[] }
 export interface DeleteProfileOutcome { directoryError: string | null }
 export interface LocalImportOutcome { installed: ProfileMod; missingDependencies: string[] }
 
@@ -173,3 +177,6 @@ export function observeCatalogProgress(callback: (progress: CatalogProgress) => 
 export function observeInstallProgress(callback: (progress: InstallProgress) => void): Promise<UnlistenFn> {
   return listen<InstallProgress>("modding-install-progress", (event) => callback(event.payload));
 }
+
+export const setAllProfileModsEnabled = (profileId: string, enabled: boolean) =>
+  invoke<ToggleAllOutcome>("set_all_profile_mods_enabled", { profileId, enabled });

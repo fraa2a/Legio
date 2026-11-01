@@ -376,12 +376,23 @@ pub(crate) fn set_mod_enabled(
     let _guard = ctx.locks.lock(&profile.id)?;
     let mods = ctx.database.profile_mods(&profile.id)?;
     let record = find_mod(&mods, full_name)?;
+    toggle_mod(ctx, &profile, &profile_dir, record, enabled)
+}
+
+/// The profile lock must be held by the caller.
+fn toggle_mod(
+    ctx: &ModdingContext<'_>,
+    profile: &ModProfile,
+    profile_dir: &Path,
+    record: &ProfileMod,
+    enabled: bool,
+) -> Result<(), InstallError> {
     if record.enabled == enabled {
         return Ok(());
     }
     let id = version_id(record)?;
     if enabled {
-        enable_mod(ctx, &profile, &profile_dir, record, &id)
+        enable_mod(ctx, profile, profile_dir, record, &id)
     } else {
         if ctx.find_loader(&id.package.to_string()).is_some() {
             return Err(InstallError::LoaderCannotBeDisabled(id.package.to_string()));
@@ -389,12 +400,72 @@ pub(crate) fn set_mod_enabled(
         let files = ctx
             .database
             .profile_mod_files(&profile.id, &record.full_name)?;
-        remove_files(&profile_dir, &files)
-            .map_err(|failure| InstallError::Failed(failure.error))?;
+        remove_files(profile_dir, &files).map_err(|failure| InstallError::Failed(failure.error))?;
         ctx.database
             .set_profile_mod_enabled(&profile.id, &record.full_name, false)?;
         Ok(())
     }
+}
+
+/// A mod that [`set_all_mods_enabled`] could not switch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ToggleFailure {
+    pub(crate) full_name: String,
+    pub(crate) message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ToggleAllOutcome {
+    /// Mods that were switched.
+    pub(crate) changed: usize,
+    pub(crate) failed: Vec<ToggleFailure>,
+}
+
+/// Enables or disables every mod of the profile except the loader under one
+/// hold of the profile lock. Each mod is switched like in
+/// [`set_mod_enabled`], so a failing one stays as it was and the others are
+/// still processed. Enabling goes in install order, disabling in reverse.
+/// `restore_cache` downloads a lost package again.
+pub(crate) fn set_all_mods_enabled(
+    ctx: &ModdingContext<'_>,
+    profile_id: &str,
+    enabled: bool,
+    mut restore_cache: impl FnMut(&PackageVersionId) -> Result<(), String>,
+) -> Result<ToggleAllOutcome, InstallError> {
+    let (profile, profile_dir) = profile_with_directory(ctx.database, ctx.paths, profile_id)?;
+    let _guard = ctx.locks.lock(&profile.id)?;
+    let mut mods = ctx.database.profile_mods(&profile.id)?;
+    if !enabled {
+        mods.reverse();
+    }
+    let mut outcome = ToggleAllOutcome {
+        changed: 0,
+        failed: Vec::new(),
+    };
+    for record in &mods {
+        if record.enabled == enabled || ctx.find_loader(&record.full_name).is_some() {
+            continue;
+        }
+        let result = match toggle_mod(ctx, &profile, &profile_dir, record, enabled) {
+            Err(InstallError::CacheMissing {
+                package,
+                online_source: true,
+            }) => restore_cache(&package)
+                .map_err(InstallError::Failed)
+                .and_then(|()| toggle_mod(ctx, &profile, &profile_dir, record, enabled)),
+            result => result,
+        };
+        match result {
+            Ok(()) => outcome.changed += 1,
+            Err(error) => outcome.failed.push(ToggleFailure {
+                full_name: record.full_name.clone(),
+                message: error.to_string(),
+            }),
+        }
+    }
+    Ok(outcome)
 }
 
 fn enable_mod(
@@ -459,6 +530,26 @@ fn manifest_dependencies(paths: &ModdingPaths, record: &ProfileMod) -> Vec<Strin
             Vec::new()
         }
     }
+}
+
+/// The packages (`Owner-Name`, no version) the installed version of `record`
+/// depends on, read from the manifest kept in the package cache. A package
+/// whose cache is gone or has no manifest reports none.
+pub(crate) fn declared_dependencies(paths: &ModdingPaths, record: &ProfileMod) -> Vec<String> {
+    let mut packages: Vec<String> = Vec::new();
+    for dependency in manifest_dependencies(paths, record) {
+        let Ok(id) = dependency.parse::<PackageVersionId>() else {
+            continue;
+        };
+        let package = id.package.to_string();
+        if !packages
+            .iter()
+            .any(|known| known.eq_ignore_ascii_case(&package))
+        {
+            packages.push(package);
+        }
+    }
+    packages
 }
 
 fn find_mod<'a>(mods: &'a [ProfileMod], full_name: &str) -> Result<&'a ProfileMod, InstallError> {
@@ -1219,6 +1310,113 @@ mod tests {
         assert!(matches!(error, InstallError::LoaderCannotBeDisabled(_)));
         assert!(env.exists("winhttp.dll"));
         assert!(env.mods()[0].enabled);
+    }
+
+    fn enabled_flags(env: &Env) -> Vec<(String, bool)> {
+        env.mods()
+            .into_iter()
+            .map(|record| (record.full_name, record.enabled))
+            .collect()
+    }
+
+    #[test]
+    fn bulk_toggle_switches_every_mod_but_the_loader() {
+        let env = Env::new();
+        env.install(&repo(), &["Other-Addon-1.0.0"], ResolveMode::Latest)
+            .unwrap();
+        let ctx = env.ctx();
+
+        let outcome = set_all_mods_enabled(&ctx, &env.profile.id, false, |_| Ok(())).unwrap();
+        assert_eq!((outcome.changed, outcome.failed.len()), (2, 0));
+        assert_eq!(
+            enabled_flags(&env),
+            [
+                ("BepInEx-BepInExPack".to_owned(), true),
+                ("Owner-Mod".to_owned(), false),
+                ("Other-Addon".to_owned(), false),
+            ]
+        );
+        assert!(!env.exists("BepInEx/plugins/Owner-Mod"));
+        assert!(!env.exists("BepInEx/plugins/Other-Addon"));
+        assert!(env.exists("winhttp.dll"));
+
+        let outcome = set_all_mods_enabled(&ctx, &env.profile.id, true, |_| Ok(())).unwrap();
+        assert_eq!((outcome.changed, outcome.failed.len()), (2, 0));
+        assert!(enabled_flags(&env).iter().all(|(_, enabled)| *enabled));
+        assert!(env.exists("BepInEx/plugins/Owner-Mod/Mod.dll"));
+        assert!(env.exists("BepInEx/plugins/Other-Addon/Addon.dll"));
+
+        // Nothing left to switch.
+        let outcome = set_all_mods_enabled(&ctx, &env.profile.id, true, |_| Ok(())).unwrap();
+        assert_eq!((outcome.changed, outcome.failed.len()), (0, 0));
+    }
+
+    #[test]
+    fn bulk_enable_reports_mods_that_cannot_be_restored() {
+        let env = Env::new();
+        env.install(&repo(), &["Other-Addon-1.0.0"], ResolveMode::Latest)
+            .unwrap();
+        let ctx = env.ctx();
+        set_all_mods_enabled(&ctx, &env.profile.id, false, |_| Ok(())).unwrap();
+        let lost = package_dir(&env.paths, &"Owner-Mod-2.0.0".parse().unwrap(), true);
+        fs::remove_dir_all(&lost).unwrap();
+
+        let restored = RefCell::new(Vec::new());
+        let outcome = set_all_mods_enabled(&ctx, &env.profile.id, true, |package| {
+            restored.borrow_mut().push(package.to_string());
+            Err("offline".to_owned())
+        })
+        .unwrap();
+
+        assert_eq!(restored.into_inner(), ["Owner-Mod-2.0.0"]);
+        assert_eq!(outcome.changed, 1);
+        assert_eq!(
+            outcome.failed,
+            [ToggleFailure {
+                full_name: "Owner-Mod".to_owned(),
+                message: "offline".to_owned(),
+            }]
+        );
+        // The failed mod is still disabled and has no files; the other one is on.
+        assert_eq!(
+            enabled_flags(&env),
+            [
+                ("BepInEx-BepInExPack".to_owned(), true),
+                ("Owner-Mod".to_owned(), false),
+                ("Other-Addon".to_owned(), true),
+            ]
+        );
+        assert!(!env.exists("BepInEx/plugins/Owner-Mod"));
+        assert!(env.exists("BepInEx/plugins/Other-Addon/Addon.dll"));
+    }
+
+    #[test]
+    fn bulk_toggle_on_a_missing_profile_fails() {
+        let env = Env::new();
+        let missing = uuid::Uuid::new_v4().to_string();
+        assert!(set_all_mods_enabled(&env.ctx(), &missing, false, |_| Ok(())).is_err());
+    }
+
+    #[test]
+    fn declared_dependencies_come_from_the_cached_manifest() {
+        let env = Env::new();
+        env.install(&repo(), &["Other-Addon-1.0.0"], ResolveMode::Latest)
+            .unwrap();
+        let declared = |name: &str| {
+            let mods = env.mods();
+            let record = mods.iter().find(|record| record.full_name == name).unwrap();
+            declared_dependencies(&env.paths, record)
+        };
+        assert_eq!(declared("Other-Addon"), ["Owner-Mod"]);
+        assert_eq!(declared("Owner-Mod"), ["BepInEx-BepInExPack"]);
+        assert!(declared("BepInEx-BepInExPack").is_empty());
+
+        // Disabled mods keep their cache, so their dependencies stay known.
+        set_mod_enabled(&env.ctx(), &env.profile.id, "Other-Addon", false).unwrap();
+        assert_eq!(declared("Other-Addon"), ["Owner-Mod"]);
+
+        fs::remove_dir_all(env.paths.root().join("cache")).unwrap();
+        assert!(declared("Other-Addon").is_empty());
     }
 
     #[test]

@@ -21,6 +21,7 @@ import {
   renameModProfile,
   restoreModdedGameFolder,
   setActiveModProfile,
+  setAllProfileModsEnabled,
   setProfileModEnabled,
   uninstallProfileMod,
   updateProfileMods,
@@ -39,6 +40,7 @@ import {
   type ModUpdate,
   type PackageDetails,
   type ProfileMod,
+  type ToggleAllOutcome,
   type UninstallOutcome,
 } from "../services/modding";
 import { toMessage } from "../utils/errors";
@@ -206,8 +208,15 @@ export function importLocalArchive(gameId: string, profileId: string, archivePat
   return track(gameId, profileId, () => importLocalMod(profileId, archivePath));
 }
 
-export function setModEnabled(gameId: string, profileId: string, fullName: string, enabled: boolean): Promise<void> {
-  return track(gameId, profileId, () => setProfileModEnabled(profileId, fullName, enabled));
+// Switches the mods one after the other, so callers list dependencies before the mods that need them.
+export function setModsEnabled(gameId: string, profileId: string, fullNames: string[], enabled: boolean): Promise<void> {
+  return track(gameId, profileId, async () => {
+    for (const fullName of fullNames) await setProfileModEnabled(profileId, fullName, enabled);
+  });
+}
+
+export function setAllModsEnabled(gameId: string, profileId: string, enabled: boolean): Promise<ToggleAllOutcome> {
+  return track(gameId, profileId, () => setAllProfileModsEnabled(profileId, enabled));
 }
 
 export async function uninstallMod(gameId: string, profileId: string, fullName: string): Promise<UninstallOutcome> {

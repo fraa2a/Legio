@@ -549,6 +549,7 @@ fn run_application(
             exchange_commands::import_mod_profile_code,
             launch::get_mod_launch_status,
             launch::restore_modded_game_folder,
+            profile_commands::set_all_profile_mods_enabled,
         ])
         .build(context)?
         .run(|app, event| {
