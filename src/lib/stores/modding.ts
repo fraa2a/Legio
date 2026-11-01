@@ -1,4 +1,4 @@
-import { derived, get, writable, type Readable } from "svelte/store";
+import { derived, get, readable, writable, type Readable } from "svelte/store";
 import {
   bindGameToEcosystem,
   cancelModInstall,
@@ -283,4 +283,12 @@ export function packageDetails(ecosystemGameId: string, fullName: string): Promi
     if (packageCache.size > packageCacheLimit && oldest.done !== true) packageCache.delete(oldest.value);
   }
   return pending;
+}
+
+const noProfiles: Readable<ReadonlyMap<string, readonly ModProfile[]>> = readable(new Map());
+
+// Profiles of several instances at once, for pickers that list them side by side.
+export function profilesOfGames(gameIds: readonly string[]): Readable<ReadonlyMap<string, readonly ModProfile[]>> {
+  if (gameIds.length === 0) return noProfiles;
+  return derived(gameIds.map(modProfiles), (states) => new Map(gameIds.map((gameId, index) => [gameId, states[index].data])));
 }

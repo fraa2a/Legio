@@ -1024,5 +1024,6 @@
   "Il profilo mod attivo non ha BepInEx. Installalo dal gestore delle mod o scegli Vanilla per avviare senza mod.": "The active mod profile has no BepInEx. Install it from the mod manager or choose Vanilla to launch without mods.",
   "Il file è cambiato sul disco: ricaricalo prima di salvare.": "The file changed on disk: reload it before saving.",
   "{0} è già nella cartella del gioco e non è stato installato da Legio. Spostalo o rimuovilo per avviare con le mod.": "{0} is already in the game folder and was not installed by Legio. Move or remove it to launch with mods.",
-  "Esiste già un profilo chiamato \"{0}\". Scegli un altro nome.": "A profile named \"{0}\" already exists. Choose another name."
+  "Esiste già un profilo chiamato \"{0}\". Scegli un altro nome.": "A profile named \"{0}\" already exists. Choose another name.",
+  "Con mod": "Modded"
 }

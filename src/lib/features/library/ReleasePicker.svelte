@@ -7,6 +7,9 @@
     sizeBytes?: number | null;
     availability?: "verified" | "unverified";
     isSteam?: boolean;
+    // Set on the entry of a mod profile based on the instance the entry names.
+    profileName?: string;
+    disabled?: boolean;
   }
 </script>
 
@@ -120,7 +123,7 @@
     const group = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-group]") : null;
     if (group === null) return;
     event.preventDefault();
-    const items = [...group.querySelectorAll<HTMLButtonElement>("button")];
+    const items = [...group.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
     const current = items.indexOf(document.activeElement as HTMLButtonElement);
     const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
       : event.key === "ArrowDown" ? (current + 1) % items.length
@@ -144,6 +147,10 @@
 {/snippet}
 
 {#snippet badges(option: ReleaseOption)}
+  {#if option.profileName !== undefined}
+    <Badge tone="info" title={t("Con mod", $language)} />
+    <span class="max-w-32 min-w-0 shrink" title={option.profileName}><Badge title={option.profileName} /></span>
+  {/if}
   {#if option.sourceName}<span class="max-w-32 min-w-0 shrink" title={option.sourceName}><Badge title={option.sourceName} /></span>{/if}
   {#if option.isSteam}<Badge tone="info" title="STEAM" />{/if}
   {#if option.availability}<Badge tone={availabilityMeta[option.availability].tone} title={t(availabilityMeta[option.availability].label, $language)} />{/if}
@@ -159,7 +166,7 @@
     <button
       bind:this={trigger}
       type="button"
-      aria-label={t("Seleziona versione: {0}, {1}", $language, [selected.name, selected.subtitle])}
+      aria-label={t("Seleziona versione: {0}, {1}", $language, [selected.profileName === undefined ? selected.name : `${selected.name} (${selected.profileName})`, selected.subtitle])}
       aria-haspopup="listbox"
       aria-expanded={open}
       aria-controls={open ? panelId : undefined}
@@ -197,10 +204,11 @@
                   role="option"
                   aria-selected={option.id === selectedId}
                   tabindex={option.id === selectedId ? 0 : -1}
+                  disabled={option.disabled}
                   onclick={() => choose(option.id)}
-                  class="flex min-h-14 w-full items-center gap-3 rounded-lg px-2 py-2 text-left outline-none hover:bg-white/10 focus-visible:bg-white/10 aria-selected:bg-white/10 light:hover:bg-zinc-900/5 light:focus-visible:bg-zinc-900/5 light:aria-selected:bg-zinc-900/10"
+                  class="flex min-h-14 items-center gap-3 rounded-lg px-2 py-2 text-left outline-none enabled:hover:bg-white/10 focus-visible:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50 aria-selected:bg-white/10 light:enabled:hover:bg-zinc-900/5 light:focus-visible:bg-zinc-900/5 light:aria-selected:bg-zinc-900/10 {option.profileName === undefined ? '' : 'ml-5 rounded-l-none border-l-2 border-white/15 light:border-zinc-900/15'}"
                 >
-                  {@render icon(option.name, "size-9")}
+                  {@render icon(option.name, option.profileName === undefined ? "size-9" : "size-7")}
                   <span class="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span class="flex min-w-0 items-center gap-1.5">
                       <span class="truncate text-sm font-semibold text-zinc-100 light:text-zinc-900">{option.name}</span>

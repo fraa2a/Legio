@@ -1037,6 +1037,64 @@ mod tests {
     }
 
     #[test]
+    fn instances_of_one_game_do_not_share_loader_state() {
+        let fixture = Fixture::new();
+        fixture.activate();
+        fixture.install_loader("BepInEx.Preloader.dll", None);
+        let other = fixture
+            .database
+            .create_game(CreateGameInput {
+                name: "Game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        fixture
+            .database
+            .set_game_modding(&other.id, "lethal-company")
+            .unwrap();
+        let other_dir = fixture.directory.join("other");
+        fs::create_dir_all(&other_dir).unwrap();
+        let launch_other = || {
+            prepare(
+                &fixture.database,
+                &fixture.paths,
+                &other.id,
+                &other_dir,
+                PathStyle::Native,
+                &|name| name == LOADER,
+            )
+        };
+
+        fixture.prepare(PathStyle::Native).unwrap().unwrap();
+        assert!(fixture.game_dir.join("winhttp.dll").exists());
+        assert_eq!(launch_other().unwrap(), None);
+        assert_eq!(fs::read_dir(&other_dir).unwrap().count(), 0);
+        assert!(fixture.database.mod_profiles(&other.id).unwrap().is_empty());
+        assert!(
+            fixture
+                .database
+                .set_active_mod_profile(&other.id, Some(&fixture.profile_id))
+                .is_err()
+        );
+
+        let foreign = fixture
+            .database
+            .create_mod_profile(&other.id, "Main", 2)
+            .unwrap();
+        assert_ne!(
+            fixture.paths.profile_dir(&other.id, &foreign.id).unwrap(),
+            fixture.profile_dir()
+        );
+        fixture
+            .database
+            .set_active_mod_profile(&other.id, Some(&foreign.id))
+            .unwrap();
+        // The profile of the first instance has a loader, the new one has none.
+        assert!(launch_other().is_err());
+        assert_eq!(fs::read_dir(&other_dir).unwrap().count(), 0);
+    }
+
+    #[test]
     fn status_reports_loader_state() {
         let fixture = Fixture::new();
         let status = |supported| {
