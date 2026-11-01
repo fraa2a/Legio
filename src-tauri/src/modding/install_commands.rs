@@ -104,6 +104,11 @@ impl InstallCancellations {
         })
     }
 
+    /// True while any install or download is in progress.
+    pub(crate) fn any_active(&self) -> Result<bool, String> {
+        Ok(!self.lock()?.is_empty())
+    }
+
     fn cancel(&self, profile_id: &str) -> Result<(), String> {
         if let Some(sender) = self.lock()?.get(&profile_id.to_lowercase()) {
             sender.send_replace(true);
@@ -584,6 +589,16 @@ mod tests {
             };
             assert!(parse_requests(&[request]).is_err(), "{name}");
         }
+    }
+
+    #[test]
+    fn reports_active_installs() {
+        let registry = InstallCancellations::default();
+        assert!(!registry.any_active().unwrap());
+        let session = registry.begin("A").unwrap();
+        assert!(registry.any_active().unwrap());
+        drop(session);
+        assert!(!registry.any_active().unwrap());
     }
 
     #[test]

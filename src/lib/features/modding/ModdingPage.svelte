@@ -9,6 +9,7 @@
   import { bindGame, moddableGames } from "../../stores/modding";
   import { openModManager, selectSection } from "../../stores/navigation";
   import EcosystemGameDialog from "./EcosystemGameDialog.svelte";
+  import ModCachePanel from "./ModCachePanel.svelte";
   import ModdableGameCard from "./ModdableGameCard.svelte";
   import { moddableGameState, sortModdableGames } from "./modding-model";
 
@@ -85,6 +86,8 @@
       </ul>
     </section>
   {/if}
+
+  <ModCachePanel />
 </div>
 
 <EcosystemGameDialog

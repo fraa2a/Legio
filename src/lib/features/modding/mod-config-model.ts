@@ -24,12 +24,30 @@ export function splitConfigPath(relativePath: string): { directory: string; name
   return index < 0 ? { directory: "", name: normalized } : { directory: normalized.slice(0, index), name: normalized.slice(index + 1) };
 }
 
-export function filterConfigFiles(files: readonly ConfigFileEntry[], query: string): ConfigFileView[] {
+export type ConfigSort = "name-asc" | "name-desc" | "modified-desc" | "modified-asc";
+
+const compareNames = (a: ConfigFileEntry, b: ConfigFileEntry): number =>
+  a.relativePath.localeCompare(b.relativePath, undefined, { sensitivity: "base", numeric: true });
+
+export function sortConfigFiles(files: readonly ConfigFileEntry[], sort: ConfigSort): ConfigFileEntry[] {
+  const [key, direction] = sort.split("-");
+  const sign = direction === "desc" ? -1 : 1;
+  return [...files].sort((a, b) => (key === "modified" ? sign * (a.modified - b.modified) : sign * compareNames(a, b)) || compareNames(a, b));
+}
+
+export function filterConfigFiles(files: readonly ConfigFileEntry[], query: string, sort: ConfigSort = "name-asc"): ConfigFileView[] {
   const needle = query.trim().toLowerCase();
-  return files
-    .filter((file) => needle.length === 0 || file.relativePath.toLowerCase().includes(needle))
-    .map((file) => ({ file, ...splitConfigPath(file.relativePath) }))
-    .sort((a, b) => a.file.relativePath.localeCompare(b.file.relativePath, undefined, { sensitivity: "base", numeric: true }));
+  return sortConfigFiles(files.filter((file) => needle.length === 0 || file.relativePath.toLowerCase().includes(needle)), sort)
+    .map((file) => ({ file, ...splitConfigPath(file.relativePath) }));
+}
+
+export function configSortOptions(language?: Language): { value: ConfigSort; label: string }[] {
+  return [
+    { value: "name-asc", label: t("Nome (A-Z)", language) },
+    { value: "name-desc", label: t("Nome (Z-A)", language) },
+    { value: "modified-desc", label: t("Modificati di recente", language) },
+    { value: "modified-asc", label: t("Modificati meno di recente", language) },
+  ];
 }
 
 const typeName = (entry: ConfigEntry): string => (entry.settingType ?? "").trim().toLowerCase();

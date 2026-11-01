@@ -292,3 +292,9 @@ export function profilesOfGames(gameIds: readonly string[]): Readable<ReadonlyMa
   if (gameIds.length === 0) return noProfiles;
   return derived(gameIds.map(modProfiles), (states) => new Map(gameIds.map((gameId, index) => [gameId, states[index].data])));
 }
+
+// The local catalog was deleted, so every community must sync again on its next visit.
+export function resetCatalogs(): void {
+  packageCache.clear();
+  catalogState.set({});
+}

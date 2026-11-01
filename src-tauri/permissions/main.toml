@@ -140,4 +140,11 @@ commands.allow = [
   "import_mod_profile_code",
   "get_mod_launch_status",
   "restore_modded_game_folder",
+  "get_mod_cache_usage",
+  "clear_mod_cache",
+  "delete_mod_config_file",
+  "open_mod_config_file",
+  "read_mod_log",
+  "open_mod_log",
+  "build_mod_support_report",
 ]

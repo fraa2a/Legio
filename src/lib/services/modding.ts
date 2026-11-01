@@ -173,3 +173,13 @@ export function observeCatalogProgress(callback: (progress: CatalogProgress) => 
 export function observeInstallProgress(callback: (progress: InstallProgress) => void): Promise<UnlistenFn> {
   return listen<InstallProgress>("modding-install-progress", (event) => callback(event.payload));
 }
+
+export type ModCacheKind = "packages" | "catalog" | "icons";
+export interface ModCacheUsage { packagesBytes: number; catalogBytes: number; iconsBytes: number }
+
+export const getModCacheUsage = () => invoke<ModCacheUsage>("get_mod_cache_usage");
+export const clearModCache = (kind: ModCacheKind) => invoke<void>("clear_mod_cache", { kind });
+
+export const readModLog = (gameId: string) => invoke<string>("read_mod_log", { gameId });
+export const openModLog = (gameId: string) => invoke<void>("open_mod_log", { gameId });
+export const buildModSupportReport = (gameId: string) => invoke<string>("build_mod_support_report", { gameId });

@@ -41,6 +41,11 @@ impl ProfileLocks {
         }))
     }
 
+    /// True while any profile is held by an operation.
+    pub(crate) fn any_busy(&self) -> Result<bool, String> {
+        Ok(!self.busy.lock().map_err(|_| poisoned())?.is_empty())
+    }
+
     /// Waits until no other operation holds the profile.
     pub(crate) fn lock(&self, profile_id: &str) -> Result<ProfileGuard<'_>, String> {
         let key = profile_id.to_lowercase();
