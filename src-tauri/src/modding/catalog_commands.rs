@@ -19,7 +19,7 @@ use crate::{
 const PROGRESS_EVENT: &str = "modding-catalog-progress";
 
 /// Mods are only installed for BepInEx games in this version.
-fn supports_loader(loader: PackageLoader) -> bool {
+pub(super) fn supports_loader(loader: PackageLoader) -> bool {
     loader == PackageLoader::Bepinex
 }
 

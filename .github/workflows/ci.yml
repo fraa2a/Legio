@@ -140,6 +140,8 @@ jobs:
         run: corepack pnpm test:instances
       - name: Test mod browser filters and documents
         run: corepack pnpm test:modding-browser
+      - name: Test Thunderstore mod links
+        run: corepack pnpm test:modding-links
 
       - name: Test release manifest
         run: python -B -m unittest discover -s scripts

@@ -34,7 +34,8 @@
     "test:modding": "node --conditions=browser --test scripts/test_modding.mjs",
     "test:modding-extra": "node --conditions=browser --test scripts/test_modding_extra.mjs",
     "test:instances": "node --conditions=browser --test scripts/test_instance_picker.mjs",
-    "test:modding-browser": "node --conditions=browser --test scripts/test_modding_browser.mjs"
+    "test:modding-browser": "node --conditions=browser --test scripts/test_modding_browser.mjs",
+    "test:modding-links": "node --conditions=browser --test scripts/test_modding_links.mjs"
   },
   "dependencies": {
     "@lucide/svelte": "1.54.0",

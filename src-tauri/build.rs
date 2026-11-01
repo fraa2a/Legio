@@ -151,6 +151,8 @@ fn main() {
             "get_mod_package_document",
             "open_mod_external_link",
             "set_all_profile_mods_enabled",
+            "take_mod_links",
+            "resolve_mod_link",
         ]),
     ))
     .expect("Tauri build configuration failed");
