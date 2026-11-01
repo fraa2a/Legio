@@ -83,6 +83,15 @@ test("profile names follow the backend rules", () => {
   assert.deepEqual(model.profileOptions(profiles, "it").map(option => option.value), ["", "1", "2"]);
 });
 
+test("the mod page lists profiles only and shows the active one, else the first", () => {
+  const profiles = [{ id: "b", gameId: "g", name: "beta", createdAt: 0 }, { id: "a", gameId: "g", name: "Alpha", createdAt: 0 }];
+  const game = (activeProfileId) => moddable("g", "G", { binding: { gameId: "g", ecosystemGameId: "lethal-company", activeProfileId } });
+  assert.deepEqual(model.profileChoices(profiles), [{ value: "a", label: "Alpha" }, { value: "b", label: "beta" }]);
+  assert.deepEqual(model.shownProfile(game("b"), profiles), { profile: profiles[0], active: true });
+  assert.deepEqual(model.shownProfile(game(null), profiles), { profile: profiles[1], active: false });
+  assert.equal(model.shownProfile(game(null), []), null);
+});
+
 test("package ids and installed state", () => {
   assert.deepEqual(model.splitPackageId("BepInEx-BepInExPack-5.4.2100"), { fullName: "BepInEx-BepInExPack", version: "5.4.2100" });
   assert.equal(model.displayPackageId("Owner-More_Suits-1.2.0"), "More Suits 1.2.0");
@@ -450,6 +459,9 @@ test("the browser debounces search and installs from results", async () => {
     }]);
     assert.equal(searches.length, 2, "typing triggers one search after the initial one");
     assert.ok(view.target.textContent.includes("More Suits"));
+    assert.ok(view.target.textContent.includes("1 risultati"));
+    assert.ok(button(view.target, "Aggiorna il catalogo"), "the catalog is refreshed from an icon button");
+    assert.ok(!view.target.textContent.includes("pacchetti nel catalogo"));
     button(view.target, "Installa").click(); await settle();
     assert.deepEqual(calls.find(([command]) => command === "install_mods"), ["install_mods", { profileId: "p", packages: [{ fullName: "Owner-More_Suits" }] }]);
   } finally { await view.destroy(); delete globalThis.browserInvoke; }
@@ -506,9 +518,11 @@ test("a new profile is activated and gets BepInEx right away", async () => {
     if (command === "set_active_mod_profile") return binding(args.profileId);
     if (command === "install_mod_loader") return { installed: ["BepInEx-BepInExPack-5.4.0"], skipped: [], warnings: [] };
     if (command === "search_mods") return { total: 0, items: [] };
+    if (command === "get_mod_profile_size") return 0;
     throw new Error(`unexpected ${command}`);
   }, {
-    "src/lib/features/library/GameIcon.svelte": await stub("<span></span>"),
+    // Lucide icons make the inlined module tree of the whole mod page too large for the heap.
+    "src/lib/components/ui/Icon.svelte": await stub("<span></span>"),
     "src/lib/services/dialog": dataModule("export const pickModArchive = async () => null, pickModProfileFile = async () => null, pickModProfileExportPath = async () => null;"),
   });
   const view = await render(load, "src/lib/features/modding/GameModsView.svelte", { gameId: "a" });
@@ -525,6 +539,59 @@ test("a new profile is activated and gets BepInEx right away", async () => {
     assert.deepEqual(calls.find(([command]) => command === "install_mod_loader"), ["install_mod_loader", { profileId: "p1" }]);
     assert.ok(order.indexOf("set_active_mod_profile") < order.indexOf("install_mod_loader"));
   } finally { await view.destroy(); delete globalThis.createInvoke; }
+});
+
+test("the title bar gets the profile controls and an inactive profile is not activated on its own", async () => {
+  const calls = [];
+  const profiles = [{ id: "p2", gameId: "a", name: "Zeta", createdAt: 0 }, { id: "p1", gameId: "a", name: "Main", createdAt: 0 }];
+  const binding = (activeProfileId) => ({ gameId: "a", ecosystemGameId: "lethal-company", activeProfileId });
+  const { load } = await fixture("titleInvoke", async (command, args) => {
+    calls.push([command, args]);
+    if (command === "list_moddable_games") return [moddable("a", "Alpha", { binding: binding(null) })];
+    if (command === "list_mod_profiles") return profiles;
+    if (command === "list_games" || command === "list_profile_mods" || command === "list_mod_updates") return [];
+    if (command === "refresh_mod_catalog") return { ecosystemGameId: "lethal-company", packageCount: 1, syncedAt: 1 };
+    if (command === "get_mod_launch_status") {
+      return { bound: true, ecosystemGameId: "lethal-company", activeProfileId: null, launchSupported: true, loaderDeployed: false, preloaderFound: false, doorstopVersion: null };
+    }
+    if (command === "get_mod_profile_size") return 2048;
+    if (command === "set_active_mod_profile") return binding(args.profileId);
+    throw new Error(`unexpected ${command}`);
+  }, {
+    "src/lib/components/ui/Icon.svelte": await stub("<span></span>"),
+    "src/lib/services/dialog": dataModule("export const pickModArchive = async () => null, pickModProfileFile = async () => null, pickModProfileExportPath = async () => null;"),
+  });
+  const navigation = await import(await load("src/lib/stores/navigation.ts"));
+  const titleBar = await import(await load("src/lib/stores/title-bar.ts"));
+  navigation.openModManager("a", "game");
+  const view = await render(load, "src/lib/features/modding/GameModsView.svelte", { gameId: "a" });
+  const host = await stub("<script>let { content } = $props();</script>{@render content.start?.()}{@render content.end?.()}");
+  const target = document.createElement("div");
+  document.body.append(target);
+  let bar = null;
+  try {
+    const content = get(titleBar.titleBarContent);
+    assert.equal(content.title, "Main", "the first profile by name is shown");
+    bar = mount((await import(host)).default, { target, props: { content } });
+    await settle();
+    // jsdom has no popover API.
+    dom.window.HTMLElement.prototype.showPopover ??= () => {};
+    target.querySelector("#mod-active-profile").click(); await settle();
+    assert.deepEqual([...target.querySelectorAll('[role="option"]')].map(option => option.textContent.trim()), ["Main", "Zeta"]);
+    assert.ok(button(target, "Nuovo profilo") && button(target, "Elimina profilo"));
+    assert.ok(view.target.textContent.includes("Profilo non attivo"));
+    assert.ok(view.target.textContent.includes("2,0 KB"));
+    assert.deepEqual(calls.filter(([command]) => command === "get_mod_profile_size")[0], ["get_mod_profile_size", { profileId: "p1" }]);
+    assert.equal(calls.some(([command]) => command === "set_active_mod_profile"), false);
+    button(view.target, "Attiva profilo").click(); await settle();
+    assert.deepEqual(calls.find(([command]) => command === "set_active_mod_profile"), ["set_active_mod_profile", { gameId: "a", profileId: "p1" }]);
+  } finally {
+    if (bar !== null) await unmount(bar);
+    target.remove();
+    await view.destroy();
+    delete globalThis.titleInvoke;
+  }
+  assert.equal(get(titleBar.titleBarContent), null, "the title bar is cleared on unmount");
 });
 
 test("a leave guard holds navigation until it proceeds", async () => {

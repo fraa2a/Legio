@@ -59,8 +59,8 @@ fn file_size(path: &Path) -> Result<u64, String> {
 }
 
 /// Total size of the files under `directory`; links are not followed.
-fn directory_size(directory: &Path) -> Result<u64, String> {
-    let measure = |error: io::Error| format!("Could not measure the mod cache: {error}");
+pub(super) fn directory_size(directory: &Path) -> Result<u64, String> {
+    let measure = |error: io::Error| format!("Could not measure the folder size: {error}");
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),

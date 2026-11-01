@@ -478,3 +478,22 @@ export function installNotice(result: ModInstallResult, selected: Language): Res
     ? { tone: "success", message: t("{0} installata.", selected, [names[0]]), items: [] }
     : { tone: "success", message: t("{0} mod installate.", selected, [result.installed.length]), items: names };
 }
+
+function sortedProfiles(profiles: readonly ModProfile[]): ModProfile[] {
+  return [...profiles].sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
+}
+
+// The mod page edits profiles only: playing without mods is chosen from the game page.
+export function profileChoices(profiles: readonly ModProfile[]): { value: string; label: string }[] {
+  return sortedProfiles(profiles).map((profile) => ({ value: profile.id, label: profile.name }));
+}
+
+export interface ShownProfile { profile: ModProfile; active: boolean }
+
+// The active profile, else the first one by name, which is shown but not activated.
+export function shownProfile(game: ModdableGame | null, profiles: readonly ModProfile[]): ShownProfile | null {
+  const active = activeProfile(game, profiles);
+  if (active !== null) return { profile: active, active: true };
+  const first = sortedProfiles(profiles)[0];
+  return first === undefined ? null : { profile: first, active: false };
+}

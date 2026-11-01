@@ -1138,5 +1138,11 @@
   "Il collegamento non è un indirizzo web.": "The link is not a web address.",
   "La cache delle mod è in fase di eliminazione. Attendi il termine e riprova.": "The mod cache is being cleared. Wait for it to finish and try again.",
   "Il profilo è in uso da un'altra operazione.": "The profile is being changed by another operation.",
-  "Il profilo non è stato modificato perché queste mod non sono state trovate: {0}": "The profile was not changed because these mods could not be found: {0}"
+  "Il profilo non è stato modificato perché queste mod non sono state trovate: {0}": "The profile was not changed because these mods could not be found: {0}",
+  "Profilo non attivo": "Profile not active",
+  "Il gioco parte senza mod. Attiva questo profilo per avviarlo con le sue mod.": "The game launches without mods. Activate this profile to launch it with its mods.",
+  "Attiva profilo": "Activate profile",
+  "Spazio occupato dal profilo": "Disk space used by the profile",
+  "Nessun profilo": "No profiles",
+  "Crea un profilo per installare mod: ogni profilo ha le sue mod e le sue configurazioni. Per giocare senza mod scegli Vanilla nella pagina del gioco.": "Create a profile to install mods: each profile has its own mods and configuration. To play without mods, choose Vanilla on the game page."
 }
