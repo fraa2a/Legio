@@ -26,6 +26,7 @@
     installed,
     updates,
     disabled,
+    openOnInstalled,
     onChange,
     onInstall,
   }: {
@@ -34,6 +35,7 @@
     installed: ReadonlyMap<string, ProfileMod>;
     updates: ReadonlyMap<string, ModUpdate>;
     disabled: boolean;
+    openOnInstalled: boolean;
     onChange: (tabs: ModTabs) => void;
     onInstall: (fullName: string, version: string | null) => void;
   } = $props();
@@ -123,6 +125,7 @@
           {installed}
           {updates}
           {disabled}
+          {openOnInstalled}
           {onInstall}
           onOpen={(fullName) => onChange(openModTab(tabs, fullName))}
           onSummary={(summary) => onChange(setModTabSummary(tabs, summary))}

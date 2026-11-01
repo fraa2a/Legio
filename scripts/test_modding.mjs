@@ -308,7 +308,7 @@ test("installed mods toggle, update and uninstall with a dependents warning", as
     throw new Error(`unexpected ${command}`);
   });
   const view = await render(load, "src/lib/features/modding/InstalledModsList.svelte", {
-    gameId: "g", ecosystemGameId: "lethal-company", profile: { id: "p", gameId: "g", name: "Main", createdAt: 0 }, locked: false, busy: false, onBrowse() {},
+    gameId: "g", ecosystemGameId: "lethal-company", profile: { id: "p", gameId: "g", name: "Main", createdAt: 0 }, locked: false, busy: false, tabs: { tabs: [], active: null, recent: [] }, onTabsChange() {}, onBrowse() {},
   });
   try {
     const target = view.target;
@@ -348,11 +348,11 @@ async function installedFixture(initial, calls, extra = {}) {
     throw new Error(`unexpected ${command}`);
   });
   return () => render(load, "src/lib/features/modding/InstalledModsList.svelte", {
-    gameId: "g", ecosystemGameId: "lethal-company", profile: { id: "p", gameId: "g", name: "Main", createdAt: 0 }, locked: false, busy: false, onBrowse() {},
+    gameId: "g", ecosystemGameId: "lethal-company", profile: { id: "p", gameId: "g", name: "Main", createdAt: 0 }, locked: false, busy: false, tabs: { tabs: [], active: null, recent: [] }, onTabsChange() {}, onBrowse() {},
   });
 }
 
-const titles = target => [...target.querySelectorAll("li p.font-medium")].map(node => node.textContent.trim());
+const titles = target => [...target.querySelectorAll("li span.truncate.font-medium")].map(node => node.textContent.trim());
 
 test("installed mods are searched and sorted from the list header", async () => {
   const calls = [];

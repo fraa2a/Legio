@@ -223,3 +223,86 @@ test("search results open in panel tabs with readme, changelog and version insta
     delete globalThis.browserInvoke;
   }
 });
+
+test("installed mods open in their own tab set, including local mods", async () => {
+  const mod = (fullName, extra = {}) => ({
+    profileId: "p", fullName, version: "1.0.0", enabled: true, onlineSource: true, installedAt: 0, installOrder: 0, isLoader: false, dependencies: [], ...extra,
+  });
+  const mods = [
+    mod("BepInEx-BepInExPack", { isLoader: true, version: "5.4.0" }),
+    mod("Owner-More_Suits", { version: "1.0.0", installOrder: 1 }),
+    mod("Me-Homebrew", { onlineSource: false, version: "0.3.0", installOrder: 2, dependencies: ["Owner-More_Suits"] }),
+  ];
+  const calls = [];
+  const version = (fullName, versionNumber) => ({
+    fullName, versionNumber, description: `Version ${versionNumber}`, dependencies: [], fileSize: 2048, websiteUrl: null, dateCreated: "2024-01-01", downloads: 5,
+  });
+  globalThis.browserInvoke = async (command, args) => {
+    calls.push([command, args]);
+    if (command === "list_profile_mods") return mods;
+    if (command === "list_mod_updates" || command === "list_mod_categories") return [];
+    if (command === "search_mods") return { total: 1, items: [summary("Owner-More_Suits")] };
+    if (command === "get_mod_package") {
+      if (args.fullName !== "Owner-More_Suits") return null;
+      return { ...summary(args.fullName), donationLink: null, versions: [version(args.fullName, "2.0.0"), version(args.fullName, "1.0.0")] };
+    }
+    if (command === "get_mod_package_document") return `<p>${args.document} ${args.version}</p>`;
+    if (command === "install_mods") return { installed: [], skipped: [], warnings: [] };
+    throw new Error(`unexpected ${command}`);
+  };
+  const host = `<script>
+    import InstalledModsList from "./src/lib/features/modding/InstalledModsList.svelte";
+    import ModBrowser from "./src/lib/features/modding/ModBrowser.svelte";
+    import { emptyModTabs } from "./src/lib/features/modding/mod-panel-model";
+    let browse = $state(emptyModTabs);
+    let installedTabs = $state(emptyModTabs);
+    let showInstalled = $state(true);
+    const profile = { id: "p", gameId: "g", name: "Main", createdAt: 0 };
+  </script>
+  <button onclick={() => (showInstalled = !showInstalled)}>switch</button>
+  {#if showInstalled}
+    <InstalledModsList gameId="g" ecosystemGameId="lethal-company" {profile} locked={false} busy={false} tabs={installedTabs} onTabsChange={(next) => (installedTabs = next)} onBrowse={() => {}} />
+  {:else}
+    <ModBrowser gameId="g" ecosystemGameId="lethal-company" {profile} disabled={false} tabs={browse} onTabsChange={(next) => (browse = next)} />
+  {/if}`;
+  const Component = (await import(await svelteModule(loader, host))).default;
+  const target = document.createElement("div");
+  document.body.append(target);
+  const instance = mount(Component, { target });
+  const button = (label, root = target) => [...root.querySelectorAll("button")].find((item) => item.textContent.trim() === label || item.getAttribute("aria-label") === label);
+  const tabs = () => [...target.querySelectorAll('[role="tab"]')].map((tab) => [tab.textContent.trim(), tab.getAttribute("aria-selected")]);
+  const shown = () => target.querySelector('[role="tabpanel"]:not([hidden])');
+  try {
+    await settle();
+    assert.equal(target.querySelector("aside"), null);
+
+    button("Dettagli di More Suits").click(); await settle();
+    assert.deepEqual(tabs(), [["More Suits", "true"]]);
+    assert.ok(button("Dettagli di More Suits").closest("li").className.includes("ring-legio-accent"), "the open mod's row is ringed");
+    assert.ok(shown().textContent.includes("readme 1.0.0"), "the installed version is shown first");
+    assert.ok(button("Installata", shown()) !== undefined, "the installed version has no install action");
+
+    button("Dettagli di Homebrew").click(); await settle();
+    assert.deepEqual(tabs(), [["More Suits", "false"], ["Homebrew", "true"]]);
+    const local = shown().textContent;
+    assert.ok(local.includes("0.3.0") && local.includes("non è su Thunderstore") && local.includes("Locale"));
+    assert.ok(button("Apri More Suits", shown()), "local dependencies open from the installed data");
+    assert.ok(!calls.some(([command, args]) => command === "get_mod_package" && args.fullName === "Me-Homebrew"), "no catalog lookup for a local mod");
+
+    button("Dettagli di BepInExPack").click(); await settle();
+    assert.ok(shown().textContent.includes("5.4.0") && shown().textContent.includes("Loader"), "a loader missing from the catalog still opens");
+
+    button("switch").click(); await new Promise((resolve) => setTimeout(resolve, 350)); await settle();
+    assert.equal(target.querySelector("aside"), null, "the browser keeps its own, empty tab set");
+    button("Dettagli di More Suits").click(); await settle();
+    assert.deepEqual(tabs(), [["More Suits", "true"]]);
+    assert.ok(shown().textContent.includes("Aggiorna a 2.0.0"), "the browser opens on the latest version");
+
+    button("switch").click(); await settle();
+    assert.equal(tabs().length, 3, "the installed tab set survives switching sections");
+  } finally {
+    await unmount(instance);
+    target.remove();
+    delete globalThis.browserInvoke;
+  }
+});
