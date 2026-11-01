@@ -4,7 +4,7 @@
   import { pickModProfileFile } from "../../services/dialog";
   import { importModProfileCode, importModProfileFile, type ProfileImportOutcome } from "../../services/mod-profile-exchange";
   import { cancelModInstall, observeCatalogProgress, observeInstallProgress, type CatalogProgress, type InstallProgress, type ModProfile } from "../../services/modding";
-  import { modProfiles } from "../../stores/modding";
+  import { moddableGameById, modProfiles, refreshCatalog } from "../../stores/modding";
   import { toMessage } from "../../utils/errors";
   import Button from "../../components/ui/Button.svelte";
   import Callout from "../../components/ui/Callout.svelte";
@@ -48,6 +48,7 @@
     { value: "code", label: t("Codice", $language) },
   ]);
   const profiles = $derived(modProfiles(gameId));
+  const community = $derived($moddableGameById.get(gameId)?.binding?.ecosystemGameId ?? null);
   const targetOptions = $derived([
     { value: "new", label: t("Nuovo profilo", $language) },
     ...($profiles.data.length > 0 ? [{ value: "existing", label: t("Aggiorna un profilo esistente", $language) }] : []),
@@ -115,12 +116,15 @@
     const operation = crypto.randomUUID();
     operationId = operation;
     try {
-      unlisteners = [await observeInstallProgress(track), await observeCatalogProgress((event) => (catalogProgress = event))];
+      unlisteners.push(await observeInstallProgress(track));
+      unlisteners.push(await observeCatalogProgress((event) => { if (event.community === community) catalogProgress = event; }));
       const result = source === "file" && path !== null
         ? await importModProfileFile(gameId, path, operation, profileName, targetId)
         : await importModProfileCode(gameId, normalizeProfileCode(code) ?? code, operation, profileName, targetId);
       outcome = result;
       onImported(result.profile);
+      // The import may have rebuilt the catalog; this only reads its new status.
+      if (community !== null) void refreshCatalog(community, false);
     } catch (reason) {
       if (!cancelling) error = describeModdingError(toMessage(reason), $language);
     } finally {

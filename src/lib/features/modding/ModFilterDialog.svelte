@@ -71,6 +71,7 @@
                   type="button"
                   class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--legio-focus) {chipClass(state)}"
                   aria-label={chipLabel(category, state)}
+                  aria-pressed={state !== "neutral"}
                   onclick={() => onChange(cycleCategory(filters, category))}
                 >
                   {#if state === "included"}<Icon name="check" size="size-3.5" />{:else if state === "excluded"}<Icon name="close" size="size-3.5" />{/if}
@@ -83,7 +84,7 @@
       </div>
 
       <div class="flex justify-end gap-2">
-        <Button label={t("Azzera filtri", $language)} variant="secondary" disabled={activeFilterCount(filters) === 0} onClick={() => onChange(clearFilterOptions(filters))} />
+        <Button label={t("Azzera i filtri", $language)} variant="secondary" disabled={activeFilterCount(filters) === 0} onClick={() => onChange(clearFilterOptions(filters))} />
         <Button label={t("Chiudi", $language)} onClick={close} />
       </div>
     </div>

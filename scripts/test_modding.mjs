@@ -142,6 +142,11 @@ test("dependents, error mapping and game search", () => {
     model.describeModdingError("The mod loader of this game is not in the mod catalog", "it"),
     "Il loader di mod di questo gioco non è presente nel catalogo mod.",
   );
+  assert.equal(
+    model.describeModdingError("These mods could not be found, so the profile was not changed: A-B-1.0.0, C-D-2.0.0 (+3)", "it"),
+    "Il profilo non è stato modificato perché queste mod non sono state trovate: A-B-1.0.0, C-D-2.0.0 (+3)",
+  );
+  assert.equal(model.describeModdingError("The link is not a web address", "it"), "Il collegamento non è un indirizzo web.");
   assert.deepEqual(model.classifyModdingError(new Error("Download cancelled."), "it"), { kind: "cancelled", message: "Installazione annullata." });
   assert.deepEqual(model.classifyModdingError("Disk full", "it"), { kind: "error", message: "Disk full" });
   const games = [{ id: "lethal-company", displayName: "Lethal Company" }, { id: "valheim", displayName: "Valheim" }];

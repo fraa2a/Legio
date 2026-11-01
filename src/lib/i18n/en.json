@@ -1069,7 +1069,6 @@
   "Tocca una categoria per includerla, ancora per escluderla, una terza volta per rimuoverla.": "Click a category to include it, again to exclude it, a third time to clear it.",
   "Una mod deve avere": "A mod must have",
   "Nessuna categoria disponibile.": "No categories available.",
-  "Azzera filtri": "Clear filters",
   "Panoramica": "Overview",
   "Sezione": "Section",
   "Nessun readme": "No readme",
@@ -1131,5 +1130,10 @@
   "Profilo \"{0}\" aggiornato: {1} mod installate.": "Profile \"{0}\" updated: {1} mods installed.",
   "Aggiornamento del catalogo mod": "Mod catalog update",
   "Aggiornamento del catalogo mod...": "Updating the mod catalog...",
-  "Le mod vengono installate nella versione indicata dal profilo. Se il catalogo mod del gioco manca o è incompleto, viene scaricato prima dell'import.": "Mods are installed in the version listed by the profile. If the game's mod catalog is missing or incomplete, it is downloaded before the import."
+  "Le mod vengono installate nella versione indicata dal profilo. Se il catalogo mod del gioco manca o è incompleto, viene scaricato prima dell'import.": "Mods are installed in the version listed by the profile. If the game's mod catalog is missing or incomplete, it is downloaded before the import.",
+  "Salva o annulla le modifiche prima di aprire il file": "Save or discard your changes before opening the file",
+  "Il collegamento non è un indirizzo web.": "The link is not a web address.",
+  "La cache delle mod è in fase di eliminazione. Attendi il termine e riprova.": "The mod cache is being cleared. Wait for it to finish and try again.",
+  "Il profilo è in uso da un'altra operazione.": "The profile is being changed by another operation.",
+  "Il profilo non è stato modificato perché queste mod non sono state trovate: {0}": "The profile was not changed because these mods could not be found: {0}"
 }

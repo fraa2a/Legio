@@ -5,6 +5,7 @@
   import ConfirmDialog from "../../components/ui/ConfirmDialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
+  import Skeleton from "../../components/ui/Skeleton.svelte";
   import { clearModCache, getModCacheUsage, type ModCacheUsage } from "../../services/modding";
   import { resetCatalogs } from "../../stores/modding";
   import { showToast } from "../../stores/toast";
@@ -69,7 +70,7 @@
           <Button label={t("Elimina", $language)} variant="secondary" size="sm" disabled={row.bytes === 0} onClick={() => ask(row)} />
         </li>
       {:else}
-        <li class="text-sm text-zinc-400 light:text-zinc-600">{t("Calcolo...", $language)}</li>
+        {#each [0, 1, 2] as placeholder (placeholder)}<li><Skeleton class="h-16" /></li>{/each}
       {/each}
     </ul>
   {/if}

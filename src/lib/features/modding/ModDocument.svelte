@@ -17,26 +17,18 @@
 
 <!-- Keyboard activation of a link also dispatches click, so one handler covers both. -->
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="mod-markdown max-h-[50vh] overflow-y-auto rounded-lg bg-white/5 p-4 text-sm light:bg-zinc-900/5" onclick={openLink} onauxclick={openLink}>
+<div class="mod-markdown max-h-96 overflow-y-auto rounded-lg bg-white/5 p-4 text-sm light:bg-zinc-900/5" onclick={openLink} onauxclick={openLink}>
   <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized by the backend renderer -->
   {@html html}
 </div>
 
 <style>
   .mod-markdown {
-    --md-text: #e4e4e7;
-    --md-muted: #a1a1aa;
-    --md-border: rgb(255 255 255 / 0.15);
-    --md-code: rgb(0 0 0 / 0.3);
-    color: var(--md-text);
+    --md-muted: color-mix(in srgb, var(--legio-text) 65%, transparent);
+    --md-border: color-mix(in srgb, var(--legio-text) 18%, transparent);
+    --md-code: color-mix(in srgb, var(--legio-text) 10%, transparent);
     overflow-wrap: anywhere;
     line-height: 1.6;
-  }
-  :global([data-theme="light"]) .mod-markdown {
-    --md-text: #27272a;
-    --md-muted: #52525b;
-    --md-border: rgb(24 24 27 / 0.2);
-    --md-code: rgb(24 24 27 / 0.07);
   }
   .mod-markdown :global(* + *) { margin-top: 0.75rem; }
   .mod-markdown :global(li + li) { margin-top: 0.25rem; }

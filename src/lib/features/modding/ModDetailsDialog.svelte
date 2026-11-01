@@ -14,7 +14,7 @@
   import type { LoadStatus } from "../../stores/resource";
   import { toMessage } from "../../utils/errors";
   import { formatBytes, formatDate, regionalLocale } from "../../utils/format";
-  import { displayPackageId, formatCount, modKey, packageTitle, splitPackageId, type InstalledState } from "./modding-model";
+  import { describeModdingError, displayPackageId, formatCount, modKey, packageTitle, splitPackageId, type InstalledState } from "./modding-model";
   import ModDocument from "./ModDocument.svelte";
   import ModIcon from "./ModIcon.svelte";
   import { loadPackageDocument } from "./package-documents";
@@ -61,7 +61,7 @@
     loading = true;
     packageDetails(ecosystemGameId, current.fullName).then(
       (value) => { if (!cancelled) details = value; },
-      (cause: unknown) => { if (!cancelled) error = toMessage(cause); },
+      (cause: unknown) => { if (!cancelled) error = describeModdingError(toMessage(cause), $language); },
     ).finally(() => { if (!cancelled) loading = false; });
     return () => { cancelled = true; };
   });
@@ -85,7 +85,7 @@
       },
       (cause: unknown) => {
         if (cancelled) return;
-        documentError = toMessage(cause);
+        documentError = describeModdingError(toMessage(cause), $language);
         documentStatus = "error";
       },
     );
@@ -119,7 +119,7 @@
     try {
       await open();
     } catch (cause) {
-      error = toMessage(cause);
+      error = describeModdingError(toMessage(cause), $language);
     }
   }
 </script>
@@ -196,7 +196,7 @@
               onRetry={() => documentAttempt++}
             />
             {#if documentStatus === "ready"}
-              <ModDocument html={documentHtml} onError={(message) => (error = message)} />
+              <ModDocument html={documentHtml} onError={(message) => (error = describeModdingError(message, $language))} />
             {/if}
           {/if}
         {:else if error === null}

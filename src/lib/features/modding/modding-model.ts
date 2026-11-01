@@ -283,12 +283,16 @@ const knownErrors: Record<string, string> = {
   "Mods are being changed in the active mod profile. Wait for it to finish and launch again": "Le mod del profilo attivo sono in fase di modifica. Attendi il termine e avvia di nuovo.",
   "The active mod profile has no BepInEx loader. Install BepInExPack in the profile first": "Il profilo mod attivo non ha BepInEx. Installalo dal gestore delle mod o scegli Vanilla per avviare senza mod.",
   "The config file changed on disk; reload it": "Il file è cambiato sul disco: ricaricalo prima di salvare.",
+  "The link is not a web address": "Il collegamento non è un indirizzo web.",
+  "The mod cache is being cleared. Wait for it to finish and try again": "La cache delle mod è in fase di eliminazione. Attendi il termine e riprova.",
+  "The profile is being changed by another operation": "Il profilo è in uso da un'altra operazione.",
 };
 
 // Errors carrying a name; the first group fills the Italian `{0}`.
 const knownPatterns: [RegExp, string][] = [
   [/^(.+?) already exists in the game folder and was not installed by Legio\b/, "{0} è già nella cartella del gioco e non è stato installato da Legio. Spostalo o rimuovilo per avviare con le mod."],
   [/^A mod profile named "(.*)" already exists\.?$/, "Esiste già un profilo chiamato \"{0}\". Scegli un altro nome."],
+  [/^These mods could not be found, so the profile was not changed: (.+)$/, "Il profilo non è stato modificato perché queste mod non sono state trovate: {0}"],
 ];
 
 export function describeModdingError(message: string, selected?: Language): string {

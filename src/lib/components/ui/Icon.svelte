@@ -13,8 +13,10 @@
   import FileCode from "@lucide/svelte/icons/file-code";
   import Folder from "@lucide/svelte/icons/folder";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
+  import Funnel from "@lucide/svelte/icons/funnel";
   import Globe from "@lucide/svelte/icons/globe";
   import HardDriveDownload from "@lucide/svelte/icons/hard-drive-download";
+  import Heart from "@lucide/svelte/icons/heart";
   import House from "@lucide/svelte/icons/house";
   import Image from "@lucide/svelte/icons/image";
   import Info from "@lucide/svelte/icons/info";
@@ -44,8 +46,6 @@
   import Upload from "@lucide/svelte/icons/upload";
   import Wrench from "@lucide/svelte/icons/wrench";
   import X from "@lucide/svelte/icons/x";
-  import Funnel from "@lucide/svelte/icons/funnel";
-  import Heart from "@lucide/svelte/icons/heart";
 
   const icons = {
     "home": House,
