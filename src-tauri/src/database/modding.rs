@@ -195,6 +195,36 @@ impl Database {
         })
     }
 
+    /// Moves the mod and file records of `from` to `into`, dropping the ones
+    /// `into` had, then deletes `from`. Both profiles must belong to one game.
+    pub(crate) fn replace_profile_contents(&self, from: &str, into: &str) -> Result<(), String> {
+        let from = parse_profile_id(from)?;
+        let into = parse_profile_id(into)?;
+        self.with_connection(|connection| {
+            let tx = connection.unchecked_transaction().map_err(database_error)?;
+            let source = read_profile(&tx, &from)?.ok_or_else(profile_not_found)?;
+            let target = read_profile(&tx, &into)?.ok_or_else(profile_not_found)?;
+            if source.game_id != target.game_id || source.id == target.id {
+                return Err("Mod profiles do not belong to the same game".to_owned());
+            }
+            for table in ["mod_profile_files", "mod_profile_mods"] {
+                tx.execute(
+                    &format!("DELETE FROM {table} WHERE profile_id = ?1"),
+                    [&into],
+                )
+                .map_err(database_error)?;
+                tx.execute(
+                    &format!("UPDATE {table} SET profile_id = ?2 WHERE profile_id = ?1"),
+                    params![from, into],
+                )
+                .map_err(database_error)?;
+            }
+            tx.execute("DELETE FROM mod_profiles WHERE id = ?1", [&from])
+                .map_err(database_error)?;
+            tx.commit().map_err(database_error)
+        })
+    }
+
     pub(crate) fn profile_mods(&self, profile_id: &str) -> Result<Vec<ProfileMod>, String> {
         let profile_id = parse_profile_id(profile_id)?;
         self.with_connection(|connection| {
@@ -871,6 +901,70 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(database.profile_mods(id).unwrap().len(), 1);
+        drop(database);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn moves_profile_contents_to_another_profile() {
+        let (database, directory) = open();
+        let game = database.create_game(game_input("Game")).unwrap();
+        let other = database.create_game(game_input("Other")).unwrap();
+        let old = database.create_mod_profile(&game.id, "Old", 1).unwrap();
+        let fresh = database.create_mod_profile(&game.id, "Fresh", 2).unwrap();
+        let foreign = database
+            .create_mod_profile(&other.id, "Foreign", 3)
+            .unwrap();
+        database
+            .set_game_modding(&game.id, "lethal-company")
+            .unwrap();
+        database
+            .set_active_mod_profile(&game.id, Some(&old.id))
+            .unwrap();
+        database
+            .upsert_profile_mod(&mod_record(&old.id, "Old-Mod", 0))
+            .unwrap();
+        database
+            .replace_profile_mod_files(&old.id, "Old-Mod", &paths(&["BepInEx/plugins/old.dll"]))
+            .unwrap();
+        database
+            .upsert_profile_mod(&mod_record(&fresh.id, "New-Mod", 0))
+            .unwrap();
+        database
+            .replace_profile_mod_files(&fresh.id, "New-Mod", &paths(&["BepInEx/plugins/new.dll"]))
+            .unwrap();
+
+        assert!(
+            database
+                .replace_profile_contents(&foreign.id, &old.id)
+                .is_err()
+        );
+        database
+            .replace_profile_contents(&fresh.id, &old.id)
+            .unwrap();
+
+        let mods = database.profile_mods(&old.id).unwrap();
+        assert_eq!(mods.len(), 1);
+        assert_eq!(mods[0].full_name, "New-Mod");
+        assert_eq!(
+            database.profile_mod_files(&old.id, "New-Mod").unwrap(),
+            ["BepInEx/plugins/new.dll"]
+        );
+        assert!(
+            database
+                .profile_mod_files(&old.id, "Old-Mod")
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(database.mod_profile(&fresh.id).unwrap(), None);
+        assert_eq!(
+            database
+                .game_modding(&game.id)
+                .unwrap()
+                .unwrap()
+                .active_profile_id,
+            Some(old.id.clone())
+        );
         drop(database);
         std::fs::remove_dir_all(directory).unwrap();
     }

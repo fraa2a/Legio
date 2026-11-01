@@ -989,7 +989,6 @@
   "Codice del profilo": "Profile code",
   "Nome del profilo (facoltativo)": "Profile name (optional)",
   "Usa il nome del profilo importato": "Use the imported profile name",
-  "Serve il catalogo mod del gioco già scaricato. Le mod vengono installate nella versione indicata dal profilo.": "The game's mod catalog must already be downloaded. Mods are installed in the version listed by the profile.",
   "Importa": "Import",
   "Impossibile copiare negli appunti. Seleziona il codice e copialo a mano.": "Could not copy to the clipboard. Select the code and copy it by hand.",
   "Condividi profilo": "Share profile",
@@ -1024,5 +1023,13 @@
   "Il profilo mod attivo non ha BepInEx. Installalo dal gestore delle mod o scegli Vanilla per avviare senza mod.": "The active mod profile has no BepInEx. Install it from the mod manager or choose Vanilla to launch without mods.",
   "Il file è cambiato sul disco: ricaricalo prima di salvare.": "The file changed on disk: reload it before saving.",
   "{0} è già nella cartella del gioco e non è stato installato da Legio. Spostalo o rimuovilo per avviare con le mod.": "{0} is already in the game folder and was not installed by Legio. Move or remove it to launch with mods.",
-  "Esiste già un profilo chiamato \"{0}\". Scegli un altro nome.": "A profile named \"{0}\" already exists. Choose another name."
+  "Esiste già un profilo chiamato \"{0}\". Scegli un altro nome.": "A profile named \"{0}\" already exists. Choose another name.",
+  "Aggiorna un profilo esistente": "Update an existing profile",
+  "Destinazione": "Destination",
+  "Profilo da aggiornare": "Profile to update",
+  "Le mod attuali del profilo verranno sostituite da quelle importate, comprese le mod locali.": "The profile's current mods will be replaced by the imported ones, local mods included.",
+  "Profilo \"{0}\" aggiornato: {1} mod installate.": "Profile \"{0}\" updated: {1} mods installed.",
+  "Aggiornamento del catalogo mod": "Mod catalog update",
+  "Aggiornamento del catalogo mod...": "Updating the mod catalog...",
+  "Le mod vengono installate nella versione indicata dal profilo. Se il catalogo mod del gioco manca o è incompleto, viene scaricato prima dell'import.": "Mods are installed in the version listed by the profile. If the game's mod catalog is missing or incomplete, it is downloaded before the import."
 }

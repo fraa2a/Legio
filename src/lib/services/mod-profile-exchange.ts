@@ -15,9 +15,10 @@ export const exportModProfileFile = (gameId: string, profileId: string, destinat
 export const shareModProfileCode = (gameId: string, profileId: string) =>
   invoke<string>("share_mod_profile_code", { gameId, profileId });
 
-// `operationId` tags the install progress events of this import.
-export const importModProfileFile = (gameId: string, path: string, operationId: string, profileName?: string) =>
-  invoke<ProfileImportOutcome>("import_mod_profile_file", { gameId, path, profileName, operationId });
+// `operationId` tags the install progress events of this import. With `targetProfileId` that profile is
+// updated in place (its content is replaced) instead of creating a new one named `profileName`.
+export const importModProfileFile = (gameId: string, path: string, operationId: string, profileName?: string, targetProfileId?: string) =>
+  invoke<ProfileImportOutcome>("import_mod_profile_file", { gameId, path, profileName, operationId, targetProfileId });
 
-export const importModProfileCode = (gameId: string, code: string, operationId: string, profileName?: string) =>
-  invoke<ProfileImportOutcome>("import_mod_profile_code", { gameId, code, profileName, operationId });
+export const importModProfileCode = (gameId: string, code: string, operationId: string, profileName?: string, targetProfileId?: string) =>
+  invoke<ProfileImportOutcome>("import_mod_profile_code", { gameId, code, profileName, operationId, targetProfileId });

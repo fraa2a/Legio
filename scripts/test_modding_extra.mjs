@@ -107,6 +107,17 @@ test("exchange model validates codes and file names", async () => {
   assert.equal(model.canStartImport("file", "/a.r2z", "", null), true);
   assert.equal(model.canStartImport("code", null, "bad", null), false);
   assert.equal(model.canStartImport("code", null, "123e4567-e89b-12d3-a456-426614174000", "invalid name"), false);
+  assert.equal(model.canStartImport("file", "/a.r2z", "", "invalid name", "existing", "p1"), true);
+  assert.equal(model.canStartImport("file", "/a.r2z", "", null, "existing", null), false);
+  assert.equal(model.canStartImport("code", null, "bad", null, "existing", "p1"), false);
+  const profiles = [{ id: "p1" }, { id: "p2" }];
+  assert.equal(model.defaultTargetProfileId(profiles, "p2"), "p2");
+  assert.equal(model.defaultTargetProfileId(profiles, "gone"), "p1");
+  assert.equal(model.defaultTargetProfileId(profiles, null), "p1");
+  assert.equal(model.defaultTargetProfileId([], "p1"), null);
+  assert.equal(model.importTargetProfileId("existing", "p1"), "p1");
+  assert.equal(model.importTargetProfileId("existing", null), undefined);
+  assert.equal(model.importTargetProfileId("new", "p1"), undefined);
   assert.equal(model.exportFileName('My: "Profile"?'), "My- -Profile--.r2z");
   assert.equal(model.exportFileName("..."), "profile.r2z");
   assert.equal(model.fileNameOf("C:\\dir\\pack.r2z"), "pack.r2z");
@@ -267,7 +278,7 @@ test("import dialog imports a code with progress, a summary and the new profile"
   let finish;
   reset((command) => (command === "cancel_mod_install" ? undefined : new Promise((resolve) => { finish = resolve; })));
   const imported = [];
-  const { target, dispose } = await mountComponent("src/lib/features/modding/ProfileImportDialog.svelte", { open: true, gameId: "g", onClose() {}, onImported: (profile) => imported.push(profile) });
+  const { target, dispose } = await mountComponent("src/lib/features/modding/ProfileImportDialog.svelte", { open: true, gameId: "g", activeProfileId: null, onClose() {}, onImported: (profile) => imported.push(profile) });
   try {
     target.querySelector('input[name="mod-profile-import-source"][value="code"]').click();
     await settle();
@@ -282,7 +293,7 @@ test("import dialog imports a code with progress, a summary and the new profile"
     await settle();
     const [command, args] = globalThis.extraCalls.at(-1);
     assert.equal(command, "import_mod_profile_code");
-    assert.deepEqual({ ...args, operationId: undefined }, { gameId: "g", code, profileName: "Shared", operationId: undefined });
+    assert.deepEqual({ ...args, operationId: undefined }, { gameId: "g", code, profileName: "Shared", operationId: undefined, targetProfileId: undefined });
     assert.match(args.operationId, /^[0-9a-f-]{36}$/);
     assert.equal(buttonWith(target, "Annulla"), undefined, "nothing to cancel before the first event");
 
@@ -317,7 +328,7 @@ test("import dialog imports a code with progress, a summary and the new profile"
 test("import dialog imports a picked file and shows backend errors", async () => {
   reset(async () => { throw "The mod catalog of this game has not been downloaded yet"; });
   globalThis.extraDialog.open = async () => "C:\\profiles\\pack.r2z";
-  const { target, dispose } = await mountComponent("src/lib/features/modding/ProfileImportDialog.svelte", { open: true, gameId: "g", onClose() {}, onImported() { assert.fail("must not import"); } });
+  const { target, dispose } = await mountComponent("src/lib/features/modding/ProfileImportDialog.svelte", { open: true, gameId: "g", activeProfileId: null, onClose() {}, onImported() { assert.fail("must not import"); } });
   try {
     assert.equal(buttonWith(target, "Importa").disabled, true);
     buttonWith(target, "Scegli file...").click();
