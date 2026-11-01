@@ -246,6 +246,7 @@ test("config editor guards unsaved edits and shows plain files as raw text only"
   try {
     typeInto(target.querySelector("#mod-config-line-5"), "Changed");
     await settle();
+    assert.equal([...target.querySelectorAll("button")].find((button) => button.getAttribute("aria-label")?.startsWith("Apri con")).disabled, true, "the system editor waits for the unsaved edits");
     const fileButton = [...target.querySelectorAll("aside button")].find((button) => button.textContent.includes("notes.txt"));
     fileButton.click();
     await settle();

@@ -16,6 +16,7 @@ use tokio::sync::watch;
 
 use super::{
     archive_cache::ensure_cached,
+    cache_management::CACHE_CLEARING,
     dependencies::{InstallRequest, PackageSource, ResolveMode, ResolvedPackage},
     ecosystem_store::EcosystemStore,
     installer::{
@@ -28,7 +29,7 @@ use super::{
     profile_commands::{
         progress_emitter, require_profile_not_running, run_modding, with_game_rules,
     },
-    profiles::profile_with_directory,
+    profiles::{ProfileLocks, profile_with_directory},
     thunderstore_http::ThunderstoreHttp,
 };
 use crate::database::Database;
@@ -251,6 +252,11 @@ fn with_online<T>(
     require_synced(&cache, community)?;
     let cancellations = app.state::<InstallCancellations>();
     let session = cancellations.begin(profile_id)?;
+    // Checked after registering the session: clearing the cache sets its flag
+    // first and then looks at the sessions, so one of the two sees the other.
+    if app.state::<ProfileLocks>().is_exclusive()? {
+        return Err(CACHE_CLEARING.to_owned());
+    }
     let online = Online {
         app,
         cache,

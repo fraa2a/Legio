@@ -30,10 +30,14 @@ impl ModdingPaths {
         self.root.join("packages.sqlite3")
     }
 
+    /// Folder of all extracted Thunderstore packages.
+    pub(crate) fn package_cache_root(&self) -> PathBuf {
+        self.root.join("cache")
+    }
+
     /// Extracted package contents, shared by all games and profiles.
     pub(crate) fn package_cache_dir(&self, package: &PackageName, version: &Version) -> PathBuf {
-        self.root
-            .join("cache")
+        self.package_cache_root()
             .join(package.to_string())
             .join(version.to_string())
     }

@@ -7,13 +7,15 @@ use std::{fs, io, path::Path};
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
+use super::archive_cache::TempPath;
 use super::install_commands::InstallCancellations;
 use super::package_cache::PackageCache;
 use super::paths::ModdingPaths;
 use super::profile_commands::run_modding;
-use super::profiles::ProfileLocks;
 
 const BUSY: &str = "Mods are being installed or changed. Wait for it to finish and try again";
+pub(crate) const CACHE_CLEARING: &str =
+    "The mod cache is being cleared. Wait for it to finish and try again";
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -42,7 +44,7 @@ fn usage(paths: &ModdingPaths) -> Result<ModCacheUsage, String> {
         catalog_bytes += file_size(Path::new(&name))?;
     }
     Ok(ModCacheUsage {
-        packages_bytes: directory_size(&paths.root().join("cache"))?,
+        packages_bytes: directory_size(&paths.package_cache_root())?,
         catalog_bytes,
         icons_bytes: directory_size(&paths.icon_cache_dir())?,
     })
@@ -86,16 +88,25 @@ fn remove_directory(directory: &Path) -> Result<(), String> {
     }
 }
 
-fn ensure_idle(cancellations: &InstallCancellations, locks: &ProfileLocks) -> Result<(), String> {
-    if cancellations.any_active()? || locks.any_busy()? {
-        return Err(BUSY.to_owned());
+/// Moves the package cache out of the way in one step before deleting it, so
+/// a package folder is never visible half deleted. The folder is moved into
+/// the temp folder, which is on the same volume.
+fn clear_packages(paths: &ModdingPaths) -> Result<(), String> {
+    let cache = paths.package_cache_root();
+    if !cache.is_dir() {
+        return Ok(());
     }
-    Ok(())
+    let discarded = TempPath::new(paths, "-cache")?;
+    match fs::rename(&cache, discarded.path()) {
+        Ok(()) => remove_directory(discarded.path()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("Could not clear the mod cache: {error}")),
+    }
 }
 
 fn clear_files(paths: &ModdingPaths, kind: ModCacheKind) -> Result<(), String> {
     match kind {
-        ModCacheKind::Packages => remove_directory(&paths.root().join("cache")),
+        ModCacheKind::Packages => clear_packages(paths),
         ModCacheKind::Icons => remove_directory(&paths.icon_cache_dir()),
         ModCacheKind::Catalog => Err("The catalog is not a folder".to_owned()),
     }
@@ -109,7 +120,12 @@ pub async fn get_mod_cache_usage(app: tauri::AppHandle) -> Result<ModCacheUsage,
 #[tauri::command]
 pub async fn clear_mod_cache(app: tauri::AppHandle, kind: ModCacheKind) -> Result<(), String> {
     run_modding(app, move |app, _, paths, locks| {
-        ensure_idle(&app.state::<InstallCancellations>(), locks)?;
+        // Holding every profile keeps installs, imports and toggles from
+        // starting, or makes them wait, until the cache is cleared.
+        let _exclusive = locks.try_lock_all()?.ok_or(BUSY)?;
+        if app.state::<InstallCancellations>().any_active()? {
+            return Err(BUSY.to_owned());
+        }
         match kind {
             ModCacheKind::Catalog => app.state::<PackageCache>().clear(),
             ModCacheKind::Packages | ModCacheKind::Icons => clear_files(paths, kind),
@@ -178,24 +194,12 @@ mod tests {
         clear_files(&paths, ModCacheKind::Icons).unwrap();
         clear_files(&paths, ModCacheKind::Icons).unwrap();
 
-        assert!(!paths.root().join("cache").exists());
+        assert!(!paths.package_cache_root().exists());
         assert!(!paths.icon_cache_dir().exists());
+        // The moved folder does not stay behind.
+        assert_eq!(fs::read_dir(paths.temp_dir()).unwrap().count(), 0);
         assert!(paths.root().join("local-cache").is_dir());
         assert!(profile.join("BepInEx/plugins/Mod.dll").is_file());
-    }
-
-    #[test]
-    fn refuses_while_a_profile_is_busy() {
-        let cancellations = InstallCancellations::default();
-        let locks = ProfileLocks::default();
-        ensure_idle(&cancellations, &locks).unwrap();
-        let guard = locks
-            .try_lock("00000000-0000-4000-8000-000000000002")
-            .unwrap()
-            .unwrap();
-        assert_eq!(ensure_idle(&cancellations, &locks).unwrap_err(), BUSY);
-        drop(guard);
-        ensure_idle(&cancellations, &locks).unwrap();
     }
 
     #[test]

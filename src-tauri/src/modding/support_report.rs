@@ -158,7 +158,7 @@ pub async fn read_mod_log(app: tauri::AppHandle, game_id: String) -> Result<Stri
 pub async fn open_mod_log(app: tauri::AppHandle, game_id: String) -> Result<(), String> {
     run_modding(app, move |_, database, paths, _| {
         let log = find_log(&active_profile_dir(database, paths, &game_id)?)?;
-        crate::installed_folder::open_directory(&log)
+        crate::installed_folder::open_file(&log)
     })
     .await
 }
@@ -186,7 +186,7 @@ pub async fn build_mod_support_report(
             database,
             paths,
             &game.id,
-            launch::launch_mode(&game) != "not supported",
+            launch::can_launch_with_mods(&game),
         )?;
         let version = app.package_info().version.to_string();
         let report = build_report(&ReportData {

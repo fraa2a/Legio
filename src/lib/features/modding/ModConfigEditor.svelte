@@ -121,7 +121,7 @@
       const first = filterConfigFiles(result, "")[0];
       if (selectFirst && first !== undefined) void openFile(first.file.relativePath);
     } catch (reason) {
-      if (request === listRequest) listError = toMessage(reason);
+      if (request === listRequest) listError = describeModdingError(toMessage(reason), $language);
     } finally {
       if (request === listRequest) listLoading = false;
     }
@@ -144,7 +144,7 @@
     } catch (reason) {
       if (request !== fileRequest) return;
       file = null;
-      fileError = toMessage(reason);
+      fileError = describeModdingError(toMessage(reason), $language);
     } finally {
       if (request === fileRequest) fileLoading = false;
     }
@@ -300,7 +300,12 @@
         {#if config !== null}
           <SegmentedControl name="mod-config-mode" label={t("Modalità di modifica", $language)} labelHidden class="w-48" options={modeOptions} value={effectiveMode} disabled={saving} onChange={selectMode} />
         {/if}
-        <IconButton label={t("Apri con l'editor di sistema", $language)} title={t("Apri con l'editor di sistema", $language)} disabled={saving} onClick={() => void openExternally()}>
+        <IconButton
+          label={t("Apri con l'editor di sistema", $language)}
+          title={dirty ? t("Salva o annulla le modifiche prima di aprire il file", $language) : t("Apri con l'editor di sistema", $language)}
+          disabled={saving || dirty}
+          onClick={() => void openExternally()}
+        >
           <Icon name="folder-open" size="size-4" />
         </IconButton>
         <IconButton variant="danger" label={t("Elimina file", $language)} title={t("Elimina file", $language)} disabled={saving} onClick={() => { deleteError = null; deleteOpen = true; }}>

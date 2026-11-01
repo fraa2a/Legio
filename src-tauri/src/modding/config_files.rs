@@ -193,7 +193,7 @@ pub(crate) fn delete_config_file(profile_dir: &Path, relative_path: &str) -> Res
 /// Opens the file with the application the system associates with it.
 pub(crate) fn open_config_file(profile_dir: &Path, relative_path: &str) -> Result<(), String> {
     let path = resolve_config_path(profile_dir, relative_path)?;
-    crate::installed_folder::open_directory(&path)
+    crate::installed_folder::open_file(&path)
 }
 
 /// Resolves a listed, existing config file and checks that it stays inside the profile.

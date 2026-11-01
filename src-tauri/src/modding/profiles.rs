@@ -15,10 +15,17 @@ use crate::database::{Database, GameModding, ModProfile, now_milliseconds};
 /// Serializes operations on one profile. Install, uninstall, enable, disable,
 /// duplicate and delete all hold the lock of the profile they change, and a
 /// launch holds it while the loader files are copied into the game folder.
+/// Clearing a cache takes every profile at once.
 #[derive(Default)]
 pub(crate) struct ProfileLocks {
-    busy: Mutex<HashSet<String>>,
+    state: Mutex<LockState>,
     released: Condvar,
+}
+
+#[derive(Default)]
+struct LockState {
+    busy: HashSet<String>,
+    exclusive: bool,
 }
 
 pub(crate) struct ProfileGuard<'a> {
@@ -26,50 +33,74 @@ pub(crate) struct ProfileGuard<'a> {
     profile_id: String,
 }
 
+/// Holds every profile: no operation can start until it is dropped.
+pub(crate) struct ExclusiveGuard<'a> {
+    locks: &'a ProfileLocks,
+}
+
 impl ProfileLocks {
     /// Takes the profile if no other operation holds it.
     pub(crate) fn try_lock(&self, profile_id: &str) -> Result<Option<ProfileGuard<'_>>, String> {
         let key = profile_id.to_lowercase();
-        let mut busy = self.busy.lock().map_err(|_| poisoned())?;
-        if busy.contains(&key) {
+        let mut state = self.state.lock().map_err(|_| poisoned())?;
+        if state.exclusive || state.busy.contains(&key) {
             return Ok(None);
         }
-        busy.insert(key.clone());
+        state.busy.insert(key.clone());
         Ok(Some(ProfileGuard {
             locks: self,
             profile_id: key,
         }))
     }
 
-    /// True while any profile is held by an operation.
-    pub(crate) fn any_busy(&self) -> Result<bool, String> {
-        Ok(!self.busy.lock().map_err(|_| poisoned())?.is_empty())
+    /// Takes every profile if no operation holds any.
+    pub(crate) fn try_lock_all(&self) -> Result<Option<ExclusiveGuard<'_>>, String> {
+        let mut state = self.state.lock().map_err(|_| poisoned())?;
+        if state.exclusive || !state.busy.is_empty() {
+            return Ok(None);
+        }
+        state.exclusive = true;
+        Ok(Some(ExclusiveGuard { locks: self }))
+    }
+
+    /// True while a guard from [`Self::try_lock_all`] is alive.
+    pub(crate) fn is_exclusive(&self) -> Result<bool, String> {
+        Ok(self.state.lock().map_err(|_| poisoned())?.exclusive)
     }
 
     /// Waits until no other operation holds the profile.
     pub(crate) fn lock(&self, profile_id: &str) -> Result<ProfileGuard<'_>, String> {
         let key = profile_id.to_lowercase();
-        let mut busy = self.busy.lock().map_err(|_| poisoned())?;
-        while busy.contains(&key) {
-            busy = self.released.wait(busy).map_err(|_| poisoned())?;
+        let mut state = self.state.lock().map_err(|_| poisoned())?;
+        while state.exclusive || state.busy.contains(&key) {
+            state = self.released.wait(state).map_err(|_| poisoned())?;
         }
-        busy.insert(key.clone());
+        state.busy.insert(key.clone());
         Ok(ProfileGuard {
             locks: self,
             profile_id: key,
         })
     }
+
+    fn release(&self, update: impl FnOnce(&mut LockState)) {
+        let mut state: MutexGuard<'_, LockState> =
+            self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        update(&mut state);
+        self.released.notify_all();
+    }
 }
 
 impl Drop for ProfileGuard<'_> {
     fn drop(&mut self) {
-        let mut busy: MutexGuard<'_, HashSet<String>> = self
-            .locks
-            .busy
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        busy.remove(&self.profile_id);
-        self.locks.released.notify_all();
+        self.locks.release(|state| {
+            state.busy.remove(&self.profile_id);
+        });
+    }
+}
+
+impl Drop for ExclusiveGuard<'_> {
+    fn drop(&mut self) {
+        self.locks.release(|state| state.exclusive = false);
     }
 }
 
@@ -144,6 +175,7 @@ pub(crate) fn duplicate_profile(
     let (source, source_directory) = profile_with_directory(database, paths, profile_id)?;
     let _guard = locks.lock(&source.id)?;
     let mods = database.profile_mods(&source.id)?;
+    let dependencies = database.profile_mod_dependencies(&source.id)?;
     let mut files = Vec::with_capacity(mods.len());
     for profile_mod in &mods {
         files.push(database.profile_mod_files(&source.id, &profile_mod.full_name)?);
@@ -164,6 +196,13 @@ pub(crate) fn duplicate_profile(
                 record.profile_id.clone_from(&copy.id);
                 database.upsert_profile_mod(&record)?;
                 database.replace_profile_mod_files(&copy.id, &record.full_name, tracked)?;
+                if let Some(declared) = dependencies.get(&record.full_name.to_lowercase()) {
+                    database.set_profile_mod_dependencies(
+                        &copy.id,
+                        &record.full_name,
+                        Some(declared),
+                    )?;
+                }
             }
             Ok(())
         });
@@ -456,6 +495,10 @@ mod tests {
         fixture.add_mod(&profile, "A-On", true, &["BepInEx/plugins/A-On/a.dll"]);
         fixture.add_mod(&profile, "B-Off", false, &["BepInEx/plugins/B-Off/b.dll"]);
         fs::write(fixture.directory_of(&profile).join("log.txt"), "log").unwrap();
+        fixture
+            .database
+            .set_profile_mod_dependencies(&profile.id, "B-Off", Some(&["A-On".to_owned()]))
+            .unwrap();
 
         let copy = duplicate_profile(
             &fixture.database,
@@ -491,6 +534,9 @@ mod tests {
                 .unwrap(),
             ["BepInEx/plugins/B-Off/b.dll"]
         );
+        let dependencies = fixture.database.profile_mod_dependencies(&copy.id).unwrap();
+        assert_eq!(dependencies.len(), 1);
+        assert_eq!(dependencies["b-off"], ["A-On"]);
         // The original is untouched.
         assert_eq!(fixture.database.profile_mods(&profile.id).unwrap().len(), 2);
         assert!(
@@ -647,6 +693,31 @@ mod tests {
                 .is_some()
         );
         drop(held);
+        assert!(locks.try_lock(&profile).unwrap().is_some());
+    }
+
+    #[test]
+    fn exclusive_lock_holds_off_every_profile() {
+        let locks = Arc::new(ProfileLocks::default());
+        let profile = Uuid::new_v4().to_string();
+        let held = locks.try_lock(&profile).unwrap().unwrap();
+        assert!(locks.try_lock_all().unwrap().is_none());
+        drop(held);
+
+        let exclusive = locks.try_lock_all().unwrap().unwrap();
+        assert!(locks.is_exclusive().unwrap());
+        assert!(locks.try_lock_all().unwrap().is_none());
+        assert!(locks.try_lock(&profile).unwrap().is_none());
+        let waiter = {
+            let locks = locks.clone();
+            let profile = profile.clone();
+            std::thread::spawn(move || drop(locks.lock(&profile).unwrap()))
+        };
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(!waiter.is_finished());
+        drop(exclusive);
+        waiter.join().unwrap();
+        assert!(!locks.is_exclusive().unwrap());
         assert!(locks.try_lock(&profile).unwrap().is_some());
     }
 

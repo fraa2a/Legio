@@ -1,6 +1,7 @@
 use super::{Database, database_error, parse_game_id};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::Serialize;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 pub(crate) const MAX_PROFILE_NAME_CHARS: usize = 64;
@@ -251,6 +252,61 @@ impl Database {
                 .map_err(database_error)?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(database_error)
+        })
+    }
+
+    /// Declared dependencies (`Owner-Name`) stored for the mods of a profile,
+    /// keyed by lowercase `full_name`. Mods without a stored list are absent.
+    pub(crate) fn profile_mod_dependencies(
+        &self,
+        profile_id: &str,
+    ) -> Result<HashMap<String, Vec<String>>, String> {
+        let profile_id = parse_profile_id(profile_id)?;
+        self.with_connection(|connection| {
+            let mut statement = connection
+                .prepare(
+                    "SELECT full_name, dependencies FROM mod_profile_mods
+                     WHERE profile_id = ?1 AND dependencies IS NOT NULL",
+                )
+                .map_err(database_error)?;
+            let rows = statement
+                .query_map([&profile_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(database_error)?;
+            let mut stored = HashMap::new();
+            for row in rows {
+                let (full_name, json) = row.map_err(database_error)?;
+                let dependencies = serde_json::from_str(&json)
+                    .map_err(|error| format!("Stored mod dependencies are invalid: {error}"))?;
+                stored.insert(full_name.to_lowercase(), dependencies);
+            }
+            Ok(stored)
+        })
+    }
+
+    /// Stores the declared dependencies of an installed mod; `None` marks
+    /// them as unknown.
+    pub(crate) fn set_profile_mod_dependencies(
+        &self,
+        profile_id: &str,
+        full_name: &str,
+        dependencies: Option<&[String]>,
+    ) -> Result<(), String> {
+        let profile_id = parse_profile_id(profile_id)?;
+        let json = dependencies
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|error| format!("Could not store the mod dependencies: {error}"))?;
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "UPDATE mod_profile_mods SET dependencies = ?3
+                     WHERE profile_id = ?1 AND full_name = ?2",
+                    params![profile_id, full_name, json],
+                )
+                .map_err(database_error)?;
+            Ok(())
         })
     }
 
@@ -789,6 +845,61 @@ mod tests {
             .map(|profile| profile.name)
             .collect();
         assert_eq!(names, ["MAIN", &"x".repeat(64), "Renamed"]);
+        drop(database);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn stores_declared_dependencies_per_mod() {
+        let (database, directory) = open();
+        let game = database.create_game(game_input("Game")).unwrap();
+        database.set_game_modding(&game.id, "a").unwrap();
+        let profile = database.create_mod_profile(&game.id, "Main", 1).unwrap();
+        database
+            .upsert_profile_mod(&mod_record(&profile.id, "Owner-Mod", 0))
+            .unwrap();
+        database
+            .upsert_profile_mod(&mod_record(&profile.id, "Owner-Other", 1))
+            .unwrap();
+        assert!(
+            database
+                .profile_mod_dependencies(&profile.id)
+                .unwrap()
+                .is_empty()
+        );
+
+        let dependencies = vec!["Owner-Lib".to_owned()];
+        database
+            .set_profile_mod_dependencies(&profile.id, "Owner-Mod", Some(&dependencies))
+            .unwrap();
+        let stored = database.profile_mod_dependencies(&profile.id).unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored["owner-mod"], dependencies);
+
+        // An update keeps the list until it is replaced or cleared.
+        database
+            .upsert_profile_mod(&mod_record(&profile.id, "Owner-Mod", 0))
+            .unwrap();
+        assert_eq!(
+            database
+                .profile_mod_dependencies(&profile.id)
+                .unwrap()
+                .len(),
+            1
+        );
+        database
+            .set_profile_mod_dependencies(&profile.id, "Owner-Mod", Some(&[]))
+            .unwrap();
+        assert!(database.profile_mod_dependencies(&profile.id).unwrap()["owner-mod"].is_empty());
+        database
+            .set_profile_mod_dependencies(&profile.id, "Owner-Mod", None)
+            .unwrap();
+        assert!(
+            database
+                .profile_mod_dependencies(&profile.id)
+                .unwrap()
+                .is_empty()
+        );
         drop(database);
         std::fs::remove_dir_all(directory).unwrap();
     }

@@ -328,7 +328,7 @@
                 </p>
                 {#if issue !== undefined}
                   <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
-                    {#each dependencyIssueLabels(issue, $language) as label (label)}
+                    {#each dependencyIssueLabels(issue, $language) as label, index (index)}
                       <Badge tone="warning" title={label}><Icon name="warning" size="size-3" /></Badge>
                     {/each}
                     <Button label={t("Risolvi", $language)} variant="secondary" size="sm" {disabled} onClick={() => void fixDependencies(issue)} />
