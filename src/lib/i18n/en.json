@@ -1139,9 +1139,9 @@
   "{0} profili mod, nessuno attivo": "{0} mod profiles, none active",
   "1 profilo mod": "1 mod profile",
   "{0} profili mod": "{0} mod profiles",
-  "{0} è un programma per gestire le mod, non una mod, e non si può installare.": "{0} is a mod manager application, not a mod, and cannot be installed.",
   "Mod aperte": "Open mods",
   "Chiudi {0}": "Close {0}",
   "Chiudi il pannello": "Close the panel",
-  "Documento": "Document"
+  "Documento": "Document",
+  "{0} non è una mod e non si può installare.": "{0} is not a mod and cannot be installed."
 }

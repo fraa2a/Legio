@@ -26,6 +26,10 @@ impl ModdingPaths {
         self.root.join("ecosystem.json")
     }
 
+    pub(crate) fn exclusions_cache(&self) -> PathBuf {
+        self.root.join("mod-exclusions.md")
+    }
+
     pub(crate) fn package_db(&self) -> PathBuf {
         self.root.join("packages.sqlite3")
     }
