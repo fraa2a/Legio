@@ -281,21 +281,19 @@
 </script>
 
 {#snippet profilePicker()}
-  <div class="legio-glass flex h-11 min-w-0 items-center rounded-xl p-0.5">
-    {#key selectRevision}
-      <SelectField
-        id="mod-active-profile"
-        label={t("Profilo", $language)}
-        labelHidden
-        borderless
-        value={profile?.id ?? ""}
-        {options}
-        disabled={running || busy}
-        onChange={requestProfile}
-        class="w-56 min-w-0"
-      />
-    {/key}
-  </div>
+  {#key selectRevision}
+    <SelectField
+      id="mod-active-profile"
+      label={t("Profilo", $language)}
+      labelHidden
+      variant="toolbar"
+      value={profile?.id ?? ""}
+      {options}
+      disabled={running || busy}
+      onChange={requestProfile}
+      class="w-56 min-w-0"
+    />
+  {/key}
 {/snippet}
 
 {#snippet profileActions()}

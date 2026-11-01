@@ -591,8 +591,9 @@ test("the title bar gets the profile controls and an inactive profile is not act
     assert.equal(content.title, "Main", "the first profile by name is shown");
     bar = mount((await import(host)).default, { target, props: { content } });
     await settle();
-    // jsdom has no popover API.
+    // jsdom has no popover or Web Animations API.
     dom.window.HTMLElement.prototype.showPopover ??= () => {};
+    dom.window.HTMLElement.prototype.animate ??= () => ({ set onfinish(callback) { callback(); } });
     target.querySelector("#mod-active-profile").click(); await settle();
     assert.deepEqual([...target.querySelectorAll('[role="option"]')].map(option => option.textContent.trim()), ["Main", "Zeta"]);
     assert.ok(button(target, "Nuovo profilo") && button(target, "Elimina profilo"));

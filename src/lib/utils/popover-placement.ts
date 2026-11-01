@@ -1,16 +1,15 @@
-const gap = 8;
+const margin = 8;
 
-// Opens below the trigger unless the list does not fit there and the space above is larger.
+// The list grows out of the trigger edge: below unless it does not fit there and the space above is larger.
 export function placePopover(
   trigger: { top: number; bottom: number },
   contentHeight: number,
   viewportHeight: number,
   limit = 256,
-): { top: number; maxHeight: number } {
-  const spaceAbove = Math.max(0, trigger.top - gap);
-  const spaceBelow = Math.max(0, viewportHeight - trigger.bottom - gap);
+): { above: boolean; maxHeight: number } {
+  const spaceAbove = Math.max(0, trigger.top - margin);
+  const spaceBelow = Math.max(0, viewportHeight - trigger.bottom - margin);
   const desiredHeight = Math.min(limit, contentHeight);
   const above = spaceBelow < desiredHeight && spaceAbove > spaceBelow;
-  const maxHeight = Math.floor(Math.min(desiredHeight, above ? spaceAbove : spaceBelow));
-  return { top: above ? trigger.top - gap - maxHeight : trigger.bottom + gap, maxHeight };
+  return { above, maxHeight: Math.floor(Math.min(desiredHeight, above ? spaceAbove : spaceBelow)) };
 }

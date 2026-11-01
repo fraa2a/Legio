@@ -42,6 +42,7 @@
 - Derive state instead of duplicating it. Avoid unnecessary reactive state.
 - Reusable UI primitives go in `src/lib/components/ui`; feature components stay with their feature.
 - Use Tailwind and existing design tokens before arbitrary values. Keep equivalent controls consistent. Respect reduced-motion preferences.
+- Dropdowns and menus expand from their trigger into one merged surface and animate both open and closed: use `SelectField` in `src/lib/components/ui`, or follow `ReleasePicker` for rich in-flow pickers. Never open a detached popover.
 
 ## Naming and Comments
 

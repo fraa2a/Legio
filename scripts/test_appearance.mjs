@@ -9,7 +9,7 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http:
 for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputElement", "HTMLButtonElement", "HTMLImageElement", "HTMLMediaElement", "Element", "Node", "Text", "Comment", "Event", "MouseEvent", "CustomEvent", "MutationObserver", "getComputedStyle"]) {
   Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
 }
-window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} });
+globalThis.matchMedia = window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} });
 const { mount, unmount, flushSync } = await import("svelte");
 const { get, writable } = await import("svelte/store");
 const presetData = JSON.parse(await readFile(new URL("../src/lib/services/theme-presets.json", import.meta.url), "utf8"));
