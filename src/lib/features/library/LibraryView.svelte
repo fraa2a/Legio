@@ -51,7 +51,7 @@
   />
 
   {#if visible.length > 0}
-    <ul use:reflowOnResize class="relative grid auto-rows-max gap-4 {$libraryPortrait ? 'grid-cols-[repeat(auto-fill,minmax(min(100%,11rem),1fr))]' : 'grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))]'}">
+    <ul use:reflowOnResize={libraryPortrait} class="relative grid auto-rows-max gap-4 {$libraryPortrait ? 'grid-cols-[repeat(auto-fill,minmax(min(100%,11rem),1fr))]' : 'grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))]'}">
       {#each visible as item (item.game.id)}
         <GameCard
           game={item.game}

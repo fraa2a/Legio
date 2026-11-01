@@ -1,7 +1,10 @@
+import { tick } from "svelte";
+import type { Readable } from "svelte/store";
 import { reducedMotion } from "../../utils/motion";
+import { createGridMorph, type MorphCapture } from "./grid-morph";
+import { motionEasingCss as easing } from "./morph-plan";
 
 const duration = 280;
-const easing = "cubic-bezier(0.22, 1, 0.36, 1)";
 
 interface Slot {
   left: number;
@@ -39,12 +42,39 @@ function currentOffset(card: HTMLElement): { x: number; y: number } {
  * Glides cards that wrap to another row after the grid resizes (sidebar toggle,
  * window resize). Cards that stay on their row follow the grid directly, since
  * they are resized as well and a translation cannot express that.
+ *
+ * When `layout` emits a new value the cards change shape (cover style), so they
+ * are morphed instead; the morph re-baselines the slots, which keeps the resize
+ * that comes with it from also gliding.
  */
-export function reflowOnResize(grid: HTMLElement): { destroy: () => void } {
+export function reflowOnResize(grid: HTMLElement, layout?: Readable<unknown>): { destroy: () => void } {
   if (reducedMotion) return { destroy: () => undefined };
 
   const running = new Map<HTMLElement, Animation>();
+  const morph = createGridMorph(grid);
   let slots = measure(grid);
+  let pending: MorphCapture | null = null;
+  let destroyed = false;
+  let initial = true;
+
+  // The store emits before Svelte updates the DOM, so the old layout is still readable.
+  const unsubscribe = layout?.subscribe(() => {
+    if (initial) {
+      initial = false;
+      return;
+    }
+    if (pending !== null) return;
+    pending = morph.capture();
+    void tick().then(() => {
+      const captured = pending;
+      pending = null;
+      if (captured === null || destroyed) return;
+      for (const animation of running.values()) animation.cancel();
+      running.clear();
+      morph.play(captured);
+      slots = measure(grid);
+    });
+  });
 
   // ResizeObserver callbacks run once per frame between layout and paint, so the
   // new layout is never painted before the glide starts.
@@ -84,6 +114,9 @@ export function reflowOnResize(grid: HTMLElement): { destroy: () => void } {
 
   return {
     destroy: () => {
+      destroyed = true;
+      unsubscribe?.();
+      morph.destroy();
       resizeObserver.disconnect();
       mutationObserver.disconnect();
       for (const animation of running.values()) animation.cancel();
