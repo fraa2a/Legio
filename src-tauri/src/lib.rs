@@ -87,7 +87,8 @@ mod window_scale;
 
 use modding::{
     cache_management, catalog_commands, config_files, exchange_commands, install_commands, launch,
-    mod_icons, mod_links, package_document, package_page, profile_commands, support_report,
+    link_registration, mod_icons, mod_links, package_document, package_page, profile_commands,
+    support_report,
 };
 
 struct TrayAvailable(bool);
@@ -202,9 +203,7 @@ fn run_application(
                 .set_enabled(initial_settings.application_logging_enabled);
             // Reclaims the scheme after an update or reinstall moved the executable.
             if initial_settings.thunderstore_links_enabled
-                && !tauri::is_dev()
-                && !cfg!(debug_assertions)
-                && let Err(error) = mod_links::set_registered(app.handle(), true)
+                && let Err(error) = link_registration::set_registered(app.handle(), true)
             {
                 application_log::failure("register_mod_links", error);
             }
@@ -577,6 +576,7 @@ fn run_application(
             profile_commands::set_all_profile_mods_enabled,
             mod_links::take_mod_links,
             mod_links::resolve_mod_link,
+            link_registration::get_mod_link_handler,
         ])
         .build(context)?
         .run(|app, event| {

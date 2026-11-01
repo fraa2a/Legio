@@ -18,11 +18,18 @@ export interface ModLinkCandidate {
 
 export interface UnsyncedGame { gameId: string; name: string; ecosystemGameId: string }
 
+// A bound game whose synced catalog lacks the linked version.
+export interface MissingGame { gameId: string; name: string; ecosystemGameId: string; packageKnown: boolean }
+
 export interface ModLinkResolution {
   package: { description: string; icon: string } | null;
   candidates: ModLinkCandidate[];
   unsynced: UnsyncedGame[];
+  missing: MissingGame[];
 }
+
+// Who opens ror2mm links: Legio, another program, or nobody.
+export type LinkHandler = "legio" | "other" | "nobody";
 
 export const takeModLinks = () => invoke<ModLinkRequest[]>("take_mod_links");
 export const resolveModLink = (fullName: string, version: string) =>
@@ -31,3 +38,5 @@ export const resolveModLink = (fullName: string, version: string) =>
 export function observeModLinks(callback: () => void): Promise<UnlistenFn> {
   return listen("legio:mod-link", () => callback());
 }
+
+export const getModLinkHandler = () => invoke<LinkHandler>("get_mod_link_handler");

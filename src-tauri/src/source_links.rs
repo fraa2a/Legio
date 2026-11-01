@@ -115,7 +115,7 @@ impl SourceLinks {
 
 pub fn register(app: &tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "linux")]
-    if std::env::var_os("LEGIO_AUR_PACKAGE").is_some() {
+    if crate::commands::is_aur_package() {
         // The package wrapper preserves the AUR updater settings.
         let status = std::process::Command::new("xdg-mime")
             .args([
