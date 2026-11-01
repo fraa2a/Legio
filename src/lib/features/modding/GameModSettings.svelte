@@ -7,12 +7,15 @@
   import Panel from "../../components/ui/Panel.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
   import type { Game } from "../../services/local-state";
+  import { buildModSupportReport, openModLog, readModLog } from "../../services/modding";
   import { launchStateByGame } from "../../stores/launch";
   import { bindGame, loadModdableGames, moddableGameById, moddableGames, restoreGameFolder } from "../../stores/modding";
   import { openModManager } from "../../stores/navigation";
+  import { showToast } from "../../stores/toast";
   import { toMessage } from "../../utils/errors";
   import EcosystemGameDialog from "./EcosystemGameDialog.svelte";
   import { describeModdingError, moddableGameState } from "./modding-model";
+  import { describeToolsError } from "./mod-tools-model";
 
   let { game }: { game: Game } = $props();
 
@@ -33,6 +36,31 @@
     if (modding.ecosystemGameId !== null) return t("Corrispondenza automatica: {0}.", $language, [modding.displayName ?? modding.ecosystemGameId]);
     return t("Thunderstore non ha riconosciuto questo gioco. Collegalo a mano per installare le sue mod.", $language);
   });
+
+  let diagnosing = $state(false);
+  let diagnosticsError = $state<string | null>(null);
+
+  async function diagnose(work: () => Promise<void>): Promise<void> {
+    diagnosing = true;
+    diagnosticsError = null;
+    try {
+      await work();
+    } catch (error) {
+      diagnosticsError = describeToolsError(toMessage(error), $language);
+    } finally {
+      diagnosing = false;
+    }
+  }
+
+  async function copyText(load: () => Promise<string>, done: string): Promise<void> {
+    const text = await load();
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      throw new Error(t("Impossibile copiare negli appunti.", $language));
+    }
+    showToast(done, "success");
+  }
 
   async function restore(): Promise<void> {
     restoring = true;
@@ -84,6 +112,16 @@
           </div>
           {#if restored}<Callout tone="success" variant="inline" message={t("Cartella del gioco ripristinata.", $language)} />{/if}
           {#if restoreError !== null}<ErrorBanner message={restoreError} />{/if}
+        </div>
+      </Panel>
+      <Panel title={t("Diagnostica", $language)} description={t("Copia il log di BepInEx o le informazioni sul setup da condividere quando chiedi supporto. La cartella utente viene sostituita da ~.", $language)}>
+        <div class="flex flex-col gap-3">
+          <div class="flex flex-wrap gap-2">
+            <Button label={t("Copia log", $language)} variant="secondary" disabled={diagnosing} onClick={() => void diagnose(() => copyText(() => readModLog(game.id), t("Log copiato negli appunti.", $language)))} />
+            <Button label={t("Apri log", $language)} variant="secondary" disabled={diagnosing} onClick={() => void diagnose(() => openModLog(game.id))} />
+            <Button label={t("Copia info per supporto", $language)} variant="secondary" disabled={diagnosing} onClick={() => void diagnose(() => copyText(() => buildModSupportReport(game.id), t("Informazioni copiate negli appunti.", $language)))} />
+          </div>
+          {#if diagnosticsError !== null}<ErrorBanner message={diagnosticsError} />{/if}
         </div>
       </Panel>
     {/if}

@@ -95,6 +95,26 @@ test("config model chooses controls, validates numbers and collects only changed
   assert.deepEqual(model.filterConfigFiles(files, "PLUGINS").map((view) => view.name), ["A2.txt", "b.cfg"]);
   assert.equal(model.textSizeError("small"), null);
   assert.notEqual(model.textSizeError("a".repeat(model.maxConfigTextBytes + 1)), null);
+
+  const dated = [{ relativePath: "b.cfg", size: 1, modified: 20 }, { relativePath: "a.cfg", size: 1, modified: 10 }, { relativePath: "c.cfg", size: 1, modified: 20 }];
+  const order = (sort, query = "") => model.filterConfigFiles(dated, query, sort).map((view) => view.name);
+  assert.deepEqual(order("name-asc"), ["a.cfg", "b.cfg", "c.cfg"]);
+  assert.deepEqual(order("name-desc"), ["c.cfg", "b.cfg", "a.cfg"]);
+  assert.deepEqual(order("modified-desc"), ["b.cfg", "c.cfg", "a.cfg"]);
+  assert.deepEqual(order("modified-asc"), ["a.cfg", "b.cfg", "c.cfg"]);
+  assert.deepEqual(order("modified-desc", "c."), ["c.cfg"]);
+  assert.deepEqual(dated.map((file) => file.relativePath), ["b.cfg", "a.cfg", "c.cfg"]);
+  assert.equal(model.configSortOptions().length, 4);
+});
+
+test("tools model describes cache rows and errors", async () => {
+  const model = await import(await load("src/lib/features/modding/mod-tools-model.ts"));
+  const rows = model.cacheRows({ packagesBytes: 1, catalogBytes: 2, iconsBytes: 3 });
+  assert.deepEqual(rows.map((row) => [row.kind, row.bytes]), [["packages", 1], ["catalog", 2], ["icons", 3]]);
+  assert.match(model.clearedMessage("catalog"), /Catalogo/);
+  assert.match(model.describeToolsError("No BepInEx log found: launch the game with this profile at least once"), /^Nessun log trovato/);
+  assert.match(model.describeToolsError("Mods are being installed or changed. Wait for it to finish and try again"), /installazione/);
+  assert.equal(model.describeToolsError("Something else"), "Something else");
 });
 
 test("exchange model validates codes and file names", async () => {

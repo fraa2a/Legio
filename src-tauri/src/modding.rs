@@ -1,6 +1,7 @@
 //! Thunderstore modding: shared domain types and pure helpers.
 
 pub(crate) mod archive_cache;
+pub(crate) mod cache_management;
 pub(crate) mod catalog_commands;
 pub(crate) mod config_files;
 pub(crate) mod dependencies;
@@ -23,6 +24,7 @@ pub(crate) mod profile_codes;
 pub(crate) mod profile_commands;
 pub(crate) mod profile_exchange;
 pub(crate) mod profiles;
+pub(crate) mod support_report;
 #[cfg(test)]
 mod test_support;
 pub(crate) mod thunderstore_http;

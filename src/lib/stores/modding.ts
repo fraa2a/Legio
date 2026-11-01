@@ -284,3 +284,9 @@ export function packageDetails(ecosystemGameId: string, fullName: string): Promi
   }
   return pending;
 }
+
+// The local catalog was deleted, so every community must sync again on its next visit.
+export function resetCatalogs(): void {
+  packageCache.clear();
+  catalogState.set({});
+}

@@ -220,7 +220,7 @@ fn vanilla_plan(
     }))
 }
 
-fn status(
+pub(crate) fn status(
     database: &Database,
     paths: &ModdingPaths,
     game_id: &str,
@@ -342,6 +342,15 @@ fn game_directory(game: &Game) -> Result<PathBuf, String> {
         return Err("The game folder is not a directory".to_owned());
     }
     Ok(directory)
+}
+
+/// How the game launches with mods, for support reports.
+pub(crate) fn launch_mode(game: &Game) -> &'static str {
+    match path_style(game) {
+        Some(PathStyle::Native) => "native",
+        Some(PathStyle::Wine) => "wine/proton",
+        None => "not supported",
+    }
 }
 
 #[cfg(windows)]

@@ -321,6 +321,32 @@ impl PackageCache {
         })
     }
 
+    /// Deletes the local copy of every community, so the next browse syncs
+    /// from scratch. Refused while a sync runs.
+    pub(crate) fn clear(&self) -> Result<(), String> {
+        let _only_sync = self.inner.sync_lock.try_lock().map_err(|_| {
+            "The mod catalog is being updated. Try again when it finishes".to_owned()
+        })?;
+        let mut reader = self
+            .inner
+            .reader
+            .lock()
+            .map_err(|_| "The mod catalog lock was poisoned".to_owned())?;
+        // The open connection would keep the file locked on Windows.
+        *reader = None;
+        for suffix in ["", "-wal", "-shm"] {
+            let mut name = self.inner.path.clone().into_os_string();
+            name.push(suffix);
+            match std::fs::remove_file(PathBuf::from(name)) {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(format!("Could not delete the mod catalog: {error}"));
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
     fn touch_sync(&self, community: &str, now: i64) -> Result<CatalogStatus, String> {
         let connection = open_connection(&self.inner.path)?;
         connection

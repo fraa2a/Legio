@@ -185,6 +185,17 @@ pub(crate) fn save_config_entries(
     write_config_text(profile_dir, relative_path, &updated)
 }
 
+pub(crate) fn delete_config_file(profile_dir: &Path, relative_path: &str) -> Result<(), String> {
+    let path = resolve_config_path(profile_dir, relative_path)?;
+    fs::remove_file(path).map_err(|error| format!("Could not delete config file: {error}"))
+}
+
+/// Opens the file with the application the system associates with it.
+pub(crate) fn open_config_file(profile_dir: &Path, relative_path: &str) -> Result<(), String> {
+    let path = resolve_config_path(profile_dir, relative_path)?;
+    crate::installed_folder::open_directory(&path)
+}
+
 /// Resolves a listed, existing config file and checks that it stays inside the profile.
 fn resolve_config_path(profile_dir: &Path, relative_path: &str) -> Result<PathBuf, String> {
     validate_relative_path(relative_path).map_err(|_| "Config file path is invalid".to_owned())?;
@@ -471,6 +482,36 @@ pub async fn save_mod_config_entries(
     .await
 }
 
+#[tauri::command]
+pub async fn delete_mod_config_file(
+    app: AppHandle,
+    game_id: String,
+    profile_id: String,
+    relative_path: String,
+) -> Result<(), String> {
+    run_modding(app, move |_, database, paths, _| {
+        let (_, directory) = profile_for_game(database, paths, &game_id, &profile_id)?;
+        delete_config_file(&directory, &relative_path)?;
+        crate::application_log::state_change("mod_config_deleted", &relative_path);
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn open_mod_config_file(
+    app: AppHandle,
+    game_id: String,
+    profile_id: String,
+    relative_path: String,
+) -> Result<(), String> {
+    run_modding(app, move |_, database, paths, _| {
+        let (_, directory) = profile_for_game(database, paths, &game_id, &profile_id)?;
+        open_config_file(&directory, &relative_path)
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -520,6 +561,47 @@ Volume = 50\n";
     impl Drop for TempProfile {
         fn drop(&mut self) {
             fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+
+    #[test]
+    fn deletes_only_listed_files_inside_the_profile() {
+        let profile = TempProfile::new();
+        profile.write("BepInEx/config/a.cfg", b"x");
+        profile.write("BepInEx/plugins/Mod.dll", b"x");
+        let outside = profile.0.with_extension("outside.cfg");
+        fs::write(&outside, b"x").unwrap();
+        let outside_name = format!("../{}", outside.file_name().unwrap().to_str().unwrap());
+
+        for path in [
+            "BepInEx/plugins/Mod.dll",
+            "BepInEx/config",
+            "../x.cfg",
+            "missing.cfg",
+            &outside_name,
+        ] {
+            assert!(delete_config_file(&profile.0, path).is_err(), "{path}");
+        }
+        assert!(profile.0.join("BepInEx/plugins/Mod.dll").is_file());
+        assert!(outside.is_file());
+        fs::remove_file(&outside).unwrap();
+
+        delete_config_file(&profile.0, "BepInEx/config/a.cfg").unwrap();
+        assert!(!profile.0.join("BepInEx/config/a.cfg").exists());
+        assert!(profile.0.join("BepInEx/config").is_dir());
+    }
+
+    #[test]
+    fn open_refuses_unsafe_paths_before_launching() {
+        let profile = TempProfile::new();
+        profile.write("BepInEx/plugins/Mod.dll", b"x");
+        for path in [
+            "../a.cfg",
+            r"a\b.cfg",
+            "BepInEx/plugins/Mod.dll",
+            "missing.cfg",
+        ] {
+            assert!(open_config_file(&profile.0, path).is_err(), "{path}");
         }
     }
 

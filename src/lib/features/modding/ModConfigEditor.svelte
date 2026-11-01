@@ -2,7 +2,7 @@
   import { onDestroy, untrack } from "svelte";
   import { t, language } from "../../i18n";
   import {
-    listModConfigFiles, readModConfigFile, saveModConfigEntries, saveModConfigText,
+    deleteModConfigFile, listModConfigFiles, openModConfigFile, readModConfigFile, saveModConfigEntries, saveModConfigText,
     type ConfigFileEntry, type ModConfigFile,
   } from "../../services/mod-config";
   import { showToast } from "../../stores/toast";
@@ -14,14 +14,16 @@
   import EmptyState from "../../components/ui/EmptyState.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Icon from "../../components/ui/Icon.svelte";
+  import IconButton from "../../components/ui/IconButton.svelte";
+  import SelectField from "../../components/ui/SelectField.svelte";
   import SegmentedControl from "../../components/ui/SegmentedControl.svelte";
   import Spinner from "../../components/ui/Spinner.svelte";
   import TextField, { textFieldClass } from "../../components/ui/TextField.svelte";
   import ModConfigEntry from "./ModConfigEntry.svelte";
   import { describeModdingError } from "./modding-model";
   import {
-    collectEdits, currentValue, fileListPageSize, filterConfigFiles, filterSections, findInvalidEntries,
-    initialOpenSections, sectionChangeCount, setChange, splitConfigPath, textSizeError, type ConfigChanges,
+    collectEdits, configSortOptions, currentValue, fileListPageSize, filterConfigFiles, filterSections, findInvalidEntries,
+    initialOpenSections, sectionChangeCount, setChange, splitConfigPath, textSizeError, type ConfigChanges, type ConfigSort,
   } from "./mod-config-model";
 
   let { gameId, profileId, onDirtyChange }: {
@@ -36,6 +38,7 @@
   let listLoading = $state(true);
   let listError = $state<string | null>(null);
   let query = $state("");
+  let sort = $state<ConfigSort>("name-asc");
   let visibleFiles = $state(fileListPageSize);
   let selectedPath = $state<string | null>(null);
   let file = $state<ModConfigFile | null>(null);
@@ -49,11 +52,15 @@
   let saving = $state(false);
   let saveError = $state<string | null>(null);
   let guarded = $state<(() => void) | null>(null);
+  let deleteOpen = $state(false);
+  let deleting = $state(false);
+  let deleteError = $state<string | null>(null);
+  let actionError = $state<string | null>(null);
   let fileRequest = 0;
   let listRequest = 0;
   let disposed = false;
 
-  const filtered = $derived(filterConfigFiles(files, query));
+  const filtered = $derived(filterConfigFiles(files, query, sort));
   const shown = $derived(filtered.slice(0, visibleFiles));
   const config = $derived(file?.bepinex ?? null);
   const effectiveMode = $derived<Mode>(config === null ? "raw" : mode);
@@ -84,6 +91,7 @@
       guarded = null;
       query = "";
       changes = {};
+      actionError = null;
       void loadFiles(true);
     });
   });
@@ -189,6 +197,37 @@
     }
   }
 
+  async function openExternally(): Promise<void> {
+    if (selectedPath === null) return;
+    actionError = null;
+    try {
+      await openModConfigFile(gameId, profileId, selectedPath);
+    } catch (reason) {
+      actionError = describeModdingError(toMessage(reason), $language);
+    }
+  }
+
+  async function deleteSelected(): Promise<void> {
+    if (selectedPath === null || deleting) return;
+    deleting = true;
+    deleteError = null;
+    try {
+      await deleteModConfigFile(gameId, profileId, selectedPath);
+      if (disposed) return;
+      fileRequest += 1;
+      selectedPath = null;
+      file = null;
+      changes = {};
+      deleteOpen = false;
+      showToast(t("File eliminato.", $language), "success");
+      await loadFiles(false);
+    } catch (reason) {
+      if (!disposed) deleteError = describeModdingError(toMessage(reason), $language);
+    } finally {
+      deleting = false;
+    }
+  }
+
   async function refreshFiles(): Promise<void> {
     try {
       const result = await listModConfigFiles(gameId, profileId);
@@ -202,6 +241,7 @@
 <div class="flex h-full min-h-[26rem] min-w-0 flex-col gap-4 lg:flex-row">
   <aside class="flex max-h-80 shrink-0 flex-col gap-3 rounded-2xl legio-glass p-3 lg:max-h-none lg:w-72" aria-label={t("File di configurazione", $language)}>
     <TextField id="mod-config-filter" label={t("Filtra file", $language)} type="search" placeholder={t("Filtra file...", $language)} bind:value={query} />
+    <SelectField id="mod-config-sort" label={t("Ordina file", $language)} labelHidden value={sort} options={configSortOptions($language)} onChange={(value) => (sort = value as ConfigSort)} />
     {#if listLoading && files.length === 0}
       <div class="flex items-center gap-3 p-3 text-sm text-zinc-300 light:text-zinc-700" role="status"><Spinner />{t("Caricamento...", $language)}</div>
     {:else if listError !== null}
@@ -260,10 +300,17 @@
         {#if config !== null}
           <SegmentedControl name="mod-config-mode" label={t("Modalità di modifica", $language)} labelHidden class="w-48" options={modeOptions} value={effectiveMode} disabled={saving} onChange={selectMode} />
         {/if}
+        <IconButton label={t("Apri con l'editor di sistema", $language)} title={t("Apri con l'editor di sistema", $language)} disabled={saving} onClick={() => void openExternally()}>
+          <Icon name="folder-open" size="size-4" />
+        </IconButton>
+        <IconButton variant="danger" label={t("Elimina file", $language)} title={t("Elimina file", $language)} disabled={saving} onClick={() => { deleteError = null; deleteOpen = true; }}>
+          <Icon name="trash" size="size-4" />
+        </IconButton>
         <Button label={t("Annulla modifiche", $language)} variant="secondary" size="sm" disabled={!dirty || saving} onClick={discard} />
         <Button label={saving ? t("Salvataggio...", $language) : t("Salva", $language)} size="sm" disabled={!dirty || saving || invalid || sizeError !== null} onClick={() => void save()} />
       </header>
 
+      {#if actionError !== null}<div class="px-4 pt-4"><ErrorBanner message={actionError} /></div>{/if}
       {#if fileError !== null}
         <div class="p-4"><ErrorBanner message={fileError} onRetry={() => void openFile(selectedPath ?? "")} /></div>
       {:else if file === null || fileLoading}
@@ -339,4 +386,16 @@
     action?.();
   }}
   onClose={() => (guarded = null)}
+/>
+
+<ConfirmDialog
+  open={deleteOpen}
+  title={t("Elimina file", $language)}
+  message={t("Eliminare il file {0}? Verrà rimosso dal profilo e non potrà essere ripristinato.", $language, [pathParts?.name ?? ""])}
+  confirmLabel={deleting ? t("Eliminazione...", $language) : t("Elimina", $language)}
+  tone="danger"
+  pending={deleting}
+  error={deleteError}
+  onConfirm={() => void deleteSelected()}
+  onClose={() => (deleteOpen = false)}
 />

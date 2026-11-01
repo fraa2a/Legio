@@ -46,3 +46,9 @@ export const saveModConfigText = (gameId: string, profileId: string, relativePat
 
 export const saveModConfigEntries = (gameId: string, profileId: string, relativePath: string, edits: ConfigEdit[]) =>
   invoke<void>("save_mod_config_entries", { gameId, profileId, relativePath, edits });
+
+export const deleteModConfigFile = (gameId: string, profileId: string, relativePath: string) =>
+  invoke<void>("delete_mod_config_file", { gameId, profileId, relativePath });
+
+export const openModConfigFile = (gameId: string, profileId: string, relativePath: string) =>
+  invoke<void>("open_mod_config_file", { gameId, profileId, relativePath });

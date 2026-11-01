@@ -86,8 +86,8 @@ mod webkit_features;
 mod window_scale;
 
 use modding::{
-    catalog_commands, config_files, exchange_commands, install_commands, launch, mod_icons,
-    package_page, profile_commands,
+    cache_management, catalog_commands, config_files, exchange_commands, install_commands, launch,
+    mod_icons, package_page, profile_commands, support_report,
 };
 
 struct TrayAvailable(bool);
@@ -549,6 +549,13 @@ fn run_application(
             exchange_commands::import_mod_profile_code,
             launch::get_mod_launch_status,
             launch::restore_modded_game_folder,
+            cache_management::get_mod_cache_usage,
+            cache_management::clear_mod_cache,
+            config_files::delete_mod_config_file,
+            config_files::open_mod_config_file,
+            support_report::read_mod_log,
+            support_report::open_mod_log,
+            support_report::build_mod_support_report,
         ])
         .build(context)?
         .run(|app, event| {
