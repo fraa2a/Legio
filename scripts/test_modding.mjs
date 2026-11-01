@@ -459,6 +459,7 @@ test("the browser debounces search and installs from results", async () => {
   });
   const view = await render(load, "src/lib/features/modding/ModBrowser.svelte", {
     gameId: "g", ecosystemGameId: "lethal-company", profile: { id: "p", gameId: "g", name: "Main", createdAt: 0 }, disabled: false,
+    tabs: { tabs: [], active: null, recent: [] }, onTabsChange() {},
   });
   try {
     await wait(350); await settle();

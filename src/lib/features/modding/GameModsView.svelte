@@ -57,6 +57,7 @@
     shownProfile,
   } from "./modding-model";
   import ModConfigEditor from "./ModConfigEditor.svelte";
+  import { emptyModTabs, type ModTabs } from "./mod-panel-model";
   import ProfileImportDialog from "./ProfileImportDialog.svelte";
   import ProfileNameDialog from "./ProfileNameDialog.svelte";
   import ProfileShareDialog from "./ProfileShareDialog.svelte";
@@ -107,6 +108,8 @@
   let configDirty = $state(false);
   let profileSize = $state<number | null>(null);
   let discardAction = $state<(() => void) | null>(null);
+  // Opened mods stay while switching sections of this game and refer to its Thunderstore community.
+  let modTabs = $state<ModTabs>(emptyModTabs);
   let autoBindAttempted = false;
 
   // A game opened through its Steam match is bound on first visit, so profiles can be created right away.
@@ -129,6 +132,11 @@
 
   $effect(() => {
     if (ecosystemGameId !== null) void ensureCatalog(ecosystemGameId);
+  });
+
+  $effect(() => {
+    void ecosystemGameId;
+    untrack(() => (modTabs = emptyModTabs));
   });
 
   $effect(() => {
@@ -333,8 +341,8 @@
     {/if}
   </div>
 {:else}
-  <!-- The config editor fills the window and scrolls inside; the other tabs scroll with the page. -->
-  <div class="flex flex-col gap-4 {tab === 'config' && profile !== null ? 'h-full' : 'min-h-full'}">
+  <!-- The browser and the config editor fill the window and scroll inside; the installed list scrolls with the page. -->
+  <div class="flex flex-col gap-4 {tab !== 'installed' && profile !== null ? 'h-full' : 'min-h-full'}">
     {#if actionError !== null}<ErrorBanner message={actionError} />{/if}
     {#if $profiles.status === "error"}
       <ErrorBanner message={$profiles.error ?? ""} onRetry={() => void profiles.reload()} retryLabel={t("Riprova", $language)} />
@@ -445,7 +453,7 @@
         {#if tab === "installed"}
           <InstalledModsList {gameId} {ecosystemGameId} {profile} locked={running} {busy} onBrowse={() => (tab = "browse")} />
         {:else if tab === "browse"}
-          <ModBrowser {gameId} {ecosystemGameId} {profile} disabled={running || busy} />
+          <ModBrowser {gameId} {ecosystemGameId} {profile} disabled={running || busy} tabs={modTabs} onTabsChange={(next) => (modTabs = next)} />
         {:else}
           <div class="flex min-h-0 flex-1 flex-col">
             <ModConfigEditor {gameId} profileId={profile.id} onDirtyChange={(dirty) => (configDirty = dirty)} />
