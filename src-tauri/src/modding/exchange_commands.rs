@@ -710,7 +710,7 @@ mod tests {
         assert!(env.files_of("Owner-Mod").is_empty());
         assert_eq!(
             env.database.mod_profiles(&env.game_id).unwrap(),
-            [before.clone()]
+            std::slice::from_ref(&before)
         );
         assert_eq!(profile_folders(&env), 1);
     }
@@ -791,7 +791,10 @@ mod tests {
         };
         assert_eq!(coverage(false, &[]), CatalogCoverage::Missing);
         assert_eq!(coverage(true, &[]), CatalogCoverage::Complete);
-        assert_eq!(coverage(true, &[known.clone()]), CatalogCoverage::Complete);
+        assert_eq!(
+            coverage(true, std::slice::from_ref(&known)),
+            CatalogCoverage::Complete
+        );
         assert_eq!(
             coverage(true, &[known, unknown]),
             CatalogCoverage::Incomplete
