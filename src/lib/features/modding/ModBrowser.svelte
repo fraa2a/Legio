@@ -11,7 +11,6 @@
   import SelectField from "../../components/ui/SelectField.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
   import TextField from "../../components/ui/TextField.svelte";
-  import Toggle from "../../components/ui/Toggle.svelte";
   import { listModCategories, searchMods, type ModProfile, type PackageSort, type PackageSummary } from "../../services/modding";
   import { catalogFor, catalogs, installPackages, loadOnce, modUpdates, profileMods, refreshCatalog } from "../../stores/modding";
   import type { LoadStatus } from "../../stores/resource";
@@ -19,6 +18,7 @@
   import { toMessage } from "../../utils/errors";
   import { formatDate, formatDateTime, regionalLocale } from "../../utils/format";
   import {
+    activeFilterCount,
     appendPage,
     browserPageSize,
     catalogPercent,
@@ -35,6 +35,7 @@
     type ResultNotice,
   } from "./modding-model";
   import ModDetailsDialog from "./ModDetailsDialog.svelte";
+  import ModFilterDialog from "./ModFilterDialog.svelte";
   import ModIcon from "./ModIcon.svelte";
 
   let {
@@ -57,6 +58,7 @@
   let loadingMore = $state(false);
   let categories = $state<string[]>([]);
   let selected = $state<PackageSummary | null>(null);
+  let filtersOpen = $state(false);
   let actionError = $state<string | null>(null);
   let notice = $state<ResultNotice | null>(null);
   let request = 0;
@@ -67,10 +69,7 @@
   const updates = $derived(modUpdates(profile.id));
   const installed = $derived(indexByFullName($mods.data));
   const updateIndex = $derived(indexByFullName($updates.data));
-  const categoryOptions = $derived([
-    { value: "", label: t("Tutte le categorie", $language) },
-    ...categories.map((category) => ({ value: category, label: category })),
-  ]);
+  const filterCount = $derived(activeFilterCount(filters));
   const locale = $derived(regionalLocale($language));
 
   async function search(offset: number): Promise<void> {
@@ -189,12 +188,17 @@
     <div class="min-w-64 flex-[2]">
       <TextField id="mod-search" type="search" label={t("Cerca", $language)} placeholder={t("Nome, autore o descrizione", $language)} bind:value={filters.text} />
     </div>
-    <SelectField id="mod-category" label={t("Categoria", $language)} class="min-w-48 flex-1 sm:max-w-64" value={filters.category} options={categoryOptions} onChange={(value) => (filters.category = value)} />
     <SelectField id="mod-sort" label={t("Ordina per", $language)} class="min-w-48 flex-1 sm:max-w-64" value={filters.sort} options={sortOptions($language)} onChange={(value) => (filters.sort = value as PackageSort)} />
-  </div>
-  <div class="flex flex-wrap gap-x-8 gap-y-2">
-    <Toggle label={t("Mostra mod deprecate", $language)} checked={filters.includeDeprecated} onChange={(value) => (filters.includeDeprecated = value)} />
-    <Toggle label={t("Mostra contenuti NSFW", $language)} checked={filters.includeNsfw} onChange={(value) => (filters.includeNsfw = value)} />
+    <div class="flex items-end">
+      <Button
+        label={filterCount === 0 ? t("Filtri", $language) : t("Filtri ({0})", $language, [filterCount])}
+        variant="secondary"
+        pressed={filterCount > 0}
+        onClick={() => (filtersOpen = true)}
+      >
+        <Icon name="funnel" size="size-4" />
+      </Button>
+    </div>
   </div>
 
   <StateBlock
@@ -265,6 +269,14 @@
     {#if searchError !== null && status !== "error"}<ErrorBanner message={searchError} onRetry={() => void search(items.length)} retryLabel={t("Riprova", $language)} />{/if}
   {/if}
 </div>
+
+<ModFilterDialog
+  open={filtersOpen}
+  {filters}
+  {categories}
+  onChange={(next) => (filters = next)}
+  onClose={() => (filtersOpen = false)}
+/>
 
 <ModDetailsDialog
   {ecosystemGameId}

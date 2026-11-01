@@ -5,14 +5,19 @@
   import Dialog from "../../components/ui/Dialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Icon from "../../components/ui/Icon.svelte";
+  import SegmentedControl from "../../components/ui/SegmentedControl.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
   import Skeleton from "../../components/ui/Skeleton.svelte";
-  import { openModPackagePage, type PackageDetails, type PackageSummary, type ProfileMod } from "../../services/modding";
+  import StateBlock from "../../components/ui/StateBlock.svelte";
+  import { openModExternalLink, openModPackagePage, type PackageDetails, type PackageDocument, type PackageSummary, type ProfileMod } from "../../services/modding";
   import { packageDetails } from "../../stores/modding";
+  import type { LoadStatus } from "../../stores/resource";
   import { toMessage } from "../../utils/errors";
   import { formatBytes, formatDate, regionalLocale } from "../../utils/format";
   import { displayPackageId, formatCount, modKey, packageTitle, splitPackageId, type InstalledState } from "./modding-model";
+  import ModDocument from "./ModDocument.svelte";
   import ModIcon from "./ModIcon.svelte";
+  import { loadPackageDocument } from "./package-documents";
 
   let {
     ecosystemGameId,
@@ -36,6 +41,11 @@
   let loading = $state(false);
   let error = $state<string | null>(null);
   let chosenVersion = $state("");
+  let tab = $state<"overview" | PackageDocument>("overview");
+  let documentStatus = $state<LoadStatus>("idle");
+  let documentHtml = $state("");
+  let documentError = $state<string | null>(null);
+  let documentAttempt = $state(0);
   // Keeps the content in place while the dialog animates closed.
   let shown = $state<PackageSummary | null>(null);
 
@@ -46,12 +56,39 @@
     details = null;
     error = null;
     chosenVersion = "";
+    tab = "overview";
     let cancelled = false;
     loading = true;
     packageDetails(ecosystemGameId, current.fullName).then(
       (value) => { if (!cancelled) details = value; },
       (cause: unknown) => { if (!cancelled) error = toMessage(cause); },
     ).finally(() => { if (!cancelled) loading = false; });
+    return () => { cancelled = true; };
+  });
+
+  // The readme and changelog belong to the selected version and load when their tab opens.
+  $effect(() => {
+    const name = shown?.fullName;
+    const number = versionNumber;
+    const document = tab;
+    void documentAttempt;
+    if (name === undefined || document === "overview" || number === "") return;
+    let cancelled = false;
+    documentStatus = "loading";
+    documentHtml = "";
+    documentError = null;
+    loadPackageDocument(name, number, document).then(
+      (html) => {
+        if (cancelled) return;
+        documentHtml = html ?? "";
+        documentStatus = html === null ? "empty" : "ready";
+      },
+      (cause: unknown) => {
+        if (cancelled) return;
+        documentError = toMessage(cause);
+        documentStatus = "error";
+      },
+    );
     return () => { cancelled = true; };
   });
 
@@ -70,10 +107,17 @@
     return isLatest ? t("Installa", $language) : t("Installa la versione {0}", $language, [versionNumber]);
   });
 
-  async function openPage(): Promise<void> {
-    if (shown === null) return;
+  const tabOptions = $derived([
+    { value: "overview", label: t("Panoramica", $language) },
+    { value: "readme", label: "Readme" },
+    { value: "changelog", label: "Changelog" },
+  ]);
+  const websiteUrl = $derived(version?.websiteUrl ?? null);
+  const donationLink = $derived(details?.donationLink ?? null);
+
+  async function openLink(open: () => Promise<void>): Promise<void> {
     try {
-      await openModPackagePage(shown.packageUrl);
+      await open();
     } catch (cause) {
       error = toMessage(cause);
     }
@@ -119,8 +163,11 @@
             <Skeleton class="h-16" />
           </div>
         {:else if details !== null}
-          <div class="grid gap-4 sm:grid-cols-[14rem_minmax(0,1fr)]">
+          <div class="grid items-end gap-4 sm:grid-cols-[14rem_minmax(0,1fr)]">
             <SelectField id="mod-version" label={t("Versione", $language)} value={versionNumber} options={versionOptions} onChange={(value) => (chosenVersion = value)} />
+            <SegmentedControl name="mod-details-tab" label={t("Sezione", $language)} labelHidden options={tabOptions} value={tab} onChange={(value) => (tab = value as typeof tab)} />
+          </div>
+          {#if tab === "overview"}
             <div class="min-w-0">
               <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Dipendenze", $language)}</p>
               {#if version === null || version.dependencies.length === 0}
@@ -137,7 +184,21 @@
                 </ul>
               {/if}
             </div>
-          </div>
+          {:else}
+            <StateBlock
+              status={documentStatus}
+              hasData={documentHtml !== ""}
+              skeletonRows={3}
+              skeletonClass="h-12"
+              emptyIcon="file-code"
+              emptyMessage={tab === "readme" ? t("Nessun readme", $language) : t("Nessun changelog", $language)}
+              error={documentError}
+              onRetry={() => documentAttempt++}
+            />
+            {#if documentStatus === "ready"}
+              <ModDocument html={documentHtml} onError={(message) => (error = message)} />
+            {/if}
+          {/if}
         {:else if error === null}
           <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Il pacchetto non è più nel catalogo. Aggiorna il catalogo e riprova.", $language)}</p>
         {/if}
@@ -145,7 +206,17 @@
         {#if error !== null}<ErrorBanner message={error} />{/if}
 
         <div class="flex flex-wrap justify-end gap-2">
-          <Button label={t("Apri su Thunderstore", $language)} variant="secondary" onClick={() => void openPage()}>
+          {#if websiteUrl !== null}
+            <Button label={t("Sito web", $language)} variant="secondary" onClick={() => void openLink(() => openModExternalLink(websiteUrl))}>
+              <Icon name="globe" size="size-4" />
+            </Button>
+          {/if}
+          {#if donationLink !== null}
+            <Button label={t("Dona", $language)} variant="secondary" onClick={() => void openLink(() => openModExternalLink(donationLink))}>
+              <Icon name="heart" size="size-4" />
+            </Button>
+          {/if}
+          <Button label={t("Apri su Thunderstore", $language)} variant="secondary" onClick={() => void openLink(() => openModPackagePage(summary.packageUrl))}>
             <Icon name="external-link" size="size-4" />
           </Button>
           <Button label={t("Chiudi", $language)} variant="secondary" onClick={close} />
