@@ -9,6 +9,7 @@ for (const key of ["window", "document", "navigator", "Node", "Text", "Comment",
   Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
 }
 HTMLElement.prototype.showPopover = function () {};
+globalThis.matchMedia = () => ({ matches: true });
 const { mount, unmount, flushSync } = await import("svelte");
 const settle = async () => { flushSync(); await new Promise(resolve => setImmediate(resolve)); flushSync(); };
 const searchDelay = async () => { await settle(); await new Promise(resolve => setTimeout(resolve, 330)); await settle(); };

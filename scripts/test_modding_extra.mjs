@@ -12,6 +12,8 @@ for (const key of [
   Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
 }
 HTMLElement.prototype.showPopover = function () {};
+// jsdom has no Web Animations API; finish at once so lists close.
+HTMLElement.prototype.animate = () => ({ set onfinish(callback) { callback(); } });
 globalThis.matchMedia = () => ({ matches: false });
 const { mount, unmount, flushSync } = await import("svelte");
 const settle = async () => { for (let i = 0; i < 6; i++) { await new Promise((resolve) => setImmediate(resolve)); flushSync(); } };
