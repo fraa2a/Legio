@@ -35,7 +35,7 @@ struct Inner {
 #[derive(Default)]
 struct State {
     loaded: Option<Loaded>,
-    last_failure: Option<Instant>,
+    last_failure: Option<(Instant, String)>,
 }
 
 struct Loaded {
@@ -92,13 +92,15 @@ impl EcosystemStore {
                 return Ok(loaded.schema.clone());
             }
         }
-        let recently_failed = state
+        let recent_failure = state
             .last_failure
-            .is_some_and(|failed| failed.elapsed() < RETRY_AFTER_FAILURE);
-        let fetched = if recently_failed {
-            Err("the schema was not reachable a moment ago".to_owned())
-        } else {
-            inner.fetch().await
+            .as_ref()
+            .filter(|(failed, _)| failed.elapsed() < RETRY_AFTER_FAILURE)
+            .map(|(_, error)| error.clone());
+        let recently_failed = recent_failure.is_some();
+        let fetched = match recent_failure {
+            Some(error) => Err(error),
+            None => inner.fetch().await,
         };
         match fetched {
             Ok(loaded) => {
@@ -110,7 +112,7 @@ impl EcosystemStore {
             }
             Err(error) => {
                 if !recently_failed {
-                    state.last_failure = Some(Instant::now());
+                    state.last_failure = Some((Instant::now(), error.clone()));
                     crate::application_log::failure("ecosystem_schema_fetch", &error);
                 }
                 match state.loaded.as_ref() {
