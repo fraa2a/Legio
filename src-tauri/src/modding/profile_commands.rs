@@ -128,14 +128,14 @@ pub async fn list_profile_mods(
             .map_err(|error| format!("the game list is not available: {error}"))
             .and_then(|schema| {
                 with_game_rules(database, paths, locks, &schema, &profile_id, |ctx, _| {
-                    Ok(mod_entries(&mods, paths, |name| {
+                    Ok(mod_entries(database, &mods, paths, |name| {
                         ctx.find_loader(name).is_some()
                     }))
                 })
             })
             .unwrap_or_else(|error| {
                 crate::application_log::failure("find_profile_mod_loaders", error);
-                mod_entries(&mods, paths, |_| false)
+                mod_entries(database, &mods, paths, |_| false)
             });
         Ok(entries)
     })
@@ -143,14 +143,18 @@ pub async fn list_profile_mods(
 }
 
 fn mod_entries(
+    database: &Database,
     mods: &[ProfileMod],
     paths: &ModdingPaths,
     is_loader: impl Fn(&str) -> bool,
 ) -> Vec<ProfileModEntry> {
+    let mut dependencies = declared_dependencies(database, paths, mods);
     mods.iter()
         .map(|record| ProfileModEntry {
             is_loader: is_loader(&record.full_name),
-            dependencies: declared_dependencies(paths, record),
+            dependencies: dependencies
+                .remove(&record.full_name.to_lowercase())
+                .unwrap_or_default(),
             record: record.clone(),
         })
         .collect()
@@ -366,7 +370,7 @@ mod tests {
         env.install(&repo, &["Owner-Mod"], ResolveMode::Latest)
             .unwrap();
         let ctx = env.ctx();
-        let entries = mod_entries(&env.mods(), &env.paths, |name| {
+        let entries = mod_entries(&env.database, &env.mods(), &env.paths, |name| {
             ctx.find_loader(name).is_some()
         });
         let flags: Vec<_> = entries

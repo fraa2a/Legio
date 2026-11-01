@@ -781,5 +781,22 @@ pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
             )
             .map_err(database_error)?;
     }
+    if version < 37 {
+        let exists: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('mod_profile_mods') WHERE name='dependencies')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(database_error)?;
+        if !exists {
+            transaction
+                .execute_batch("ALTER TABLE mod_profile_mods ADD COLUMN dependencies TEXT;")
+                .map_err(database_error)?;
+        }
+        transaction
+            .pragma_update(None, "user_version", 37)
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }

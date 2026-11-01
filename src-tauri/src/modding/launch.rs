@@ -344,6 +344,11 @@ fn game_directory(game: &Game) -> Result<PathBuf, String> {
     Ok(directory)
 }
 
+/// True when Legio can launch the game with mods.
+pub(crate) fn can_launch_with_mods(game: &Game) -> bool {
+    path_style(game).is_some()
+}
+
 /// How the game launches with mods, for support reports.
 pub(crate) fn launch_mode(game: &Game) -> &'static str {
     match path_style(game) {

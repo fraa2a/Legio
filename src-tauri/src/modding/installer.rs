@@ -335,6 +335,7 @@ pub(super) fn install_cached_package(
         let cleanup = discard_install(ctx, profile, profile_dir, &full_name, &written);
         return Err(InstallError::Failed(append(error, cleanup)));
     }
+    store_dependencies(ctx, &profile.id, &full_name, cache_dir);
     Ok(record)
 }
 
@@ -350,7 +351,8 @@ pub(crate) fn uninstall_mod(
     let _guard = ctx.locks.lock(&profile.id)?;
     let mods = ctx.database.profile_mods(&profile.id)?;
     let record = find_mod(&mods, full_name)?;
-    let dependents = find_dependents(ctx.paths, &mods, record);
+    let dependencies = declared_dependencies(ctx.database, ctx.paths, &mods);
+    let dependents = find_dependents(&mods, &dependencies, record);
     let files = ctx
         .database
         .profile_mod_files(&profile.id, &record.full_name)?;
@@ -504,40 +506,45 @@ fn enable_mod(
     Ok(())
 }
 
-fn find_dependents(paths: &ModdingPaths, mods: &[ProfileMod], target: &ProfileMod) -> Vec<String> {
-    let prefix = format!("{}-", target.full_name.to_lowercase());
+fn find_dependents(
+    mods: &[ProfileMod],
+    dependencies: &HashMap<String, Vec<String>>,
+    target: &ProfileMod,
+) -> Vec<String> {
     mods.iter()
         .filter(|other| !other.full_name.eq_ignore_ascii_case(&target.full_name))
         .filter(|other| {
-            manifest_dependencies(paths, other)
-                .iter()
-                .any(|dependency| dependency.to_lowercase().starts_with(&prefix))
+            dependencies
+                .get(&other.full_name.to_lowercase())
+                .is_some_and(|declared| {
+                    declared
+                        .iter()
+                        .any(|package| package.eq_ignore_ascii_case(&target.full_name))
+                })
         })
         .map(|other| other.full_name.clone())
         .collect()
 }
 
-fn manifest_dependencies(paths: &ModdingPaths, record: &ProfileMod) -> Vec<String> {
-    let Ok(id) = version_id(record) else {
-        return Vec::new();
-    };
-    match read_manifest(&package_dir(paths, &id, record.online_source)) {
-        Ok(manifest) => manifest
-            .map(|manifest| manifest.dependencies)
-            .unwrap_or_default(),
+/// The packages (`Owner-Name`, no version, no duplicates) a package directory
+/// declares as dependencies. `None` when the directory is gone or its
+/// manifest cannot be read.
+fn read_package_dependencies(package_dir: &Path) -> Option<Vec<String>> {
+    if !package_dir.is_dir() {
+        return None;
+    }
+    let manifest = match read_manifest(package_dir) {
+        Ok(manifest) => manifest,
         Err(error) => {
             crate::application_log::failure("read_mod_dependencies", error);
-            Vec::new()
+            return None;
         }
-    }
-}
-
-/// The packages (`Owner-Name`, no version) the installed version of `record`
-/// depends on, read from the manifest kept in the package cache. A package
-/// whose cache is gone or has no manifest reports none.
-pub(crate) fn declared_dependencies(paths: &ModdingPaths, record: &ProfileMod) -> Vec<String> {
+    };
     let mut packages: Vec<String> = Vec::new();
-    for dependency in manifest_dependencies(paths, record) {
+    for dependency in manifest
+        .map(|manifest| manifest.dependencies)
+        .unwrap_or_default()
+    {
         let Ok(id) = dependency.parse::<PackageVersionId>() else {
             continue;
         };
@@ -549,7 +556,63 @@ pub(crate) fn declared_dependencies(paths: &ModdingPaths, record: &ProfileMod) -
             packages.push(package);
         }
     }
-    packages
+    Some(packages)
+}
+
+/// Stores the dependencies a freshly installed package declares, so they stay
+/// known when the package cache is cleared. A failure is logged only: the
+/// list is read from the cache again when it is missing.
+fn store_dependencies(ctx: &ModdingContext<'_>, profile_id: &str, full_name: &str, dir: &Path) {
+    let dependencies = read_package_dependencies(dir);
+    if let Err(error) =
+        ctx.database
+            .set_profile_mod_dependencies(profile_id, full_name, dependencies.as_deref())
+    {
+        crate::application_log::failure("store_mod_dependencies", error);
+    }
+}
+
+/// The packages (`Owner-Name`) each installed mod depends on, keyed by
+/// lowercase `full_name`. They are stored at install time, so they survive
+/// clearing the package cache; mods installed before that are read from the
+/// cache and stored. A mod with neither reports none.
+pub(crate) fn declared_dependencies(
+    database: &Database,
+    paths: &ModdingPaths,
+    mods: &[ProfileMod],
+) -> HashMap<String, Vec<String>> {
+    let Some(first) = mods.first() else {
+        return HashMap::new();
+    };
+    let mut known = database
+        .profile_mod_dependencies(&first.profile_id)
+        .unwrap_or_else(|error| {
+            crate::application_log::failure("read_mod_dependencies", error);
+            HashMap::new()
+        });
+    for record in mods {
+        let key = record.full_name.to_lowercase();
+        if known.contains_key(&key) {
+            continue;
+        }
+        let Ok(id) = version_id(record) else {
+            continue;
+        };
+        let Some(dependencies) =
+            read_package_dependencies(&package_dir(paths, &id, record.online_source))
+        else {
+            continue;
+        };
+        if let Err(error) = database.set_profile_mod_dependencies(
+            &record.profile_id,
+            &record.full_name,
+            Some(&dependencies),
+        ) {
+            crate::application_log::failure("store_mod_dependencies", error);
+        }
+        known.insert(key, dependencies);
+    }
+    known
 }
 
 fn find_mod<'a>(mods: &'a [ProfileMod], full_name: &str) -> Result<&'a ProfileMod, InstallError> {
@@ -1398,25 +1461,55 @@ mod tests {
     }
 
     #[test]
-    fn declared_dependencies_come_from_the_cached_manifest() {
+    fn declared_dependencies_survive_clearing_the_cache() {
         let env = Env::new();
         env.install(&repo(), &["Other-Addon-1.0.0"], ResolveMode::Latest)
             .unwrap();
         let declared = |name: &str| {
             let mods = env.mods();
-            let record = mods.iter().find(|record| record.full_name == name).unwrap();
-            declared_dependencies(&env.paths, record)
+            declared_dependencies(&env.database, &env.paths, &mods)
+                .remove(&name.to_lowercase())
+                .unwrap_or_default()
         };
         assert_eq!(declared("Other-Addon"), ["Owner-Mod"]);
         assert_eq!(declared("Owner-Mod"), ["BepInEx-BepInExPack"]);
         assert!(declared("BepInEx-BepInExPack").is_empty());
 
-        // Disabled mods keep their cache, so their dependencies stay known.
-        set_mod_enabled(&env.ctx(), &env.profile.id, "Other-Addon", false).unwrap();
-        assert_eq!(declared("Other-Addon"), ["Owner-Mod"]);
-
         fs::remove_dir_all(env.paths.root().join("cache")).unwrap();
-        assert!(declared("Other-Addon").is_empty());
+        assert_eq!(declared("Other-Addon"), ["Owner-Mod"]);
+        assert_eq!(declared("Owner-Mod"), ["BepInEx-BepInExPack"]);
+
+        // The dependents of an uninstall come from the stored lists too.
+        let outcome = uninstall_mod(&env.ctx(), &env.profile.id, "Owner-Mod").unwrap();
+        assert_eq!(outcome.dependents, ["Other-Addon"]);
+    }
+
+    #[test]
+    fn dependencies_of_older_installs_are_read_from_the_cache_once() {
+        let env = Env::new();
+        env.install(&repo(), &["Other-Addon-1.0.0"], ResolveMode::Latest)
+            .unwrap();
+        for record in env.mods() {
+            env.database
+                .set_profile_mod_dependencies(&env.profile.id, &record.full_name, None)
+                .unwrap();
+        }
+        assert!(
+            env.database
+                .profile_mod_dependencies(&env.profile.id)
+                .unwrap()
+                .is_empty()
+        );
+
+        let mods = env.mods();
+        let known = declared_dependencies(&env.database, &env.paths, &mods);
+        assert_eq!(known["other-addon"], ["Owner-Mod"]);
+        fs::remove_dir_all(env.paths.root().join("cache")).unwrap();
+        let stored = env
+            .database
+            .profile_mod_dependencies(&env.profile.id)
+            .unwrap();
+        assert_eq!(stored["other-addon"], ["Owner-Mod"]);
     }
 
     #[test]

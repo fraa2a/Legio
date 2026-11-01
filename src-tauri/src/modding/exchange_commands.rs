@@ -370,8 +370,10 @@ fn import_profile(
 ///
 /// The new content is built as a separate temporary profile and only swapped
 /// in once complete, under the target's lock, so a failure leaves the target
-/// exactly as it was. `ensure_idle` runs once the lock is held and must fail
-/// while the game uses the profile.
+/// exactly as it was. An import with mods that cannot be found fails before
+/// anything is built, so working mods are never replaced by a partial copy.
+/// `ensure_idle` runs once the lock is held and must fail while the game
+/// uses the profile.
 fn update_profile(
     ctx: &ModdingContext<'_>,
     game_id: &str,
@@ -386,6 +388,15 @@ fn update_profile(
         return Err("The profile is being changed by another operation".to_owned());
     };
     ensure_idle()?;
+    let mut unavailable = Vec::new();
+    for imported in &import.mods {
+        if !is_available(&imported.id)? {
+            unavailable.push(imported.id.to_string());
+        }
+    }
+    if !unavailable.is_empty() {
+        return Err(unavailable_packages_error(&unavailable));
+    }
 
     let temporary_name = format!("import-{}", uuid::Uuid::new_v4());
     let mut outcome = import_profile(
@@ -408,6 +419,21 @@ fn update_profile(
             None => error,
         }),
     }
+}
+
+const MAX_LISTED_PACKAGES: usize = 10;
+
+fn unavailable_packages_error(packages: &[String]) -> String {
+    let mut listed = packages
+        .iter()
+        .take(MAX_LISTED_PACKAGES)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if packages.len() > MAX_LISTED_PACKAGES {
+        listed.push_str(&format!(" (+{})", packages.len() - MAX_LISTED_PACKAGES));
+    }
+    format!("These mods could not be found, so the profile was not changed: {listed}")
 }
 
 /// Moves the folder and records of `built` into `target`. On failure both
@@ -685,20 +711,12 @@ mod tests {
         let env = populated_env(&repo);
         let before = env.profile.clone();
 
-        let outcome = run_update(
-            &env,
-            &repo,
-            import(vec![
-                imported(LOADER, true),
-                imported("Gone-Mod-1.0.0", true),
-            ]),
-            || Ok(()),
-        )
-        .unwrap();
+        let outcome =
+            run_update(&env, &repo, import(vec![imported(LOADER, true)]), || Ok(())).unwrap();
 
         assert_eq!(outcome.profile, before);
         assert_eq!(outcome.installed, [LOADER]);
-        assert_eq!(outcome.missing_packages, ["Gone-Mod-1.0.0"]);
+        assert!(outcome.missing_packages.is_empty());
         assert_eq!(mod_names(&env), ["BepInEx-BepInExPack"]);
         assert_eq!(
             std::fs::read(env.profile_dir().join("BepInEx/config/Mod.cfg")).unwrap(),
@@ -713,6 +731,47 @@ mod tests {
             std::slice::from_ref(&before)
         );
         assert_eq!(profile_folders(&env), 1);
+    }
+
+    #[test]
+    fn update_with_unresolved_mods_is_refused() {
+        let repo = repo();
+        let env = populated_env(&repo);
+        let mods = env.mods();
+        let files = env.files_of("Owner-Mod");
+
+        let error = run_update(
+            &env,
+            &repo,
+            import(vec![
+                imported(LOADER, true),
+                imported("Gone-Mod-1.0.0", true),
+                imported("Lost-Mod-2.0.0", true),
+            ]),
+            || Ok(()),
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error,
+            "These mods could not be found, so the profile was not changed: Gone-Mod-1.0.0, Lost-Mod-2.0.0"
+        );
+        assert_eq!(env.mods(), mods);
+        assert_eq!(env.files_of("Owner-Mod"), files);
+        assert!(env.exists("BepInEx/plugins/Owner-Mod/Mod.dll"));
+        assert!(env.exists("BepInEx/config/local.cfg"));
+        assert_eq!(env.database.mod_profiles(&env.game_id).unwrap().len(), 1);
+        assert_eq!(profile_folders(&env), 1);
+    }
+
+    #[test]
+    fn long_lists_of_unresolved_mods_are_shortened() {
+        let packages: Vec<String> = (0..12)
+            .map(|index| format!("Owner-Mod{index}-1.0.0"))
+            .collect();
+        let message = unavailable_packages_error(&packages);
+        assert!(message.ends_with("Owner-Mod9-1.0.0 (+2)"), "{message}");
+        assert!(!message.contains("Owner-Mod10"), "{message}");
     }
 
     #[test]

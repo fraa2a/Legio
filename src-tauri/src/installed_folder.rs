@@ -155,7 +155,20 @@ pub(crate) fn open_directory(path: &Path) -> Result<(), String> {
         candidates.push(("gio", &["open"]));
     }
     candidates.extend(FILE_MANAGERS.iter().map(|program| (*program, NO_ARGS)));
+    open_with_first(&candidates, path)
+        .map_err(|error| format!("Could not open the folder: {error}"))
+}
 
+/// Opens a file with the application the system associates with it. File
+/// managers are not tried: they would show the folder instead.
+#[cfg(target_os = "linux")]
+pub(crate) fn open_file(path: &Path) -> Result<(), String> {
+    let candidates: [(&str, &[&str]); 2] = [("gio", &["open"]), ("xdg-open", NO_ARGS)];
+    open_with_first(&candidates, path).map_err(|error| format!("Could not open the file: {error}"))
+}
+
+#[cfg(target_os = "linux")]
+fn open_with_first(candidates: &[(&str, &[&str])], path: &Path) -> Result<(), String> {
     let mut last = String::new();
     for (program, prefix) in candidates {
         match try_open(program, prefix, path) {
@@ -163,7 +176,7 @@ pub(crate) fn open_directory(path: &Path) -> Result<(), String> {
             Err(error) => last = error,
         }
     }
-    Err(format!("Could not open the folder: {last}"))
+    Err(last)
 }
 
 #[cfg(target_os = "linux")]
@@ -202,11 +215,21 @@ fn default_handler_is_terminal() -> bool {
 
 #[cfg(windows)]
 pub(crate) fn open_directory(path: &Path) -> Result<(), String> {
-    // explorer.exe reports a failure status even when it opens the folder, so
-    // only a failed spawn is treated as an error.
+    open_with_explorer(path).map_err(|error| format!("Could not open the folder: {error}"))
+}
+
+/// Opens a file with the application the system associates with it.
+#[cfg(windows)]
+pub(crate) fn open_file(path: &Path) -> Result<(), String> {
+    open_with_explorer(path).map_err(|error| format!("Could not open the file: {error}"))
+}
+
+// explorer.exe reports a failure status even when it opens the path, so only
+// a failed spawn is treated as an error.
+#[cfg(windows)]
+fn open_with_explorer(path: &Path) -> std::io::Result<()> {
     crate::background_process::command("explorer.exe")
         .arg(path)
         .spawn()
         .map(|_| ())
-        .map_err(|error| format!("Could not open the folder: {error}"))
 }
