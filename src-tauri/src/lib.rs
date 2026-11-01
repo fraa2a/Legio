@@ -558,6 +558,7 @@ fn run_application(
             support_report::build_mod_support_report,
             package_document::get_mod_package_document,
             package_page::open_mod_external_link,
+            profile_commands::set_all_profile_mods_enabled,
         ])
         .build(context)?
         .run(|app, event| {

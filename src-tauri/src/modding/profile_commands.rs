@@ -9,8 +9,8 @@ use super::ecosystem::EcosystemSchema;
 use super::ecosystem_store::EcosystemStore;
 use super::install_commands::redownload_package;
 use super::installer::{
-    GameRules, InstallError, InstallProgress, ModdingContext, PROGRESS_EVENT, UninstallOutcome,
-    set_mod_enabled, uninstall_mod,
+    GameRules, InstallError, InstallProgress, ModdingContext, PROGRESS_EVENT, ToggleAllOutcome,
+    UninstallOutcome, declared_dependencies, set_all_mods_enabled, set_mod_enabled, uninstall_mod,
 };
 use super::local_import::{self, LocalImportOutcome};
 use super::paths::ModdingPaths;
@@ -20,13 +20,15 @@ use super::profiles::{
 };
 use crate::database::{Database, DatabaseState, GameModding, ModProfile, ProfileMod};
 
-/// A mod of a profile and whether it is the game's mod loader.
+/// A mod of a profile, whether it is the game's mod loader and the packages
+/// (`Owner-Name`) its installed version declares as dependencies.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProfileModEntry {
     #[serde(flatten)]
     record: ProfileMod,
     is_loader: bool,
+    dependencies: Vec<String>,
 }
 
 /// Forwards install progress to the frontend, tagged with the caller's
@@ -126,22 +128,29 @@ pub async fn list_profile_mods(
             .map_err(|error| format!("the game list is not available: {error}"))
             .and_then(|schema| {
                 with_game_rules(database, paths, locks, &schema, &profile_id, |ctx, _| {
-                    Ok(mod_entries(&mods, |name| ctx.find_loader(name).is_some()))
+                    Ok(mod_entries(&mods, paths, |name| {
+                        ctx.find_loader(name).is_some()
+                    }))
                 })
             })
             .unwrap_or_else(|error| {
                 crate::application_log::failure("find_profile_mod_loaders", error);
-                mod_entries(&mods, |_| false)
+                mod_entries(&mods, paths, |_| false)
             });
         Ok(entries)
     })
     .await
 }
 
-fn mod_entries(mods: &[ProfileMod], is_loader: impl Fn(&str) -> bool) -> Vec<ProfileModEntry> {
+fn mod_entries(
+    mods: &[ProfileMod],
+    paths: &ModdingPaths,
+    is_loader: impl Fn(&str) -> bool,
+) -> Vec<ProfileModEntry> {
     mods.iter()
         .map(|record| ProfileModEntry {
             is_loader: is_loader(&record.full_name),
+            dependencies: declared_dependencies(paths, record),
             record: record.clone(),
         })
         .collect()
@@ -191,6 +200,34 @@ pub async fn set_profile_mod_enabled(
                         .map_err(|error| error.to_string())
                 }
                 result => result.map_err(|error| error.to_string()),
+            },
+        )
+    })
+    .await
+}
+
+/// Enables or disables every mod of the profile but the loader. Mods that
+/// could not be switched are listed in the outcome and stay as they were.
+#[tauri::command]
+pub async fn set_all_profile_mods_enabled(
+    app: AppHandle,
+    profile_id: String,
+    enabled: bool,
+) -> Result<ToggleAllOutcome, String> {
+    let schema = local_schema(&app).await?;
+    run_modding(app, move |app, database, paths, locks| {
+        require_profile_not_running(app, database, paths, &profile_id)?;
+        with_game_rules(
+            database,
+            paths,
+            locks,
+            &schema,
+            &profile_id,
+            |ctx, community| {
+                set_all_mods_enabled(ctx, &profile_id, enabled, |package| {
+                    redownload_package(app, ctx, community, &profile_id, package)
+                })
+                .map_err(|error| error.to_string())
             },
         )
     })
@@ -318,12 +355,20 @@ mod tests {
         repo.add(
             "Owner-Mod-1.0.0",
             &["BepInEx-BepInExPack-5.4.2100"],
-            &[("Mod.dll", "x")],
+            &[
+                ("Mod.dll", "x"),
+                (
+                    "manifest.json",
+                    "{\"dependencies\":[\"BepInEx-BepInExPack-5.4.2100\",\"bepinex-bepinexpack-5.4.2100\",\"bad\"]}",
+                ),
+            ],
         );
         env.install(&repo, &["Owner-Mod"], ResolveMode::Latest)
             .unwrap();
         let ctx = env.ctx();
-        let entries = mod_entries(&env.mods(), |name| ctx.find_loader(name).is_some());
+        let entries = mod_entries(&env.mods(), &env.paths, |name| {
+            ctx.find_loader(name).is_some()
+        });
         let flags: Vec<_> = entries
             .iter()
             .map(|entry| (entry.record.full_name.as_str(), entry.is_loader))
@@ -333,5 +378,8 @@ mod tests {
         assert_eq!(json["isLoader"], true);
         assert_eq!(json["fullName"], "BepInEx-BepInExPack");
         assert_eq!(json["onlineSource"], true);
+        assert_eq!(json["dependencies"], serde_json::json!([]));
+        // Duplicates differing in case and unparsable entries are dropped.
+        assert_eq!(entries[1].dependencies, ["BepInEx-BepInExPack"]);
     }
 }
