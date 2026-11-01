@@ -103,6 +103,12 @@ pub(crate) fn resolve_plan(
             return Err("The dependency tree is too large to resolve".to_owned());
         }
         let key = package_key(want.package());
+        if want.package().is_mod_manager() {
+            return Err(format!(
+                "{} is a mod manager application, not a mod, and cannot be installed",
+                want.package()
+            ));
+        }
         if !is_root && !needs_resolution(&want, &key, mode, &chosen, installed) {
             continue;
         }
@@ -355,6 +361,19 @@ mod tests {
             plan_ids(&source, &["A-App"], ResolveMode::Latest, &[]).unwrap(),
             ["C-Core-2.0.0", "B-Lib-1.1.0", "A-App-1.0.0"]
         );
+    }
+
+    #[test]
+    fn refuses_mod_manager_applications() {
+        let source = FakeSource::new(&[
+            ("ebkr-r2modman-3.2.21", &[]),
+            ("A-Pack-1.0.0", &["kesomannen-GaleModManager-1.0.0"]),
+            ("Kesomannen-GaleModManager-1.0.0", &[]),
+        ]);
+        for request in ["ebkr-r2modman", "A-Pack"] {
+            let error = plan_ids(&source, &[request], ResolveMode::Latest, &[]).unwrap_err();
+            assert!(error.contains("mod manager application"), "{error}");
+        }
     }
 
     #[test]

@@ -20,7 +20,7 @@ use tokio::sync::mpsc;
 
 use super::{
     external_url::parse_external_url,
-    package_id::{PackageName, PackageVersionId, Version},
+    package_id::{MOD_MANAGER_PACKAGES, PackageName, PackageVersionId, Version},
     thunderstore_http::ThunderstoreHttp,
 };
 
@@ -1043,6 +1043,10 @@ fn search(
         conditions.push_str(" AND p.search_text LIKE ? ESCAPE '\\'");
         values.push(Value::Text(format!("%{}%", escape_like(term))));
     }
+    for manager in MOD_MANAGER_PACKAGES {
+        conditions.push_str(" AND p.full_name <> ? COLLATE NOCASE");
+        values.push(Value::Text(manager.to_owned()));
+    }
     if !query.include_deprecated {
         conditions.push_str(" AND p.is_deprecated = 0");
     }
@@ -1603,6 +1607,46 @@ mod tests {
             .set("/index", Reply::ok(gzip(&json!([fixture.chunks[0]]))));
         assert_eq!(fixture.sync(true).unwrap().package_count, 1);
         assert_eq!(fixture.names(&query()), ["Good-Mod"]);
+    }
+
+    #[test]
+    fn never_lists_mod_manager_applications() {
+        let fixture = Fixture::new();
+        let chunk = json!([
+            package(
+                "Good",
+                "Mod",
+                "2025-01-01T00:00:00+00:00",
+                1,
+                &[],
+                (false, false),
+                vec![version("Mod", "1.0.0", 1, &[])]
+            ),
+            package(
+                "ebkr",
+                "r2modman",
+                "2025-01-01T00:00:00+00:00",
+                1,
+                &[],
+                (false, false),
+                vec![version("r2modman", "3.2.21", 1, &[])]
+            ),
+        ]);
+        fixture.server.set("/chunk1", Reply::ok(gzip(&chunk)));
+        fixture
+            .server
+            .set("/index", Reply::ok(gzip(&json!([fixture.chunks[0]]))));
+        fixture.sync(true).unwrap();
+        let everything = PackageQuery {
+            include_deprecated: true,
+            include_nsfw: true,
+            ..query()
+        };
+        assert_eq!(fixture.names(&everything), ["Good-Mod"]);
+        assert_eq!(
+            fixture.cache.search(COMMUNITY, &everything).unwrap().total,
+            1
+        );
     }
 
     #[test]

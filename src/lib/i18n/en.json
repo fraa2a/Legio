@@ -1140,5 +1140,6 @@
   "1 profilo mod, non attivo": "1 mod profile, not active",
   "{0} profili mod, nessuno attivo": "{0} mod profiles, none active",
   "1 profilo mod": "1 mod profile",
-  "{0} profili mod": "{0} mod profiles"
+  "{0} profili mod": "{0} mod profiles",
+  "{0} è un programma per gestire le mod, non una mod, e non si può installare.": "{0} is a mod manager application, not a mod, and cannot be installed."
 }

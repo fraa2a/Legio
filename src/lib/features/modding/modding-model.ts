@@ -299,6 +299,7 @@ const knownPatterns: [RegExp, string][] = [
   [/^A mod profile named "(.*)" already exists\.?$/, "Esiste già un profilo chiamato \"{0}\". Scegli un altro nome."],
   [/^The mod catalog could not be downloaded: (.+)$/, "Impossibile scaricare il catalogo delle mod: {0}"],
   [/^These mods could not be found, so the profile was not changed: (.+)$/, "Il profilo non è stato modificato perché queste mod non sono state trovate: {0}"],
+  [/^(.+?) is a mod manager application, not a mod\b/, "{0} è un programma per gestire le mod, non una mod, e non si può installare."],
 ];
 
 export function describeModdingError(message: string, selected?: Language): string {

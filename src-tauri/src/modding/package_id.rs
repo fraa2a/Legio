@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 
 const MAX_PART_LENGTH: usize = 128;
 
+/// Mod manager applications published as Thunderstore packages. They ship
+/// installers, not mods, so they are hidden from the catalog and never installed.
+pub(crate) const MOD_MANAGER_PACKAGES: [&str; 2] = ["ebkr-r2modman", "Kesomannen-GaleModManager"];
+
 /// Thunderstore package identity, `Owner-Name`. Neither part contains `-`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,6 +51,13 @@ impl PackageName {
             owner: owner.to_owned(),
             name: name.to_owned(),
         })
+    }
+
+    pub(crate) fn is_mod_manager(&self) -> bool {
+        let full_name = self.to_string();
+        MOD_MANAGER_PACKAGES
+            .iter()
+            .any(|manager| manager.eq_ignore_ascii_case(&full_name))
     }
 }
 
