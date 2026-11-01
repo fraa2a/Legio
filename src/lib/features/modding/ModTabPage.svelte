@@ -13,7 +13,7 @@
   import type { LoadStatus } from "../../stores/resource";
   import { toMessage } from "../../utils/errors";
   import { formatBytes, formatDate, regionalLocale } from "../../utils/format";
-  import { describeModdingError, displayPackageId, formatCount, installedState, modKey, packageTitle, splitPackageId } from "./modding-model";
+  import { describeModdingError, displayPackageId, formatCount, installedState, modKey, packageTitle, splitFullName, splitPackageId } from "./modding-model";
   import { installActionLabel, versionChoices, type ModTab } from "./mod-panel-model";
   import ModDocument from "./ModDocument.svelte";
   import ModIcon from "./ModIcon.svelte";
@@ -25,6 +25,7 @@
     installed,
     updates,
     disabled,
+    openOnInstalled,
     onInstall,
     onOpen,
     onSummary,
@@ -34,6 +35,8 @@
     installed: ReadonlyMap<string, ProfileMod>;
     updates: ReadonlyMap<string, ModUpdate>;
     disabled: boolean;
+    // Mods opened from the installed list start on the version in the profile.
+    openOnInstalled: boolean;
     onInstall: (fullName: string, version: string | null) => void;
     onOpen: (fullName: string) => void;
     onSummary: (summary: PackageSummary) => void;
@@ -53,6 +56,10 @@
 
   $effect(() => {
     const name = fullName;
+    if (isLocal) {
+      loading = false;
+      return;
+    }
     let cancelled = false;
     packageDetails(ecosystemGameId, name).then(
       (value) => {
@@ -69,6 +76,7 @@
   $effect(() => {
     const name = fullName;
     const number = versionNumber;
+    if (isLocal) return;
     const kind = documentKind;
     void documentAttempt;
     if (number === "") return;
@@ -93,7 +101,11 @@
 
   const info = $derived(details ?? tab.summary);
   const latest = $derived(details?.versions[0]?.versionNumber ?? "");
-  const versionNumber = $derived(chosenVersion === "" ? latest : chosenVersion);
+  const installedMod = $derived(installed.get(tab.key) ?? null);
+  const isLocal = $derived(installedMod !== null && !installedMod.onlineSource);
+  // Local mods, and installed ones missing from the catalog, only have what the profile stores.
+  const minimal = $derived(installedMod !== null && (isLocal || (!loading && details === null)));
+  const versionNumber = $derived(chosenVersion !== "" ? chosenVersion : openOnInstalled && installedMod !== null && details?.versions.some((entry) => entry.versionNumber === installedMod.version) ? installedMod.version : latest);
   const version = $derived(details?.versions.find((entry) => entry.versionNumber === versionNumber) ?? null);
   const isLatest = $derived(versionNumber === latest);
   const installState = $derived(installedState(fullName, installed, updates));
@@ -113,7 +125,48 @@
 </script>
 
 <div class="flex flex-col gap-4 p-4">
-  {#if info === null}
+  {#if minimal && installedMod !== null}
+    {@const name = splitFullName(installedMod.fullName)}
+    <div class="flex items-start gap-3">
+      <ModIcon source={null} class="size-16 rounded-xl" />
+      <div class="min-w-0 flex-1">
+        <h2 class="truncate text-base font-semibold text-zinc-50 light:text-zinc-900">{packageTitle(name.name)}</h2>
+        {#if name.owner !== ""}<p class="text-sm text-zinc-400 light:text-zinc-600">{t("di {0}", $language, [name.owner])}</p>{/if}
+        <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <span class="text-xs tabular-nums text-zinc-400 light:text-zinc-600">{installedMod.version}</span>
+          {#if installedMod.isLoader}<Badge tone="info" title={t("Loader", $language)} />{/if}
+          {#if isLocal}<Badge title={t("Locale", $language)} />{/if}
+        </div>
+      </div>
+    </div>
+    <p class="text-sm text-zinc-200 light:text-zinc-800">{isLocal ? t("Mod importata da un archivio locale: non è su Thunderstore.", $language) : t("Il pacchetto non è più nel catalogo. Aggiorna il catalogo e riprova.", $language)}</p>
+    <section aria-label={t("Dipendenze", $language)}>
+      <h3 class="text-sm text-zinc-400 light:text-zinc-600">{t("Dipendenze", $language)}</h3>
+      {#if installedMod.dependencies.length === 0}
+        <p class="mt-1.5 text-sm text-zinc-300 light:text-zinc-700">{t("Nessuna dipendenza.", $language)}</p>
+      {:else}
+        <ul class="mt-1.5 flex flex-col gap-0.5">
+          {#each installedMod.dependencies as dependency (dependency)}
+            {@const title = packageTitle(splitFullName(dependency).name)}
+            <li>
+              <button
+                type="button"
+                class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-zinc-200 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-(--legio-focus) light:text-zinc-800 light:hover:bg-zinc-900/10"
+                aria-label={t("Apri {0}", $language, [title])}
+                onclick={() => onOpen(dependency)}
+              >
+                <span class="min-w-0 flex-1 truncate">{title}</span>
+                {#if installed.has(modKey(dependency))}
+                  <span class="sr-only">{t("Installata", $language)}</span>
+                  <Icon name="check" size="size-4 shrink-0 text-legio-success" />
+                {/if}
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </section>
+  {:else if info === null}
     <div class="flex flex-col gap-2" role="status">
       <span class="sr-only">{t("Caricamento...", $language)}</span>
       <Skeleton class="h-16" />
@@ -237,7 +290,7 @@
         <ModDocument html={documentHtml} onError={(message) => (error = describeModdingError(message, $language))} />
       {/if}
     </div>
-  {:else if !loading && error === null}
+  {:else if !loading && error === null && !minimal}
     <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Il pacchetto non è più nel catalogo. Aggiorna il catalogo e riprova.", $language)}</p>
   {/if}
 

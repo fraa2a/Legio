@@ -1143,5 +1143,6 @@
   "Mod aperte": "Open mods",
   "Chiudi {0}": "Close {0}",
   "Chiudi il pannello": "Close the panel",
-  "Documento": "Document"
+  "Documento": "Document",
+  "Mod importata da un archivio locale: non è su Thunderstore.": "Mod imported from a local archive: it is not on Thunderstore."
 }

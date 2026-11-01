@@ -54,7 +54,9 @@
     type InstalledSort,
     type ResultNotice,
   } from "./modding-model";
+  import { openModTab, type ModTabs } from "./mod-panel-model";
   import ModIcon from "./ModIcon.svelte";
+  import ModPanelLayout from "./ModPanelLayout.svelte";
 
   let {
     gameId,
@@ -62,6 +64,8 @@
     profile,
     locked,
     busy,
+    tabs,
+    onTabsChange,
     onBrowse,
   }: {
     gameId: string;
@@ -70,12 +74,15 @@
     // The game is running with this profile, so its files cannot change.
     locked: boolean;
     busy: boolean;
+    tabs: ModTabs;
+    onTabsChange: (tabs: ModTabs) => void;
     onBrowse: () => void;
   } = $props();
 
   const mods = $derived(profileMods(profile.id));
   const updates = $derived(modUpdates(profile.id));
   const updateIndex = $derived(indexByFullName($updates.data));
+  const installed = $derived(indexByFullName($mods.data));
   const updateKeys = $derived(new Set($updates.data.map((update) => modKey(update.fullName))));
   const switchable = $derived($mods.data.filter((mod) => !mod.isLoader));
   const enabledCount = $derived($mods.data.filter((mod) => mod.enabled).length);
@@ -193,6 +200,9 @@
     };
   });
 
+  const installVersion = (fullName: string, version: string | null) => run(async () =>
+    showInstall(await installPackages(gameId, profile.id, [version === null ? { fullName } : { fullName, version }])));
+
   const updateAll = () => run(async () => showInstall(await updateMods(gameId, profile.id)));
   const updateOne = (mod: ProfileMod) => run(async () => showInstall(await updateMods(gameId, profile.id, [mod.fullName])));
 
@@ -234,98 +244,119 @@
   }
 </script>
 
-<div class="flex flex-col gap-4">
-  {#if actionError !== null}<ErrorBanner message={actionError} />{/if}
-  {#if notice !== null}
-    <Callout tone={notice.tone} message={notice.message} items={notice.items} onDismiss={() => (notice = null)} />
-  {/if}
+<ModPanelLayout
+  {ecosystemGameId}
+  {tabs}
+  {installed}
+  updates={updateIndex}
+  {disabled}
+  openOnInstalled
+  onChange={onTabsChange}
+  onInstall={(fullName, version) => void installVersion(fullName, version)}
+>
+  <div class="flex flex-col gap-4">
+    {#if actionError !== null}<ErrorBanner message={actionError} />{/if}
+    {#if notice !== null}
+      <Callout tone={notice.tone} message={notice.message} items={notice.items} onDismiss={() => (notice = null)} />
+    {/if}
 
-  <StateBlock
-    status={$mods.status === "empty" ? "ready" : $mods.status}
-    hasData={$mods.data.length > 0}
-    loadingMessage={t("Caricamento delle mod...", $language)}
-    skeletonRows={3}
-    skeletonClass="h-18"
-    error={$mods.error}
-    onRetry={() => void mods.reload()}
-  />
+    <StateBlock
+      status={$mods.status === "empty" ? "ready" : $mods.status}
+      hasData={$mods.data.length > 0}
+      loadingMessage={t("Caricamento delle mod...", $language)}
+      skeletonRows={3}
+      skeletonClass="h-18"
+      error={$mods.error}
+      onRetry={() => void mods.reload()}
+    />
 
-  {#if $mods.status === "empty"}
-    <EmptyState
-      icon="package"
-      title={t("Nessuna mod in questo profilo", $language)}
-      description={t("Sfoglia il catalogo Thunderstore: BepInEx viene installato insieme alla prima mod.", $language)}
-    >
-      <div class="flex flex-wrap justify-center gap-2">
-        <Button label={t("Sfoglia le mod", $language)} onClick={onBrowse} />
-        <Button label={t("Importa mod locale", $language)} variant="secondary" {disabled} onClick={() => void importArchive()} />
-      </div>
-    </EmptyState>
-  {:else if $mods.data.length > 0}
-    <Panel
-      title={t("Mod installate", $language)}
-      description={t("{0} installate · {1} attive", $language, [$mods.data.length, enabledCount])}
-    >
-      {#snippet actions()}
-        <div class="flex flex-wrap gap-2">
-          <Button label={t("Importa mod locale", $language)} variant="secondary" size="sm" {disabled} onClick={() => void importArchive()}>
-            <Icon name="upload" size="size-4" />
-          </Button>
-          <Button label={t("Attiva tutte", $language)} variant="secondary" size="sm" disabled={disabled || !switchable.some((mod) => !mod.enabled)} onClick={() => void switchAll(true)} />
-          <Button label={t("Disattiva tutte", $language)} variant="secondary" size="sm" disabled={disabled || !switchable.some((mod) => mod.enabled)} onClick={() => void switchAll(false)} />
-          {#if $updates.data.length > 0}
-            <Button label={t("Aggiorna tutto ({0})", $language, [$updates.data.length])} variant="primary" size="sm" {disabled} onClick={() => void updateAll()}>
-              <Icon name="download" size="size-4" />
+    {#if $mods.status === "empty"}
+      <EmptyState
+        icon="package"
+        title={t("Nessuna mod in questo profilo", $language)}
+        description={t("Sfoglia il catalogo Thunderstore: BepInEx viene installato insieme alla prima mod.", $language)}
+      >
+        <div class="flex flex-wrap justify-center gap-2">
+          <Button label={t("Sfoglia le mod", $language)} onClick={onBrowse} />
+          <Button label={t("Importa mod locale", $language)} variant="secondary" {disabled} onClick={() => void importArchive()} />
+        </div>
+      </EmptyState>
+    {:else if $mods.data.length > 0}
+      <Panel
+        title={t("Mod installate", $language)}
+        description={t("{0} installate · {1} attive", $language, [$mods.data.length, enabledCount])}
+      >
+        {#snippet actions()}
+          <div class="flex flex-wrap gap-2">
+            <Button label={t("Importa mod locale", $language)} variant="secondary" size="sm" {disabled} onClick={() => void importArchive()}>
+              <Icon name="upload" size="size-4" />
             </Button>
+            <Button label={t("Attiva tutte", $language)} variant="secondary" size="sm" disabled={disabled || !switchable.some((mod) => !mod.enabled)} onClick={() => void switchAll(true)} />
+            <Button label={t("Disattiva tutte", $language)} variant="secondary" size="sm" disabled={disabled || !switchable.some((mod) => mod.enabled)} onClick={() => void switchAll(false)} />
+            {#if $updates.data.length > 0}
+              <Button label={t("Aggiorna tutto ({0})", $language, [$updates.data.length])} variant="primary" size="sm" {disabled} onClick={() => void updateAll()}>
+                <Icon name="download" size="size-4" />
+              </Button>
+            {/if}
+          </div>
+        {/snippet}
+        <div class="mb-3 flex flex-wrap items-end gap-2">
+          <div class="min-w-48 flex-1">
+            <TextField id="mod-installed-search" type="search" labelHidden label={t("Cerca tra le mod installate", $language)} placeholder={t("Cerca per nome o autore", $language)} bind:value={filters.text} />
+          </div>
+          <SelectField id="mod-installed-sort" labelHidden label={t("Ordina per", $language)} value={filters.sort} options={sortOptions} onChange={(value) => (filters.sort = value as InstalledSort)} class="w-52" />
+          <IconButton
+            label={filters.descending ? t("Ordine decrescente", $language) : t("Ordine crescente", $language)}
+            title={filters.descending ? t("Ordine decrescente", $language) : t("Ordine crescente", $language)}
+            variant="soft"
+            onClick={() => (filters.descending = !filters.descending)}
+          >
+            <Icon name="chevron-down" size="size-4 transition-transform motion-reduce:transition-none {filters.descending ? '' : 'rotate-180'}" />
+          </IconButton>
+          <SelectField id="mod-installed-disabled" labelHidden label={t("Posizione delle mod disattivate", $language)} value={filters.disabled} options={positionOptions} onChange={(value) => (filters.disabled = value as DisabledPosition)} class="w-52" />
+          {#if $updates.data.length > 0}
+            <Toggle label={t("Solo con aggiornamenti", $language)} bind:checked={filters.onlyUpdates} />
           {/if}
         </div>
-      {/snippet}
-      <div class="mb-3 flex flex-wrap items-end gap-2">
-        <div class="min-w-48 flex-1">
-          <TextField id="mod-installed-search" type="search" labelHidden label={t("Cerca tra le mod installate", $language)} placeholder={t("Cerca per nome o autore", $language)} bind:value={filters.text} />
-        </div>
-        <SelectField id="mod-installed-sort" labelHidden label={t("Ordina per", $language)} value={filters.sort} options={sortOptions} onChange={(value) => (filters.sort = value as InstalledSort)} class="w-52" />
-        <IconButton
-          label={filters.descending ? t("Ordine decrescente", $language) : t("Ordine crescente", $language)}
-          title={filters.descending ? t("Ordine decrescente", $language) : t("Ordine crescente", $language)}
-          variant="soft"
-          onClick={() => (filters.descending = !filters.descending)}
-        >
-          <Icon name="chevron-down" size="size-4 transition-transform motion-reduce:transition-none {filters.descending ? '' : 'rotate-180'}" />
-        </IconButton>
-        <SelectField id="mod-installed-disabled" labelHidden label={t("Posizione delle mod disattivate", $language)} value={filters.disabled} options={positionOptions} onChange={(value) => (filters.disabled = value as DisabledPosition)} class="w-52" />
-        {#if $updates.data.length > 0}
-          <Toggle label={t("Solo con aggiornamenti", $language)} bind:checked={filters.onlyUpdates} />
-        {/if}
-      </div>
-      {#if visible.length === 0}
-        <EmptyState icon="search" title={t("Nessuna mod corrisponde ai filtri", $language)}>
-          {#if hasInstalledFilters(filters)}
-            <Button label={t("Azzera i filtri", $language)} variant="secondary" onClick={() => (filters = { ...filters, text: "", onlyUpdates: false })} />
-          {/if}
-        </EmptyState>
-      {:else}
-        <ul class="flex flex-col gap-2">
-          {#each visible as mod (mod.fullName)}
-            {@const name = splitFullName(mod.fullName)}
-            {@const title = packageTitle(name.name)}
-            {@const detail = details[modKey(mod.fullName)] ?? null}
-            {@const update = updateIndex.get(modKey(mod.fullName))}
-            {@const issue = issues.get(modKey(mod.fullName))}
-            <li class="flex flex-wrap items-center gap-3 rounded-xl legio-glass p-3">
-              <ModIcon source={detail?.icon ?? null} class="size-12 rounded-lg {mod.enabled ? '' : 'opacity-50 grayscale'}" />
+        {#if visible.length === 0}
+          <EmptyState icon="search" title={t("Nessuna mod corrisponde ai filtri", $language)}>
+            {#if hasInstalledFilters(filters)}
+              <Button label={t("Azzera i filtri", $language)} variant="secondary" onClick={() => (filters = { ...filters, text: "", onlyUpdates: false })} />
+            {/if}
+          </EmptyState>
+        {:else}
+          <ul class="flex flex-col gap-2">
+            {#each visible as mod (mod.fullName)}
+              {@const name = splitFullName(mod.fullName)}
+              {@const title = packageTitle(name.name)}
+              {@const detail = details[modKey(mod.fullName)] ?? null}
+              {@const update = updateIndex.get(modKey(mod.fullName))}
+              {@const issue = issues.get(modKey(mod.fullName))}
+              {@const opened = tabs.active === modKey(mod.fullName)}
+            <li class="flex flex-wrap items-center gap-3 rounded-xl legio-glass p-3 transition-colors hover:bg-white/5 light:hover:bg-zinc-900/5 {opened ? 'ring-1 ring-legio-accent ring-inset' : ''}">
               <div class="min-w-0 flex-1 basis-48">
-                <div class="flex flex-wrap items-center gap-2">
-                  <p class="min-w-0 truncate font-medium {mod.enabled ? 'text-zinc-50 light:text-zinc-900' : 'text-zinc-400 light:text-zinc-500'}">{title}</p>
-                  <span class="text-xs tabular-nums text-zinc-500">{mod.version}</span>
-                  {#if mod.isLoader}<Badge tone="info" title={t("Loader", $language)} />{/if}
-                  {#if !mod.onlineSource}<Badge title={t("Locale", $language)} />{/if}
-                  {#if !mod.enabled}<Badge title={t("Disattivata", $language)} />{/if}
-                  {#if update !== undefined}<Badge tone="success" title={t("Aggiornamento {0}", $language, [update.latestVersion])} />{/if}
-                </div>
-                <p class="mt-0.5 truncate text-xs text-zinc-400 light:text-zinc-600">
-                  {name.owner}{#if detail !== null && detail.description !== ""} · {detail.description}{/if}
-                </p>
+                <button
+                  type="button"
+                  class="flex w-full min-w-0 items-center gap-3 rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--legio-focus)"
+                  aria-label={t("Dettagli di {0}", $language, [title])}
+                  aria-current={opened ? "true" : undefined}
+                  onclick={() => onTabsChange(openModTab(tabs, mod.fullName))}
+                >
+                  <ModIcon source={detail?.icon ?? null} class="size-12 shrink-0 rounded-lg {mod.enabled ? '' : 'opacity-50 grayscale'}" />
+                  <span class="min-w-0 flex-1">
+                    <span class="flex flex-wrap items-center gap-2">
+                      <span class="min-w-0 truncate font-medium {mod.enabled ? 'text-zinc-50 light:text-zinc-900' : 'text-zinc-400 light:text-zinc-500'}">{title}</span>
+                      <span class="text-xs tabular-nums text-zinc-500">{mod.version}</span>
+                      {#if mod.isLoader}<Badge tone="info" title={t("Loader", $language)} />{/if}
+                      {#if !mod.onlineSource}<Badge title={t("Locale", $language)} />{/if}
+                      {#if !mod.enabled}<Badge title={t("Disattivata", $language)} />{/if}
+                      {#if update !== undefined}<Badge tone="success" title={t("Aggiornamento {0}", $language, [update.latestVersion])} />{/if}
+                    </span>
+                    <span class="mt-0.5 block truncate text-xs text-zinc-400 light:text-zinc-600">
+                      {name.owner}{#if detail !== null && detail.description !== ""} · {detail.description}{/if}
+                    </span>
+                  </span>
+                </button>
                 {#if issue !== undefined}
                   <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
                     {#each dependencyIssueLabels(issue, $language) as label, index (index)}
@@ -336,37 +367,38 @@
                 {/if}
               </div>
               <div class="flex shrink-0 items-center gap-3">
-                {#if update !== undefined}
-                  <Button label={t("Aggiorna", $language)} variant="secondary" size="sm" {disabled} onClick={() => void updateOne(mod)} />
-                {/if}
-                {#key toggleRevision}
-                  <span title={mod.isLoader ? t("Il loader resta sempre attivo", $language) : undefined}>
-                    <Toggle
-                      labelHidden
-                      label={t("Attiva {0}", $language, [title])}
-                      checked={mod.enabled}
-                      disabled={disabled || mod.isLoader}
-                      onChange={(enabled) => void toggle(mod, enabled)}
-                    />
-                  </span>
-                {/key}
-                <IconButton
-                  variant="danger"
-                  label={t("Disinstalla {0}", $language, [title])}
-                  title={t("Disinstalla", $language)}
-                  {disabled}
-                  onClick={() => (removeTarget = mod)}
-                >
-                  <Icon name="trash" size="size-4" />
-                </IconButton>
-              </div>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </Panel>
-  {/if}
-</div>
+                  {#if update !== undefined}
+                    <Button label={t("Aggiorna", $language)} variant="secondary" size="sm" {disabled} onClick={() => void updateOne(mod)} />
+                  {/if}
+                  {#key toggleRevision}
+                    <span title={mod.isLoader ? t("Il loader resta sempre attivo", $language) : undefined}>
+                      <Toggle
+                        labelHidden
+                        label={t("Attiva {0}", $language, [title])}
+                        checked={mod.enabled}
+                        disabled={disabled || mod.isLoader}
+                        onChange={(enabled) => void toggle(mod, enabled)}
+                      />
+                    </span>
+                  {/key}
+                  <IconButton
+                    variant="danger"
+                    label={t("Disinstalla {0}", $language, [title])}
+                    title={t("Disinstalla", $language)}
+                    {disabled}
+                    onClick={() => (removeTarget = mod)}
+                  >
+                    <Icon name="trash" size="size-4" />
+                  </IconButton>
+                </div>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </Panel>
+    {/if}
+  </div>
+</ModPanelLayout>
 
 <DisableDependentsDialog
   open={disableTarget !== null}

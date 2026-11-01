@@ -110,6 +110,7 @@
   let discardAction = $state<(() => void) | null>(null);
   // Opened mods stay while switching sections of this game and refer to its Thunderstore community.
   let modTabs = $state<ModTabs>(emptyModTabs);
+  let installedTabs = $state<ModTabs>(emptyModTabs);
   let autoBindAttempted = false;
 
   // A game opened through its Steam match is bound on first visit, so profiles can be created right away.
@@ -136,7 +137,10 @@
 
   $effect(() => {
     void ecosystemGameId;
-    untrack(() => (modTabs = emptyModTabs));
+    untrack(() => {
+      modTabs = emptyModTabs;
+      installedTabs = emptyModTabs;
+    });
   });
 
   $effect(() => {
@@ -341,8 +345,8 @@
     {/if}
   </div>
 {:else}
-  <!-- The browser and the config editor fill the window and scroll inside; the installed list scrolls with the page. -->
-  <div class="flex flex-col gap-4 {tab !== 'installed' && profile !== null ? 'h-full' : 'min-h-full'}">
+  <!-- The lists and the config editor fill the window and scroll inside. -->
+  <div class="flex flex-col gap-4 {profile !== null ? 'h-full' : 'min-h-full'}">
     {#if actionError !== null}<ErrorBanner message={actionError} />{/if}
     {#if $profiles.status === "error"}
       <ErrorBanner message={$profiles.error ?? ""} onRetry={() => void profiles.reload()} retryLabel={t("Riprova", $language)} />
@@ -451,7 +455,7 @@
         {/if}
       {:else if ecosystemGameId !== null}
         {#if tab === "installed"}
-          <InstalledModsList {gameId} {ecosystemGameId} {profile} locked={running} {busy} onBrowse={() => (tab = "browse")} />
+          <InstalledModsList {gameId} {ecosystemGameId} {profile} locked={running} {busy} tabs={installedTabs} onTabsChange={(next) => (installedTabs = next)} onBrowse={() => (tab = "browse")} />
         {:else if tab === "browse"}
           <ModBrowser {gameId} {ecosystemGameId} {profile} disabled={running || busy} tabs={modTabs} onTabsChange={(next) => (modTabs = next)} />
         {:else}
