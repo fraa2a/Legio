@@ -7,11 +7,12 @@
   import { games } from "../../stores/games";
   import { loadOnce, moddableGames, modProfiles, profileMods } from "../../stores/modding";
   import { hasDuplicateName, instanceLocation } from "../library/instance-options";
-  import { activeProfile, moddableGameState } from "./modding-model";
+  import { activeProfile, canChooseEcosystemGame, moddableGameState } from "./modding-model";
 
   let { game, onOpen }: { game: ModdableGame; onOpen: () => void } = $props();
 
   const modState = $derived(moddableGameState(game));
+  const interactive = $derived(modState === "ready" || canChooseEcosystemGame(game));
   const bound = $derived(game.binding !== null);
   const profiles = $derived(modProfiles(game.gameId));
   const profile = $derived(activeProfile(game, $profiles.data));
@@ -41,10 +42,14 @@
   });
 </script>
 
-<ArtworkTile steamAppId={game.steamAppId} {monogram} asset="header" class={modState === "ready" ? "" : "opacity-80"}>
+<ArtworkTile steamAppId={game.steamAppId} {monogram} asset="header">
+  {#if modState !== "ready"}
+    <div class="absolute inset-0 bg-zinc-500/45 light:bg-zinc-300/60" aria-hidden="true"></div>
+  {/if}
   <button
     type="button"
-    class="flex flex-1 flex-col text-left focus-visible:-outline-offset-2"
+    class="relative flex flex-1 flex-col text-left focus-visible:-outline-offset-2 disabled:cursor-default"
+    disabled={!interactive}
     aria-label={modState === "ready" ? t("Gestisci le mod di {0}", $language, [game.name]) : t("Collega {0} a Thunderstore", $language, [game.name])}
     onclick={onOpen}
   >

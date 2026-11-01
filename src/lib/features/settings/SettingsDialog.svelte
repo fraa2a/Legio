@@ -8,6 +8,7 @@
   import DownloadSettings from "./DownloadSettings.svelte";
   import CompatibilitySettings from "./CompatibilitySettings.svelte";
   import AdvancedSettings from "./AdvancedSettings.svelte";
+  import ModCacheSettings from "../modding/ModCacheSettings.svelte";
   import ThemeSettings from "./ThemeSettings.svelte";
   import GeneralSettings from "./GeneralSettings.svelte";
   import { settingsCategories } from "./settings-categories";
@@ -53,7 +54,10 @@
       {:else if active === "compatibility" && $appInfo.data.platform === "linux"}
         <CompatibilitySettings />
       {:else}
-        <AdvancedSettings />
+        <div class="flex flex-col gap-4">
+          <AdvancedSettings />
+          <ModCacheSettings />
+        </div>
       {/if}
     </div>
   </div>

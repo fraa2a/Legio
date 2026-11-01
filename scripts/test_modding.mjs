@@ -49,7 +49,7 @@ const model = await import(await modelLoader.load("src/lib/features/modding/modd
 
 const moddable = (gameId, name, extra = {}) => ({
   gameId, name, steamAppId: null, ecosystemGameId: "lethal-company", displayName: "Lethal Company",
-  packageLoader: "bepinex", supported: true, binding: null, ...extra,
+  packageLoader: "bepinex", supported: true, binding: null, steamMatchId: null, ...extra,
 });
 const summary = (fullName, extra = {}) => {
   const [owner, name] = fullName.split("-");
@@ -69,6 +69,23 @@ test("moddable games list supported and set up games first", () => {
   ];
   assert.deepEqual(model.sortModdableGames(games).map(game => game.gameId), ["d", "a", "b", "c"]);
   assert.deepEqual(games.map(model.moddableGameState), ["unmatched", "unsupported", "ready", "ready"]);
+});
+
+test("the Thunderstore game can only be chosen without an automatic Steam match", () => {
+  const bound = ecosystemGameId => ({ gameId: "g", ecosystemGameId, activeProfileId: null });
+  assert.equal(model.canChooseEcosystemGame(moddable("a", "Manual")), true);
+  assert.equal(model.canChooseEcosystemGame(moddable("b", "Steam", { steamAppId: 1, steamMatchId: "lethal-company" })), false);
+  assert.equal(model.canChooseEcosystemGame(moddable("c", "Bound to the match", { steamMatchId: "lethal-company", binding: bound("lethal-company") })), false);
+  assert.equal(model.canChooseEcosystemGame(moddable("d", "Manual override", { steamMatchId: "lethal-company", binding: bound("riskofrain2") })), true);
+  assert.equal(model.canChooseEcosystemGame(moddable("e", "Manual binding", { binding: bound("riskofrain2") })), true);
+});
+
+test("catalog download failures are translated", () => {
+  assert.equal(model.describeModdingError("The mod catalog could not be downloaded: offline", "it"), "Impossibile scaricare il catalogo delle mod: offline");
+  assert.equal(
+    model.describeModdingError("The mod catalog of this game is not available yet. Try again in a moment", "it"),
+    "Il catalogo delle mod di questo gioco non è ancora disponibile. Riprova tra poco.",
+  );
 });
 
 test("profile names follow the backend rules", () => {
