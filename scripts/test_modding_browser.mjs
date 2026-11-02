@@ -14,6 +14,7 @@ for (const key of [
 }
 globalThis.matchMedia = () => ({ matches: false });
 HTMLElement.prototype.showPopover = function () {};
+Element.prototype.scrollIntoView = function () {};
 HTMLElement.prototype.hidePopover = function () {};
 // Transitions and the select list finish right after they start.
 HTMLElement.prototype.animate = function () {
@@ -305,4 +306,45 @@ test("installed mods open in their own tab set, including local mods", async () 
     target.remove();
     delete globalThis.browserInvoke;
   }
+});
+
+test("search results are paged twenty at a time and the filters restart at page one", async () => {
+  const offsets = [];
+  globalThis.browserInvoke = async (command, args) => {
+    if (command === "search_mods") {
+      const { offset, limit } = args.query;
+      offsets.push([offset, limit]);
+      return { total: 45, items: Array.from({ length: Math.min(limit, 45 - offset) }, (_, index) => summary(`Owner-Mod${offset + index}`)) };
+    }
+    if (["list_mod_categories", "list_profile_mods", "list_mod_updates"].includes(command)) return [];
+    throw new Error(`unexpected ${command}`);
+  };
+  const host = `<script>
+    import ModBrowser from "./src/lib/features/modding/ModBrowser.svelte";
+    import { emptyModTabs } from "./src/lib/features/modding/mod-panel-model";
+    let tabs = $state(emptyModTabs);
+  </script>
+  <ModBrowser gameId="g" ecosystemGameId="lethal-company" profile={{ id: "p", gameId: "g", name: "Main", createdAt: 0 }} disabled={false} {tabs} onTabsChange={(next) => (tabs = next)} />`;
+  const Component = (await import(await svelteModule(loader, host))).default;
+  const target = document.createElement("div");
+  document.body.append(target);
+  const instance = mount(Component, { target });
+  const button = (label) => target.querySelector(`button[aria-label="${label}"]`);
+  const rows = () => target.querySelectorAll('button[aria-label^="Dettagli di "]').length;
+  const current = () => target.querySelector('nav button[aria-pressed="true"]')?.getAttribute("aria-label");
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 350)); await settle();
+    assert.deepEqual(offsets, [[0, 20]]);
+    assert.equal(rows(), 20);
+    assert.deepEqual([current(), button("Pagina 3") !== null, button("Pagina precedente").disabled], ["Pagina 1", true, true]);
+
+    button("Pagina 3").click(); await settle();
+    assert.deepEqual(offsets.at(-1), [40, 20]);
+    assert.equal(rows(), 5, "the last page holds the remainder, not the earlier pages");
+    assert.deepEqual([current(), button("Pagina successiva").disabled], ["Pagina 3", true]);
+
+    button("Pagina precedente").click(); await settle();
+    assert.deepEqual(offsets.at(-1), [20, 20]);
+    assert.equal(current(), "Pagina 2");
+  } finally { await unmount(instance); target.remove(); }
 });

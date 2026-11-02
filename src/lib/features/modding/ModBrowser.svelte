@@ -4,6 +4,7 @@
   import Button from "../../components/ui/Button.svelte";
   import Callout from "../../components/ui/Callout.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
+  import Pagination from "../../components/ui/Pagination.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import IconButton from "../../components/ui/IconButton.svelte";
   import RefreshIcon from "../../components/ui/RefreshIcon.svelte";
@@ -16,10 +17,9 @@
   import { showToast } from "../../stores/toast";
   import { toMessage } from "../../utils/errors";
   import { formatDate, regionalLocale } from "../../utils/format";
+  import { pageCountFor, pageSize } from "../../utils/pagination";
   import {
     activeFilterCount,
-    appendPage,
-    browserPageSize,
     catalogPercent,
     classifyModdingError,
     defaultBrowserFilters,
@@ -60,7 +60,8 @@
   let total = $state(0);
   let status = $state<LoadStatus>("idle");
   let searchError = $state<string | null>(null);
-  let loadingMore = $state(false);
+  let page = $state(1);
+  let loadingPage = $state(false);
   let categories = $state<string[]>([]);
   let filtersOpen = $state(false);
   let actionError = $state<string | null>(null);
@@ -75,25 +76,28 @@
   const updateIndex = $derived(indexByFullName($updates.data));
   const filterCount = $derived(activeFilterCount(filters));
   const locale = $derived(regionalLocale($language));
+  const pageCount = $derived(pageCountFor(total));
 
-  async function search(offset: number): Promise<void> {
+  // A new search replaces the whole list; moving between pages keeps the current one visible until the next arrives.
+  async function search(target: number, fresh = false): Promise<void> {
     const current = ++request;
-    const query = packageQuery(filters, offset);
-    if (offset === 0) status = "loading";
-    else loadingMore = true;
+    const query = packageQuery(filters, (target - 1) * pageSize);
+    if (fresh) status = "loading";
+    else loadingPage = true;
     searchError = null;
     try {
-      const page = await searchMods(ecosystemGameId, query);
+      const result = await searchMods(ecosystemGameId, query);
       if (current !== request) return;
-      items = offset === 0 ? page.items : appendPage(items, page.items);
-      total = page.total;
+      items = result.items;
+      total = result.total;
+      page = target;
       status = items.length === 0 ? "empty" : "ready";
     } catch (error) {
       if (current !== request) return;
       searchError = toMessage(error);
-      status = offset === 0 ? "error" : status;
+      status = fresh ? "error" : status;
     } finally {
-      if (current === request) loadingMore = false;
+      if (current === request) loadingPage = false;
     }
   }
 
@@ -106,7 +110,7 @@
   $effect(() => {
     void syncedAt;
     void JSON.stringify(filters);
-    const timer = setTimeout(() => void search(0), 300);
+    const timer = setTimeout(() => void search(1, true), 300);
     return () => clearTimeout(timer);
   });
 
@@ -255,17 +259,10 @@
         </li>
       {/each}
     </ul>
-    {#if items.length < total}
-      <div class="flex justify-center pt-2">
-        <Button
-          label={loadingMore ? t("Caricamento...", $language) : t("Carica altre {0}", $language, [browserPageSize])}
-          variant="secondary"
-          disabled={loadingMore}
-          onClick={() => void search(items.length)}
-        />
-      </div>
+    {#if pageCount > 1}
+      <Pagination {page} {pageCount} disabled={loadingPage} onChange={(next) => void search(next)} />
     {/if}
-    {#if searchError !== null && status !== "error"}<ErrorBanner message={searchError} onRetry={() => void search(items.length)} retryLabel={t("Riprova", $language)} />{/if}
+    {#if searchError !== null && status !== "error"}<ErrorBanner message={searchError} onRetry={() => void search(page)} retryLabel={t("Riprova", $language)} />{/if}
   {/if}
 </ModPanelLayout>
 

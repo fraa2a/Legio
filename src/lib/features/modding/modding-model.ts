@@ -1,5 +1,6 @@
 import { t, type Language } from "../../i18n";
 import { toMessage } from "../../utils/errors";
+import { pageSize } from "../../utils/pagination";
 import type {
   CategoryMode,
   EcosystemGameSummary,
@@ -11,7 +12,6 @@ import type {
   ModUpdate,
   PackageQuery,
   PackageSort,
-  PackageSummary,
   ProfileMod,
 } from "../../services/modding";
 
@@ -185,9 +185,7 @@ export const defaultBrowserFilters: BrowserFilters = {
   includeNsfw: false,
 };
 
-export const browserPageSize = 30;
-
-export function packageQuery(filters: BrowserFilters, offset: number, limit = browserPageSize): PackageQuery {
+export function packageQuery(filters: BrowserFilters, offset: number, limit = pageSize): PackageQuery {
   const text = filters.text.trim();
   return {
     ...(text === "" ? {} : { text }),
@@ -244,11 +242,6 @@ export function sortOptions(selected: Language): { value: PackageSort; label: st
     { value: "newest", label: t("Più recenti", selected) },
     { value: "alphabetical", label: t("Alfabetico (A-Z)", selected) },
   ];
-}
-
-export function appendPage(previous: readonly PackageSummary[], next: readonly PackageSummary[]): PackageSummary[] {
-  const seen = new Set(previous.map((item) => modKey(item.fullName)));
-  return [...previous, ...next.filter((item) => !seen.has(modKey(item.fullName)))];
 }
 
 export function catalogPercent(chunksDone: number, chunksTotal: number): number {

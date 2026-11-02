@@ -128,7 +128,7 @@ test("launch notices, queries and progress", () => {
   assert.equal(model.launchNotice({ ...status, preloaderFound: true }), "none");
   assert.equal(model.launchNotice({ ...status, loaderDeployed: true }), "loader-missing");
   assert.deepEqual(model.packageQuery({ ...model.defaultBrowserFilters, text: "  suits " }, 30), {
-    text: "suits", includeDeprecated: false, includeNsfw: false, sort: "mostDownloads", offset: 30, limit: 30,
+    text: "suits", includeDeprecated: false, includeNsfw: false, sort: "mostDownloads", offset: 30, limit: 20,
   });
   assert.deepEqual(model.packageQuery({ ...model.defaultBrowserFilters, categories: ["Items"] }, 0).categories, ["Items"]);
   const progress = { profileId: "p", package: null, stage: "downloading", current: 2, total: 4, downloadedBytes: 50, totalBytes: 200 };
@@ -473,7 +473,7 @@ test("the browser debounces search and installs from results", async () => {
     const searches = calls.filter(([command]) => command === "search_mods");
     assert.deepEqual(searches.at(-1), ["search_mods", {
       ecosystemGameId: "lethal-company",
-      query: { text: "suits", includeDeprecated: false, includeNsfw: false, sort: "mostDownloads", offset: 0, limit: 30 },
+      query: { text: "suits", includeDeprecated: false, includeNsfw: false, sort: "mostDownloads", offset: 0, limit: 20 },
     }]);
     assert.equal(searches.length, 2, "typing triggers one search after the initial one");
     assert.ok(view.target.textContent.includes("More Suits"));
