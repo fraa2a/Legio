@@ -393,7 +393,7 @@ test("hydration waits for startup recovery before loading games and displays fai
   }
 });
 
-test("download UI polling stops while inactive and catches completed work on restore", async () => {
+test("download UI polling stops while hidden and catches completed work on restore", async () => {
   const active = writable(false);
   let jobs = [{ id: "download", status: "downloading" }];
   let requests = 0;
@@ -406,7 +406,7 @@ test("download UI polling stops while inactive and catches completed work on res
     "@tauri-apps/api/core": dataModule("export const invoke = (...args) => globalThis.legioDownloadVisibility.invoke(...args);"),
     "src/lib/i18n": localeUrl,
     "src/lib/stores/game-updates": dataModule("export const gameUpdates = { load: async () => {}, reload: async () => {} };"),
-    "src/lib/stores/window-activity": dataModule("export const windowActive = globalThis.legioDownloadVisibility.active;"),
+    "src/lib/stores/window-activity": dataModule("export const windowVisible = globalThis.legioDownloadVisibility.active;"),
   });
   const timers = new Set();
   const originalSet = globalThis.setInterval;
