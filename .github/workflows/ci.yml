@@ -94,6 +94,9 @@ jobs:
       - name: Test Home calendar and recent games
         run: corepack pnpm test:home
 
+      - name: Test library layout morph planning
+        run: corepack pnpm test:morph
+
       - name: Test application logging and independent diagnostic toggles
         run: corepack pnpm test:logging
 
