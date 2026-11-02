@@ -14,7 +14,7 @@
   import { showToast } from "../../stores/toast";
   import { toMessage } from "../../utils/errors";
   import EcosystemGameDialog from "./EcosystemGameDialog.svelte";
-  import { describeModdingError, moddableGameState } from "./modding-model";
+  import { canChooseEcosystemGame, describeModdingError, moddableGameState } from "./modding-model";
   import { describeToolsError } from "./mod-tools-model";
 
   let { game }: { game: Game } = $props();
@@ -24,6 +24,7 @@
   const modding = $derived($moddableGameById.get(game.id) ?? null);
   const modState = $derived(modding === null ? null : moddableGameState(modding));
   const running = $derived(($launchStateByGame.get(game.id)?.status ?? "idle") !== "idle");
+  const canChoose = $derived(modding !== null && canChooseEcosystemGame(modding));
 
   let pickerOpen = $state(false);
   let restoring = $state(false);
@@ -95,13 +96,17 @@
         {#if modState === "unsupported"}
           <Callout tone="warning" variant="inline" message={t("Il loader di questo gioco non è ancora supportato: Legio installa le mod dei giochi con BepInEx.", $language)} />
         {/if}
-        <div class="flex flex-wrap gap-2">
-          <Button label={t("Scegli gioco Thunderstore...", $language)} variant="secondary" disabled={running} onClick={() => (pickerOpen = true)} />
-          {#if modState === "ready"}
-            <Button label={t("Gestisci mod", $language)} variant="secondary" onClick={() => openModManager(game.id, "game")} />
-          {/if}
-        </div>
-        {#if running}<p class="text-xs text-zinc-500">{t("Chiudi il gioco per cambiare il collegamento.", $language)}</p>{/if}
+        {#if canChoose || modState === "ready"}
+          <div class="flex flex-wrap gap-2">
+            {#if canChoose}
+              <Button label={t("Scegli gioco Thunderstore...", $language)} variant="secondary" disabled={running} onClick={() => (pickerOpen = true)} />
+            {/if}
+            {#if modState === "ready"}
+              <Button label={t("Gestisci mod", $language)} variant="secondary" onClick={() => openModManager(game.id, "game")} />
+            {/if}
+          </div>
+        {/if}
+        {#if canChoose && running}<p class="text-xs text-zinc-500">{t("Chiudi il gioco per cambiare il collegamento.", $language)}</p>{/if}
       </div>
     </Panel>
     {#if modding.binding !== null}
@@ -128,7 +133,7 @@
   {/if}
 </div>
 
-{#if modding !== null}
+{#if canChoose && modding !== null}
   <EcosystemGameDialog
     open={pickerOpen}
     gameName={game.name}

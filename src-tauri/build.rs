@@ -154,6 +154,7 @@ fn main() {
             "take_mod_links",
             "resolve_mod_link",
             "get_mod_link_handler",
+            "get_mod_profile_size",
         ]),
     ))
     .expect("Tauri build configuration failed");

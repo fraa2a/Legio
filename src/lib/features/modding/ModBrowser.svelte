@@ -6,7 +6,6 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import IconButton from "../../components/ui/IconButton.svelte";
-  import ProgressBar from "../../components/ui/ProgressBar.svelte";
   import RefreshIcon from "../../components/ui/RefreshIcon.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
@@ -16,7 +15,7 @@
   import type { LoadStatus } from "../../stores/resource";
   import { showToast } from "../../stores/toast";
   import { toMessage } from "../../utils/errors";
-  import { formatDate, formatDateTime, regionalLocale } from "../../utils/format";
+  import { formatDate, regionalLocale } from "../../utils/format";
   import {
     activeFilterCount,
     appendPage,
@@ -28,26 +27,32 @@
     indexByFullName,
     installedState,
     installNotice,
+    modKey,
     packageQuery,
     packageTitle,
     sortOptions,
     type BrowserFilters,
     type ResultNotice,
   } from "./modding-model";
-  import ModDetailsDialog from "./ModDetailsDialog.svelte";
+  import { openModTab, type ModTabs } from "./mod-panel-model";
   import ModFilterDialog from "./ModFilterDialog.svelte";
   import ModIcon from "./ModIcon.svelte";
+  import ModPanelLayout from "./ModPanelLayout.svelte";
 
   let {
     gameId,
     ecosystemGameId,
     profile,
     disabled,
+    tabs,
+    onTabsChange,
   }: {
     gameId: string;
     ecosystemGameId: string;
     profile: ModProfile;
     disabled: boolean;
+    tabs: ModTabs;
+    onTabsChange: (tabs: ModTabs) => void;
   } = $props();
 
   let filters = $state<BrowserFilters>({ ...defaultBrowserFilters });
@@ -57,7 +62,6 @@
   let searchError = $state<string | null>(null);
   let loadingMore = $state(false);
   let categories = $state<string[]>([]);
-  let selected = $state<PackageSummary | null>(null);
   let filtersOpen = $state(false);
   let actionError = $state<string | null>(null);
   let notice = $state<ResultNotice | null>(null);
@@ -132,43 +136,54 @@
     }
   }
 
+  const refreshTitle = $derived(!catalog.refreshing
+    ? t("Aggiorna il catalogo", $language)
+    : catalog.progress === null || catalog.progress.chunksTotal === 0
+      ? t("Aggiornamento del catalogo...", $language)
+      : t("Aggiornamento del catalogo: {0}%", $language, [catalogPercent(catalog.progress.chunksDone, catalog.progress.chunksTotal)]));
   const emptyMessage = $derived(syncedAt === null
     ? t("Il catalogo di questo gioco non è ancora stato scaricato.", $language)
     : t("Nessuna mod corrisponde ai filtri.", $language));
 </script>
 
-<div class="flex flex-col gap-4">
-  <div class="flex flex-wrap items-center gap-3 rounded-xl legio-glass p-3">
-    <div class="min-w-0 flex-1 basis-56 text-sm">
-      {#if catalog.refreshing}
-        <p class="text-zinc-200 light:text-zinc-800" role="status">
-          {catalog.progress === null || catalog.progress.chunksTotal === 0
-            ? t("Aggiornamento del catalogo...", $language)
-            : t("Aggiornamento del catalogo: {0}%", $language, [catalogPercent(catalog.progress.chunksDone, catalog.progress.chunksTotal)])}
-        </p>
-        <ProgressBar
-          value={catalog.progress === null ? 0 : catalogPercent(catalog.progress.chunksDone, catalog.progress.chunksTotal)}
-          tone="accent"
-          label={t("Avanzamento del catalogo", $language)}
-          class="mt-2"
-        />
-      {:else if catalog.status !== null}
-        <p class="text-zinc-300 light:text-zinc-700">
-          {t("{0} pacchetti nel catalogo", $language, [formatCount(catalog.status.packageCount, locale)])}
-          <span class="text-zinc-500"> · {t("aggiornato il {0}", $language, [formatDateTime(catalog.status.syncedAt, $language)])}</span>
-        </p>
-      {:else}
-        <p class="text-zinc-400 light:text-zinc-600">{t("Catalogo Thunderstore non ancora scaricato.", $language)}</p>
-      {/if}
+<ModPanelLayout
+  {ecosystemGameId}
+  {tabs}
+  {installed}
+  updates={updateIndex}
+  {disabled}
+  onChange={onTabsChange}
+  onInstall={(fullName, version) => void install(fullName, version)}
+>
+  <div class="flex flex-col gap-3 rounded-2xl legio-glass p-4">
+    <div class="flex flex-wrap items-end gap-3">
+      <div class="min-w-64 flex-[2]">
+        <TextField id="mod-search" type="search" label={t("Cerca", $language)} placeholder={t("Nome, autore o descrizione", $language)} bind:value={filters.text} />
+      </div>
+      <SelectField id="mod-sort" label={t("Ordina per", $language)} class="min-w-48 flex-1 sm:max-w-64" value={filters.sort} options={sortOptions($language)} onChange={(value) => (filters.sort = value as PackageSort)} />
+      <div class="flex h-10 items-center gap-2">
+        <Button
+          label={filterCount === 0 ? t("Filtri", $language) : t("Filtri ({0})", $language, [filterCount])}
+          variant="secondary"
+          pressed={filterCount > 0}
+          onClick={() => (filtersOpen = true)}
+        >
+          <Icon name="funnel" size="size-4" />
+        </Button>
+        <IconButton
+          size="lg"
+          variant="soft"
+          label={t("Aggiorna il catalogo", $language)}
+          title={refreshTitle}
+          onClick={() => void refreshCatalog(ecosystemGameId, true)}
+        >
+          <RefreshIcon spinning={catalog.refreshing} />
+        </IconButton>
+      </div>
     </div>
-    <IconButton
-      label={t("Aggiorna il catalogo", $language)}
-      title={t("Aggiorna il catalogo", $language)}
-      disabled={catalog.refreshing}
-      onClick={() => void refreshCatalog(ecosystemGameId, true)}
-    >
-      <RefreshIcon spinning={catalog.refreshing} />
-    </IconButton>
+    {#if items.length > 0}
+      <p class="text-xs text-zinc-400 light:text-zinc-600">{t("{0} risultati", $language, [total])}</p>
+    {/if}
   </div>
 
   {#if catalog.error !== null}
@@ -184,23 +199,6 @@
     <Callout tone={notice.tone} message={notice.message} items={notice.items} onDismiss={() => (notice = null)} />
   {/if}
 
-  <div class="flex flex-wrap gap-3">
-    <div class="min-w-64 flex-[2]">
-      <TextField id="mod-search" type="search" label={t("Cerca", $language)} placeholder={t("Nome, autore o descrizione", $language)} bind:value={filters.text} />
-    </div>
-    <SelectField id="mod-sort" label={t("Ordina per", $language)} class="min-w-48 flex-1 sm:max-w-64" value={filters.sort} options={sortOptions($language)} onChange={(value) => (filters.sort = value as PackageSort)} />
-    <div class="flex items-end">
-      <Button
-        label={filterCount === 0 ? t("Filtri", $language) : t("Filtri ({0})", $language, [filterCount])}
-        variant="secondary"
-        pressed={filterCount > 0}
-        onClick={() => (filtersOpen = true)}
-      >
-        <Icon name="funnel" size="size-4" />
-      </Button>
-    </div>
-  </div>
-
   <StateBlock
     {status}
     hasData={items.length > 0}
@@ -214,16 +212,17 @@
   />
 
   {#if items.length > 0}
-    <p class="text-xs text-zinc-500">{t("{0} risultati", $language, [total])}</p>
     <ul class="flex flex-col gap-2">
       {#each items as item (item.fullName)}
         {@const installState = installedState(item.fullName, installed, updateIndex)}
-        <li class="flex flex-wrap items-center gap-3 rounded-xl legio-glass p-3 transition-colors hover:bg-white/5 light:hover:bg-zinc-900/5">
+        {@const opened = tabs.active === modKey(item.fullName)}
+        <li class="flex flex-wrap items-center gap-3 rounded-xl legio-glass p-3 transition-colors hover:bg-white/5 light:hover:bg-zinc-900/5 {opened ? 'ring-1 ring-legio-accent ring-inset' : ''}">
           <button
             type="button"
             class="flex min-w-0 flex-1 basis-64 items-center gap-3 rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--legio-focus)"
             aria-label={t("Dettagli di {0}", $language, [packageTitle(item.name)])}
-            onclick={() => (selected = item)}
+            aria-current={opened ? "true" : undefined}
+            onclick={() => onTabsChange(openModTab(tabs, item.fullName, item))}
           >
             <ModIcon source={item.icon} class="size-12 rounded-lg" />
             <span class="min-w-0 flex-1">
@@ -268,7 +267,7 @@
     {/if}
     {#if searchError !== null && status !== "error"}<ErrorBanner message={searchError} onRetry={() => void search(items.length)} retryLabel={t("Riprova", $language)} />{/if}
   {/if}
-</div>
+</ModPanelLayout>
 
 <ModFilterDialog
   open={filtersOpen}
@@ -278,12 +277,3 @@
   onClose={() => (filtersOpen = false)}
 />
 
-<ModDetailsDialog
-  {ecosystemGameId}
-  summary={selected}
-  installed={selected === null ? { kind: "missing" } : installedState(selected.fullName, installed, updateIndex)}
-  installedMods={installed}
-  {disabled}
-  onClose={() => (selected = null)}
-  onInstall={(fullName, version) => void install(fullName, version)}
-/>

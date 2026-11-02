@@ -238,8 +238,8 @@
   }
 </script>
 
-<div class="flex h-full min-h-[26rem] min-w-0 flex-col gap-4 lg:flex-row">
-  <aside class="flex max-h-80 shrink-0 flex-col gap-3 rounded-2xl legio-glass p-3 lg:max-h-none lg:w-72" aria-label={t("File di configurazione", $language)}>
+<div class="flex min-h-[26rem] min-w-0 flex-1 flex-col gap-4 lg:flex-row">
+  <aside class="flex max-h-80 min-h-0 shrink-0 flex-col gap-3 rounded-2xl legio-glass p-3 lg:max-h-none lg:w-72" aria-label={t("File di configurazione", $language)}>
     <TextField id="mod-config-filter" label={t("Filtra file", $language)} type="search" placeholder={t("Filtra file...", $language)} bind:value={query} />
     <SelectField id="mod-config-sort" label={t("Ordina file", $language)} labelHidden value={sort} options={configSortOptions($language)} onChange={(value) => (sort = value as ConfigSort)} />
     {#if listLoading && files.length === 0}
@@ -275,7 +275,7 @@
     {/if}
   </aside>
 
-  <section class="flex min-w-0 flex-1 flex-col rounded-2xl legio-glass" aria-label={t("Editor di configurazione", $language)}>
+  <section class="flex min-h-80 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl legio-glass lg:min-h-0" aria-label={t("Editor di configurazione", $language)}>
     {#if listLoading && files.length === 0}
       <div class="flex flex-1 items-center justify-center gap-3 text-sm text-zinc-300 light:text-zinc-700" role="status"><Spinner />{t("Caricamento...", $language)}</div>
     {:else if !listLoading && listError === null && files.length === 0}
@@ -332,7 +332,7 @@
               value={rawText}
               disabled={saving}
               oninput={(event) => (rawText = event.currentTarget.value)}
-              class="{textFieldClass} min-h-[18rem] flex-1 resize-none font-mono"
+              class="{textFieldClass} min-h-0 flex-1 resize-none font-mono"
             ></textarea>
           </div>
         {:else if config !== null}

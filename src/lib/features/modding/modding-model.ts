@@ -22,6 +22,11 @@ export function moddableGameState(game: ModdableGame): ModdableGameState {
   return game.supported ? "ready" : "unsupported";
 }
 
+// A game matched through its Steam app id has nothing to choose. A manual binding that overrides the match can still be undone.
+export function canChooseEcosystemGame(game: ModdableGame): boolean {
+  return game.steamMatchId === null || (game.binding !== null && game.binding.ecosystemGameId !== game.steamMatchId);
+}
+
 const stateOrder: Record<ModdableGameState, number> = { ready: 0, unsupported: 1, unmatched: 2 };
 
 // Supported games first, the ones already set up for mods ahead of the rest.
@@ -278,7 +283,7 @@ const knownErrors: Record<string, string> = {
   "Stop the game before changing its installation": "Chiudi il gioco prima di modificarne l'installazione.",
   "Mods are already being downloaded for this profile": "È già in corso un download di mod per questo profilo.",
   "Download cancelled": "Download annullato.",
-  "The mod catalog of this game has not been downloaded yet. Refresh it first": "Il catalogo delle mod di questo gioco non è ancora stato scaricato. Aggiornalo prima.",
+  "The mod catalog of this game is not available yet. Try again in a moment": "Il catalogo delle mod di questo gioco non è ancora disponibile. Riprova tra poco.",
   "The mod loader of this game is not in the mod catalog": "Il loader di mod di questo gioco non è presente nel catalogo mod.",
   "Mods are being changed in the active mod profile. Wait for it to finish and launch again": "Le mod del profilo attivo sono in fase di modifica. Attendi il termine e avvia di nuovo.",
   "The active mod profile has no BepInEx loader. Install BepInExPack in the profile first": "Il profilo mod attivo non ha BepInEx. Installalo dal gestore delle mod o scegli Vanilla per avviare senza mod.",
@@ -292,7 +297,9 @@ const knownErrors: Record<string, string> = {
 const knownPatterns: [RegExp, string][] = [
   [/^(.+?) already exists in the game folder and was not installed by Legio\b/, "{0} è già nella cartella del gioco e non è stato installato da Legio. Spostalo o rimuovilo per avviare con le mod."],
   [/^A mod profile named "(.*)" already exists\.?$/, "Esiste già un profilo chiamato \"{0}\". Scegli un altro nome."],
+  [/^The mod catalog could not be downloaded: (.+)$/, "Impossibile scaricare il catalogo delle mod: {0}"],
   [/^These mods could not be found, so the profile was not changed: (.+)$/, "Il profilo non è stato modificato perché queste mod non sono state trovate: {0}"],
+  [/^(.+?) is not a mod and cannot be installed/, "{0} non è una mod e non si può installare."],
 ];
 
 export function describeModdingError(message: string, selected?: Language): string {
@@ -477,4 +484,23 @@ export function installNotice(result: ModInstallResult, selected: Language): Res
   return result.installed.length === 1
     ? { tone: "success", message: t("{0} installata.", selected, [names[0]]), items: [] }
     : { tone: "success", message: t("{0} mod installate.", selected, [result.installed.length]), items: names };
+}
+
+function sortedProfiles(profiles: readonly ModProfile[]): ModProfile[] {
+  return [...profiles].sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
+}
+
+// The mod page edits profiles only: playing without mods is chosen from the game page.
+export function profileChoices(profiles: readonly ModProfile[]): { value: string; label: string }[] {
+  return sortedProfiles(profiles).map((profile) => ({ value: profile.id, label: profile.name }));
+}
+
+export interface ShownProfile { profile: ModProfile; active: boolean }
+
+// The active profile, else the first one by name, which is shown but not activated.
+export function shownProfile(game: ModdableGame | null, profiles: readonly ModProfile[]): ShownProfile | null {
+  const active = activeProfile(game, profiles);
+  if (active !== null) return { profile: active, active: true };
+  const first = sortedProfiles(profiles)[0];
+  return first === undefined ? null : { profile: first, active: false };
 }

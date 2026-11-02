@@ -59,8 +59,8 @@ fn file_size(path: &Path) -> Result<u64, String> {
 }
 
 /// Total size of the files under `directory`; links are not followed.
-fn directory_size(directory: &Path) -> Result<u64, String> {
-    let measure = |error: io::Error| format!("Could not measure the mod cache: {error}");
+pub(super) fn directory_size(directory: &Path) -> Result<u64, String> {
+    let measure = |error: io::Error| format!("Could not measure the folder size: {error}");
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),
@@ -139,7 +139,7 @@ pub async fn clear_mod_cache(app: tauri::AppHandle, kind: ModCacheKind) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modding::test_support::TempDir;
+    use crate::modding::{mod_exclusions::ModExclusions, test_support::TempDir};
 
     fn write(path: &Path, bytes: usize) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -206,7 +206,10 @@ mod tests {
     fn clearing_the_catalog_lets_it_start_again() {
         let dir = TempDir::new();
         let paths = ModdingPaths::new(dir.path());
-        let cache = PackageCache::new(paths.package_db());
+        let cache = PackageCache::new(
+            paths.package_db(),
+            ModExclusions::new(paths.exclusions_cache(), "http://127.0.0.1:9/exclusions"),
+        );
         assert_eq!(cache.status("risk-of-rain-2").unwrap(), None);
         assert!(paths.package_db().is_file());
 

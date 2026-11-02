@@ -17,6 +17,7 @@ pub(crate) mod link_registration;
 pub(crate) mod loader_install;
 pub(crate) mod local_import;
 pub(crate) mod markdown_html;
+pub(crate) mod mod_exclusions;
 pub(crate) mod mod_icons;
 pub(crate) mod mod_links;
 pub(crate) mod package_cache;

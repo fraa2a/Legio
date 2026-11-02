@@ -9,9 +9,8 @@
   import { bindGame, moddableGames } from "../../stores/modding";
   import { openModManager, selectSection } from "../../stores/navigation";
   import EcosystemGameDialog from "./EcosystemGameDialog.svelte";
-  import ModCachePanel from "./ModCachePanel.svelte";
   import ModdableGameCard from "./ModdableGameCard.svelte";
-  import { moddableGameState, sortModdableGames } from "./modding-model";
+  import { canChooseEcosystemGame, moddableGameState, sortModdableGames } from "./modding-model";
 
   // The library may have changed since the last visit.
   onMount(() => void moddableGames.load());
@@ -24,7 +23,7 @@
 
   function open(game: ModdableGame): void {
     if (moddableGameState(game) === "ready") openModManager(game.gameId);
-    else bindingTarget = game;
+    else if (canChooseEcosystemGame(game)) bindingTarget = game;
   }
 
   async function bind(ecosystemGameId: string): Promise<void> {
@@ -60,7 +59,7 @@
   {/if}
 
   {#if ready.length > 0}
-    <section class="flex flex-col gap-3" aria-labelledby="mods-ready-title">
+    <section class="flex flex-col gap-3 rounded-2xl legio-glass p-5" aria-labelledby="mods-ready-title">
       <div>
         <h2 id="mods-ready-title" class="text-base font-semibold text-zinc-100 light:text-zinc-900">{t("Giochi con mod", $language)}</h2>
         <p class="mt-0.5 text-sm text-zinc-400 light:text-zinc-600">{t("Le mod vivono nei profili di Legio: la cartella del gioco resta pulita e puoi tornare alla versione vanilla in ogni momento.", $language)}</p>
@@ -74,7 +73,7 @@
   {/if}
 
   {#if others.length > 0}
-    <section class="flex flex-col gap-3" aria-labelledby="mods-other-title">
+    <section class="flex flex-col gap-3 rounded-2xl legio-glass p-5" aria-labelledby="mods-other-title">
       <div>
         <h2 id="mods-other-title" class="text-base font-semibold text-zinc-100 light:text-zinc-900">{t("Altri giochi", $language)}</h2>
         <p class="mt-0.5 text-sm text-zinc-400 light:text-zinc-600">{t("Per ora Legio installa le mod dei giochi che usano BepInEx. Collega a mano i giochi che Thunderstore non ha riconosciuto.", $language)}</p>
@@ -86,8 +85,6 @@
       </ul>
     </section>
   {/if}
-
-  <ModCachePanel />
 </div>
 
 <EcosystemGameDialog

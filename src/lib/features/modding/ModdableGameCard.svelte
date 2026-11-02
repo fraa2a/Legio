@@ -7,16 +7,18 @@
   import { games } from "../../stores/games";
   import { loadOnce, moddableGames, modProfiles, profileMods } from "../../stores/modding";
   import { hasDuplicateName, instanceLocation } from "../library/instance-options";
-  import { activeProfile, moddableGameState } from "./modding-model";
+  import { activeProfile, canChooseEcosystemGame, moddableGameState } from "./modding-model";
 
   let { game, onOpen }: { game: ModdableGame; onOpen: () => void } = $props();
 
   const modState = $derived(moddableGameState(game));
+  const interactive = $derived(modState === "ready" || canChooseEcosystemGame(game));
   const bound = $derived(game.binding !== null);
   const profiles = $derived(modProfiles(game.gameId));
   const profile = $derived(activeProfile(game, $profiles.data));
   const mods = $derived(profile === null ? null : profileMods(profile.id));
-  const modCount = $derived(mods === null ? 0 : $mods?.data.length ?? 0);
+  const modCount = $derived(mods === null ? 0 : ($mods?.data.filter((mod) => !mod.isLoader).length ?? 0));
+  const profileCount = $derived($profiles.data.length);
   const location = $derived(hasDuplicateName(game, $moddableGames.data) ? instanceLocation($games.data.find((entry) => entry.id === game.gameId)) : null);
   const monogram = $derived(game.name.trim().charAt(0).toUpperCase() || "?");
 
@@ -34,17 +36,21 @@
     if (!bound) return t("Pronto per le mod", $language);
     if (profile === null) {
       const count = $profiles.data.length;
-      if (count === 0) return t("Vanilla · nessun profilo", $language);
-      return count === 1 ? t("Vanilla · 1 profilo", $language) : t("Vanilla · {0} profili", $language, [count]);
+      if (count === 0) return t("Nessun profilo mod", $language);
+      return count === 1 ? t("1 profilo mod, non attivo", $language) : t("{0} profili mod, nessuno attivo", $language, [count]);
     }
     return modCount === 1 ? t("{0} · 1 mod", $language, [profile.name]) : t("{0} · {1} mod", $language, [profile.name, modCount]);
   });
 </script>
 
-<ArtworkTile steamAppId={game.steamAppId} {monogram} asset="header" class={modState === "ready" ? "" : "opacity-80"}>
+<ArtworkTile steamAppId={game.steamAppId} {monogram} asset="header">
+  {#if modState !== "ready"}
+    <div class="absolute inset-0 bg-zinc-500/45 light:bg-zinc-300/60" aria-hidden="true"></div>
+  {/if}
   <button
     type="button"
-    class="flex flex-1 flex-col text-left focus-visible:-outline-offset-2"
+    class="relative flex flex-1 flex-col text-left focus-visible:-outline-offset-2 disabled:cursor-default"
+    disabled={!interactive}
     aria-label={modState === "ready" ? t("Gestisci le mod di {0}", $language, [game.name]) : t("Collega {0} a Thunderstore", $language, [game.name])}
     onclick={onOpen}
   >
@@ -53,10 +59,13 @@
         <Badge tone="warning" title={t("Loader non supportato", $language)} />
       {:else if modState === "unmatched"}
         <Badge title={t("Da collegare", $language)} />
-      {:else if profile !== null}
-        <span class="flex items-center gap-1 rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-100 light:bg-zinc-100/70 light:text-zinc-900">
+      {:else if profileCount > 0}
+        <span
+          class="flex items-center gap-1 rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-100 light:bg-zinc-100/70 light:text-zinc-900"
+          title={profileCount === 1 ? t("1 profilo mod", $language) : t("{0} profili mod", $language, [profileCount])}
+        >
           <Icon name="mods" size="h-3.5 w-3.5" />
-          {modCount}
+          {profileCount}
         </span>
       {/if}
     </div>

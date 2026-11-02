@@ -13,6 +13,8 @@ export interface ModdableGame {
   name: string;
   steamAppId: number | null;
   ecosystemGameId: string | null;
+  // The Thunderstore game the Steam app id matches, whatever the binding.
+  steamMatchId: string | null;
   displayName: string | null;
   packageLoader: PackageLoader | null;
   supported: boolean;
@@ -202,3 +204,5 @@ export const openModExternalLink = (url: string) => invoke<void>("open_mod_exter
 
 export const setAllProfileModsEnabled = (profileId: string, enabled: boolean) =>
   invoke<ToggleAllOutcome>("set_all_profile_mods_enabled", { profileId, enabled });
+
+export const getModProfileSize = (profileId: string) => invoke<number>("get_mod_profile_size", { profileId });

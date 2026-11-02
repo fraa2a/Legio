@@ -11,10 +11,9 @@
   import SegmentedControl from "../../components/ui/SegmentedControl.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
-  import { openModProfileFolder, type ModProfile } from "../../services/modding";
-  import { games } from "../../stores/games";
+  import { getModProfileSize, openModProfileFolder, type ModProfile } from "../../services/modding";
   import { launchStateByGame } from "../../stores/launch";
-  import { setLeaveGuard } from "../../stores/navigation";
+  import { activeSection, selectedModGame, setLeaveGuard } from "../../stores/navigation";
   import {
     bindGame,
     busyProfiles,
@@ -36,28 +35,29 @@
     modUpdates,
     profileMods,
     renameProfile,
-    restoreGameFolder,
     selectProfile,
   } from "../../stores/modding";
+  import { showTitleBarContent } from "../../stores/title-bar";
   import { showToast } from "../../stores/toast";
   import { toMessage } from "../../utils/errors";
-  import GameIcon from "../library/GameIcon.svelte";
+  import { formatBytes } from "../../utils/format";
   import EcosystemGameDialog from "./EcosystemGameDialog.svelte";
   import InstalledModsList from "./InstalledModsList.svelte";
   import InstallProgressCard from "./InstallProgressCard.svelte";
   import ModBrowser from "./ModBrowser.svelte";
   import {
-    activeProfile,
+    canChooseEcosystemGame,
     classifyModdingError,
     copyProfileName,
     describeModdingError,
     installNotice,
     launchNotice,
     moddableGameState,
-    profileOptions,
-    vanillaProfileValue,
+    profileChoices,
+    shownProfile,
   } from "./modding-model";
   import ModConfigEditor from "./ModConfigEditor.svelte";
+  import { emptyModTabs, type ModTabs } from "./mod-panel-model";
   import ProfileImportDialog from "./ProfileImportDialog.svelte";
   import ProfileNameDialog from "./ProfileNameDialog.svelte";
   import ProfileShareDialog from "./ProfileShareDialog.svelte";
@@ -77,18 +77,22 @@
   });
 
   const game = $derived($moddableGameById.get(gameId) ?? null);
-  const libraryGame = $derived($games.data.find((entry) => entry.id === gameId) ?? null);
   const gameState = $derived(game === null ? null : moddableGameState(game));
   const ecosystemGameId = $derived(game?.binding?.ecosystemGameId ?? null);
   const profiles = $derived(modProfiles(gameId));
   const launchStatus = $derived(modLaunchStatus(gameId));
-  const profile = $derived(activeProfile(game, $profiles.data));
+  const shown = $derived(shownProfile(game, $profiles.data));
+  const profile = $derived(shown?.profile ?? null);
+  const profileActive = $derived(shown?.active ?? false);
+  const mods = $derived(profile === null ? null : profileMods(profile.id));
   const running = $derived(($launchStateByGame.get(gameId)?.status ?? "idle") !== "idle");
   const busy = $derived(profile !== null && $busyProfiles.has(profile.id));
   const progress = $derived(profile === null ? null : ($installProgress.get(profile.id) ?? null));
   const notice = $derived(launchNotice($launchStatus.data));
   const syncedAt = $derived(ecosystemGameId === null ? null : (catalogFor($catalogs, ecosystemGameId).status?.syncedAt ?? null));
-  const options = $derived(profileOptions($profiles.data, $language));
+  const options = $derived(profileChoices($profiles.data));
+  const managed = $derived(gameState === "ready" && game?.binding != null);
+  const onPage = $derived($activeSection === "mods" && $selectedModGame?.gameId === gameId);
 
   let tab = $state<Tab>("installed");
   let actionError = $state<string | null>(null);
@@ -102,7 +106,11 @@
   let importOpen = $state(false);
   let shareOpen = $state(false);
   let configDirty = $state(false);
+  let profileSize = $state<number | null>(null);
   let discardAction = $state<(() => void) | null>(null);
+  // Opened mods stay while switching sections of this game and refer to its Thunderstore community.
+  let modTabs = $state<ModTabs>(emptyModTabs);
+  let installedTabs = $state<ModTabs>(emptyModTabs);
   let autoBindAttempted = false;
 
   // A game opened through its Steam match is bound on first visit, so profiles can be created right away.
@@ -128,9 +136,46 @@
   });
 
   $effect(() => {
+    void ecosystemGameId;
+    untrack(() => {
+      modTabs = emptyModTabs;
+      installedTabs = emptyModTabs;
+    });
+  });
+
+  $effect(() => {
     void syncedAt;
     const current = profile;
     if (current !== null) untrack(() => void modUpdates(current.id).reload());
+  });
+
+  $effect(() => {
+    if (!onPage) return;
+    return showTitleBarContent({
+      title: profile?.name ?? null,
+      start: managed && profile !== null ? profilePicker : undefined,
+      end: managed ? profileActions : undefined,
+    });
+  });
+
+  // Installs, imports and uninstalls reload the mod list or end a busy state, so the size follows them.
+  $effect(() => {
+    const current = profile;
+    void $mods?.data;
+    void busy;
+    if (current === null) {
+      profileSize = null;
+      return;
+    }
+    let cancelled = false;
+    getModProfileSize(current.id).then(
+      (bytes) => { if (!cancelled) profileSize = bytes; },
+      (error: unknown) => {
+        console.warn("Could not measure the mod profile", error);
+        if (!cancelled) profileSize = null;
+      },
+    );
+    return () => { cancelled = true; };
   });
 
   async function run(action: () => Promise<void>): Promise<void> {
@@ -178,7 +223,7 @@
 
   const changeProfile = (value: string) => run(async () => {
     try {
-      await selectProfile(gameId, value === vanillaProfileValue ? null : value);
+      await selectProfile(gameId, value);
     } catch (error) {
       selectRevision++;
       throw error;
@@ -221,11 +266,6 @@
     if (profile !== null) await openModProfileFolder(profile.id);
   });
 
-  const restoreFolder = () => run(async () => {
-    await restoreGameFolder(gameId);
-    showToast(t("Cartella del gioco ripristinata.", $language), "success");
-  });
-
   const installBepInEx = (profileId: string) => run(async () => {
     if (running || $busyProfiles.has(profileId)) return;
     const result = installNotice(await installLoader(gameId, profileId), $language);
@@ -252,6 +292,48 @@
     : nameDialog?.kind === "duplicate" && profile !== null ? copyProfileName(profile.name, $profiles.data, $language) : "");
 </script>
 
+{#snippet profilePicker()}
+  {#key selectRevision}
+    <SelectField
+      id="mod-active-profile"
+      label={t("Profilo", $language)}
+      labelHidden
+      variant="toolbar"
+      value={profile?.id ?? ""}
+      {options}
+      disabled={running || busy}
+      onChange={requestProfile}
+      class="w-56 min-w-0"
+    />
+  {/key}
+{/snippet}
+
+{#snippet profileActions()}
+  <div class="legio-glass flex h-11 items-center gap-0.5 rounded-xl p-1" role="toolbar" aria-label={t("Profilo delle mod", $language)}>
+    <IconButton label={t("Nuovo profilo", $language)} title={t("Nuovo profilo", $language)} onClick={() => afterDiscard(() => (nameDialog = { kind: "create" }))}>
+      <Icon name="plus" size="size-4" />
+    </IconButton>
+    <IconButton label={t("Rinomina profilo", $language)} title={t("Rinomina profilo", $language)} disabled={profile === null} onClick={() => (nameDialog = { kind: "rename" })}>
+      <Icon name="pencil" size="size-4" />
+    </IconButton>
+    <IconButton label={t("Duplica profilo", $language)} title={t("Duplica profilo", $language)} disabled={profile === null || busy} onClick={() => afterDiscard(() => (nameDialog = { kind: "duplicate" }))}>
+      <Icon name="copy" size="size-4" />
+    </IconButton>
+    <IconButton label={t("Importa profilo", $language)} title={t("Importa profilo", $language)} onClick={() => (importOpen = true)}>
+      <Icon name="upload" size="size-4" />
+    </IconButton>
+    <IconButton label={t("Condividi profilo", $language)} title={t("Condividi profilo", $language)} disabled={profile === null} onClick={() => (shareOpen = true)}>
+      <Icon name="share" size="size-4" />
+    </IconButton>
+    <IconButton label={t("Apri la cartella del profilo", $language)} title={t("Apri la cartella del profilo", $language)} disabled={profile === null} onClick={() => void openFolder()}>
+      <Icon name="folder-open" size="size-4" />
+    </IconButton>
+    <IconButton variant="danger" label={t("Elimina profilo", $language)} title={t("Elimina profilo", $language)} disabled={profile === null || running || busy} onClick={() => (deleteOpen = true)}>
+      <Icon name="trash" size="size-4" />
+    </IconButton>
+  </div>
+{/snippet}
+
 {#if game === null}
   <div class="flex min-h-full flex-col gap-4">
     {#if $moddableGames.status === "error"}
@@ -263,59 +345,8 @@
     {/if}
   </div>
 {:else}
-  <div class="flex min-h-full flex-col gap-4">
-    <section class="flex flex-wrap items-end justify-between gap-4 rounded-2xl legio-glass p-5" aria-label={t("Profilo delle mod", $language)}>
-      <div class="flex min-h-10 min-w-0 items-center gap-3">
-        {#if libraryGame !== null}<GameIcon game={libraryGame} class="size-10 shrink-0 rounded-lg object-contain" />{/if}
-        <p class="min-w-0 truncate text-sm text-zinc-400 light:text-zinc-600">
-          {game.displayName === null ? t("Nessun gioco Thunderstore collegato", $language) : t("Thunderstore: {0}", $language, [game.displayName])}
-        </p>
-        {#if gameState !== "unmatched"}
-          <IconButton size="sm" label={t("Cambia gioco Thunderstore", $language)} title={t("Cambia gioco Thunderstore", $language)} disabled={running} onClick={() => (bindingOpen = true)}>
-            <Icon name="pencil" size="size-4" />
-          </IconButton>
-        {/if}
-      </div>
-      {#if gameState === "ready" && game.binding !== null}
-        <div class="flex flex-wrap items-end gap-2">
-          {#key selectRevision}
-            <SelectField
-              id="mod-active-profile"
-              label={t("Profilo attivo", $language)}
-              value={profile?.id ?? vanillaProfileValue}
-              {options}
-              disabled={running || busy}
-              onChange={requestProfile}
-              class="w-64"
-            />
-          {/key}
-          <div class="flex h-10 items-center gap-1">
-            <IconButton label={t("Nuovo profilo", $language)} title={t("Nuovo profilo", $language)} onClick={() => afterDiscard(() => (nameDialog = { kind: "create" }))}>
-              <Icon name="plus" size="size-4" />
-            </IconButton>
-            <IconButton label={t("Rinomina profilo", $language)} title={t("Rinomina profilo", $language)} disabled={profile === null} onClick={() => (nameDialog = { kind: "rename" })}>
-              <Icon name="pencil" size="size-4" />
-            </IconButton>
-            <IconButton label={t("Duplica profilo", $language)} title={t("Duplica profilo", $language)} disabled={profile === null || busy} onClick={() => afterDiscard(() => (nameDialog = { kind: "duplicate" }))}>
-              <Icon name="copy" size="size-4" />
-            </IconButton>
-            <IconButton label={t("Importa profilo", $language)} title={t("Importa profilo", $language)} onClick={() => (importOpen = true)}>
-              <Icon name="upload" size="size-4" />
-            </IconButton>
-            <IconButton label={t("Condividi profilo", $language)} title={t("Condividi profilo", $language)} disabled={profile === null} onClick={() => (shareOpen = true)}>
-              <Icon name="share" size="size-4" />
-            </IconButton>
-            <IconButton label={t("Apri la cartella del profilo", $language)} title={t("Apri la cartella del profilo", $language)} disabled={profile === null} onClick={() => void openFolder()}>
-              <Icon name="folder-open" size="size-4" />
-            </IconButton>
-            <IconButton variant="danger" label={t("Elimina profilo", $language)} title={t("Elimina profilo", $language)} disabled={profile === null || running || busy} onClick={() => (deleteOpen = true)}>
-              <Icon name="trash" size="size-4" />
-            </IconButton>
-          </div>
-        </div>
-      {/if}
-    </section>
-
+  <!-- The lists and the config editor fill the window and scroll inside. -->
+  <div class="flex flex-col gap-4 {profile !== null ? 'h-full' : 'min-h-full'}">
     {#if actionError !== null}<ErrorBanner message={actionError} />{/if}
     {#if $profiles.status === "error"}
       <ErrorBanner message={$profiles.error ?? ""} onRetry={() => void profiles.reload()} retryLabel={t("Riprova", $language)} />
@@ -329,7 +360,9 @@
           ? t("Collega il gioco Thunderstore corrispondente per installare le sue mod.", $language)
           : t("{0} usa un loader che Legio non supporta ancora. Per ora sono supportati i giochi con BepInEx.", $language, [game.displayName ?? game.name])}
       >
-        <Button label={t("Collega a Thunderstore", $language)} variant={gameState === "unmatched" ? "primary" : "secondary"} onClick={() => (bindingOpen = true)} />
+        {#if canChooseEcosystemGame(game)}
+          <Button label={t("Collega a Thunderstore", $language)} variant={gameState === "unmatched" ? "primary" : "secondary"} onClick={() => (bindingOpen = true)} />
+        {/if}
       </EmptyState>
     {:else if game.binding === null}
       {#if actionError === null}
@@ -339,7 +372,16 @@
       {#if running}
         <Callout tone="info" message={t("Il gioco è in esecuzione: chiudilo per installare, attivare o rimuovere mod e per cambiare profilo.", $language)} />
       {/if}
-      {#if profile !== null && notice === "launch-unsupported"}
+      {#if profile !== null && !profileActive}
+        {@const target = profile}
+        <Callout
+          tone="info"
+          title={t("Profilo non attivo", $language)}
+          message={t("Il gioco parte senza mod. Attiva questo profilo per avviarlo con le sue mod.", $language)}
+          onRetry={running || busy ? undefined : () => requestProfile(target.id)}
+          retryLabel={t("Attiva profilo", $language)}
+        />
+      {:else if profile !== null && notice === "launch-unsupported"}
         <Callout tone="warning" title={t("Avvio con mod non disponibile", $language)} message={t("Legio non può caricare le mod di questo gioco su questo sistema, ad esempio per i giochi Linux nativi: il gioco partirà senza mod.", $language)} />
       {:else if profile !== null && notice === "loader-missing" && !busy}
         {@const target = profile}
@@ -359,46 +401,65 @@
         <InstallProgressCard {progress} {cancelling} onCancel={() => void cancel()} />
       {/if}
 
+      <div class="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl legio-glass p-2">
+        {#if profile !== null && ecosystemGameId !== null}
+          {#key tabRevision}
+            <SegmentedControl
+              name="mod-tabs"
+              label={t("Sezione delle mod", $language)}
+              labelHidden
+              class="w-full sm:w-96"
+              value={tab}
+              options={[
+                { value: "installed", label: t("Installate", $language) },
+                { value: "browse", label: t("Sfoglia", $language) },
+                { value: "config", label: t("Config", $language) },
+              ]}
+              onChange={selectTab}
+            />
+          {/key}
+        {/if}
+        <div class="ml-auto flex min-w-0 items-center gap-3 pl-2 text-sm text-zinc-400 light:text-zinc-600">
+          {#if profile !== null && profileSize !== null}
+            <span class="inline-flex shrink-0 items-center gap-1.5 tabular-nums" title={t("Spazio occupato dal profilo", $language)}>
+              <Icon name="folder" size="size-4" />
+              {formatBytes(profileSize, $language)}
+            </span>
+          {/if}
+          <span class="min-w-0 truncate">{t("Thunderstore: {0}", $language, [game.displayName ?? game.name])}</span>
+          {#if canChooseEcosystemGame(game)}
+            <IconButton size="sm" label={t("Cambia gioco Thunderstore", $language)} title={t("Cambia gioco Thunderstore", $language)} disabled={running} onClick={() => (bindingOpen = true)}>
+              <Icon name="pencil" size="size-4" />
+            </IconButton>
+          {/if}
+        </div>
+      </div>
+
       {#if profile === null}
         <StateBlock status={$profiles.status} loadingMessage={t("Caricamento dei profili...", $language)} error={null} />
         {#if $profiles.status !== "loading" && $profiles.status !== "idle"}
           <EmptyState
             icon="mods"
-            title={t("Avvio senza mod", $language)}
-            description={$profiles.data.length === 0
-              ? t("Il gioco parte vanilla. Crea un profilo per installare mod: ogni profilo ha le sue mod e le sue configurazioni.", $language)
-              : t("Il gioco parte vanilla. Scegli un profilo dal selettore per avviarlo con le sue mod.", $language)}
+            title={t("Nessun profilo", $language)}
+            description={t("Crea un profilo per installare mod: ogni profilo ha le sue mod e le sue configurazioni. Per giocare senza mod scegli Vanilla nella pagina del gioco.", $language)}
           >
             <div class="flex flex-wrap justify-center gap-2">
               <Button label={t("Crea profilo", $language)} onClick={() => (nameDialog = { kind: "create" })}>
                 <Icon name="plus" size="size-4" />
               </Button>
-              <Button label={t("Ripristina cartella del gioco", $language)} variant="secondary" disabled={running} onClick={() => void restoreFolder()} />
+              <Button label={t("Importa profilo", $language)} variant="secondary" onClick={() => (importOpen = true)}>
+                <Icon name="upload" size="size-4" />
+              </Button>
             </div>
           </EmptyState>
         {/if}
       {:else if ecosystemGameId !== null}
-        {#key tabRevision}
-          <SegmentedControl
-            name="mod-tabs"
-            label={t("Sezione delle mod", $language)}
-            labelHidden
-            class="max-w-md"
-            value={tab}
-            options={[
-              { value: "installed", label: t("Installate", $language) },
-              { value: "browse", label: t("Sfoglia", $language) },
-              { value: "config", label: t("Config", $language) },
-            ]}
-            onChange={selectTab}
-          />
-        {/key}
         {#if tab === "installed"}
-          <InstalledModsList {gameId} {ecosystemGameId} {profile} locked={running} {busy} onBrowse={() => (tab = "browse")} />
+          <InstalledModsList {gameId} {ecosystemGameId} {profile} locked={running} {busy} tabs={installedTabs} onTabsChange={(next) => (installedTabs = next)} onBrowse={() => (tab = "browse")} />
         {:else if tab === "browse"}
-          <ModBrowser {gameId} {ecosystemGameId} {profile} disabled={running || busy} />
+          <ModBrowser {gameId} {ecosystemGameId} {profile} disabled={running || busy} tabs={modTabs} onTabsChange={(next) => (modTabs = next)} />
         {:else}
-          <div class="flex min-h-[32rem] flex-1 flex-col">
+          <div class="flex min-h-0 flex-1 flex-col">
             <ModConfigEditor {gameId} profileId={profile.id} onDirtyChange={(dirty) => (configDirty = dirty)} />
           </div>
         {/if}

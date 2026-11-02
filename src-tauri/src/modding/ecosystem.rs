@@ -67,6 +67,8 @@ pub(crate) struct GameEntry {
 pub(crate) struct Distribution {
     /// `steam`, `epic-games-store`, `xbox-game-pass`, `other`, ...
     pub(crate) platform: String,
+    /// Null for some `other` distributions in the live schema.
+    #[serde(default, deserialize_with = "null_as_default")]
     pub(crate) identifier: String,
 }
 
@@ -283,6 +285,7 @@ mod tests {
             "a":{"uuid":"u","label":"a","meta":{"displayName":"A"},"r2modman":null},
             "b":{"uuid":"v","label":"b","meta":{"displayName":"B","iconUrl":"b/i.webp"},
             "r2modman":[{"meta":{"displayName":"B"},"internalFolderName":"B",
+            "distributions":[{"platform":"other","identifier":null}],
             "packageIndex":"https://thunderstore.io/c/b/api/v1/package-listing-index/",
             "packageLoader":"future-loader","gameInstanceType":"future",
             "installRules":[{"route":"x","trackingMethod":"future"}],
@@ -299,5 +302,6 @@ mod tests {
             TrackingMethod::Unknown
         );
         assert!(entry.relative_file_exclusions.is_empty());
+        assert_eq!(entry.distributions[0].identifier, "");
     }
 }
