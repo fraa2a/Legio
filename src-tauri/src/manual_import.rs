@@ -600,7 +600,7 @@ fn normalize_name(value: &str) -> String {
         .collect()
 }
 
-fn is_false_positive(path: &Path) -> bool {
+pub(crate) fn is_false_positive(path: &Path) -> bool {
     let name = path
         .file_stem()
         .and_then(|name| name.to_str())

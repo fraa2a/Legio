@@ -32,6 +32,103 @@ pub(crate) fn game_root(executable: &Path) -> Result<PathBuf, String> {
     Ok(parent.to_path_buf())
 }
 
+const MAX_WRAPPER_DEPTH: usize = 4;
+
+/// Folder inside an extracted archive that holds the game. Some archives wrap the game
+/// folder together with redistributables, readmes and fixes; only the game folder is kept.
+/// Returns `stage` itself when the archive has no such wrapper.
+pub(crate) fn staged_content_root(stage: &Path) -> Result<PathBuf, String> {
+    let mut current = stage.to_path_buf();
+    'descend: for _ in 0..MAX_WRAPPER_DEPTH {
+        let entries = fs::read_dir(&current)
+            .map_err(|error| format!("Could not read staged directory: {error}"))?;
+        let mut inner = None;
+        for entry in entries {
+            let entry =
+                entry.map_err(|error| format!("Could not inspect staged directory: {error}"))?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let kind = entry
+                .file_type()
+                .map_err(|error| format!("Could not inspect staged entry: {error}"))?;
+            if kind.is_dir() {
+                if is_extra_directory(&name) {
+                    continue;
+                }
+                if inner.replace(entry.path()).is_some() {
+                    break 'descend;
+                }
+            } else if !is_extra_file(&entry.path()) {
+                break 'descend;
+            }
+        }
+        match inner {
+            Some(next) => current = next,
+            None => break,
+        }
+    }
+    Ok(current)
+}
+
+/// Directory to install for an extracted archive whose game executable is `executable`.
+pub(crate) fn staged_game_root(stage: &Path, executable: &Path) -> Result<PathBuf, String> {
+    let content = staged_content_root(stage)?;
+    let full = stage.join(executable);
+    if content != stage && full.starts_with(&content) {
+        Ok(content)
+    } else {
+        game_root(&full)
+    }
+}
+
+fn is_extra_directory(name: &str) -> bool {
+    let name: String = name
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|character| character.to_ascii_lowercase())
+        .collect();
+    [
+        "redist",
+        "redistributable",
+        "redistributables",
+        "commonredist",
+        "vcredist",
+        "directx",
+        "dotnet",
+        "dotnetfx",
+        "physx",
+        "macosx",
+        "fix",
+        "fixes",
+        "onlinefix",
+        "fixrepair",
+        "crack",
+        "update",
+        "patch",
+        "soundtrack",
+        "ost",
+        "bonus",
+        "extras",
+        "docs",
+        "manual",
+        "artbook",
+        "wallpapers",
+    ]
+    .contains(&name.as_str())
+}
+
+fn is_extra_file(path: &Path) -> bool {
+    path.extension().is_some_and(|extension| {
+        let extension = extension.to_string_lossy().to_ascii_lowercase();
+        [
+            "txt", "url", "nfo", "diz", "md", "pdf", "rtf", "htm", "html", "lnk",
+        ]
+        .contains(&extension.as_str())
+    }) || (path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+        && crate::manual_import::is_false_positive(path))
+}
+
 pub(crate) fn installation_root(
     recorded: Option<&str>,
     executable: &Path,
@@ -1490,6 +1587,66 @@ mod tests {
             game_root(Path::new("Games/Inner/Binaries/Win64/Game.exe")).unwrap(),
             Path::new("Games/Inner/Binaries/Win64")
         );
+    }
+
+    fn staged_tree(files: &[&str]) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("legio-stage-{}", uuid::Uuid::new_v4()));
+        for file in files {
+            let path = root.join(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, b"x").unwrap();
+        }
+        root
+    }
+
+    #[test]
+    fn game_folder_is_found_inside_a_wrapper_with_extras() {
+        let stage = staged_tree(&[
+            "Game-Site.com/Read_Me.txt",
+            "Game-Site.com/Site.url",
+            "Game-Site.com/_CommonRedist/vc.exe",
+            "Game-Site.com/Game/Game.exe",
+            "Game-Site.com/Game/Game_Data/level0",
+        ]);
+        let root = staged_game_root(&stage, Path::new("Game-Site.com/Game/Game.exe")).unwrap();
+        assert_eq!(root, stage.join("Game-Site.com/Game"));
+        fs::remove_dir_all(stage).unwrap();
+    }
+
+    #[test]
+    fn whole_game_folder_is_kept_when_the_executable_is_deeper() {
+        let stage = staged_tree(&[
+            "Site/_CommonRedist/vc.exe",
+            "Site/Game/bin/x64/Game.exe",
+            "Site/Game/data/a.pak",
+        ]);
+        let root = staged_game_root(&stage, Path::new("Site/Game/bin/x64/Game.exe")).unwrap();
+        assert_eq!(root, stage.join("Site/Game"));
+        fs::remove_dir_all(stage).unwrap();
+    }
+
+    #[test]
+    fn flat_archive_keeps_the_stage_root() {
+        let stage = staged_tree(&["Game.exe", "data/a.pak", "_CommonRedist/vc.exe"]);
+        let root = staged_game_root(&stage, Path::new("Game.exe")).unwrap();
+        assert_eq!(root, stage);
+        fs::remove_dir_all(stage).unwrap();
+    }
+
+    #[test]
+    fn unknown_sibling_folders_keep_the_executable_parent() {
+        let stage = staged_tree(&["Game/bin/Game.exe", "Other/a.dat"]);
+        let root = staged_game_root(&stage, Path::new("Game/bin/Game.exe")).unwrap();
+        assert_eq!(root, stage.join("Game/bin"));
+        fs::remove_dir_all(stage).unwrap();
+    }
+
+    #[test]
+    fn online_fix_folder_next_to_the_game_is_ignored() {
+        let stage = staged_tree(&["Game/Game.exe", "OnlineFix/OnlineFix64.dll"]);
+        let root = staged_game_root(&stage, Path::new("Game/Game.exe")).unwrap();
+        assert_eq!(root, stage.join("Game"));
+        fs::remove_dir_all(stage).unwrap();
     }
 
     #[test]

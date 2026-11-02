@@ -351,7 +351,7 @@ fn install_layout(intent: &Intent) -> Result<(PathBuf, PathBuf), String> {
         return Ok((intent.stage.clone(), intent.executable.clone()));
     }
     let full = intent.stage.join(&intent.executable);
-    let root = crate::game_library::game_root(&full)?;
+    let root = crate::game_library::staged_game_root(&intent.stage, &intent.executable)?;
     if !root.starts_with(&intent.stage) {
         return Err("Detected game directory escapes the archive".into());
     }
@@ -719,7 +719,14 @@ pub(crate) fn create_install_shortcut<R: tauri::Runtime>(
 pub(crate) fn automatic(database: &Database, data_dir: &Path, id: &str) -> Result<String, String> {
     let (stage, name) = staged_download_directory(database, data_dir, id)?;
     let target = crate::game_updates::target(database, id)?;
-    let scan = manual_import::scan_staged_directory(&stage, Some(&name))?;
+    // Scan only the game folder so executables in redistributable or fix folders are never picked.
+    let content = crate::game_library::staged_content_root(&stage)?;
+    let prefix = match content.strip_prefix(&stage) {
+        Ok(relative) if relative.as_os_str().is_empty() => None,
+        Ok(relative) => Some(manual_import::portable_relative_path(relative)?),
+        Err(_) => return Err("Detected game directory escapes the archive".to_owned()),
+    };
+    let scan = manual_import::scan_staged_directory(&content, Some(&name))?;
     let old_relative = if let Some(game_id) = &target {
         let game = database.game(game_id)?;
         game.executable_path
@@ -732,7 +739,7 @@ pub(crate) fn automatic(database: &Database, data_dir: &Path, id: &str) -> Resul
     };
     let executable = old_relative
         .as_ref()
-        .filter(|path| stage.join(path).is_file())
+        .filter(|path| content.join(path).is_file())
         .cloned()
         .or(scan.selected_relative_path)
         .or_else(|| {
@@ -742,6 +749,10 @@ pub(crate) fn automatic(database: &Database, data_dir: &Path, id: &str) -> Resul
         })
         .or(old_relative)
         .ok_or("Archive contains no usable game executable")?;
+    let executable = match prefix {
+        Some(prefix) => format!("{prefix}/{executable}"),
+        None => executable,
+    };
     if let Some(game_id) = target {
         crate::overlay_update::apply(database, id, &stage, &executable)?;
         Ok(game_id)
@@ -923,6 +934,35 @@ mod tests {
         assert_eq!(state(&database, &id).0, "installed");
         let game = database.game(&id).unwrap();
         assert!(Path::new(game.executable_path.as_deref().unwrap()).is_file());
+        drop(database);
+        fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[test]
+    fn installs_only_the_game_folder_of_a_wrapped_archive() {
+        let (database, data_dir, id) = fixture();
+        let stage = data_dir.join("downloads").join(format!("{id}.stage"));
+        fs::remove_dir_all(&stage).unwrap();
+        for file in [
+            "Site/Read_Me.txt",
+            "Site/_CommonRedist/vc.exe",
+            "Site/Test Game/Game.exe",
+            "Site/Test Game/data/a.pak",
+        ] {
+            fs::create_dir_all(stage.join(file).parent().unwrap()).unwrap();
+            fs::write(stage.join(file), b"x").unwrap();
+        }
+        assert_eq!(automatic(&database, &data_dir, &id).unwrap(), id);
+        let game = database.game(&id).unwrap();
+        let root = PathBuf::from(game.installation_root.unwrap());
+        assert!(root.join("Game.exe").is_file());
+        assert!(root.join("data/a.pak").is_file());
+        assert!(!root.join("_CommonRedist").exists());
+        assert!(!root.join("Read_Me.txt").exists());
+        assert_eq!(
+            Path::new(game.executable_path.as_deref().unwrap()),
+            root.join("Game.exe")
+        );
         drop(database);
         fs::remove_dir_all(data_dir).unwrap();
     }
