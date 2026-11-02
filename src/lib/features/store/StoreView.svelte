@@ -2,8 +2,8 @@
   import { tick } from "svelte";
   import { t, language } from "../../i18n";
   import Badge from "../../components/ui/Badge.svelte";
-  import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
+  import Pagination from "../../components/ui/Pagination.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
   import Callout from "../../components/ui/Callout.svelte";
@@ -12,6 +12,7 @@
   import { catalog, loadMoreCatalog, runCatalogSearch } from "../../stores/catalog";
   import { settings, updateSettings } from "../../stores/settings";
   import { toMessage } from "../../utils/errors";
+  import { pageCountFor, pageItems, pageSize } from "../../utils/pagination";
   import { storeQuery } from "../../stores/library-ui";
   import { openStoreGame, selectedStoreGame } from "../../stores/navigation";
   import type { LoadStatus } from "../../stores/resource";
@@ -29,7 +30,7 @@
   const manifest = $derived($source.data.manifest);
   const trimmed = $derived($storeQuery.trim());
   const options = $derived({ sort: $settings.data.storeSort, availability: $settings.data.storeAvailability });
-  let visibleCount = $state(20);
+  let page = $state(1);
   let savingFilter = $state(false);
   let filterError = $state<string | null>(null);
   let listElement: HTMLDivElement | undefined = $state();
@@ -75,6 +76,19 @@
         status: sourceStatusFor(manifest, result.steamAppId),
       })));
 
+  const pageCount = $derived(pageCountFor(entries.length));
+  const currentPage = $derived(Math.min(page, pageCount));
+  // The catalog holds more games than are loaded; they are fetched when the last loaded page is reached.
+  const hasMore = $derived($catalog.total > $catalog.results.length || ($catalog.nextOffset !== null && entries.length >= currentPage * pageSize));
+
+  function goToPage(next: number): void {
+    const forward = next > currentPage;
+    page = next;
+    if (forward && hasMore && entries.length <= next * pageSize) {
+      void loadMoreCatalog($storeQuery, Math.max(next * pageSize, $catalog.results.length + pageSize));
+    }
+  }
+
   const emptyMessage = $derived.by(() => {
     if (options.availability !== "all") return t("Nessun gioco corrisponde ai filtri selezionati.", $language);
     if (trimmed.length === 0) {
@@ -88,7 +102,7 @@
     return entries.length > 0 ? "ready" : "empty";
   });
 
-  $effect(() => { void $storeQuery; void options; void manifest; visibleCount = 20; });
+  $effect(() => { void $storeQuery; void options; void manifest; page = 1; });
 
   $effect(() => {
     const value = $storeQuery;
@@ -166,7 +180,7 @@
 
     {#if entries.length > 0}
       <ul class="flex flex-col gap-2">
-        {#each entries.slice(0, visibleCount) as entry (entry.steamAppId)}
+        {#each pageItems(entries, currentPage) as entry (entry.steamAppId)}
           <StoreGameCard
             steamAppId={entry.steamAppId}
             name={entry.name}
@@ -176,14 +190,8 @@
         {/each}
       </ul>
     {/if}
-    {#if entries.length > visibleCount || $catalog.total > $catalog.results.length || ($catalog.nextOffset !== null && entries.length >= visibleCount)}
-      <div class="flex justify-center pt-2">
-        <Button label={t("Carica altri 20", $language)} variant="secondary" disabled={$catalog.refreshing}
-          onClick={() => {
-            visibleCount += 20;
-            if (entries.length <= visibleCount) void loadMoreCatalog($storeQuery, Math.max(visibleCount, $catalog.results.length + 20));
-          }} />
-      </div>
+    {#if pageCount > 1 || hasMore}
+      <Pagination page={currentPage} {pageCount} {hasMore} disabled={$catalog.refreshing} onChange={goToPage} />
     {/if}
   </div>
 {/if}
