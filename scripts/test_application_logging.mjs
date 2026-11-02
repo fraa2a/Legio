@@ -69,7 +69,7 @@ test("Steam image display failures log safe asset context and keep a stable fall
   const storeImport = `import { writable } from "${import.meta.resolve("svelte/store")}";`;
   const { records, loader, logger } = await fixture({
     "src/lib/i18n": dataModule(storeImport + 'export const language = writable("it"); export const t = value => value;'),
-    "src/lib/stores/window-activity": dataModule(storeImport + 'export const windowActive = writable(true);'),
+    "src/lib/stores/window-activity": dataModule(storeImport + 'export const windowActive = writable(true); export const windowVisible = writable(true);'),
     "src/lib/utils/motion": dataModule("export const reducedMotion = false; export const fadeDuration = 0; export const pageTransitionDuration = 0;"),
   });
   globalThis.applicationLogInvoke = async (command, args) => {
@@ -137,7 +137,7 @@ test("local icon display failures record a static warning without the game's ide
   const storeImport = `import { writable } from "${import.meta.resolve("svelte/store")}";`;
   const { records, loader, logger } = await fixture({
     "src/lib/i18n": dataModule(storeImport + 'export const language = writable("it"); export const t = value => value;'),
-    "src/lib/stores/window-activity": dataModule(storeImport + 'export const windowActive = writable(true);'),
+    "src/lib/stores/window-activity": dataModule(storeImport + 'export const windowActive = writable(true); export const windowVisible = writable(true);'),
     "src/lib/utils/motion": dataModule("export const reducedMotion = false; export const fadeDuration = 0; export const pageTransitionDuration = 0;"),
   });
   globalThis.applicationLogInvoke = async (command, args) => {

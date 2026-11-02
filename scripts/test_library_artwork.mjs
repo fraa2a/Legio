@@ -14,7 +14,7 @@ globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} 
 const { mount, unmount, flushSync } = await import("svelte");
 const { writable } = await import("svelte/store");
 const mocks = {
-  "src/lib/stores/window-activity": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const windowActive = writable(true);`),
+  "src/lib/stores/window-activity": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const windowActive = writable(true); export const windowVisible = writable(true);`),
   "@tauri-apps/api/core": dataModule('export const invoke = (...args) => args[0] === "cancel_artwork_request" ? (globalThis.cancelledMetadata?.push(args[1].requestId), Promise.resolve()) : globalThis.artworkInvoke(...args);'),
   "src/lib/i18n": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const language = writable("en"); export const t = value => value;`),
   "src/lib/utils/motion": dataModule("export const reducedMotion = false; export const fadeDuration = 0; export const pageTransitionDuration = 0;"),

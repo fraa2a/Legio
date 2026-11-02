@@ -315,7 +315,7 @@ pub(crate) fn apply(
     let stage = if legacy {
         stage
     } else {
-        let detected = crate::game_library::game_root(&stage.join(&original_executable))?;
+        let detected = crate::game_library::staged_game_root(&stage, &original_executable)?;
         if !detected.starts_with(&stage) {
             return Err("Detected update directory escapes its archive".into());
         }
@@ -504,6 +504,25 @@ mod tests {
         assert_eq!(fs::read(root.join("game/assets/new.dat")).unwrap(), b"data");
         assert_eq!(database.games().unwrap().len(), 1);
         assert_eq!(database.games().unwrap()[0].id, game);
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn wrapped_update_overlays_only_the_game_folder() {
+        let (root, database, _, job) = fixture();
+        let stage = root.join("stage");
+        fs::remove_dir_all(&stage).unwrap();
+        fs::create_dir_all(stage.join("Site/Game/assets")).unwrap();
+        fs::create_dir_all(stage.join("Site/_CommonRedist")).unwrap();
+        fs::write(stage.join("Site/Game/game.exe"), b"new").unwrap();
+        fs::write(stage.join("Site/Game/assets/new.dat"), b"data").unwrap();
+        fs::write(stage.join("Site/_CommonRedist/vc.dll"), b"x").unwrap();
+        fs::write(stage.join("Site/Read_Me.txt"), b"x").unwrap();
+        apply(&database, &job, &stage, "Site/Game/game.exe").unwrap();
+        assert_eq!(fs::read(root.join("game/game.exe")).unwrap(), b"new");
+        assert_eq!(fs::read(root.join("game/assets/new.dat")).unwrap(), b"data");
+        assert!(!root.join("game/_CommonRedist").exists());
+        assert!(!root.join("game/Read_Me.txt").exists());
         drop(database);
         fs::remove_dir_all(root).unwrap();
     }

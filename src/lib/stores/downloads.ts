@@ -1,7 +1,7 @@
 import { downloadState } from "../services/download-status";
 import { gameUpdates } from "./game-updates";
 import { games } from "./games";
-import { windowActive } from "./window-activity";
+import { windowVisible } from "./window-activity";
 import { t } from "../i18n";
 import { derived, get, writable } from "svelte/store";
 import {
@@ -86,11 +86,11 @@ function syncProgressPolling(count: number): void {
 export function startDownloadProgressPolling(): void {
   if (progressPollingSubscribed) return;
   progressPollingSubscribed = true;
-  windowActive.subscribe((active) => {
+  windowVisible.subscribe((active) => {
     if (active) { void downloads.load(); void gameUpdates.load(); }
     syncProgressPolling(active ? get(activeDownloadCount) : 0);
   });
-  activeDownloadCount.subscribe((count) => syncProgressPolling(get(windowActive) ? count : 0));
+  activeDownloadCount.subscribe((count) => syncProgressPolling(get(windowVisible) ? count : 0));
 }
 
 export async function queueJob(steamAppId: number, downloadUrl: string, releaseVersion: string, acceptUnverified: boolean, sourceId?: string | null, preferredUri?: string | null, libraryId?: string | null): Promise<void> {
