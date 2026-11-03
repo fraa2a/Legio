@@ -208,6 +208,7 @@ test("search results open in panel tabs with readme, changelog and version insta
     // The old version has no dependencies, so go back to the latest one.
     target.querySelector('[aria-controls="mod-version-owner-more_suits-options"]').click(); await settle();
     [...target.querySelectorAll('[role="option"]')].find((option) => option.textContent.trim() === "2.0.0 (ultima)").click(); await settle();
+    shown().querySelector('input[value="dependencies"]').click(); await settle();
     button("Apri Core 1.0.0", shown()).click(); await settle();
     assert.deepEqual(tabs().at(-1), ["Core", "true"], "dependencies open in a new tab");
 

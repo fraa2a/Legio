@@ -51,7 +51,7 @@ mod tests {
             "<strong>bold</strong>",
             "<code>code</code>",
             "<li>one</li>",
-            "<code class=\"language-rust\">",
+            "<pre><code>",
             "<table>",
             "<td>1</td>",
             "<del>gone</del>",
@@ -96,10 +96,15 @@ mod tests {
             "[ok](https://example.com/a) [bad](javascript:alert(1)) [file](file:///C:/x) [rel](/x) [anchor](#top) <mailto:a@example.com>\n",
         );
         assert!(
-            html.contains("<a href=\"https://example.com/a\">ok</a>"),
+            html.contains("<a href=\"https://example.com/a\" rel=\"noopener noreferrer\">ok</a>"),
             "{html}"
         );
-        assert_eq!(html.matches("<a ").count(), 1, "{html}");
+        assert_eq!(
+            html.matches("href=\"https://example.com/a\"").count(),
+            1,
+            "{html}"
+        );
+        assert_eq!(html.matches("<a ").count(), 6, "{html}");
         assert!(
             html.contains("bad"),
             "the text of a dropped link stays: {html}"
@@ -130,7 +135,11 @@ mod tests {
         );
         assert!(!html.contains("data:"), "{html}");
         assert!(!html.contains("src=\"logo.png\""), "{html}");
-        assert_eq!(html.matches("<img ").count(), 4, "broken sources stay as images without an address: {html}");
+        assert_eq!(
+            html.matches("<img ").count(),
+            4,
+            "broken sources stay as images without an address: {html}"
+        );
     }
 
     #[test]
@@ -139,10 +148,13 @@ mod tests {
             "[![badge](https://img.example.com/b.svg)](https://example.com/page)\n",
         );
         assert_eq!(html.matches("<a ").count(), 1, "{html}");
+        assert_eq!(
+            html.matches("href=\"https://example.com/page\"").count(),
+            1,
+            "{html}"
+        );
         assert!(
-            html.contains(
-                "<a href=\"https://example.com/page\"><img src=\"https://img.example.com/b.svg\" alt=\"badge\"></a>"
-            ),
+            html.contains("<img src=\"https://img.example.com/b.svg\" alt=\"badge\">"),
             "{html}"
         );
     }

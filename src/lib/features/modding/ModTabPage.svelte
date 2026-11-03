@@ -46,7 +46,8 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let chosenVersion = $state("");
-  let documentKind = $state<PackageDocument>("readme");
+  type ModTabView = PackageDocument | "dependencies";
+  let view = $state<ModTabView>("readme");
   let documentStatus = $state<LoadStatus>("idle");
   let documentHtml = $state("");
   let documentError = $state<string | null>(null);
@@ -77,9 +78,9 @@
     const name = fullName;
     const number = versionNumber;
     if (isLocal) return;
-    const kind = documentKind;
+    const kind = view;
     void documentAttempt;
-    if (number === "") return;
+    if (number === "" || kind === "dependencies") return;
     let cancelled = false;
     documentStatus = "loading";
     documentHtml = "";
@@ -240,54 +241,57 @@
       </Button>
     </div>
 
-    <section aria-label={t("Dipendenze", $language)}>
-      <h3 class="text-sm text-zinc-400 light:text-zinc-600">{t("Dipendenze", $language)}</h3>
-      {#if version === null || version.dependencies.length === 0}
-        <p class="mt-1.5 text-sm text-zinc-300 light:text-zinc-700">{t("Nessuna dipendenza.", $language)}</p>
-      {:else}
-        <ul class="mt-1.5 flex flex-col gap-0.5">
-          {#each version.dependencies as dependency (dependency)}
-            {@const dependencyName = splitPackageId(dependency).fullName}
-            <li>
-              <button
-                type="button"
-                class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-zinc-200 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-(--legio-focus) light:text-zinc-800 light:hover:bg-zinc-900/10"
-                aria-label={t("Apri {0}", $language, [displayPackageId(dependency)])}
-                onclick={() => onOpen(dependencyName)}
-              >
-                <span class="min-w-0 flex-1 truncate">{displayPackageId(dependency)}</span>
-                {#if installed.has(modKey(dependencyName))}
-                  <span class="sr-only">{t("Installata", $language)}</span>
-                  <Icon name="check" size="size-4 shrink-0 text-legio-success" />
-                {/if}
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </section>
-
     <div class="flex flex-col gap-3">
       <SegmentedControl
         name="mod-document-{tab.key}"
         label={t("Documento", $language)}
         labelHidden
-        options={[{ value: "readme", label: "Readme" }, { value: "changelog", label: "Changelog" }]}
-        value={documentKind}
-        onChange={(value) => (documentKind = value as PackageDocument)}
+        options={[
+          { value: "readme", label: "Readme" },
+          { value: "changelog", label: "Changelog" },
+          { value: "dependencies", label: t("Dipendenze", $language) },
+        ]}
+        value={view}
+        onChange={(value) => (view = value as ModTabView)}
       />
-      <StateBlock
-        status={documentStatus}
-        hasData={documentHtml !== ""}
-        skeletonRows={3}
-        skeletonClass="h-12"
-        emptyIcon="file-code"
-        emptyMessage={documentKind === "readme" ? t("Nessun readme", $language) : t("Nessun changelog", $language)}
-        error={documentError}
-        onRetry={() => documentAttempt++}
-      />
-      {#if documentStatus === "ready"}
-        <ModDocument html={documentHtml} onError={(message) => (error = describeModdingError(message, $language))} />
+      {#if view === "dependencies"}
+        {#if version === null || version.dependencies.length === 0}
+          <p class="text-sm text-zinc-300 light:text-zinc-700">{t("Nessuna dipendenza.", $language)}</p>
+        {:else}
+          <ul class="flex flex-col gap-0.5">
+            {#each version.dependencies as dependency (dependency)}
+              {@const dependencyName = splitPackageId(dependency).fullName}
+              <li>
+                <button
+                  type="button"
+                  class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-zinc-200 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-(--legio-focus) light:text-zinc-800 light:hover:bg-zinc-900/10"
+                  aria-label={t("Apri {0}", $language, [displayPackageId(dependency)])}
+                  onclick={() => onOpen(dependencyName)}
+                >
+                  <span class="min-w-0 flex-1 truncate">{displayPackageId(dependency)}</span>
+                  {#if installed.has(modKey(dependencyName))}
+                    <span class="sr-only">{t("Installata", $language)}</span>
+                    <Icon name="check" size="size-4 shrink-0 text-legio-success" />
+                  {/if}
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      {:else}
+        <StateBlock
+          status={documentStatus}
+          hasData={documentHtml !== ""}
+          skeletonRows={3}
+          skeletonClass="h-12"
+          emptyIcon="file-code"
+          emptyMessage={view === "readme" ? t("Nessun readme", $language) : t("Nessun changelog", $language)}
+          error={documentError}
+          onRetry={() => documentAttempt++}
+        />
+        {#if documentStatus === "ready"}
+          <ModDocument html={documentHtml} onError={(message) => (error = describeModdingError(message, $language))} />
+        {/if}
       {/if}
     </div>
   {:else if !loading && error === null && !minimal}
