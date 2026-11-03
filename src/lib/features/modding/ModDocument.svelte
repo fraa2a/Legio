@@ -2,7 +2,8 @@
   import { openModExternalLink } from "../../services/modding";
   import { toMessage } from "../../utils/errors";
 
-  // `html` is produced by the backend sanitizer: no raw HTML, only web links, no images.
+  // `html` is produced by the backend sanitizer: safe tags and web links only,
+  // including remote images shown inline.
   let { html, onError }: { html: string; onError: (message: string) => void } = $props();
 
   // Links open in the system browser; the webview never navigates.
@@ -42,6 +43,7 @@
   .mod-markdown :global(h2) { font-size: 1.15rem; border-bottom: 1px solid var(--md-border); padding-bottom: 0.25rem; }
   .mod-markdown :global(h3) { font-size: 1.05rem; }
   .mod-markdown :global(a) { color: var(--color-legio-info); text-decoration: underline; }
+  .mod-markdown :global(img) { max-width: 100%; height: auto; border-radius: 0.5rem; }
   .mod-markdown :global(ul),
   .mod-markdown :global(ol) { padding-left: 1.5rem; }
   .mod-markdown :global(ul) { list-style: disc; }
