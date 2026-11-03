@@ -25,6 +25,7 @@
   });
 
   let displayedTarget = $state(untrack(() => target));
+  const modManagerPage = $derived(displayedTarget.startsWith(modsPrefix));
   let page: HTMLDivElement | undefined = $state();
   let transition: ForegroundAnimation | undefined;
   let navigationRequest = 0;
@@ -89,7 +90,7 @@
       <div
         bind:this={page}
         data-page={displayedTarget}
-        class="absolute inset-0 overflow-y-auto"
+        class="absolute inset-0 {modManagerPage ? 'overflow-hidden' : 'overflow-y-auto'}"
       >
         {#if displayedTarget === "home"}
           <HomeView />

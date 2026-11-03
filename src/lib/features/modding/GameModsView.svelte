@@ -335,7 +335,7 @@
 {/snippet}
 
 {#if game === null}
-  <div class="flex min-h-full flex-col gap-4">
+  <div class="flex h-full flex-col gap-4 overflow-y-auto">
     {#if $moddableGames.status === "error"}
       <ErrorBanner message={$moddableGames.error ?? ""} onRetry={() => void moddableGames.reload()} retryLabel={t("Riprova", $language)} />
     {:else if $moddableGames.status === "loading" || $moddableGames.status === "idle"}
@@ -345,8 +345,8 @@
     {/if}
   </div>
 {:else}
-  <!-- The lists and the config editor fill the window and scroll inside. -->
-  <div class="flex flex-col gap-4 {profile !== null ? 'h-full' : 'min-h-full'}">
+  <!-- The page owns its scrolling: the lists and the config editor fill the window and scroll inside. -->
+  <div class="flex h-full flex-col gap-4 {profile !== null ? '' : 'overflow-y-auto'}">
     {#if actionError !== null}<ErrorBanner message={actionError} />{/if}
     {#if $profiles.status === "error"}
       <ErrorBanner message={$profiles.error ?? ""} onRetry={() => void profiles.reload()} retryLabel={t("Riprova", $language)} />
