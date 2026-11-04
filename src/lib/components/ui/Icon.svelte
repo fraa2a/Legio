@@ -1,5 +1,6 @@
 <script lang="ts" module>
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
+  import Calendar from "@lucide/svelte/icons/calendar";
   import Check from "@lucide/svelte/icons/check";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ChevronLeft from "@lucide/svelte/icons/chevron-left";
@@ -74,6 +75,7 @@
     "search": Search,
     "chevron-down": ChevronDown,
     "plus": Plus,
+    "calendar": Calendar,
     "check": Check,
     "palette": Palette,
     "globe": Globe,

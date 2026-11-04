@@ -3,7 +3,7 @@
   import Badge from "../../components/ui/Badge.svelte";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
-  import Icon from "../../components/ui/Icon.svelte";
+  import Icon, { type IconName } from "../../components/ui/Icon.svelte";
   import SegmentedControl from "../../components/ui/SegmentedControl.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
   import Skeleton from "../../components/ui/Skeleton.svelte";
@@ -14,7 +14,7 @@
   import { toMessage } from "../../utils/errors";
   import { formatBytes, formatDate, regionalLocale } from "../../utils/format";
   import { describeModdingError, displayPackageId, formatCount, installedState, modKey, packageTitle, splitFullName, splitPackageId } from "./modding-model";
-  import { installActionLabel, versionChoices, type ModTab } from "./mod-panel-model";
+  import { installActionLabel, splitModTags, versionChoices, type ModTab } from "./mod-panel-model";
   import ModDocument from "./ModDocument.svelte";
   import ModIcon from "./ModIcon.svelte";
   import { loadPackageDocument } from "./package-documents";
@@ -115,6 +115,12 @@
   const fieldId = $derived(`mod-version-${tab.key}`);
   const websiteUrl = $derived(version?.websiteUrl ?? null);
   const donationLink = $derived(details?.donationLink ?? null);
+  const stats = $derived.by((): { icon: IconName; label: string; value: string }[] => info === null ? [] : [
+    { icon: "calendar", label: t("Ultimo rilascio", $language), value: formatDate(info.dateUpdated, $language) },
+    { icon: "download", label: t("Download totali", $language), value: formatCount(info.totalDownloads, locale) },
+    { icon: "thumbs-up", label: t("Valutazione", $language), value: formatCount(info.ratingScore, locale) },
+    { icon: "package", label: t("Dimensione", $language), value: version === null ? "-" : formatBytes(version.fileSize, $language) },
+  ]);
 
   async function openLink(open: () => Promise<void>): Promise<void> {
     try {
@@ -175,16 +181,27 @@
     </div>
   {:else}
     {@const pageUrl = info.packageUrl}
+    {@const tags = splitModTags(info.categories)}
     <div class="flex items-start gap-3">
       <ModIcon source={info.icon} class="size-16 rounded-xl" />
       <div class="min-w-0 flex-1">
-        <h2 class="truncate text-base font-semibold text-zinc-50 light:text-zinc-900">{packageTitle(info.name)}</h2>
-        <p class="text-sm text-zinc-400 light:text-zinc-600">{t("di {0}", $language, [info.owner])}</p>
-        <div class="mt-1.5 flex flex-wrap gap-1.5">
+        <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <h2 class="max-w-full truncate text-base font-semibold text-zinc-50 light:text-zinc-900">{packageTitle(info.name)}</h2>
           {#if info.isDeprecated}<Badge tone="warning" title={t("Deprecata", $language)} />{/if}
           {#if info.hasNsfwContent}<Badge tone="danger" title="NSFW" />{/if}
-          {#each info.categories as category (category)}<Badge title={category} />{/each}
+          {#each tags.shown as category (category)}<Badge title={category} />{/each}
+          {#if tags.hidden.length > 0}<Badge title="+{tags.hidden.length}" />{/if}
         </div>
+        <p class="text-sm text-zinc-400 light:text-zinc-600">{t("di {0}", $language, [info.owner])}</p>
+        <ul class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums text-zinc-300 light:text-zinc-700">
+          {#each stats as stat (stat.icon)}
+            <li class="inline-flex items-center gap-1" title="{stat.label}: {stat.value}">
+              <Icon name={stat.icon} size="size-3.5 shrink-0 text-zinc-400 light:text-zinc-600" />
+              <span class="sr-only">{stat.label}</span>
+              {stat.value}
+            </li>
+          {/each}
+        </ul>
       </div>
     </div>
     <p class="text-sm text-zinc-200 light:text-zinc-800">{version?.description ?? info.description}</p>
@@ -204,20 +221,6 @@
         <Icon name="external-link" size="size-4" />
       </Button>
     </div>
-
-    <dl class="grid grid-cols-2 gap-2">
-      {#each [
-        { label: t("Download totali", $language), value: formatCount(info.totalDownloads, locale) },
-        { label: t("Valutazione", $language), value: formatCount(info.ratingScore, locale) },
-        { label: t("Aggiornata", $language), value: formatDate(info.dateUpdated, $language) },
-        { label: t("Dimensione", $language), value: version === null ? "-" : formatBytes(version.fileSize, $language) },
-      ] as stat (stat.label)}
-        <div class="rounded-lg bg-white/5 p-2.5 light:bg-zinc-900/5">
-          <dt class="text-xs text-zinc-400 light:text-zinc-600">{stat.label}</dt>
-          <dd class="mt-0.5 truncate text-sm font-medium tabular-nums text-zinc-100 light:text-zinc-900">{stat.value}</dd>
-        </div>
-      {/each}
-    </dl>
   {/if}
 
   {#if loading && info !== null}

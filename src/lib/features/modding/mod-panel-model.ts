@@ -14,11 +14,17 @@ export interface ModTabs {
   active: string | null;
   // Tab keys from the least to the most recently shown.
   recent: readonly string[];
+  // Hides the panel without closing its tabs.
+  collapsed: boolean;
 }
+
+export type ModPanelState = "none" | "collapsed" | "open";
 
 export const modTabLimit = 8;
 
-export const emptyModTabs: ModTabs = { tabs: [], active: null, recent: [] };
+export const modTagLimit = 3;
+
+export const emptyModTabs: ModTabs = { tabs: [], active: null, recent: [], collapsed: false };
 
 function markRecent(recent: readonly string[], key: string): string[] {
   return [...recent.filter((entry) => entry !== key), key];
@@ -32,7 +38,7 @@ export function openModTab(state: ModTabs, fullName: string, summary: PackageSum
     const tabs = summary !== null && existing.summary === null
       ? state.tabs.map((tab) => (tab.key === key ? { ...tab, summary } : tab))
       : state.tabs;
-    return { tabs, active: key, recent: markRecent(state.recent, key) };
+    return { tabs, active: key, recent: markRecent(state.recent, key), collapsed: false };
   }
   let tabs = [...state.tabs, { key, fullName, summary }];
   let recent = markRecent(state.recent, key);
@@ -41,12 +47,26 @@ export function openModTab(state: ModTabs, fullName: string, summary: PackageSum
     tabs = tabs.filter((tab) => tab.key !== oldest);
     recent = recent.slice(1);
   }
-  return { tabs, active: key, recent };
+  return { tabs, active: key, recent, collapsed: false };
 }
 
 export function focusModTab(state: ModTabs, key: string): ModTabs {
   if (!state.tabs.some((tab) => tab.key === key)) return state;
-  return { ...state, active: key, recent: markRecent(state.recent, key) };
+  return { ...state, active: key, recent: markRecent(state.recent, key), collapsed: false };
+}
+
+export function setModPanelCollapsed(state: ModTabs, collapsed: boolean): ModTabs {
+  return state.tabs.length === 0 || state.collapsed === collapsed ? state : { ...state, collapsed };
+}
+
+export function modPanelState(state: ModTabs): ModPanelState {
+  if (state.tabs.length === 0) return "none";
+  return state.collapsed ? "collapsed" : "open";
+}
+
+// The first tags fit next to the name; the rest are counted.
+export function splitModTags(tags: readonly string[], limit = modTagLimit): { shown: string[]; hidden: string[] } {
+  return { shown: tags.slice(0, limit), hidden: tags.slice(limit) };
 }
 
 // Closing the shown tab shows its right neighbour, else its left one, as browsers do.
@@ -54,10 +74,11 @@ export function closeModTab(state: ModTabs, key: string): ModTabs {
   const index = state.tabs.findIndex((tab) => tab.key === key);
   if (index < 0) return state;
   const tabs = state.tabs.filter((tab) => tab.key !== key);
+  if (tabs.length === 0) return emptyModTabs;
   const recent = state.recent.filter((entry) => entry !== key);
-  if (state.active !== key) return { tabs, active: state.active, recent };
+  if (state.active !== key) return { ...state, tabs, recent };
   const next = tabs[Math.min(index, tabs.length - 1)]?.key ?? null;
-  return { tabs, active: next, recent: next === null ? recent : markRecent(recent, next) };
+  return { ...state, tabs, active: next, recent: next === null ? recent : markRecent(recent, next) };
 }
 
 export function setModTabSummary(state: ModTabs, summary: PackageSummary): ModTabs {

@@ -140,6 +140,26 @@ test("mod tabs open, refocus, close and keep at most eight", () => {
   assert.deepEqual(state, panel.emptyModTabs);
 });
 
+test("collapsing the panel keeps its tabs and opening a mod expands it again", () => {
+  assert.equal(panel.modPanelState(panel.emptyModTabs), "none");
+  assert.equal(panel.setModPanelCollapsed(panel.emptyModTabs, true), panel.emptyModTabs, "nothing to collapse without tabs");
+  let state = panel.openModTab(panel.openModTab(panel.emptyModTabs, "A-One"), "B-Two");
+  assert.equal(panel.modPanelState(state), "open");
+  state = panel.setModPanelCollapsed(state, true);
+  assert.deepEqual([panel.modPanelState(state), state.tabs.length, state.active], ["collapsed", 2, "b-two"]);
+  assert.equal(panel.setModPanelCollapsed(state, true), state);
+  assert.equal(panel.modPanelState(panel.setModPanelCollapsed(state, false)), "open");
+  assert.equal(panel.modPanelState(panel.openModTab(state, "C-Three")), "open", "a new tab shows the panel");
+  assert.equal(panel.modPanelState(panel.openModTab(state, "a-one")), "open", "an open mod is shown again");
+  assert.equal(panel.modPanelState(panel.focusModTab(state, "a-one")), "open");
+  assert.deepEqual(panel.closeModTab(panel.closeModTab(state, "a-one"), "b-two"), panel.emptyModTabs);
+});
+
+test("tags beyond the limit are counted", () => {
+  assert.deepEqual(panel.splitModTags(["a", "b"]), { shown: ["a", "b"], hidden: [] });
+  assert.deepEqual(panel.splitModTags(["a", "b", "c", "d", "e"]), { shown: ["a", "b", "c"], hidden: ["d", "e"] });
+});
+
 test("the install action names the version it installs", () => {
   assert.equal(panel.installActionLabel(null, "2.0.0", true, "it"), "Installa");
   assert.equal(panel.installActionLabel(null, "1.0.0", false, "it"), "Installa la versione 1.0.0");
@@ -192,6 +212,9 @@ test("search results open in panel tabs with readme, changelog and version insta
     assert.ok(target.querySelector('[role="tablist"][aria-label="Mod aperte"]'));
     assert.ok(shown().textContent.includes("readme of Owner-More_Suits 2.0.0"), "the readme of the latest version comes first");
 
+    assert.deepEqual([...shown().querySelector("h2").parentElement.parentElement.querySelectorAll("ul li")].map((item) => item.getAttribute("title").split(":")[0]), ["Ultimo rilascio", "Download totali", "Valutazione", "Dimensione"], "the stats sit in one compact row");
+    assert.ok(shown().querySelector("h2").parentElement.textContent.includes("Suits"), "the tags sit next to the name");
+
     shown().querySelector('input[value="changelog"]').click(); await settle();
     assert.ok(shown().textContent.includes("changelog of Owner-More_Suits 2.0.0"));
 
@@ -216,6 +239,15 @@ test("search results open in panel tabs with readme, changelog and version insta
     target.querySelector('[role="tab"][aria-selected="true"]').dispatchEvent(new MouseEvent("auxclick", { button: 1, bubbles: true }));
     await settle();
     assert.deepEqual(tabs(), [["More Suits", "false"], ["Hats", "true"]], "middle click closes the tab");
+
+    button("Comprimi le mod aperte").click(); await settle();
+    assert.deepEqual(tabs(), [["More Suits", "false"], ["Hats", "true"]], "collapsing keeps the open tabs");
+    assert.ok(target.querySelector("aside").inert, "the collapsed panel is out of reach");
+    button("Mostra le mod aperte").click(); await settle();
+    assert.equal(target.querySelector("aside").inert, false);
+    assert.deepEqual(tabs(), [["More Suits", "false"], ["Hats", "true"]], "expanding keeps the active tab");
+    assert.equal(button("Mostra le mod aperte"), undefined);
+
     button("Chiudi Hats").click(); await settle();
     button("Chiudi More Suits").click(); await settle();
     assert.equal(target.querySelector("aside"), null, "the panel slides away with its last tab");
