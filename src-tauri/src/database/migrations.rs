@@ -798,5 +798,29 @@ pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
             .pragma_update(None, "user_version", 37)
             .map_err(database_error)?;
     }
+    if version < 38 {
+        // SQLite cannot alter a CHECK constraint, so rebuild the table.
+        // Nothing references download_sources by foreign key.
+        transaction
+            .execute_batch(&format!(
+                "CREATE TABLE download_sources_new (
+                    id TEXT PRIMARY KEY,
+                    url TEXT NOT NULL UNIQUE,
+                    manifest BLOB NOT NULL CHECK (length(manifest) BETWEEN 1 AND {max_manifest_bytes}),
+                    fetched_at INTEGER NOT NULL CHECK (fetched_at >= 0),
+                    warning TEXT,
+                    url_sha256 TEXT
+                );
+                INSERT INTO download_sources_new (id, url, manifest, fetched_at, warning, url_sha256)
+                    SELECT id, url, manifest, fetched_at, warning, url_sha256 FROM download_sources;
+                DROP TABLE download_sources;
+                ALTER TABLE download_sources_new RENAME TO download_sources;
+                CREATE UNIQUE INDEX download_sources_hash ON download_sources(url_sha256);
+                PRAGMA user_version = 38;",
+                // Must match source_catalog::encode_cache.
+                max_manifest_bytes = crate::source_catalog::MAX_CACHE_BYTES
+            ))
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }

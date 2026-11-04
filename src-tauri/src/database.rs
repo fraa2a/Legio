@@ -18,7 +18,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 37;
+const SCHEMA_VERSION: i64 = 38;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1750,6 +1750,74 @@ mod tests {
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
         assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn migration_38_raises_source_manifest_limit_and_keeps_rows() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        // Recreate the v37 table with the old 2 MiB limit.
+        connection
+            .execute_batch(
+                "DROP TABLE download_sources;
+                 CREATE TABLE download_sources (
+                   id TEXT PRIMARY KEY,
+                   url TEXT NOT NULL UNIQUE,
+                   manifest BLOB NOT NULL CHECK (length(manifest) BETWEEN 1 AND 2097152),
+                   fetched_at INTEGER NOT NULL CHECK (fetched_at >= 0),
+                   warning TEXT,
+                   url_sha256 TEXT
+                 );
+                 CREATE UNIQUE INDEX download_sources_hash ON download_sources(url_sha256);
+                 INSERT INTO download_sources (id, url, manifest, fetched_at, warning, url_sha256)
+                 VALUES ('s', 'https://example.test/a.json', x'7b7d', 5, 'warn', 'hash');
+                 PRAGMA user_version = 37;",
+            )
+            .unwrap();
+        let insert = "INSERT INTO download_sources (id, url, manifest, fetched_at) VALUES (?1, ?2, zeroblob(?3), 0)";
+        assert!(
+            connection
+                .execute(
+                    insert,
+                    params!["big", "https://example.test/b.json", 3 * 1024 * 1024]
+                )
+                .is_err()
+        );
+        migrate(&connection).unwrap();
+        let row: (Vec<u8>, i64, String, String) = connection
+            .query_row(
+                "SELECT manifest, fetched_at, warning, url_sha256 FROM download_sources WHERE id = 's'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(row, (b"{}".to_vec(), 5, "warn".into(), "hash".into()));
+        connection
+            .execute(
+                insert,
+                params!["big", "https://example.test/b.json", 3 * 1024 * 1024],
+            )
+            .unwrap();
+        let limit = crate::source_catalog::MAX_CACHE_BYTES as i64;
+        connection
+            .execute(insert, params!["max", "https://example.test/c.json", limit])
+            .unwrap();
+        assert!(
+            connection
+                .execute(
+                    insert,
+                    params!["over", "https://example.test/d.json", limit + 1]
+                )
+                .is_err()
+        );
+        let index_exists: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name = 'download_sources_hash')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(index_exists);
     }
 
     #[test]

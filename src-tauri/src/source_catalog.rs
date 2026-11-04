@@ -197,9 +197,11 @@ pub(crate) fn from_hydra(
     }
 }
 
+pub(crate) const MAX_CACHE_BYTES: usize = 2 * hydra_source::MAX_BYTES;
+
 pub(crate) fn encode_cache(source: &SourceCatalog) -> Result<Vec<u8>, String> {
     let bytes = serde_json::to_vec(source).map_err(|error| error.to_string())?;
-    if bytes.len() > 2 * hydra_source::MAX_BYTES {
+    if bytes.len() > MAX_CACHE_BYTES {
         return Err("Source cache exceeds the size limit".into());
     }
     Ok(bytes)
