@@ -75,6 +75,7 @@ fn main() {
             "add_download_source",
             "add_local_download_source",
             "remove_download_source",
+            "stop_source_identification",
             "take_source_links",
             "list_downloads",
             "queue_download",

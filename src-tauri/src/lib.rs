@@ -42,6 +42,8 @@ mod game_uninstall;
 mod game_updates;
 mod gofile;
 mod hydra_source;
+mod identification_cache;
+mod identification_control;
 mod image_format;
 mod image_response;
 mod image_trim;
@@ -326,6 +328,7 @@ fn run_application(
             ));
             app.manage(thunderstore);
             app.manage(diagnostics);
+            app.manage(identification_control::IdentificationControl::default());
             app.manage(queue_shutdown::QueueShutdownState::default());
             app.manage(modding::profiles::ProfileLocks::default());
             app.manage(modding::install_commands::InstallCancellations::default());
@@ -502,6 +505,7 @@ fn run_application(
             commands::add_download_source,
             commands::add_local_download_source,
             commands::remove_download_source,
+            commands::stop_source_identification,
             commands::take_source_links,
             download_queue::list_downloads,
             download_queue::queue_download,

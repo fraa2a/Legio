@@ -1129,6 +1129,13 @@ pub async fn remove_download_source(
 }
 
 #[tauri::command]
+pub fn stop_source_identification(
+    state: State<'_, crate::identification_control::IdentificationControl>,
+) -> Result<(), String> {
+    state.stop_all()
+}
+
+#[tauri::command]
 pub fn take_source_links(
     state: State<'_, crate::source_links::SourceLinks>,
 ) -> Result<crate::source_links::PendingLinks, String> {

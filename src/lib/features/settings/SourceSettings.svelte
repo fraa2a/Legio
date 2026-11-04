@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { observeSourceImportProgress, type SourceImportProgress } from "../../services/legio-source";
+  import { observeSourceImportProgress, stopSourceIdentification, type SourceImportProgress } from "../../services/legio-source";
   import { t, language } from "../../i18n";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import TextField from "../../components/ui/TextField.svelte";
@@ -16,6 +16,7 @@
   let url = $state("");
   let progress = $state<SourceImportProgress | null>(null);
   let refreshing = $state(false);
+  let stopping = $state(false);
   onMount(() => {
     let disposed = false;
     let stop: (() => void) | undefined;
@@ -33,6 +34,16 @@
     refreshing = true;
     try { await refreshSource(); } finally { refreshing = false; }
   }
+  async function stopIdentification(): Promise<void> {
+    stopping = true;
+    try {
+      await stopSourceIdentification();
+    } catch (error) {
+      stopping = false;
+      sourceActionError.set(toMessage(error));
+    }
+  }
+  $effect(() => { if (!$sourceBusy) stopping = false; });
   async function chooseLocalSource(): Promise<void> {
     try {
       const path = await pickSourceFile();
@@ -54,7 +65,12 @@
       </div>
     </form>
     <p class="text-xs text-zinc-500">{t("I file locali vengono riletti con Aggiorna sorgenti. Se il file non è disponibile, resta utilizzabile la cache.", $language)}</p>
-    {#if $sourceBusy && progress}<p role="status" class="text-sm text-zinc-400">{t("Identificazione giochi", $language)}: {progress.processed}/{progress.total}</p>{/if}
+    {#if $sourceBusy && progress}
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <p role="status" class="text-sm text-zinc-400">{t("Identificazione giochi", $language)}: {progress.processed}/{progress.total}</p>
+        <Button label={t("Interrompi", $language)} variant="secondary" size="sm" disabled={stopping} onClick={() => { void stopIdentification(); }} />
+      </div>
+    {/if}
     {#if $sourceActionError}<ErrorBanner message={$sourceActionError} />{/if}
     {#if $source.error}<ErrorBanner message={$source.error} onRetry={() => { void source.load(); }} />{/if}
   </SettingsGroup>

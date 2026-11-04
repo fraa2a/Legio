@@ -66,6 +66,10 @@ export function removeDownloadSource(id: string): Promise<SourceSnapshot> {
   return invoke<SourceSnapshot>("remove_download_source", { id });
 }
 
+export function stopSourceIdentification(): Promise<void> {
+  return invoke<void>("stop_source_identification");
+}
+
 export interface PendingSourceLinks {
   requests: { url: string | null; error: string | null }[];
   registrationError: string | null;

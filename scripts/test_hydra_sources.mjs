@@ -64,7 +64,7 @@ test("local source controls distinguish file catalogs and preserve cancellation"
   const { load } = createModuleLoader({
     "src/lib/stores/source": storeModule,
     "src/lib/services/dialog": dataModule("export const pickSourceFile=async()=>globalThis.localSourceControls.chosen;"),
-    "src/lib/services/legio-source": dataModule("export const observeSourceImportProgress=async()=>()=>{};"),
+    "src/lib/services/legio-source": dataModule("export const observeSourceImportProgress=async()=>()=>{};export const stopSourceIdentification=async()=>{};"),
     "src/lib/stores/source-links": dataModule(`import { writable } from ${JSON.stringify(import.meta.resolve("svelte/store"))}; export const sourceLinkRegistrationError=writable(null);`),
     "src/lib/i18n": dataModule(`import { writable } from ${JSON.stringify(import.meta.resolve("svelte/store"))}; export const language=writable("it");export const t=value=>value;`),
   });
@@ -79,4 +79,34 @@ test("local source controls distinguish file catalogs and preserve cancellation"
     globalThis.localSourceControls.chosen="/tmp/steamrip.json";
     button.click();await settle();assert.deepEqual(calls,["/tmp/steamrip.json"]);
   } finally { await unmount(instance);target.remove(); }
+});
+
+test("identification progress offers a stop button that stays disabled once requested", async () => {
+  globalThis.identificationStop = { stops: 0, report: null };
+  const svelteStore = JSON.stringify(import.meta.resolve("svelte/store"));
+  const { load } = createModuleLoader({
+    "src/lib/stores/source": dataModule(`import { writable } from ${svelteStore};
+      export const source = writable({data:{sources:[],warning:null},error:null});
+      export const sourceBusy=writable(true),sourceActionError=writable(null),sourceRefreshError=writable(null);
+      export const addSource=async()=>true,removeSource=async()=>true,refreshSource=async()=>{},addLocalSource=async()=>true;`),
+    "src/lib/services/dialog": dataModule("export const pickSourceFile=async()=>null;"),
+    "src/lib/services/legio-source": dataModule(`export const observeSourceImportProgress=async(callback)=>{globalThis.identificationStop.report=callback;return()=>{};};
+      export const stopSourceIdentification=async()=>{globalThis.identificationStop.stops++;};`),
+    "src/lib/stores/source-links": dataModule(`import { writable } from ${svelteStore}; export const sourceLinkRegistrationError=writable(null);`),
+    "src/lib/i18n": dataModule(`import { writable } from ${svelteStore}; export const language=writable("it");export const t=value=>value;`),
+  });
+  const Component = (await import(await load("src/lib/features/settings/SourceSettings.svelte"))).default;
+  const target = document.createElement("div"); document.body.append(target);
+  const instance = mount(Component, { target });
+  const stopButton = () => [...target.querySelectorAll("button")].find(button => button.textContent.includes("Interrompi"));
+  try {
+    await settle();
+    assert.equal(stopButton(), undefined);
+    globalThis.identificationStop.report({ operationId: "one", processed: 2, total: 10 });
+    await settle();
+    assert.match(target.textContent, /2\/10/);
+    stopButton().click(); await settle();
+    assert.equal(globalThis.identificationStop.stops, 1);
+    assert.equal(stopButton().disabled, true);
+  } finally { await unmount(instance); target.remove(); }
 });
