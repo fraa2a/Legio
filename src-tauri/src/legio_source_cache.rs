@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -8,6 +8,8 @@ use tauri::{Emitter, Manager, Runtime};
 
 use crate::{
     database::{Database, DatabaseState},
+    identification_cache::IdentificationCache,
+    identification_control::IdentificationControl,
     legio_source::{self, Manifest},
     network::NetworkState,
 };
@@ -360,6 +362,7 @@ async fn fetch_catalog(
             .await
             .map_err(|error| format!("Could not fetch source: {error:?}"))?
     };
+    let content_sha256 = crate::identification_cache::content_hash(&bytes);
     let games = tauri::async_runtime::spawn_blocking(move || {
         database.with_connection(|connection| {
             let mut statement = connection
@@ -387,21 +390,40 @@ async fn fetch_catalog(
         .map(|source| source.matches.clone())
         .unwrap_or_default();
     matches.extend(catalog.matches);
+    let shared = if url.starts_with("https:") {
+        fetch_shared_cache(network, url, &content_sha256).await
+    } else {
+        None
+    };
+    let resolution = crate::identification_cache::resolve(
+        shared.as_ref(),
+        raw.downloads.iter().map(|entry| entry.title.as_str()),
+        &matches,
+    );
+    matches.extend(resolution.matches);
+    let mut unmatched: BTreeSet<String> = resolution.unmatched.into_iter().collect();
     let mut pending = std::collections::VecDeque::new();
     let mut seen = std::collections::HashSet::new();
-    for entry in &raw.downloads {
-        let title = crate::source_matching::normalized_title(&entry.title);
-        if !matches.contains_key(&entry.title) && seen.insert(title.clone()) {
+    for title in &resolution.pending {
+        let title = crate::source_matching::normalized_title(title);
+        if seen.insert(title.clone()) {
             pending.push_back(title);
         }
     }
     let operation_id = uuid::Uuid::new_v4().to_string();
+    let control = app.state::<IdentificationControl>();
+    let mut session = control.begin(&operation_id)?;
     let total = pending.len();
     let mut processed = 0;
     let mut tasks = tokio::task::JoinSet::new();
     let mut lookup_matches = std::collections::HashMap::new();
+    let mut lookup_unmatched = std::collections::HashSet::new();
     let mut lookup_failures = Vec::new();
     let mut consecutive_failures = 0;
+    let mut stopped = false;
+    if total > 0 {
+        emit_progress(app, &operation_id, processed, total)?;
+    }
     loop {
         while tasks.len() < 4 {
             let Some(title) = pending.pop_front() else {
@@ -424,7 +446,15 @@ async fn fetch_catalog(
                 (title, result)
             });
         }
-        let Some(result) = tasks.join_next().await else {
+        let joined = tokio::select! {
+            result = tasks.join_next() => result,
+            () = session.stopped() => {
+                tasks.abort_all();
+                stopped = true;
+                break;
+            }
+        };
+        let Some(result) = joined else {
             break;
         };
         let (title, result) = result.map_err(|error| format!("Title lookup failed: {error}"))?;
@@ -433,6 +463,8 @@ async fn fetch_catalog(
                 consecutive_failures = 0;
                 if let crate::source_matching::MatchResult::Matched(id) = matched {
                     lookup_matches.insert(title, id);
+                } else {
+                    lookup_unmatched.insert(title);
                 }
             }
             Err(error) => {
@@ -448,22 +480,84 @@ async fn fetch_catalog(
             break;
         }
         processed += 1;
-        app.emit(
-            "source-import-progress",
-            serde_json::json!({"operationId":operation_id,"processed":processed,"total":total}),
-        )
-        .map_err(|error| error.to_string())?;
+        emit_progress(app, &operation_id, processed, total)?;
+    }
+    if stopped {
+        crate::application_log::state_change(
+            "source_identification",
+            "Game identification was stopped by the user",
+        );
+        lookup_failures.push(
+            "Game identification was stopped. Refresh this source to identify the remaining titles."
+                .into(),
+        );
     }
     for entry in &raw.downloads {
-        if let Some(id) =
-            lookup_matches.get(&crate::source_matching::normalized_title(&entry.title))
-        {
+        let normalized = crate::source_matching::normalized_title(&entry.title);
+        if let Some(id) = lookup_matches.get(&normalized) {
             matches.insert(entry.title.clone(), *id);
+        } else if !matches.contains_key(&entry.title) && lookup_unmatched.contains(&normalized) {
+            unmatched.insert(entry.title.clone());
         }
     }
     let mut result = source_catalog::from_hydra(raw, &[], matches);
     result.diagnostics.reasons.extend(lookup_failures);
+    result.unmatched = unmatched;
+    result.content_sha256 = Some(content_sha256);
     Ok(result)
+}
+
+fn emit_progress(
+    app: &tauri::AppHandle,
+    operation_id: &str,
+    processed: usize,
+    total: usize,
+) -> Result<(), String> {
+    app.emit(
+        "source-import-progress",
+        serde_json::json!({"operationId":operation_id,"processed":processed,"total":total}),
+    )
+    .map_err(|error| error.to_string())
+}
+
+/// The shared cache is optional: any failure is logged once and local lookups take over.
+async fn fetch_shared_cache(
+    network: &NetworkState,
+    url: &str,
+    content_sha256: &str,
+) -> Option<IdentificationCache> {
+    let result = async {
+        let cache_url = crate::identification_cache::cache_url(url)?;
+        let bytes = network
+            .identification_cache(&cache_url)
+            .await
+            .map_err(|error| format!("{error:?}"))?;
+        tauri::async_runtime::spawn_blocking(move || crate::identification_cache::parse(&bytes))
+            .await
+            .map_err(|error| error.to_string())?
+    }
+    .await;
+    match result {
+        Ok(cache) => {
+            let freshness = if cache.describes(content_sha256) {
+                "current"
+            } else {
+                "older than the source"
+            };
+            crate::application_log::state_change(
+                "source_identification",
+                &format!("Using the shared identification cache ({freshness})"),
+            );
+            Some(cache)
+        }
+        Err(error) => {
+            crate::application_log::state_change(
+                "source_identification",
+                &format!("Shared identification cache unavailable, identifying locally: {error}"),
+            );
+            None
+        }
+    }
 }
 
 pub async fn add_source(
