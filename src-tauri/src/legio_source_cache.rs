@@ -8,7 +8,7 @@ use tauri::{Emitter, Manager, Runtime};
 
 use crate::{
     database::{Database, DatabaseState},
-    identification_cache::IdentificationCache,
+    identification_cache::SharedCache,
     identification_control::IdentificationControl,
     legio_source::{self, Manifest},
     network::NetworkState,
@@ -350,6 +350,7 @@ async fn fetch_catalog(
     database: Arc<Database>,
     url: &str,
     previous: Option<&SourceCatalog>,
+    shared: Option<&SharedCache>,
 ) -> Result<SourceCatalog, String> {
     let bytes = if url.starts_with("file:") {
         let url = url.to_owned();
@@ -390,13 +391,20 @@ async fn fetch_catalog(
         .map(|source| source.matches.clone())
         .unwrap_or_default();
     matches.extend(catalog.matches);
-    let shared = if url.starts_with("https:") {
-        fetch_shared_cache(network, url, &content_sha256).await
-    } else {
-        None
-    };
+    let shared = shared.and_then(|cache| cache.source(url));
+    if let Some(entry) = shared {
+        let freshness = if entry.describes(&content_sha256) {
+            "current"
+        } else {
+            "older than the source"
+        };
+        crate::application_log::state_change(
+            "source_identification",
+            &format!("Using the shared identification cache ({freshness})"),
+        );
+    }
     let resolution = crate::identification_cache::resolve(
-        shared.as_ref(),
+        shared,
         raw.downloads.iter().map(|entry| entry.title.as_str()),
         &matches,
     );
@@ -521,15 +529,17 @@ fn emit_progress(
 }
 
 /// The shared cache is optional: any failure is logged once and local lookups take over.
-async fn fetch_shared_cache(
+/// Only HTTPS sources can be addressed in it, so nothing is downloaded for other sources.
+async fn fetch_shared_cache<'a>(
     network: &NetworkState,
-    url: &str,
-    content_sha256: &str,
-) -> Option<IdentificationCache> {
+    urls: impl IntoIterator<Item = &'a str>,
+) -> Option<Arc<SharedCache>> {
+    if !urls.into_iter().any(|url| url.starts_with("https:")) {
+        return None;
+    }
     let result = async {
-        let cache_url = crate::identification_cache::cache_url(url)?;
         let bytes = network
-            .identification_cache(&cache_url)
+            .identification_cache(crate::identification_cache::URL)
             .await
             .map_err(|error| format!("{error:?}"))?;
         tauri::async_runtime::spawn_blocking(move || crate::identification_cache::parse(&bytes))
@@ -538,18 +548,7 @@ async fn fetch_shared_cache(
     }
     .await;
     match result {
-        Ok(cache) => {
-            let freshness = if cache.describes(content_sha256) {
-                "current"
-            } else {
-                "older than the source"
-            };
-            crate::application_log::state_change(
-                "source_identification",
-                &format!("Using the shared identification cache ({freshness})"),
-            );
-            Some(cache)
-        }
+        Ok(cache) => Some(Arc::new(cache)),
         Err(error) => {
             crate::application_log::state_change(
                 "source_identification",
@@ -606,7 +605,16 @@ async fn install_source(
     if exists {
         return cached_source(app).await;
     }
-    let manifest = fetch_catalog(&app, network, database.clone(), &url, None).await?;
+    let shared = fetch_shared_cache(network, [url.as_str()]).await;
+    let manifest = fetch_catalog(
+        &app,
+        network,
+        database.clone(),
+        &url,
+        None,
+        shared.as_deref(),
+    )
+    .await?;
     tauri::async_runtime::spawn_blocking(move || {
         let current_time = now()?;
         insert_catalog(&database, &url, manifest, current_time)?;
@@ -635,12 +643,14 @@ pub async fn refresh_source(
     let sources = tauri::async_runtime::spawn_blocking(move || rows(&read_database))
         .await
         .map_err(|error| format!("Source lookup task failed: {error}"))??;
+    let shared = fetch_shared_cache(network, sources.iter().map(|row| row.url.as_str())).await;
     let mut tasks = tokio::task::JoinSet::new();
     // Each source has a bounded request and an independent cache.
     for row in sources {
         let network = network.clone();
         let database = database.clone();
         let import_app = app.clone();
+        let shared = shared.clone();
         tasks.spawn(async move {
             let fetched = fetch_catalog(
                 &import_app,
@@ -648,6 +658,7 @@ pub async fn refresh_source(
                 database.clone(),
                 &row.url,
                 Some(row.catalog.as_ref()),
+                shared.as_deref(),
             )
             .await;
             tauri::async_runtime::spawn_blocking(move || {

@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Build the shared game identification cache from sources installed in Legio.
+"""Maintain the shared game identification cache published by Legio.
 
 Legio stores the result of its own title identification in its SQLite database.
-This tool exports that result, so the published files carry exactly what the
-app computes and no matching logic is duplicated here. Files hold hashes only;
-no source URL and no download title is written.
+This tool exports that result into one cache.json, so the published file carries
+exactly what the app computes and no matching logic is duplicated here. The file
+holds hashes only; no source URL and no download title is written.
 
-    python tools/source-cache/source_cache.py --out cache/v1 <url> [<url>...]
-    python tools/source-cache/source_cache.py --out cache/v1 --from-file links.txt --upload
+    python tools/source-cache/source_cache.py <url> [<url>...]
+    python tools/source-cache/source_cache.py --from-file links.txt --upload
+    python tools/source-cache/source_cache.py --remove <url> --upload
 
-See README.md for the schema and for publishing.
+See README.md for the schema, the credentials file and publishing.
 """
 
 import argparse
@@ -20,16 +21,27 @@ import os
 import re
 import sqlite3
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-VERSION = 1
-PREFIX = "v1/"
+VERSION = 2
+PUBLIC_URL = "https://legio-cache.fraa2a.dev/cache.json"
+OBJECT_KEY = "cache.json"
+MAX_BYTES = 32 * 1024 * 1024
 APP_IDENTIFIER = "dev.fraa2a.legio"
 DATABASE_NAME = "legio.sqlite3"
 HEX64 = re.compile(r"[0-9a-f]{64}")
 MAX_APP_ID = 2**32 - 1
-UPLOAD_VARIABLES = ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET")
+CREDENTIALS_FILE = Path(__file__).resolve().with_name("r2.local.json")
+# JSON field in the credentials file -> environment variable that overrides it.
+CREDENTIAL_FIELDS = {
+    "accountId": "R2_ACCOUNT_ID",
+    "accessKeyId": "R2_ACCESS_KEY_ID",
+    "secretAccessKey": "R2_SECRET_ACCESS_KEY",
+    "bucket": "R2_BUCKET",
+}
 CACHE_CONTROL = "public, max-age=3600"
 
 
@@ -96,8 +108,8 @@ def find_source(sources, link):
     raise ToolError("Source is not installed in Legio. Add it in Settings > Sources first.")
 
 
-def build_cache(url, stored_hash, manifest, generated_at):
-    """Return the cache document for one installed source."""
+def build_entry(url, stored_hash, manifest, generated_at):
+    """Return the cache entry for one installed source."""
     if not url.startswith("https://"):
         raise ToolError("Only HTTPS sources can be published.")
     if stored_hash != sha256_hex(url):
@@ -127,7 +139,6 @@ def build_cache(url, stored_hash, manifest, generated_at):
         hashed_matches[sha256_hex(title)] = app_id
     hashed_unmatched = {sha256_hex(title) for title in unmatched} - hashed_matches.keys()
     return {
-        "version": VERSION,
         "contentSha256": content_sha256,
         "generatedAt": generated_at,
         "matches": dict(sorted(hashed_matches.items())),
@@ -135,82 +146,162 @@ def build_cache(url, stored_hash, manifest, generated_at):
     }
 
 
-def write_cache(out, name, document):
-    out.mkdir(parents=True, exist_ok=True)
-    path = out / name
-    path.write_text(json.dumps(document, separators=(",", ":")) + "\n", encoding="utf-8")
+def load_base(base):
+    """Return the sources of the current cache: a local file, or the published one (empty on 404)."""
+    if base:
+        try:
+            data = Path(base).read_bytes()
+        except OSError as error:
+            raise ToolError(f"Could not read the base file: {error}") from error
+    else:
+        request = urllib.request.Request(PUBLIC_URL, headers={"User-Agent": "legio-source-cache"})
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                data = response.read(MAX_BYTES + 1)
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return {}
+            raise ToolError(f"Could not download the published cache: HTTP {error.code}") from error
+        except (urllib.error.URLError, TimeoutError) as error:
+            raise ToolError(f"Could not download the published cache: {error}") from error
+    if len(data) > MAX_BYTES:
+        raise ToolError("The current cache exceeds the size limit.")
+    try:
+        document = json.loads(data)
+    except ValueError as error:
+        raise ToolError("The current cache is not valid JSON.") from error
+    if not isinstance(document, dict) or document.get("version") != VERSION:
+        raise ToolError(f"The current cache is not a schema v{VERSION} file.")
+    sources = document.get("sources")
+    if not isinstance(sources, dict):
+        raise ToolError(f"The current cache is not a schema v{VERSION} file.")
+    return sources
+
+
+def remove_source(sources, link):
+    """Drop the entry for `link`; return whether one existed."""
+    found = False
+    for key in {sha256_hex(link.strip()), sha256_hex(normalize_url(link))}:
+        found = sources.pop(key, None) is not None or found
+    return found
+
+
+def write_cache(path, sources, generated_at):
+    document = {"version": VERSION, "generatedAt": generated_at, "sources": dict(sorted(sources.items()))}
+    data = (json.dumps(document, separators=(",", ":")) + "\n").encode("utf-8")
+    if len(data) > MAX_BYTES:
+        raise ToolError("The cache would exceed the 32 MiB limit.")
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
     return path
 
 
-def upload(paths):
-    missing = [name for name in UPLOAD_VARIABLES if not os.environ.get(name)]
+def load_credentials():
+    """Read R2 credentials from r2.local.json; environment variables override the file."""
+    stored = {}
+    if CREDENTIALS_FILE.is_file():
+        try:
+            stored = json.loads(CREDENTIALS_FILE.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise ToolError(f"Could not read {CREDENTIALS_FILE.name}: {error}") from error
+        if not isinstance(stored, dict):
+            raise ToolError(f"{CREDENTIALS_FILE.name} must be a JSON object.")
+    credentials = {}
+    for field, variable in CREDENTIAL_FIELDS.items():
+        value = os.environ.get(variable) or stored.get(field)
+        if isinstance(value, str) and value.strip():
+            credentials[field] = value.strip()
+    missing = [f"{field} ({variable})" for field, variable in CREDENTIAL_FIELDS.items() if field not in credentials]
     if missing:
-        raise ToolError(f"Set these environment variables to upload: {', '.join(missing)}")
+        raise ToolError(
+            f"Missing R2 credentials: {', '.join(missing)}. "
+            f"Fill in {CREDENTIALS_FILE.name} (template: r2.example.json) or set the environment variables."
+        )
+    return credentials
+
+
+def upload(path, credentials):
     try:
         import boto3
     except ImportError as error:
         raise ToolError("--upload needs boto3. Install it with: pip install boto3") from error
     client = boto3.client(
         "s3",
-        endpoint_url=f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com",
-        aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
-        aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+        endpoint_url=f"https://{credentials['accountId']}.r2.cloudflarestorage.com",
+        aws_access_key_id=credentials["accessKeyId"],
+        aws_secret_access_key=credentials["secretAccessKey"],
         region_name="auto",
     )
-    bucket = os.environ["R2_BUCKET"]
-    for path in paths:
+    try:
         client.put_object(
-            Bucket=bucket,
-            Key=PREFIX + path.name,
-            Body=path.read_bytes(),
+            Bucket=credentials["bucket"],
+            Key=OBJECT_KEY,
+            Body=Path(path).read_bytes(),
             ContentType="application/json",
             CacheControl=CACHE_CONTROL,
         )
-        print(f"uploaded {PREFIX}{path.name}")
+    except Exception as error:  # botocore errors vary; report only the type, never request details
+        raise ToolError(f"Upload failed ({type(error).__name__}). Check the credentials and the bucket name.") from None
+    print(f"uploaded {OBJECT_KEY}")
 
 
 def parse_arguments(argv):
-    parser = argparse.ArgumentParser(description="Export the Legio game identification cache.")
+    parser = argparse.ArgumentParser(description="Update the Legio shared game identification cache.")
     parser.add_argument("links", nargs="*", metavar="url", help="HTTPS source links installed in Legio")
     parser.add_argument("--from-file", metavar="FILE", help="text file with one link per line")
-    parser.add_argument("--out", required=True, metavar="DIR", help="directory for the cache files")
+    parser.add_argument("--remove", action="append", default=[], metavar="URL", help="drop a source from the cache")
+    parser.add_argument("--base", metavar="FILE", help="start from this cache file instead of the published one")
+    parser.add_argument("--out", default="cache.json", metavar="FILE", help="cache file to write (default: cache.json)")
     parser.add_argument("--db", metavar="FILE", help="Legio database (default: the app data folder)")
-    parser.add_argument("--upload", action="store_true", help="upload the files to Cloudflare R2")
+    parser.add_argument("--upload", action="store_true", help="upload the file to Cloudflare R2")
     arguments = parser.parse_args(argv)
     if arguments.from_file:
         arguments.links += read_links(arguments.from_file)
-    if not arguments.links:
-        parser.error("give at least one source link or --from-file")
+    if not arguments.links and not arguments.remove:
+        parser.error("give at least one source link, --from-file or --remove")
     return arguments
 
 
 def main(argv=None):
     arguments = parse_arguments(argv)
     try:
-        sources = load_sources(arguments.db or default_database())
+        credentials = load_credentials() if arguments.upload else None
+        sources = load_base(arguments.base)
+        installed = load_sources(arguments.db or default_database()) if arguments.links else {}
     except ToolError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     generated_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    written, failed = [], 0
-    for link in arguments.links:
-        label = f"source {len(written) + failed + 1}"
+    changed, failed = 0, 0
+    for link in arguments.remove:
+        if remove_source(sources, link):
+            changed += 1
+            print("removed 1 source")
+        else:
+            print("remove: source is not in the cache", file=sys.stderr)
+    for number, link in enumerate(arguments.links, start=1):
         try:
-            url, (stored_hash, manifest) = find_source(sources, link)
-            document = build_cache(url, stored_hash, manifest, generated_at)
+            url, (stored_hash, manifest) = find_source(installed, link)
+            entry = build_entry(url, stored_hash, manifest, generated_at)
         except ToolError as error:
             failed += 1
-            print(f"skipped {label}: {error}", file=sys.stderr)
+            print(f"skipped source {number}: {error}", file=sys.stderr)
             continue
-        path = write_cache(Path(arguments.out), f"{stored_hash}.json", document)
-        written.append(path)
-        print(f"wrote {path} ({len(document['matches'])} matched, {len(document['unmatched'])} unmatched)")
-    if arguments.upload and written:
-        try:
-            upload(written)
-        except ToolError as error:
-            print(f"error: {error}", file=sys.stderr)
-            return 1
+        sources[stored_hash] = entry
+        changed += 1
+        print(f"updated source {number} ({len(entry['matches'])} matched, {len(entry['unmatched'])} unmatched)")
+    if not changed:
+        print("error: nothing to publish", file=sys.stderr)
+        return 1
+    try:
+        path = write_cache(arguments.out, sources, generated_at)
+        print(f"wrote {path} ({len(sources)} sources)")
+        if credentials:
+            upload(path, credentials)
+    except ToolError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
     return 1 if failed else 0
 
 
