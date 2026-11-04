@@ -3,20 +3,30 @@ use std::collections::{HashMap, HashSet};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-// Placeholder: must point to the public HTTPS endpoint of the Cloudflare R2 bucket
-// that holds the cache files, one per source link.
-const BASE_URL: &str = "https://source-cache.legio.invalid/v1/";
-pub(crate) const MAX_BYTES: usize = 8 * 1024 * 1024;
+/// Single public file on Cloudflare R2 holding the entries of every published source.
+pub(crate) const URL: &str = "https://legio-cache.fraa2a.dev/cache.json";
+pub(crate) const MAX_BYTES: usize = 32 * 1024 * 1024;
 pub(crate) const TIMEOUT_SECONDS: u64 = 15;
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
+
+#[derive(Deserialize)]
+struct CacheFile {
+    version: u32,
+    sources: HashMap<String, SourceFile>,
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CacheFile {
-    version: u32,
+struct SourceFile {
     content_sha256: String,
     matches: HashMap<String, u32>,
     unmatched: Vec<String>,
+}
+
+/// The published file: identification results keyed by the SHA-256 of each source link.
+#[derive(Debug)]
+pub(crate) struct SharedCache {
+    sources: HashMap<String, IdentificationCache>,
 }
 
 /// Identification results published for one source link. Keys are SHA-256 hashes of raw
@@ -51,14 +61,7 @@ fn is_title_hash(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-pub(crate) fn cache_url(source_url: &str) -> Result<String, String> {
-    Ok(format!(
-        "{BASE_URL}{}.json",
-        crate::game_library::source_hash(source_url)?
-    ))
-}
-
-pub(crate) fn parse(bytes: &[u8]) -> Result<IdentificationCache, String> {
+pub(crate) fn parse(bytes: &[u8]) -> Result<SharedCache, String> {
     if bytes.len() > MAX_BYTES {
         return Err("Identification cache exceeds the size limit".into());
     }
@@ -70,6 +73,17 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<IdentificationCache, String> {
             file.version
         ));
     }
+    let mut sources = HashMap::with_capacity(file.sources.len());
+    for (source_hash, source) in file.sources {
+        if !is_title_hash(&source_hash) {
+            return Err("Identification cache has an invalid source hash".into());
+        }
+        sources.insert(source_hash, validate(source)?);
+    }
+    Ok(SharedCache { sources })
+}
+
+fn validate(file: SourceFile) -> Result<IdentificationCache, String> {
     if !is_title_hash(&file.content_sha256) {
         return Err("Identification cache has an invalid content hash".into());
     }
@@ -90,6 +104,14 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<IdentificationCache, String> {
         matches: file.matches,
         unmatched,
     })
+}
+
+impl SharedCache {
+    /// The entry published for `source_url`, if any. Links the cache cannot address have none.
+    pub(crate) fn source(&self, source_url: &str) -> Option<&IdentificationCache> {
+        let hash = crate::game_library::source_hash(source_url).ok()?;
+        self.sources.get(&hash)
+    }
 }
 
 impl IdentificationCache {
@@ -130,24 +152,43 @@ pub(crate) fn resolve<'a>(
 mod tests {
     use super::*;
 
-    const URL: &str = "https://example.test/hydra.json";
+    const SOURCE: &str = "https://example.test/hydra.json";
     const HASH: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
-    fn file(matches: &str, unmatched: &str) -> String {
+    fn entry(matches: &str, unmatched: &str) -> String {
         format!(
-            r#"{{"version":1,"contentSha256":"{HASH}","generatedAt":"2026-11-04T00:00:00Z","matches":{{{matches}}},"unmatched":[{unmatched}]}}"#
+            r#"{{"contentSha256":"{HASH}","generatedAt":"2026-11-04T00:00:00Z","matches":{{{matches}}},"unmatched":[{unmatched}]}}"#
         )
+    }
+
+    fn file(entries: &[(String, String)]) -> String {
+        let sources: Vec<String> = entries
+            .iter()
+            .map(|(hash, entry)| format!(r#""{hash}":{entry}"#))
+            .collect();
+        format!(
+            r#"{{"version":2,"generatedAt":"2026-11-04T00:00:00Z","sources":{{{}}}}}"#,
+            sources.join(",")
+        )
+    }
+
+    fn source_key() -> String {
+        crate::game_library::source_hash(SOURCE).unwrap()
     }
 
     fn valid() -> String {
-        file(
-            &format!(r#""{}":400"#, title_hash("Portal")),
-            &format!(r#""{}""#, title_hash("Unknown")),
-        )
+        file(&[(
+            source_key(),
+            entry(
+                &format!(r#""{}":400"#, title_hash("Portal")),
+                &format!(r#""{}""#, title_hash("Unknown")),
+            ),
+        )])
     }
 
     fn cache() -> IdentificationCache {
-        parse(valid().as_bytes()).unwrap()
+        let shared = parse(valid().as_bytes()).unwrap();
+        shared.sources.into_values().next().unwrap()
     }
 
     fn titles(values: &[&str]) -> Vec<String> {
@@ -156,7 +197,8 @@ mod tests {
 
     #[test]
     fn parses_a_valid_file() {
-        let cache = cache();
+        let shared = parse(valid().as_bytes()).unwrap();
+        let cache = shared.source(SOURCE).unwrap();
         assert_eq!(cache.matches[&title_hash("Portal")], 400);
         assert!(cache.unmatched.contains(&title_hash("Unknown")));
         assert!(cache.describes(HASH));
@@ -164,12 +206,22 @@ mod tests {
     }
 
     #[test]
+    fn finds_only_published_sources() {
+        let shared = parse(valid().as_bytes()).unwrap();
+        assert!(shared.source("https://other.test/a.json").is_none());
+        assert!(shared.source("http://example.test/hydra.json").is_none());
+        let empty = parse(file(&[]).as_bytes()).unwrap();
+        assert!(empty.source(SOURCE).is_none());
+    }
+
+    #[test]
     fn rejects_invalid_files() {
         let portal = title_hash("Portal");
         let unknown = title_hash("Unknown");
         for (bytes, reason) in [
-            (valid().replace("\"version\":1", "\"version\":2"), "version"),
+            (valid().replace("\"version\":2", "\"version\":1"), "version"),
             (valid().replace(HASH, "abc"), "content hash"),
+            (valid().replace(&source_key(), "abc"), "source hash"),
             (valid().replace(":400", ":0"), "app id"),
             (valid().replace(&portal, "Portal"), "title key"),
             (
@@ -184,22 +236,13 @@ mod tests {
         }
         let oversized = vec![b' '; MAX_BYTES + 1];
         assert!(parse(&oversized).is_err());
-        assert!(parse(file("", "").as_bytes()).is_ok());
+        assert!(parse(file(&[(source_key(), entry("", ""))]).as_bytes()).is_ok());
     }
 
     #[test]
     fn stores_no_source_content() {
         assert!(!valid().contains("Portal"));
-        assert!(!valid().contains(URL));
-    }
-
-    #[test]
-    fn names_the_file_after_the_source_hash() {
-        let url = cache_url(URL).unwrap();
-        assert!(url.starts_with(BASE_URL));
-        assert!(url.ends_with(".json"));
-        assert_eq!(url.len(), BASE_URL.len() + 64 + ".json".len());
-        assert!(cache_url("http://example.test/a.json").is_err());
+        assert!(!valid().contains(SOURCE));
     }
 
     #[test]
