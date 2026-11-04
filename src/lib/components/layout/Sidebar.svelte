@@ -52,6 +52,24 @@
   }
 
   const gamesList = $derived(recentGames($games.data, $playtime.data).slice(0, 5).map(({ game }) => game));
+
+  let gamesScroller: HTMLElement | undefined = $state();
+  let gamesContent: HTMLElement | undefined = $state();
+  let gamesHaveMoreBelow = $state(false);
+
+  function updateGamesOverflow(): void {
+    if (!gamesScroller) return;
+    gamesHaveMoreBelow = gamesScroller.scrollTop + gamesScroller.clientHeight < gamesScroller.scrollHeight - 1;
+  }
+
+  $effect(() => {
+    if (!gamesScroller || !gamesContent) return;
+    const observer = new ResizeObserver(updateGamesOverflow);
+    observer.observe(gamesScroller);
+    observer.observe(gamesContent);
+    updateGamesOverflow();
+    return () => observer.disconnect();
+  });
 </script>
 
 <aside
@@ -93,11 +111,15 @@
         ></div>
       </div>
       <section
+        bind:this={gamesScroller}
+        onscroll={updateGamesOverflow}
         transition:fade={{ duration: fadeMs, easing: cubicOut }}
-        class="mt-2 flex min-h-0 flex-col gap-1.5 overflow-y-auto scrollbar-none"
+        class="mt-2 flex min-h-0 flex-col gap-1.5 overflow-y-auto scrollbar-none {gamesHaveMoreBelow
+          ? '[mask-image:linear-gradient(to_bottom,black_calc(100%_-_2rem),transparent)]'
+          : ''}"
         aria-label={t("Recenti", $language)}
       >
-        <ul class="flex flex-col gap-1.5">
+        <ul bind:this={gamesContent} class="flex flex-col gap-1.5">
           {#each gamesList as game (game.id)}
             <SidebarGameItem game={game} selected={$selectedGameId === game.id} expanded={expanded} />
           {/each}
