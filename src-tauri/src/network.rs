@@ -13,6 +13,9 @@ const HYDRA_HOST: &str = "hydra-api-us-east-1.losbroxas.org";
 const MAX_CATALOG_BYTES: usize = 2 * 1024 * 1024;
 const STEAM_DETAILS_URL: &str = "https://store.steampowered.com/api/appdetails";
 const MAX_ASSET_BYTES: usize = 2 * 1024 * 1024;
+pub(crate) const SOURCE_LOOKUP_CONCURRENCY: usize = 16;
+const SOURCE_LOOKUP_RETRIES: u32 = 3;
+const SOURCE_LOOKUP_RETRY_BASE_DELAY: std::time::Duration = std::time::Duration::from_secs(15);
 const NEWS_HOST: &str = "source.taxphobia.top";
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -55,7 +58,6 @@ pub struct NetworkState {
     source_client: reqwest::Client,
     status: Arc<Mutex<NetworkStatus>>,
     diagnostics: Diagnostics,
-    source_lookup_limit: Arc<tokio::sync::Mutex<tokio::time::Instant>>,
     source_lookup_slots: Arc<tokio::sync::Semaphore>,
 }
 
@@ -95,8 +97,7 @@ impl NetworkState {
             source_client,
             status: Arc::new(Mutex::new(NetworkStatus::Unknown)),
             diagnostics,
-            source_lookup_limit: Arc::new(tokio::sync::Mutex::new(tokio::time::Instant::now())),
-            source_lookup_slots: Arc::new(tokio::sync::Semaphore::new(4)),
+            source_lookup_slots: Arc::new(tokio::sync::Semaphore::new(SOURCE_LOOKUP_CONCURRENCY)),
         })
     }
     pub fn status(&self) -> Result<NetworkStatus, String> {
@@ -116,14 +117,28 @@ impl NetworkState {
             .acquire()
             .await
             .map_err(|_| "Catalog lookup is unavailable")?;
-        {
-            let mut next = self.source_lookup_limit.lock().await;
-            tokio::time::sleep_until(*next).await;
-            *next = tokio::time::Instant::now() + std::time::Duration::from_millis(500);
-        }
         self.hydra_search(body)
             .await
             .map_err(|error| format!("Catalog lookup failed: {error:?}"))
+    }
+
+    /// Runs `attempt` again after a growing wait (base delay times the retry number)
+    /// until it succeeds or the retries are spent, then returns the last error.
+    pub(crate) async fn retry_source_lookup<T, E, F, Fut>(mut attempt: F) -> Result<T, E>
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = Result<T, E>>,
+    {
+        let mut retry = 0;
+        loop {
+            match attempt().await {
+                Err(_) if retry < SOURCE_LOOKUP_RETRIES => {
+                    retry += 1;
+                    tokio::time::sleep(SOURCE_LOOKUP_RETRY_BASE_DELAY * retry).await;
+                }
+                result => return result,
+            }
+        }
     }
 
     pub async fn steam_details(
@@ -362,6 +377,43 @@ mod tests {
         thread,
         time::Duration,
     };
+
+    #[tokio::test(start_paused = true)]
+    async fn retry_waits_grow_then_succeed() {
+        let start = tokio::time::Instant::now();
+        let mut calls = 0;
+        let result = NetworkState::retry_source_lookup(|| {
+            calls += 1;
+            let ok = calls == 4;
+            async move { if ok { Ok(()) } else { Err("down") } }
+        })
+        .await;
+        assert_eq!(result, Ok(()));
+        assert_eq!(calls, 4);
+        assert_eq!(start.elapsed(), Duration::from_secs(15 + 30 + 45));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn retry_fails_on_fourth_attempt() {
+        let start = tokio::time::Instant::now();
+        let mut calls = 0;
+        let result: Result<(), &str> = NetworkState::retry_source_lookup(|| {
+            calls += 1;
+            async { Err("down") }
+        })
+        .await;
+        assert_eq!(result, Err("down"));
+        assert_eq!(calls, 4);
+        assert_eq!(start.elapsed(), Duration::from_secs(90));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn retry_skips_wait_on_success() {
+        let start = tokio::time::Instant::now();
+        let result: Result<u8, &str> = NetworkState::retry_source_lookup(|| async { Ok(1) }).await;
+        assert_eq!(result, Ok(1));
+        assert_eq!(start.elapsed(), Duration::ZERO);
+    }
 
     fn state() -> NetworkState {
         NetworkState::new(

@@ -433,13 +433,17 @@ async fn fetch_catalog(
         emit_progress(app, &operation_id, processed, total)?;
     }
     loop {
-        while tasks.len() < 4 {
+        while tasks.len() < crate::network::SOURCE_LOOKUP_CONCURRENCY {
             let Some(title) = pending.pop_front() else {
                 break;
             };
             let network = network.clone();
             tasks.spawn(async move {
-                let result = match crate::catalog::lookup_source_title(&network, &title).await {
+                let lookup = crate::network::NetworkState::retry_source_lookup(|| {
+                    crate::catalog::lookup_source_title(&network, &title)
+                })
+                .await;
+                let result = match lookup {
                     Ok(games) => {
                         let matching_title = title.clone();
                         tokio::task::spawn_blocking(move || {
