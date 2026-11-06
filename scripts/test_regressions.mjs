@@ -258,6 +258,9 @@ test("download presentation labels and progress tones follow status", async () =
   assert.equal(progressTone("staged"), "accent");
   assert.equal(progressTone("paused"), "warning");
   assert.equal(statusBadge("future", "en"), "future");
+  // Table-driven labels are translated through t(), so their keys must exist in en.json.
+  const { t } = await import(localeUrl);
+  assert.equal(t("in attesa", "en"), "waiting");
 });
 
 test("native launch events invalidate stale reads and reduce polling during games", async () => {

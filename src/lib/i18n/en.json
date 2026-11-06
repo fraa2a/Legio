@@ -408,6 +408,7 @@
   "I formati di data e numero seguono le impostazioni regionali del sistema.": "Date and number formats follow system regional settings.",
   "Download ({0} attivi)": "Download ({0} active)",
   "in coda": "queued",
+  "in attesa": "waiting",
   "download in corso": "downloading",
   "download in pausa": "paused",
   "download fallito": "download failed",
