@@ -124,6 +124,7 @@ pub struct DownloadQueueState {
     /// Shorter timeouts keep link checks responsive before a download is queued.
     link_client: reqwest::Client,
     running: AtomicBool,
+    /// Holds `kick` off until startup recovery has reset interrupted jobs.
     starting: AtomicBool,
     active: std::sync::Mutex<Option<(String, tokio::sync::watch::Sender<bool>)>>,
     bandwidth_limit: AtomicU64,
@@ -155,7 +156,7 @@ impl DownloadQueueState {
             client,
             link_client,
             running: AtomicBool::new(false),
-            starting: AtomicBool::new(false),
+            starting: AtomicBool::new(true),
             active: std::sync::Mutex::new(None),
             bandwidth_limit: AtomicU64::new(0),
             wake: tokio::sync::Notify::new(),
@@ -2191,6 +2192,7 @@ fn recover_on_start(app: &AppHandle) -> Result<(), String> {
 
 pub fn start(app: AppHandle) -> Result<(), String> {
     let recovered = recover_on_start(&app);
+    // Claims may only start once interrupted transfers have been reset.
     app.state::<DownloadQueueState>()
         .starting
         .store(false, Ordering::Release);
@@ -2606,7 +2608,7 @@ mod tests {
             settings.download_notifications = false;
             database.save_settings(settings).unwrap();
         }
-        tauri::test::mock_builder()
+        let app = tauri::test::mock_builder()
             .manage(state)
             .manage(crate::game_lifecycle::GameLaunchManager::new())
             .manage(crate::game_artwork::GameArtworkStore::new(Err(
@@ -2614,7 +2616,42 @@ mod tests {
             )))
             .manage(DownloadQueueState::new(Ok(directory.to_path_buf()), "test").unwrap())
             .build(context)
-            .unwrap()
+            .unwrap();
+        // Fixtures stand in for a completed startup recovery.
+        app.state::<DownloadQueueState>()
+            .starting
+            .store(false, Ordering::Release);
+        app
+    }
+
+    #[test]
+    fn kick_waits_for_startup_recovery() {
+        let (database, directory) = database_with_source();
+        let job = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
+        let app = tauri::test::mock_builder()
+            .manage(DatabaseState::new(Ok(directory.clone())))
+            .manage(DownloadQueueState::new(Ok(directory.clone()), "test").unwrap())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+
+        kick(app.handle().clone());
+
+        assert!(
+            !app.state::<DownloadQueueState>()
+                .running
+                .load(Ordering::Acquire)
+        );
+        assert_eq!(status_of(&database, &job.id).as_deref(), Some("queued"));
+        drop(app);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     fn wait_for_status(database: &Database, id: &str, expected: &str) {
