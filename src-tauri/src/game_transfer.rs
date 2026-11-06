@@ -97,7 +97,7 @@ fn require_not_running(source: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<TransferResult, String> {
+fn transfer(app: &AppHandle, game_id: &str, library_id: &str) -> Result<TransferResult, String> {
     crate::startup_recovery::require_ready(app)?;
     let manager = app.state::<GameLaunchManager>();
     let operation = manager.operation()?;
@@ -125,15 +125,6 @@ fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<Transfe
     if source.parent().is_none() {
         return Err("The filesystem root cannot be transferred".to_owned());
     }
-    if database.database()?.games()?.iter().any(|other| {
-        other.id != game_id
-            && other
-                .executable_path
-                .as_deref()
-                .is_some_and(|path| Path::new(path).starts_with(&source))
-    }) {
-        return Err("Another library game uses the selected source directory".to_owned());
-    }
     let relative = executable
         .strip_prefix(&source)
         .map_err(|_| "Game executable is outside the selected source directory".to_owned())?;
@@ -141,15 +132,9 @@ fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<Transfe
         return Err("Transfer source must be a directory".to_owned());
     }
     let relative = relative.to_path_buf();
-    let destination = PathBuf::from(destination);
-    if !destination.is_absolute() || destination.to_string_lossy().chars().any(char::is_control) {
-        return Err("Destination must be an absolute directory path".to_owned());
-    }
-    let parent = dunce::canonicalize(&destination)
+    let parent = crate::game_library::library_root(database.database()?, library_id)?;
+    let parent = dunce::canonicalize(&parent)
         .map_err(|error| format!("Could not inspect destination library: {error}"))?;
-    if !parent.is_dir() {
-        return Err("Destination library is not a directory".into());
-    }
     let destination = database.database()?.with_connection(|connection| {
         crate::game_library::available_target(
             connection,
@@ -164,6 +149,7 @@ fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<Transfe
             },
         )
     })?;
+    require_exclusive(database.database()?, game_id, &source, &destination)?;
     if destination.starts_with(&source) || source.starts_with(&destination) {
         return Err("Source and destination directories overlap".to_owned());
     }
@@ -196,7 +182,7 @@ fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<Transfe
         }
     }
     commit_transfer(database.database()?, &intent)?;
-    let warning = cleanup_transfer(database.database()?, &intent).err();
+    let warning = cleanup_transfer(database.database()?, &intent).unwrap_or_else(Some);
     if let Some(old_library) = game
         .installation_root
         .as_deref()
@@ -210,6 +196,23 @@ fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<Transfe
         game: database.database()?.game(game_id)?,
         warning,
     })
+}
+
+/// Refuses a transfer that would move or land inside another game's files.
+fn require_exclusive(
+    database: &Database,
+    game_id: &str,
+    source: &Path,
+    destination: &Path,
+) -> Result<(), String> {
+    use crate::game_uninstall::overlaps_other_game;
+    if overlaps_other_game(database, game_id, source)? {
+        return Err("Another library game shares the selected source directory".to_owned());
+    }
+    if overlaps_other_game(database, game_id, destination)? {
+        return Err("Another library game shares the destination directory".to_owned());
+    }
+    Ok(())
 }
 
 const MARKER: &str = ".legio-transfer-owner";
@@ -337,8 +340,12 @@ fn commit_transfer(database: &Database, intent: &TransferIntent) -> Result<(), S
     })
 }
 
-fn cleanup_transfer(database: &Database, intent: &TransferIntent) -> Result<(), String> {
-    require_not_running(&intent.source)?;
+/// Finishes a committed transfer. The destination is authoritative from then on, so an old
+/// copy that cannot be removed is reported as a warning instead of keeping the game blocked.
+fn cleanup_transfer(
+    database: &Database,
+    intent: &TransferIntent,
+) -> Result<Option<String>, String> {
     crate::game_library::publish(
         database,
         intent
@@ -369,20 +376,13 @@ fn cleanup_transfer(database: &Database, intent: &TransferIntent) -> Result<(), 
             return Err("Transfer cleanup requires the owned destination".to_owned());
         }
     }
-    if intent.source.exists() && !owns_directory(&intent.source, intent) {
-        return Err(
-            "Game transferred, but source ownership changed; old directory preserved".to_owned(),
-        );
-    }
-    match fs::remove_dir_all(&intent.source) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(format!(
-                "Game transferred, but old copy cleanup failed: {error}"
-            ));
-        }
-    }
+    let leftover = remove_source(intent).err().map(|error| {
+        crate::application_log::failure("cleanup_game_transfer", &error);
+        format!(
+            "Game transferred, but the old copy at {} was not removed ({error}). Delete it manually",
+            intent.source.display()
+        )
+    });
     match fs::remove_file(intent.destination.join(MARKER)) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -397,7 +397,23 @@ fn cleanup_transfer(database: &Database, intent: &TransferIntent) -> Result<(), 
             )
             .map_err(database_error)?;
         Ok(())
-    })
+    })?;
+    Ok(leftover)
+}
+
+fn remove_source(intent: &TransferIntent) -> Result<(), String> {
+    if !intent.source.exists() {
+        return Ok(());
+    }
+    require_not_running(&intent.source)?;
+    if !owns_directory(&intent.source, intent) {
+        return Err("Legio no longer recognizes it".to_owned());
+    }
+    match fs::remove_dir_all(&intent.source) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 fn reserve_source(intent: &TransferIntent) -> Result<(), String> {
@@ -587,16 +603,31 @@ fn source_moved(intent: &TransferIntent) -> Result<bool, String> {
     }
 }
 
+fn is_absent(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_err_and(|error| error.kind() == io::ErrorKind::NotFound)
+}
+
+/// A copy that vanished before publication cannot be committed, but the owned source still holds the game.
+fn copy_lost(intent: &TransferIntent) -> bool {
+    intent.phase == "copied"
+        && is_absent(&intent.temporary)
+        && is_absent(&intent.destination)
+        && owns_directory(&intent.source, intent)
+        && intent.source.join(&intent.relative).is_file()
+}
+
 fn recover_transfer(database: &Database, intent: &TransferIntent) -> Result<(), String> {
     let pending = matches!(intent.phase.as_str(), "prepared" | "moving");
-    if pending && !source_moved(intent)? {
+    if copy_lost(intent) {
+        rollback_prepared(database, intent, false)
+    } else if pending && !source_moved(intent)? {
         // A move never creates the temporary directory, so only the copy path removes it.
         rollback_prepared(database, intent, intent.phase == "prepared")
     } else {
         if intent.phase != "committed" {
             commit_transfer(database, intent)?;
         }
-        cleanup_transfer(database, intent)
+        cleanup_transfer(database, intent).map(|_| ())
     }
 }
 
@@ -623,9 +654,9 @@ pub(crate) fn ensure_launchable(database: &Database, game: &str) -> Result<(), S
 pub async fn transfer_game(
     app: AppHandle,
     game_id: String,
-    destination_directory: String,
+    library_id: String,
 ) -> Result<TransferResult, String> {
-    tauri::async_runtime::spawn_blocking(move || transfer(&app, &game_id, &destination_directory))
+    tauri::async_runtime::spawn_blocking(move || transfer(&app, &game_id, &library_id))
         .await
         .map_err(|error| format!("Transfer task failed: {error}"))?
 }
@@ -738,11 +769,33 @@ mod tests {
     #[test]
     fn failed_transfer_recovery_keeps_only_its_game_blocked() {
         let (root, database, intent) = fixture("copied");
+        // Without the source marker, recovery can neither commit nor roll back.
+        fs::remove_file(intent.source.join(MARKER)).unwrap();
         recover(&database).unwrap();
         assert!(ensure_launchable(&database, &intent.game_id).is_err());
         ensure_launchable(&database, "unrelated-game").unwrap();
         assert_eq!(pending_transfers(&database, None).unwrap().len(), 1);
         assert!(intent.source.join(&intent.relative).is_file());
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn copied_transfer_without_copy_rolls_back() {
+        let (root, database, intent) = fixture("copied");
+        recover(&database).unwrap();
+        ensure_launchable(&database, &intent.game_id).unwrap();
+        assert!(pending_transfers(&database, None).unwrap().is_empty());
+        assert!(intent.source.join(&intent.relative).is_file());
+        assert!(!intent.source.join(MARKER).exists());
+        assert_eq!(
+            database
+                .game(&intent.game_id)
+                .unwrap()
+                .installation_root
+                .as_deref(),
+            intent.source.to_str()
+        );
         drop(database);
         fs::remove_dir_all(root).unwrap();
     }
@@ -804,6 +857,44 @@ mod tests {
         assert!(!intent.destination.join(MARKER).exists());
         assert!(pending_transfers(&database, None).unwrap().is_empty());
         recover(&database).unwrap();
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn committed_transfer_unblocks_despite_leftover_source() {
+        let (root, database, intent) = fixture("copied");
+        copy_directory(&intent.source, &intent.temporary).unwrap();
+        fs::write(
+            intent.temporary.join(MARKER),
+            intent.temporary.to_string_lossy().as_bytes(),
+        )
+        .unwrap();
+        commit_transfer(&database, &intent).unwrap();
+        // A partial removal can delete the source marker before the rest of the old copy.
+        fs::remove_file(intent.source.join(MARKER)).unwrap();
+        ensure_launchable(&database, &intent.game_id).unwrap();
+        assert!(pending_transfers(&database, None).unwrap().is_empty());
+        assert!(intent.source.join(&intent.relative).is_file());
+        assert!(!intent.destination.join(MARKER).exists());
+        assert!(intent.destination.join(&intent.relative).is_file());
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn leftover_source_is_reported() {
+        let (root, database, intent) = fixture("copied");
+        copy_directory(&intent.source, &intent.temporary).unwrap();
+        fs::write(
+            intent.temporary.join(MARKER),
+            intent.temporary.to_string_lossy().as_bytes(),
+        )
+        .unwrap();
+        commit_transfer(&database, &intent).unwrap();
+        fs::remove_file(intent.source.join(MARKER)).unwrap();
+        let warning = cleanup_transfer(&database, &intent).unwrap().unwrap();
+        assert!(warning.contains(&*intent.source.to_string_lossy()));
         drop(database);
         fs::remove_dir_all(root).unwrap();
     }
@@ -1050,6 +1141,43 @@ mod tests {
             .unwrap(),
             dunce::canonicalize(&intent.destination).unwrap()
         );
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn nested_game_paths_are_refused() {
+        let (root, database, intent) = fixture("prepared");
+        let inner = database
+            .create_game(CreateGameInput {
+                name: "Tool".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        let tools = intent.source.join("tools");
+        database.with_connection(|connection| {
+            connection.execute("UPDATE games SET executable_path = ?2, installation_root = ?3 WHERE id = ?1",
+                params![inner.id, tools.join("tool.exe").to_string_lossy(), tools.to_string_lossy()]).map_err(database_error)?;
+            Ok(())
+        }).unwrap();
+        // The tool's folder lies inside the outer game's folder.
+        assert!(require_exclusive(&database, &inner.id, &tools, &intent.destination).is_err());
+        assert!(
+            require_exclusive(
+                &database,
+                &inner.id,
+                &root.join("free"),
+                &intent.source.join("moved")
+            )
+            .is_err()
+        );
+        require_exclusive(
+            &database,
+            &inner.id,
+            &root.join("free"),
+            &intent.destination,
+        )
+        .unwrap();
         drop(database);
         fs::remove_dir_all(root).unwrap();
     }

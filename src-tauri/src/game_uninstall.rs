@@ -64,29 +64,8 @@ fn checked_target(database: &Database, id: &str, protected: &[PathBuf]) -> Resul
     if is_system_directory(&root) {
         return Err("System directories cannot be uninstalled by Legio".into());
     }
-    for other in database.games()? {
-        if other.id == id {
-            continue;
-        }
-        for path in [
-            other.installation_root,
-            other.steam_install_path,
-            other.executable_path,
-        ]
-        .into_iter()
-        .flatten()
-        {
-            let path = match dunce::canonicalize(&path) {
-                Ok(path) => path,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => PathBuf::from(path),
-                Err(error) => {
-                    return Err(format!("Could not inspect another game's path: {error}"));
-                }
-            };
-            if root.starts_with(&path) || path.starts_with(&root) {
-                return Err("Another library game shares this installation directory".into());
-            }
-        }
+    if overlaps_other_game(database, id, &root)? {
+        return Err("Another library game shares this installation directory".into());
     }
     let libraries = database.with_connection(|connection| {
         let busy: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM downloads WHERE (id=?1 OR target_game_id=?1) AND status NOT IN ('installed','cancelled')) OR EXISTS(SELECT 1 FROM game_transfers WHERE game_id=?1) OR EXISTS(SELECT 1 FROM game_update_journals WHERE game_id=?1)", [id], |row| row.get(0)).map_err(database_error)?;
@@ -119,6 +98,59 @@ fn checked_target(database: &Database, id: &str, protected: &[PathBuf]) -> Resul
         return Err("Close the game before uninstalling its files".into());
     }
     Ok(root)
+}
+
+/// Canonicalizes the longest existing ancestor and re-appends the missing tail, so paths that do
+/// not exist yet compare equal to canonical ones (e.g. Windows short temp paths).
+fn canonicalize_existing_prefix(path: &Path) -> Result<PathBuf, String> {
+    let mut existing = path;
+    let mut tail = Vec::new();
+    loop {
+        match dunce::canonicalize(existing) {
+            Ok(mut canonical) => {
+                canonical.extend(tail.iter().rev());
+                return Ok(canonical);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                match (existing.parent(), existing.file_name()) {
+                    (Some(parent), Some(name)) => {
+                        tail.push(name);
+                        existing = parent;
+                    }
+                    _ => return Ok(path.to_path_buf()),
+                }
+            }
+            Err(error) => return Err(format!("Could not inspect another game's path: {error}")),
+        }
+    }
+}
+
+/// Whether `root` contains, or lies inside, a path recorded by another game.
+pub(crate) fn overlaps_other_game(
+    database: &Database,
+    id: &str,
+    root: &Path,
+) -> Result<bool, String> {
+    let root = canonicalize_existing_prefix(root)?;
+    for other in database.games()? {
+        if other.id == id {
+            continue;
+        }
+        for path in [
+            other.installation_root,
+            other.steam_install_path,
+            other.executable_path,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let path = canonicalize_existing_prefix(Path::new(&path))?;
+            if root.starts_with(&path) || path.starts_with(&root) {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }
 
 /// Whether `path` lies in an operating system directory that Legio must never write to or delete.

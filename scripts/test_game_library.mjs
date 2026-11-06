@@ -86,7 +86,7 @@ test("transfer asks only for a destination library and stays disabled while the 
     button.click(); await settle();
     assert.equal(calls.length, 0);
     [...target.querySelectorAll("button")].find(button => button.textContent.trim() === "Pick outside current").click(); await settle();
-    assert.deepEqual(calls, [[game.id, "/new-library"]]);
+    assert.deepEqual(calls, [[game.id, "next"]]);
     [...target.querySelectorAll("button")].find(button => button.textContent.trim() === "Zona pericolosa").click(); await settle();
     const editPlaytime = [...target.querySelectorAll("button")].find(button => button.textContent.trim() === "Imposta tempo di gioco");
     assert.ok(editPlaytime, "the red playtime button stays in danger settings");
@@ -152,7 +152,7 @@ test("library removal stops at the first failed game and keeps the library", asy
     "src/lib/i18n": dataModule(storeImport + 'export const language=writable("it"); export const t=value=>value;'),
     "src/lib/services/dialog": dataModule("export const pickGameDirectory=async()=>null;"),
     "src/lib/services/game-libraries": dataModule('export const listGameLibraries=async()=>globalThis.removalFixture.libraries; export const addGameLibrary=async()=>""; export const removeGameLibrary=async id=>{globalThis.removalFixture.calls.push(["remove",id]);};'),
-    "src/lib/services/local-state": dataModule('export const getGameUninstallTarget=async()=>""; export const transferGame=async(id,root)=>{globalThis.removalFixture.calls.push(["move",id,root]); if(id===globalThis.removalFixture.fail) throw new Error("disk full"); return {game:{id},warning:null};};'),
+    "src/lib/services/local-state": dataModule('export const getGameUninstallTarget=async()=>""; export const transferGame=async(id,library)=>{globalThis.removalFixture.calls.push(["move",id,library]); if(id===globalThis.removalFixture.fail) throw new Error("disk full"); return {game:{id},warning:null};};'),
     "src/lib/stores/games": dataModule("export const games={reload:async()=>{}}; export const reconcileGame=()=>{}; export const uninstallGame=async()=>({warnings:[]});"),
   });
   const { removeLibrary, onlyUsableLibrary } = await import(await load("src/lib/stores/game-libraries.ts"));
@@ -161,11 +161,11 @@ test("library removal stops at the first failed game and keeps the library", asy
     const removal = { kind: "move", target: { id: "new", root: "/new" } };
     const outcome = await removeLibrary(library, removal, () => {});
     assert.deepEqual(outcome.failure, { game: "B", message: "disk full" });
-    assert.deepEqual(calls, [["move", "a", "/new"], ["move", "b", "/new"]]);
+    assert.deepEqual(calls, [["move", "a", "new"], ["move", "b", "new"]]);
     globalThis.removalFixture.fail = null;
     calls.length = 0;
     assert.equal((await removeLibrary({ ...library, games: [{ id: "c", name: "C" }] }, removal, () => {})).failure, null);
-    assert.deepEqual(calls, [["move", "c", "/new"], ["remove", "old"]]);
+    assert.deepEqual(calls, [["move", "c", "new"], ["remove", "old"]]);
 
     // The picker is skipped only for a single reachable library with enough room.
     const only = { id: "only", root: "/games", freeBytes: 500, games: [] };

@@ -66,7 +66,7 @@
     transferWarning = null;
     transferDone = false;
     try {
-      const result = await transferGame(game.id, library.root);
+      const result = await transferGame(game.id, library.id);
       reconcileGame(result.game);
       transferWarning = result.warning;
       transferDone = true;
