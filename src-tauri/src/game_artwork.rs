@@ -34,7 +34,22 @@ impl ArtworkKind {
             Self::ShortcutIcon => "game shortcut icon",
         }
     }
+
+    // Windows shortcuts need .ico files, so shortcut icons are stored as ICO.
+    fn formats(self) -> &'static [ImageFormat] {
+        match self {
+            Self::Icon | Self::Banner => &ImageFormat::ALL,
+            Self::ShortcutIcon => &SHORTCUT_ICON_FORMATS,
+        }
+    }
 }
+
+const SHORTCUT_ICON_FORMATS: [ImageFormat; 4] = [
+    ImageFormat::Png,
+    ImageFormat::Jpeg,
+    ImageFormat::Webp,
+    ImageFormat::Ico,
+];
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -281,7 +296,7 @@ fn existing_paths(
     }
 
     let mut paths = Vec::new();
-    for format in ImageFormat::ALL {
+    for &format in kind.formats() {
         let path = artwork_path(directory, game_id, format);
         match fs::symlink_metadata(&path) {
             Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
@@ -506,6 +521,24 @@ mod tests {
             Some(expected.clone())
         );
         assert_eq!(fs::read(expected).unwrap(), PNG);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn shortcut_ico_is_found_by_path() {
+        let root = test_dir();
+        let store = GameArtworkStore::new(Ok(root.join("app-data")));
+        let id = "00000000-0000-0000-0000-000000000001";
+        let icon = crate::image_trim::shortcut_ico(&jpeg_image()).unwrap();
+        store.set_shortcut_icon(id, icon).unwrap();
+
+        let path = store.path(id, ArtworkKind::ShortcutIcon).unwrap().unwrap();
+        assert_eq!(
+            path,
+            root.join(format!("app-data/game-shortcut-icons/{id}.ico"))
+        );
+        store.remove(id, ArtworkKind::ShortcutIcon).unwrap();
+        assert_eq!(store.path(id, ArtworkKind::ShortcutIcon).unwrap(), None);
         fs::remove_dir_all(root).unwrap();
     }
 
