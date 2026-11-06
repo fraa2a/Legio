@@ -17,7 +17,6 @@ const QUEUE_CAPACITY: usize = 64;
 #[serde(rename_all = "snake_case")]
 pub enum Operation {
     HydraSearch,
-    IdentificationCache,
     LegioSource,
     News,
     SteamDetails,
