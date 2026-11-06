@@ -46,6 +46,8 @@
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Upload from "@lucide/svelte/icons/upload";
   import Wrench from "@lucide/svelte/icons/wrench";
+  import Volume2 from "@lucide/svelte/icons/volume-2";
+  import VolumeX from "@lucide/svelte/icons/volume-x";
   import X from "@lucide/svelte/icons/x";
 
   const icons = {
@@ -97,6 +99,8 @@
     "thumbs-up": ThumbsUp,
     "funnel": Funnel,
     "heart": Heart,
+    "volume": Volume2,
+    "muted": VolumeX,
   };
 
   export type IconName = keyof typeof icons;

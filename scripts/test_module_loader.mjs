@@ -23,7 +23,7 @@ export function createModuleLoader(mocks) {
   const modules = new Map();
 
   async function resolveImports(code, path) {
-    for (const match of [...code.matchAll(/(?:from\s*|import\s*)["']([^"']+)["']/g)]) {
+    for (const match of [...code.matchAll(/(?:from\s*|import\s*|import\(\s*)["']([^"']+)["']/g)]) {
       const specifier = match[1];
       const resolved = specifier.startsWith(".") ? new URL(specifier, `file:///${path}`).pathname.slice(1) : null;
       const url = resolved === null

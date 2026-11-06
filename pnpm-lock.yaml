@@ -181,6 +181,9 @@ importers:
       '@tauri-apps/plugin-updater':
         specifier: ^2.13.2
         version: 2.13.2
+      hls.js:
+        specifier: ^1.7.4
+        version: 1.7.4
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^6.0.0
@@ -1175,6 +1178,9 @@ packages:
   hashery@1.5.1:
     resolution: {integrity: sha512-iZyKG96/JwPz1N55vj2Ie2vXbhu440zfUfJvSwEqEbeLluk7NnapfGqa7LH0mOsnDxTF85Mx8/dyR6HfqcbmbQ==}
     engines: {node: '>=20'}
+
+  hls.js@1.7.4:
+    resolution: {integrity: sha512-3GlxGdPvT2YHvQYOt+yOzT/DEior/qJVNIylHA77kgeoBTdQQqi70GwefNEUmHQeNGyjC8U62+bruqW/Tpm+tg==}
 
   hookified@1.15.1:
     resolution: {integrity: sha512-MvG/clsADq1GPM2KGo2nyfaWVyn9naPiXrqIe4jYjXNZQt238kWyOGrsyc/DmRAQ+Re6yeo6yX/yoNCG5KAEVg==}
@@ -2460,6 +2466,8 @@ snapshots:
   hashery@1.5.1:
     dependencies:
       hookified: 1.15.1
+
+  hls.js@1.7.4: {}
 
   hookified@1.15.1: {}
 

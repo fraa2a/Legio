@@ -3,6 +3,15 @@ import { language } from "../i18n";
 import { invoke } from "./invoke";
 import type { ArtworkWork } from "./artwork-work";
 
+export interface SteamMovie {
+  id: number;
+  name: string;
+  thumbnail: string | null;
+  hls: string | null;
+  mp4: string | null;
+  webm: string | null;
+}
+
 export interface SteamDetails {
   steamAppId: number;
   name: string;
@@ -20,6 +29,7 @@ export interface SteamDetails {
     capsule: string | null;
     background: string | null;
     screenshots: { thumbnail: string | null; full: string | null }[];
+    movies?: SteamMovie[];
   };
 }
 
