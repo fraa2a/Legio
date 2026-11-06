@@ -1,4 +1,4 @@
-use crate::download_resolver::{Provider, ResolvedDownload, ResolvedFile};
+use crate::download_resolver::{Provider, ResolveError, ResolvedDownload, ResolvedFile};
 use reqwest::{
     Client, Method, Url,
     header::{HeaderMap, HeaderValue},
@@ -235,13 +235,9 @@ fn headers(token: Option<&str>, secret: &str) -> Result<HeaderMap, String> {
     Ok(headers)
 }
 
-async fn response_bytes(mut response: reqwest::Response) -> Result<Vec<u8>, String> {
+async fn response_bytes(mut response: reqwest::Response) -> Result<Vec<u8>, GofileError> {
     let mut bytes = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|e| format!("GoFile network: {}", e.without_url()))?
-    {
+    while let Some(chunk) = response.chunk().await.map_err(network_error)? {
         if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
             return Err("GoFile response exceeds the size limit".into());
         }
@@ -249,17 +245,41 @@ async fn response_bytes(mut response: reqwest::Response) -> Result<Vec<u8>, Stri
     }
     Ok(bytes)
 }
-/// Lets the caller renew a rejected guest token without matching message text.
+/// Lets the caller renew a rejected guest token and tell network failures from
+/// refusals without matching message text.
 enum GofileError {
     Unauthorized,
+    Network(String),
     Other(String),
+}
+
+fn network_error(error: reqwest::Error) -> GofileError {
+    GofileError::Network(format!("GoFile network: {}", error.without_url()))
 }
 
 impl std::fmt::Display for GofileError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Unauthorized => formatter.write_str("GoFile authorization rejected"),
-            Self::Other(message) => formatter.write_str(message),
+            Self::Network(message) | Self::Other(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl From<ResolveError> for GofileError {
+    fn from(error: ResolveError) -> Self {
+        match error {
+            ResolveError::Network(message) => Self::Network(message),
+            other => Self::Other(other.to_string()),
+        }
+    }
+}
+
+impl From<GofileError> for ResolveError {
+    fn from(error: GofileError) -> Self {
+        match error {
+            GofileError::Network(message) => Self::Network(message),
+            other => Self::Link(other.to_string()),
         }
     }
 }
@@ -295,7 +315,7 @@ async fn request(
             .timeout(Duration::from_secs(15))
             .send()
             .await
-            .map_err(|e| format!("GoFile network: {}", e.without_url()))?;
+            .map_err(network_error)?;
         let status = response.status();
         let bytes = response_bytes(response).await?;
         let reply = serde_json::from_slice::<Reply>(&bytes);
@@ -348,7 +368,7 @@ fn script_url(html: &str) -> Option<String> {
         && url.password().is_none())
     .then(|| url.to_string())
 }
-async fn website_text(client: &Client, url: &str) -> Result<String, String> {
+async fn website_text(client: &Client, url: &str) -> Result<String, GofileError> {
     let mut headers = HeaderMap::new();
     headers.insert("user-agent", HeaderValue::from_static(USER_AGENT));
     headers.insert("referer", HeaderValue::from_static("https://gofile.io/"));
@@ -362,7 +382,7 @@ async fn website_text(client: &Client, url: &str) -> Result<String, String> {
     String::from_utf8(response_bytes(response).await?)
         .map_err(|_| "GoFile returned invalid text".into())
 }
-async fn secret(client: &Client) -> Result<String, String> {
+async fn secret(client: &Client) -> Result<String, GofileError> {
     let mut urls = Vec::new();
     if let Ok(html) = website_text(client, "https://gofile.io/").await
         && let Some(url) = script_url(&html)
@@ -376,6 +396,7 @@ async fn secret(client: &Client) -> Result<String, String> {
     urls.dedup();
     // Keep the first failure: later candidates are fallback paths that usually just 404.
     let mut first_error = None;
+    let mut unreachable = false;
     for url in urls {
         let script = match website_text(client, &url).await {
             Ok(script) if script.trim_start().starts_with('<') => {
@@ -384,7 +405,8 @@ async fn secret(client: &Client) -> Result<String, String> {
             }
             Ok(script) => script,
             Err(error) => {
-                first_error.get_or_insert(error);
+                unreachable |= matches!(error, GofileError::Network(_));
+                first_error.get_or_insert(error.to_string());
                 continue;
             }
         };
@@ -401,9 +423,12 @@ async fn secret(client: &Client) -> Result<String, String> {
     }
     let reason = first_error.unwrap_or_else(|| "no script URL was available".to_owned());
     crate::application_log::failure("gofile_website_token", &reason);
-    Err(format!(
-        "Cannot load the current GoFile website-token generator: {reason}"
-    ))
+    let message = format!("Cannot load the current GoFile website-token generator: {reason}");
+    Err(if unreachable {
+        GofileError::Network(message)
+    } else {
+        GofileError::Other(message)
+    })
 }
 async fn load_token() -> Option<String> {
     let path = CACHE_PATH.get()?;
@@ -451,7 +476,7 @@ async fn persist_token(token: &str) {
         crate::application_log::failure("gofile_guest_cache", &error);
     }
 }
-async fn create_token(client: &Client, secret: &str) -> Result<String, String> {
+async fn create_token(client: &Client, secret: &str) -> Result<String, GofileError> {
     let reply = request(
         client,
         Method::POST,
@@ -568,7 +593,7 @@ async fn official(
     client: &Client,
     id: &str,
     password: Option<&str>,
-) -> Result<ResolvedFile, String> {
+) -> Result<ResolvedFile, GofileError> {
     let mut state = STATE
         .get_or_init(|| AsyncMutex::new(Session::default()))
         .lock()
@@ -622,13 +647,13 @@ pub(crate) async fn resolve(
     client: &Client,
     id: &str,
     password: Option<&str>,
-) -> Result<ResolvedDownload, String> {
+) -> Result<ResolvedDownload, ResolveError> {
     if !valid_id(id) {
         return Err("Invalid GoFile content ID".into());
     }
     let file = tokio::time::timeout(Duration::from_secs(120), official(client, id, password))
         .await
-        .map_err(|_| "GoFile resolution timed out".to_owned())??;
+        .map_err(|_| ResolveError::Network("GoFile resolution timed out".to_owned()))??;
     Ok(ResolvedDownload {
         provider: Provider::Gofile,
         files: vec![file],
@@ -638,6 +663,16 @@ pub(crate) async fn resolve(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn network_failures_stay_network_errors() {
+        let offline = ResolveError::from(GofileError::Network("GoFile network: offline".into()));
+        assert!(matches!(offline, ResolveError::Network(_)));
+        let refused = ResolveError::from(GofileError::Other("GoFile denied".into()));
+        assert!(matches!(refused, ResolveError::Link(_)));
+        let propagated = GofileError::from(ResolveError::Network("reset".into()));
+        assert!(matches!(propagated, GofileError::Network(_)));
+    }
 
     #[test]
     fn extracts_secret_by_running_the_website_generator() {

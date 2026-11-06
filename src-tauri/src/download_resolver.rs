@@ -423,9 +423,7 @@ async fn resolve_gofile(client: &Client, uri: &str) -> Result<ResolvedDownload, 
         .query_pairs()
         .find(|(key, _)| key == "password")
         .map(|(_, value)| value.into_owned());
-    crate::gofile::resolve(client, id, password.as_deref())
-        .await
-        .map_err(ResolveError::Link)
+    crate::gofile::resolve(client, id, password.as_deref()).await
 }
 
 #[cfg(test)]
