@@ -290,9 +290,11 @@ pub(super) fn install_cached_package(
     let full_name =
         existing.map_or_else(|| id.package.to_string(), |record| record.full_name.clone());
     let old_files = match existing {
-        Some(record) => ctx
-            .database
-            .profile_mod_files(&profile.id, &record.full_name)?,
+        Some(record) => without_untracked(
+            ctx.database
+                .profile_mod_files(&profile.id, &record.full_name)?,
+            &planned,
+        ),
         None => Vec::new(),
     };
     let tracked = tracked_paths(&planned);
@@ -670,6 +672,19 @@ fn tracked_paths(planned: &[PlannedFile]) -> Vec<String> {
         .iter()
         .filter(|file| file.tracked)
         .map(|file| file.destination.clone())
+        .collect()
+}
+
+/// Drops the files the new plan leaves untracked: a file an older version
+/// tracked but the new one treats as configuration stays with the user.
+fn without_untracked(files: Vec<String>, planned: &[PlannedFile]) -> Vec<String> {
+    files
+        .into_iter()
+        .filter(|path| {
+            !planned
+                .iter()
+                .any(|file| !file.tracked && file.destination == *path)
+        })
         .collect()
 }
 
@@ -1098,6 +1113,78 @@ mod tests {
             !env.files_of("Owner-Mod")
                 .iter()
                 .any(|path| path.contains("config"))
+        );
+    }
+
+    fn loader_repo() -> FakeRepo {
+        let mut repo = FakeRepo::default();
+        for (id, core) in [
+            (LOADER, "core 1"),
+            ("BepInEx-BepInExPack-5.4.2200", "core 2"),
+        ] {
+            repo.add(
+                id,
+                &[],
+                &[
+                    ("BepInExPack/BepInEx/core/BepInEx.dll", core),
+                    ("BepInExPack/BepInEx/config/BepInEx.cfg", "default"),
+                ],
+            );
+        }
+        repo
+    }
+
+    #[test]
+    fn loader_update_and_uninstall_keep_its_config() {
+        let env = Env::new();
+        let repo = loader_repo();
+        env.install(&repo, &[LOADER], ResolveMode::Latest).unwrap();
+        let config = env.profile_dir().join("BepInEx/config/BepInEx.cfg");
+        assert_eq!(fs::read(&config).unwrap(), b"default");
+        assert_eq!(
+            env.files_of("BepInEx-BepInExPack"),
+            ["BepInEx/core/BepInEx.dll"]
+        );
+        fs::write(&config, "user edited").unwrap();
+
+        env.install(&repo, &["BepInEx-BepInExPack"], ResolveMode::Latest)
+            .unwrap();
+        assert_eq!(
+            fs::read(env.profile_dir().join("BepInEx/core/BepInEx.dll")).unwrap(),
+            b"core 2"
+        );
+        assert_eq!(fs::read(&config).unwrap(), b"user edited");
+
+        uninstall_mod(&env.ctx(), &env.profile.id, "BepInEx-BepInExPack").unwrap();
+        assert!(!env.exists("BepInEx/core/BepInEx.dll"));
+        assert_eq!(fs::read(&config).unwrap(), b"user edited");
+    }
+
+    #[test]
+    fn loader_update_keeps_a_config_tracked_by_older_installs() {
+        let env = Env::new();
+        let repo = loader_repo();
+        env.install(&repo, &[LOADER], ResolveMode::Latest).unwrap();
+        // Older installs tracked the loader config like any loader file.
+        env.database
+            .replace_profile_mod_files(
+                &env.profile.id,
+                "BepInEx-BepInExPack",
+                &[
+                    "BepInEx/config/BepInEx.cfg".to_owned(),
+                    "BepInEx/core/BepInEx.dll".to_owned(),
+                ],
+            )
+            .unwrap();
+        let config = env.profile_dir().join("BepInEx/config/BepInEx.cfg");
+        fs::write(&config, "user edited").unwrap();
+
+        env.install(&repo, &["BepInEx-BepInExPack"], ResolveMode::Latest)
+            .unwrap();
+        assert_eq!(fs::read(&config).unwrap(), b"user edited");
+        assert_eq!(
+            env.files_of("BepInEx-BepInExPack"),
+            ["BepInEx/core/BepInEx.dll"]
         );
     }
 
