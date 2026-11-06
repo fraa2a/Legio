@@ -125,15 +125,6 @@ fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<Transfe
     if source.parent().is_none() {
         return Err("The filesystem root cannot be transferred".to_owned());
     }
-    if database.database()?.games()?.iter().any(|other| {
-        other.id != game_id
-            && other
-                .executable_path
-                .as_deref()
-                .is_some_and(|path| Path::new(path).starts_with(&source))
-    }) {
-        return Err("Another library game uses the selected source directory".to_owned());
-    }
     let relative = executable
         .strip_prefix(&source)
         .map_err(|_| "Game executable is outside the selected source directory".to_owned())?;
@@ -164,6 +155,7 @@ fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<Transfe
             },
         )
     })?;
+    require_exclusive(database.database()?, game_id, &source, &destination)?;
     if destination.starts_with(&source) || source.starts_with(&destination) {
         return Err("Source and destination directories overlap".to_owned());
     }
@@ -210,6 +202,23 @@ fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<Transfe
         game: database.database()?.game(game_id)?,
         warning,
     })
+}
+
+/// Refuses a transfer that would move or land inside another game's files.
+fn require_exclusive(
+    database: &Database,
+    game_id: &str,
+    source: &Path,
+    destination: &Path,
+) -> Result<(), String> {
+    use crate::game_uninstall::overlaps_other_game;
+    if overlaps_other_game(database, game_id, source)? {
+        return Err("Another library game shares the selected source directory".to_owned());
+    }
+    if overlaps_other_game(database, game_id, destination)? {
+        return Err("Another library game shares the destination directory".to_owned());
+    }
+    Ok(())
 }
 
 const MARKER: &str = ".legio-transfer-owner";
@@ -1138,6 +1147,43 @@ mod tests {
             .unwrap(),
             dunce::canonicalize(&intent.destination).unwrap()
         );
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn nested_game_paths_are_refused() {
+        let (root, database, intent) = fixture("prepared");
+        let inner = database
+            .create_game(CreateGameInput {
+                name: "Tool".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        let tools = intent.source.join("tools");
+        database.with_connection(|connection| {
+            connection.execute("UPDATE games SET executable_path = ?2, installation_root = ?3 WHERE id = ?1",
+                params![inner.id, tools.join("tool.exe").to_string_lossy(), tools.to_string_lossy()]).map_err(database_error)?;
+            Ok(())
+        }).unwrap();
+        // The tool's folder lies inside the outer game's folder.
+        assert!(require_exclusive(&database, &inner.id, &tools, &intent.destination).is_err());
+        assert!(
+            require_exclusive(
+                &database,
+                &inner.id,
+                &root.join("free"),
+                &intent.source.join("moved")
+            )
+            .is_err()
+        );
+        require_exclusive(
+            &database,
+            &inner.id,
+            &root.join("free"),
+            &intent.destination,
+        )
+        .unwrap();
         drop(database);
         fs::remove_dir_all(root).unwrap();
     }
