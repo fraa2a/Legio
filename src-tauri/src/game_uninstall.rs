@@ -94,6 +94,7 @@ fn checked_target(database: &Database, id: &str, protected: &[PathBuf]) -> Resul
         let mut query = connection.prepare("SELECT root FROM game_libraries").map_err(database_error)?;
         query.query_map([], |row| row.get::<_, String>(0)).map_err(database_error)?.collect::<Result<Vec<_>, _>>().map_err(database_error)
     })?;
+    let mut inside_library = false;
     for library in libraries {
         let library = match dunce::canonicalize(&library) {
             Ok(path) => path,
@@ -107,6 +108,12 @@ fn checked_target(database: &Database, id: &str, protected: &[PathBuf]) -> Resul
         if library.starts_with(&root) {
             return Err("A game library directory cannot be uninstalled".into());
         }
+        inside_library |= root.parent() == Some(library.as_path());
+    }
+    // Only a folder directly inside a library is known to hold a single game; a manually
+    // imported executable can sit in a shared folder such as ~/Applications.
+    if !inside_library {
+        return Err("This game is not stored in a library folder, so Legio cannot tell which files belong to it. Remove it from the library and delete its files manually".into());
     }
     if crate::download_policy::external_busy(&root)? {
         return Err("Close the game before uninstalling its files".into());
@@ -326,6 +333,20 @@ mod tests {
         id: String,
     }
 
+    fn register_library(database: &Database, library: &Path) {
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "INSERT INTO game_libraries(id,root) VALUES (?1,?2)",
+                        params![uuid::Uuid::new_v4().to_string(), library.to_string_lossy()],
+                    )
+                    .map_err(database_error)?;
+                Ok(())
+            })
+            .unwrap();
+    }
+
     impl Fixture {
         fn new() -> Self {
             let root =
@@ -334,6 +355,7 @@ mod tests {
             fs::create_dir_all(directory.join("bin")).unwrap();
             fs::write(directory.join("bin/game.exe"), b"game").unwrap();
             let database = Database::open(&root.join("data")).unwrap();
+            register_library(&database, &root);
             let game = database
                 .create_game(CreateGameInput {
                     name: "Game".into(),
@@ -527,5 +549,44 @@ mod tests {
         remove_installation(&f.database, &f.id, &target, &[]).unwrap();
         assert!(!f.directory.exists());
         assert_eq!(fs::read(outside.join("keep.txt")).unwrap(), b"keep");
+    }
+
+    #[test]
+    fn folder_outside_a_library_is_rejected() {
+        let f = Fixture::new();
+        let shared = f.root.join("home/Applications");
+        fs::create_dir_all(&shared).unwrap();
+        fs::write(shared.join("game.AppImage"), b"game").unwrap();
+        fs::write(shared.join("other.AppImage"), b"other").unwrap();
+        f.database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE games SET executable_path=?2, installation_root=?3 WHERE id=?1",
+                        params![
+                            f.id,
+                            shared.join("game.AppImage").to_string_lossy(),
+                            shared.to_string_lossy()
+                        ],
+                    )
+                    .map_err(database_error)?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(checked_target(&f.database, &f.id, &[]).is_err());
+        assert!(remove_installation(&f.database, &f.id, &shared, &[]).is_err());
+        assert!(shared.join("other.AppImage").is_file());
+    }
+
+    #[test]
+    fn root_containing_a_library_is_rejected() {
+        let f = Fixture::new();
+        register_library(&f.database, &f.directory.join("nested"));
+        assert!(
+            checked_target(&f.database, &f.id, &[])
+                .unwrap_err()
+                .contains("library")
+        );
+        assert!(f.directory.is_dir());
     }
 }
