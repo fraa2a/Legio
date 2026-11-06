@@ -47,7 +47,7 @@ export async function removeLibrary(library: GameLibrary, removal: LibraryRemova
       onProgress(index, game.name);
       try {
         if (removal.kind === "move") {
-          const result = await transferGame(game.id, removal.target.root);
+          const result = await transferGame(game.id, removal.target.id);
           reconcileGame(result.game);
           if (result.warning !== null) warnings.push(result.warning);
         } else {

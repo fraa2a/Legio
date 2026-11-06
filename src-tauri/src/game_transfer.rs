@@ -97,7 +97,7 @@ fn require_not_running(source: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<TransferResult, String> {
+fn transfer(app: &AppHandle, game_id: &str, library_id: &str) -> Result<TransferResult, String> {
     crate::startup_recovery::require_ready(app)?;
     let manager = app.state::<GameLaunchManager>();
     let operation = manager.operation()?;
@@ -132,15 +132,9 @@ fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<Transfe
         return Err("Transfer source must be a directory".to_owned());
     }
     let relative = relative.to_path_buf();
-    let destination = PathBuf::from(destination);
-    if !destination.is_absolute() || destination.to_string_lossy().chars().any(char::is_control) {
-        return Err("Destination must be an absolute directory path".to_owned());
-    }
-    let parent = dunce::canonicalize(&destination)
+    let parent = crate::game_library::library_root(database.database()?, library_id)?;
+    let parent = dunce::canonicalize(&parent)
         .map_err(|error| format!("Could not inspect destination library: {error}"))?;
-    if !parent.is_dir() {
-        return Err("Destination library is not a directory".into());
-    }
     let destination = database.database()?.with_connection(|connection| {
         crate::game_library::available_target(
             connection,
@@ -660,9 +654,9 @@ pub(crate) fn ensure_launchable(database: &Database, game: &str) -> Result<(), S
 pub async fn transfer_game(
     app: AppHandle,
     game_id: String,
-    destination_directory: String,
+    library_id: String,
 ) -> Result<TransferResult, String> {
-    tauri::async_runtime::spawn_blocking(move || transfer(&app, &game_id, &destination_directory))
+    tauri::async_runtime::spawn_blocking(move || transfer(&app, &game_id, &library_id))
         .await
         .map_err(|error| format!("Transfer task failed: {error}"))?
 }
