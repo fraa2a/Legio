@@ -5,7 +5,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -25,12 +25,6 @@ pub(crate) struct SourceCatalog {
     pub diagnostics: ImportDiagnostics,
     pub raw_hydra: Option<HydraSource>,
     pub matches: HashMap<String, u32>,
-    /// Titles whose catalog lookup succeeded without a confident match.
-    #[serde(default)]
-    pub unmatched: BTreeSet<String>,
-    /// SHA-256 of the fetched Hydra source bytes.
-    #[serde(default)]
-    pub content_sha256: Option<String>,
 }
 
 impl SourceCatalog {
@@ -64,8 +58,6 @@ impl SourceCatalog {
             diagnostics: ImportDiagnostics::default(),
             raw_hydra: None,
             matches: HashMap::new(),
-            unmatched: BTreeSet::new(),
-            content_sha256: None,
         }
     }
 }
@@ -192,8 +184,6 @@ pub(crate) fn from_hydra(
         diagnostics,
         raw_hydra: Some(raw),
         matches,
-        unmatched: BTreeSet::new(),
-        content_sha256: None,
     }
 }
 
@@ -220,8 +210,6 @@ pub(crate) fn decode_cache(bytes: &[u8]) -> Result<SourceCatalog, String> {
         let raw = source.raw_hydra.ok_or("Missing original Hydra records")?;
         let mut restored = from_hydra(raw, &[], source.matches);
         restored.diagnostics.reasons = source.diagnostics.reasons;
-        restored.unmatched = source.unmatched;
-        restored.content_sha256 = source.content_sha256;
         return Ok(restored);
     }
     let manifest_bytes = serde_json::to_vec(&source.manifest).map_err(|error| error.to_string())?;
@@ -253,15 +241,15 @@ mod tests {
     }
 
     #[test]
-    fn identification_state_survives_the_cache_roundtrip() {
-        let bytes = br#"{"name":"Publisher","downloads":[{"title":"Portal","uris":["https://example.test/a.zip"]},{"title":"Nothing","uris":["https://example.test/b.zip"]}]}"#;
-        let mut source = parse_source(bytes, &[(400, "Portal".into())]).unwrap();
-        source.unmatched.insert("Nothing".into());
-        source.content_sha256 = Some("ab".repeat(32));
-        let restored = decode_cache(&encode_cache(&source).unwrap()).unwrap();
+    fn stored_catalog_with_retired_fields_still_decodes() {
+        let bytes = br#"{"name":"Publisher","downloads":[{"title":"Portal","uris":["https://example.test/a.zip"]}]}"#;
+        let source = parse_source(bytes, &[(400, "Portal".into())]).unwrap();
+        let mut stored: serde_json::Value =
+            serde_json::from_slice(&encode_cache(&source).unwrap()).unwrap();
+        stored["unmatched"] = serde_json::json!(["Nothing"]);
+        stored["contentSha256"] = serde_json::json!("ab".repeat(32));
+        let restored = decode_cache(&serde_json::to_vec(&stored).unwrap()).unwrap();
         assert_eq!(restored.matches["Portal"], 400);
-        assert_eq!(restored.unmatched, source.unmatched);
-        assert_eq!(restored.content_sha256, source.content_sha256);
     }
 
     #[test]

@@ -21,4 +21,3 @@ debug/
 /.claude/
 
 # R2 credentials for the source cache tool
-/tools/source-cache/r2.local.json

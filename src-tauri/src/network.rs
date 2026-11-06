@@ -165,26 +165,6 @@ impl NetworkState {
         result
     }
 
-    /// Fetches the optional shared identification cache; callers fall back to local lookups on any error.
-    pub(crate) async fn identification_cache(&self, url: &str) -> Result<Vec<u8>, NetworkError> {
-        let mut log = self.diagnostics.request(Operation::IdentificationCache);
-        let result = match tokio::time::timeout(
-            std::time::Duration::from_secs(crate::identification_cache::TIMEOUT_SECONDS),
-            async {
-                let response = self.source_client.get(url).send().await?;
-                Self::read_bounded_to(response, crate::identification_cache::MAX_BYTES, &mut log)
-                    .await
-            },
-        )
-        .await
-        {
-            Ok(result) => result,
-            Err(_) => Err(NetworkError::Timeout),
-        };
-        log.finish(&result);
-        result
-    }
-
     pub async fn news(&self) -> Result<Vec<u8>, NetworkError> {
         self.get(crate::news::URL, crate::news::MAX_BYTES, Operation::News)
             .await

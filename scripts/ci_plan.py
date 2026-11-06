@@ -15,7 +15,7 @@ VERSION_PATTERN = re.compile(
 MANIFEST = "src-tauri/Cargo.toml"
 DOCUMENTS = {
     "README.md", "CONTRIBUTING.md", "SECURITY.md", "AGENTS.md",
-    "scripts/README.md", "tools/linux-rendering/README.md", "tools/source-cache/README.md",
+    "scripts/README.md", "tools/linux-rendering/README.md",
 }
 
 

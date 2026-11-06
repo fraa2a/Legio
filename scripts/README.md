@@ -17,7 +17,6 @@ Reuse the runner and name tests by behavior. Moving files requires updating pack
 
 - `ci_plan.py`: selects documentation/code checks and detects release version changes.
 - `test_ci_plan.py` and `test_packaging.py`: check CI selection, versions, wrapper checksums and bundled licenses.
-- `test_source_cache.py`: checks the identification cache export in `tools/source-cache`.
 - `release_manifest.py`: creates and validates updater metadata.
 - `prepare_aur.py`: generates AUR package files.
 Run all Python tests with `python -B -m unittest discover -s scripts`.

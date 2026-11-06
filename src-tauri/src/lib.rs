@@ -42,7 +42,6 @@ mod game_uninstall;
 mod game_updates;
 mod gofile;
 mod hydra_source;
-mod identification_cache;
 mod identification_control;
 mod image_format;
 mod image_response;
