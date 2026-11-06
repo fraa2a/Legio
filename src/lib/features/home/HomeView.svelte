@@ -8,7 +8,7 @@
   import Panel from "../../components/ui/Panel.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
   import { games } from "../../stores/games";
-  import { launchError, launchStateByGame, launchStates } from "../../stores/launch";
+  import { launchStateByGame, launchStates } from "../../stores/launch";
   import { openGame, selectSection } from "../../stores/navigation";
   import { playtime } from "../../stores/playtime";
   import GameCard from "../library/GameCard.svelte";
@@ -31,7 +31,6 @@
   <StateBlock status={$games.status} hasData={$games.data.length > 0} error={$games.error} onRetry={() => void games.load()} />
   {#if $playtime.error !== null}<ErrorBanner message={t("Tempo di gioco: {0}", $language, [$playtime.error])} onRetry={() => void playtime.load()} />{/if}
   {#if $launchStates.error !== null}<ErrorBanner message={t("Stato dei giochi: {0}", $language, [$launchStates.error])} onRetry={() => void launchStates.load()} />{/if}
-  {#if $launchError !== null}<ErrorBanner message={$launchError} />{/if}
 
   <div class="grid flex-1 gap-2.5 @min-[42rem]:grid-cols-[minmax(0,1fr)_18rem]">
     <div class="flex min-h-72 min-w-0 flex-col">

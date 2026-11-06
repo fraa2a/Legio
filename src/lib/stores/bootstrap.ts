@@ -30,6 +30,21 @@ export function configureSteamScanInterval(minutes: number): void {
   }, minutes * 60 * 1000);
 }
 
+let appEvents: Promise<void> | null = null;
+
+// Registered once per session. A failed attempt is cleared so the next hydration can retry it.
+function startAppEvents(): Promise<void> {
+  appEvents ??= (async () => {
+    await startQueueShutdown();
+    await listenDownloadsChanged(() => { void downloads.reload(); });
+    await listenGameUpdatesChanged(() => { void gameUpdates.reload(); void source.reload(); });
+  })().catch((error: unknown) => {
+    appEvents = null;
+    throw error;
+  });
+  return appEvents;
+}
+
 export async function hydrateApp(): Promise<void> {
   await startLaunchEvents();
   if (get(settings).status !== "ready") await settings.load();
@@ -46,9 +61,7 @@ export async function hydrateApp(): Promise<void> {
     playtime.load(),
   ]);
   startDownloadProgressPolling();
-  await startQueueShutdown();
-  await listenDownloadsChanged(() => { void downloads.reload(); });
-  await listenGameUpdatesChanged(() => { void gameUpdates.reload(); void source.reload(); });
+  await startAppEvents();
   if (get(settings).data.launchInLibrary) activeSection.set("library");
   const startup = get(appInfo).data;
   if (startup.startupLaunchGameId !== null) {

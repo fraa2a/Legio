@@ -111,8 +111,11 @@
     void applyReorder(reorderPayload(sections.primary, ordered));
   }
 
+  // An update job belongs to the installed game it targets, not to its own job id.
+  const gameFor = (job: DownloadJob) => gamesById.get(job.targetGameId ?? job.id);
+
   function play(job: DownloadJob): void {
-    const game = gamesById.get(job.id);
+    const game = gameFor(job);
     if (game === undefined) {
       actionError = t("{0} non è presente in libreria.", $language, [job.name]);
       return;
@@ -122,7 +125,7 @@
   }
 
   const canPlay = $derived((job: DownloadJob): boolean => {
-    const game = gamesById.get(job.id);
+    const game = gameFor(job);
     if (game === undefined) return false;
     const launch = $launchStateByGame.get(game.id);
     return $pendingGameId === null && (launch === undefined || launch.status === "idle");

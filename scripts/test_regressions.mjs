@@ -258,6 +258,9 @@ test("download presentation labels and progress tones follow status", async () =
   assert.equal(progressTone("staged"), "accent");
   assert.equal(progressTone("paused"), "warning");
   assert.equal(statusBadge("future", "en"), "future");
+  // Table-driven labels are translated through t(), so their keys must exist in en.json.
+  const { t } = await import(localeUrl);
+  assert.equal(t("in attesa", "en"), "waiting");
 });
 
 test("native launch events invalidate stale reads and reduce polling during games", async () => {
@@ -266,7 +269,7 @@ test("native launch events invalidate stale reads and reduce polling during game
   const request = deferred();
   let stateListener, failureListener;
   globalThis.legioLaunchEvents = {
-    settings, info, active: writable(true),
+    settings, info, active: writable(true), toasts: [],
     list: () => request.promise,
     states: (callback) => { stateListener = callback; return Promise.resolve(() => {}); },
     failure: (callback) => { failureListener = callback; return Promise.resolve(() => {}); },
@@ -291,7 +294,7 @@ test("native launch events invalidate stale reads and reduce polling during game
       "../services/steam-accounts": service,
       "../utils/errors": errors,
       "./resource": await load("src/lib/stores/resource.ts"),
-      "./toast": dataModule("export const showToast = () => {};"),
+      "./toast": dataModule("export const showToast = (message, tone) => globalThis.legioLaunchEvents.toasts.push([message, tone]);"),
       "./window-activity": dataModule("export const windowActive = globalThis.legioLaunchEvents.active;"),
       "./app-info": dataModule("export const appInfo = globalThis.legioLaunchEvents.info;"),
       "./settings": dataModule("export const settings = globalThis.legioLaunchEvents.settings;"),
@@ -317,6 +320,7 @@ test("native launch events invalidate stale reads and reduce polling during game
     assert.equal(intervals.at(-1).cleared, true, "native events continue without background UI polling");
     failureListener("shortcut failure");
     assert.equal(get(launch.launchError), "shortcut failure");
+    assert.deepEqual(globalThis.legioLaunchEvents.toasts, [["shortcut failure", "error"]], "launch errors surface once, as a toast");
     stateListener([{ gameId: "game", status: "idle", error: "launch failed" }]);
     assert.equal(get(launch.hasRunningGame), false, "failed launches leave media active");
     assert.equal(get(launch.hasPendingLaunch), false);
@@ -335,7 +339,7 @@ test("hydration waits for startup recovery before loading games and displays fai
   const appInfo = { ...writable({ data: { startupLaunchGameId: null, startupLaunchError: "Startup recovery failed: marker conflict", startupWarnings: ["Download recovery: stage locked"] } }), load: () => { calls.push("appInfo"); return ready.promise; } };
   const settings = writable({ status: "ready", data: { launchInLibrary: false, steamLibraryPollMinutes: 30, syncSteamGames: false } });
   const launchError = writable(null);
-  globalThis.legioBootstrap = { appInfo, settings, launchError,
+  globalThis.legioBootstrap = { appInfo, settings, launchError, listeners: [],
     games: resource("games"), downloads: resource("downloads"), bandwidthLimit: resource("bandwidth"), installedFolder: resource("folder"),
     source: resource("source"), network: resource("network"), launchStates: resource("launch"), playtime: resource("playtime"),
     hasPendingLaunch: writable(false), activeSection: writable("home"),
@@ -343,13 +347,13 @@ test("hydration waits for startup recovery before loading games and displays fai
   const fromGlobal = (...names) => dataModule(names.map((name) => `export const ${name} = globalThis.legioBootstrap.${name};`).join("\n"));
   const { load } = createModuleLoader({
     "src/lib/stores/game-updates": dataModule("export const gameUpdates = { load: async () => {}, reload: async () => {} };"),
-    "src/lib/services/game-updates": dataModule("export const listenDownloadsChanged = async () => () => {}; export const listenGameUpdatesChanged = async () => () => {};"),
+    "src/lib/services/game-updates": dataModule("export const listenDownloadsChanged = async () => { globalThis.legioBootstrap.listeners.push('downloads'); return () => {}; }; export const listenGameUpdatesChanged = async () => { globalThis.legioBootstrap.listeners.push('updates'); return () => {}; };"),
     "src/lib/stores/app-info": fromGlobal("appInfo"),
     "src/lib/stores/settings": fromGlobal("settings"),
     "src/lib/stores/games": fromGlobal("games"),
     "src/lib/stores/playtime": fromGlobal("playtime"),
     "src/lib/stores/downloads": dataModule(["downloads", "bandwidthLimit", "installedFolder"].map((name) => `export const ${name} = globalThis.legioBootstrap.${name};`).join("\n") + "export const startDownloadProgressPolling = () => {};"),
-    "src/lib/stores/queue-shutdown": dataModule("export const startQueueShutdown = async () => {};"),
+    "src/lib/stores/queue-shutdown": dataModule("export const startQueueShutdown = async () => { globalThis.legioBootstrap.listeners.push('queue'); };"),
     "src/lib/stores/source-links": dataModule("export const startSourceLinks = async () => {};"),
     "src/lib/stores/mod-links": dataModule("export const startModLinks = async () => {};"),
     "src/lib/stores/source": dataModule("export const source = globalThis.legioBootstrap.source; export const refreshSource = async () => {};"),
@@ -374,6 +378,8 @@ test("hydration waits for startup recovery before loading games and displays fai
     assert.deepEqual(calls, ["appInfo"], "game and folder operations wait for native recovery");
     ready.resolve();
     await hydration;
+    await hydrateApp();
+    assert.deepEqual(globalThis.legioBootstrap.listeners, ["queue", "downloads", "updates"], "a retried hydration registers listeners once");
     assert.ok(calls.includes("games"));
     assert.ok(calls.includes("folder"));
     assert.equal(get(launchError), "Startup recovery failed: marker conflict");

@@ -381,3 +381,36 @@ test("search results are paged twenty at a time and the filters restart at page 
     assert.equal(current(), "Pagina 2");
   } finally { await unmount(instance); target.remove(); }
 });
+
+test("retry repeats the first page with a valid offset", async () => {
+  const offsets = [];
+  let failing = true;
+  globalThis.browserInvoke = async (command, args) => {
+    if (command === "search_mods") {
+      offsets.push(args.query.offset);
+      if (failing) throw new Error("offline");
+      return { total: 1, items: [summary("Owner-Mod0")] };
+    }
+    if (["list_mod_categories", "list_profile_mods", "list_mod_updates"].includes(command)) return [];
+    throw new Error(`unexpected ${command}`);
+  };
+  const host = `<script>
+    import ModBrowser from "./src/lib/features/modding/ModBrowser.svelte";
+    import { emptyModTabs } from "./src/lib/features/modding/mod-panel-model";
+    let tabs = $state(emptyModTabs);
+  </script>
+  <ModBrowser gameId="g" ecosystemGameId="lethal-company" profile={{ id: "p", gameId: "g", name: "Main", createdAt: 0 }} disabled={false} {tabs} onTabsChange={(next) => (tabs = next)} />`;
+  const Component = (await import(await svelteModule(loader, host))).default;
+  const target = document.createElement("div");
+  document.body.append(target);
+  const instance = mount(Component, { target });
+  const retry = () => [...target.querySelectorAll("button")].find((item) => item.textContent.trim() === "Riprova");
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 350)); await settle();
+    assert.deepEqual(offsets, [0]);
+    failing = false;
+    retry().click(); await settle();
+    assert.deepEqual(offsets, [0, 0]);
+    assert.equal(target.querySelectorAll('button[aria-label^="Dettagli di "]').length, 1);
+  } finally { await unmount(instance); target.remove(); }
+});

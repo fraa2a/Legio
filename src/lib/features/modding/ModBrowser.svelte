@@ -212,7 +212,7 @@
     emptyIcon="search"
     {emptyMessage}
     error={searchError}
-    onRetry={() => void search(0)}
+    onRetry={() => void search(1, true)}
   />
 
   {#if items.length > 0}
