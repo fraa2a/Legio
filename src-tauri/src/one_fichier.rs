@@ -6,7 +6,7 @@ use reqwest::{
     Client, StatusCode, Url,
     header::{CONTENT_TYPE, HeaderMap, HeaderValue, REFERER},
 };
-use std::path::Path;
+use std::{path::Path, time::Duration};
 
 const FILE_PAGE: &str = "https://1fichier.com/";
 const LINK_CHECKER: &str = "https://1fichier.com/check_links.pl";
@@ -103,7 +103,7 @@ fn is_download_host(link: &str) -> bool {
 
 /// The form answers with a one-time link on a download server, or with a notice
 /// when the guest has to wait for the next free download.
-fn parse_download_page(html: &str) -> Result<String, String> {
+fn parse_download_page(html: &str) -> Result<String, ResolveError> {
     let anchor = Regex::new(r"(?is)<a\s[^>]*>").map_err(|error| error.to_string())?;
     let href = Regex::new(r#"(?i)\bhref="([^"]+)""#).map_err(|error| error.to_string())?;
     let class = Regex::new(r#"(?i)\bclass="([^"]*)""#).map_err(|error| error.to_string())?;
@@ -123,22 +123,40 @@ fn parse_download_page(html: &str) -> Result<String, String> {
     Err(refusal(html)?)
 }
 
-fn refusal(html: &str) -> Result<String, String> {
+fn refusal(html: &str) -> Result<ResolveError, String> {
     let notice = Regex::new(r"(?is)notice-alert.*?</div>").map_err(|error| error.to_string())?;
     let tags = Regex::new(r"<[^>]*>").map_err(|error| error.to_string())?;
     let wait = Regex::new(r"(?i)\bwait\s+([0-9]{1,4})\s+(second|minute|hour)")
         .map_err(|error| error.to_string())?;
     let Some(notice) = notice.find(html) else {
-        return Ok("1fichier did not offer a download link".into());
+        return Ok(ResolveError::Link(
+            "1fichier did not offer a download link".into(),
+        ));
     };
     let text = tags.replace_all(notice.as_str(), " ");
     Ok(match wait.captures(&text) {
         Some(wait) => {
             let (count, unit) = (&wait[1], wait[2].to_lowercase());
             let plural = if count == "1" { "" } else { "s" };
-            format!("1fichier requires a wait of {count} {unit}{plural} between free downloads")
+            let seconds = match unit.as_str() {
+                "hour" => 3600,
+                "minute" => 60,
+                _ => 1,
+            };
+            ResolveError::RateLimited {
+                message: format!(
+                    "1fichier requires a wait of {count} {unit}{plural} between free downloads"
+                ),
+                retry_after: count
+                    .parse::<u64>()
+                    .ok()
+                    .map(|count| Duration::from_secs(count * seconds)),
+            }
         }
-        None => "1fichier is limiting free downloads right now, try again later".into(),
+        None => ResolveError::RateLimited {
+            message: "1fichier is limiting free downloads right now, try again later".into(),
+            retry_after: None,
+        },
     })
 }
 
@@ -249,7 +267,7 @@ mod tests {
             r#"<a href="http://a-15.1fichier.com/c1" class="ok">Start</a>"#,
         ] {
             assert_eq!(
-                parse_download_page(html).unwrap_err(),
+                parse_download_page(html).unwrap_err().to_string(),
                 "1fichier did not offer a download link",
                 "{html}"
             );
@@ -263,19 +281,32 @@ mod tests {
         <br>Without subscription, you must wait between downloads.
         <br>You must wait 60 minutes...
     </div><button id="dlw" disabled="disabled">Free download</button></form>"#;
+        let waiting = parse_download_page(html).unwrap_err();
         assert_eq!(
-            parse_download_page(html).unwrap_err(),
+            waiting.to_string(),
             "1fichier requires a wait of 60 minutes between free downloads"
         );
+        assert!(matches!(
+            waiting,
+            ResolveError::RateLimited { retry_after: Some(wait), .. } if wait == Duration::from_secs(3600)
+        ));
         let single = html.replace("60 minutes", "1 minute");
         assert_eq!(
-            parse_download_page(&single).unwrap_err(),
+            parse_download_page(&single).unwrap_err().to_string(),
             "1fichier requires a wait of 1 minute between free downloads"
         );
         let unknown = html.replace("You must wait 60 minutes...", "Try later.");
+        let unknown = parse_download_page(&unknown).unwrap_err();
         assert_eq!(
-            parse_download_page(&unknown).unwrap_err(),
+            unknown.to_string(),
             "1fichier is limiting free downloads right now, try again later"
         );
+        assert!(matches!(
+            unknown,
+            ResolveError::RateLimited {
+                retry_after: None,
+                ..
+            }
+        ));
     }
 }

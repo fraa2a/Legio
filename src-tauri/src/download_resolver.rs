@@ -44,13 +44,18 @@ pub(crate) enum ResolveError {
     Network(String),
     Http(StatusCode),
     Link(String),
+    /// The host asks to try again later; `retry_after` is its stated wait, if any.
+    RateLimited {
+        message: String,
+        retry_after: Option<Duration>,
+    },
 }
 
 impl ResolveError {
     /// Failures that say nothing lasting about the link, so retrying later can succeed.
     pub(crate) fn is_transient(&self) -> bool {
         match self {
-            Self::Network(_) => true,
+            Self::Network(_) | Self::RateLimited { .. } => true,
             Self::Http(status) => {
                 status.is_server_error() || matches!(status.as_u16(), 408 | 425 | 429)
             }
@@ -64,7 +69,7 @@ impl std::fmt::Display for ResolveError {
         match self {
             Self::Network(message) => write!(formatter, "Network: {message}"),
             Self::Http(status) => write!(formatter, "HTTP {}", status.as_u16()),
-            Self::Link(message) => formatter.write_str(message),
+            Self::Link(message) | Self::RateLimited { message, .. } => formatter.write_str(message),
         }
     }
 }
@@ -85,6 +90,18 @@ impl From<ResolveError> for String {
     fn from(error: ResolveError) -> Self {
         error.to_string()
     }
+}
+
+/// Seconds form of `Retry-After`; the date form is ignored.
+pub(crate) fn retry_after(headers: &HeaderMap) -> Option<Duration> {
+    headers
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+        .map(Duration::from_secs)
 }
 
 pub(crate) fn network_error(error: reqwest::Error) -> ResolveError {
@@ -191,6 +208,12 @@ async fn follow_redirects(
             }
             url = next;
             continue;
+        }
+        if response.status() == StatusCode::TOO_MANY_REQUESTS {
+            return Err(ResolveError::RateLimited {
+                message: "The download host is limiting requests, try again later".into(),
+                retry_after: retry_after(response.headers()),
+            });
         }
         if !response.status().is_success() {
             return Err(ResolveError::Http(response.status()));

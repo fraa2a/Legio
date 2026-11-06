@@ -250,6 +250,7 @@ async fn response_bytes(mut response: reqwest::Response) -> Result<Vec<u8>, Gofi
 enum GofileError {
     Unauthorized,
     Network(String),
+    RateLimited(Option<Duration>),
     Other(String),
 }
 
@@ -261,6 +262,7 @@ impl std::fmt::Display for GofileError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Unauthorized => formatter.write_str("GoFile authorization rejected"),
+            Self::RateLimited(_) => formatter.write_str("GoFile rate limit reached; retry later"),
             Self::Network(message) | Self::Other(message) => formatter.write_str(message),
         }
     }
@@ -279,6 +281,10 @@ impl From<GofileError> for ResolveError {
     fn from(error: GofileError) -> Self {
         match error {
             GofileError::Network(message) => Self::Network(message),
+            GofileError::RateLimited(retry_after) => Self::RateLimited {
+                message: GofileError::RateLimited(retry_after).to_string(),
+                retry_after,
+            },
             other => Self::Link(other.to_string()),
         }
     }
@@ -317,6 +323,7 @@ async fn request(
             .await
             .map_err(network_error)?;
         let status = response.status();
+        let retry_after = crate::download_resolver::retry_after(response.headers());
         let bytes = response_bytes(response).await?;
         let reply = serde_json::from_slice::<Reply>(&bytes);
         let rate_limited = reply.as_ref().is_ok_and(|r| r.status == "error-rateLimit");
@@ -330,7 +337,7 @@ async fn request(
             return Err(GofileError::Unauthorized);
         }
         if rate_limited || status.as_u16() == 429 {
-            return Err("GoFile rate limit reached; retry later".into());
+            return Err(GofileError::RateLimited(retry_after));
         }
         let reply = reply.map_err(|_| {
             format!(
@@ -670,6 +677,11 @@ mod tests {
         assert!(matches!(offline, ResolveError::Network(_)));
         let refused = ResolveError::from(GofileError::Other("GoFile denied".into()));
         assert!(matches!(refused, ResolveError::Link(_)));
+        let limited = ResolveError::from(GofileError::RateLimited(Some(Duration::from_secs(9))));
+        assert!(matches!(
+            limited,
+            ResolveError::RateLimited { retry_after: Some(wait), .. } if wait == Duration::from_secs(9)
+        ));
         let propagated = GofileError::from(ResolveError::Network("reset".into()));
         assert!(matches!(propagated, GofileError::Network(_)));
     }

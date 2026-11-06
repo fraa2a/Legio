@@ -1,5 +1,5 @@
 use crate::download_resolver::{
-    Provider, ResolveError, ResolvedDownload, ResolvedFile, network_error,
+    Provider, ResolveError, ResolvedDownload, ResolvedFile, network_error, retry_after,
 };
 use regex::Regex;
 use reqwest::{
@@ -82,9 +82,10 @@ async fn fetch(client: &Client, url: &str, headers: HeaderMap) -> Result<Respons
         if !is_challenge(response.headers()) {
             return match response.status() {
                 StatusCode::NOT_FOUND => Err("The Buzzheavier file was not found".into()),
-                StatusCode::TOO_MANY_REQUESTS => {
-                    Err("Buzzheavier rate limit reached, try again later".into())
-                }
+                StatusCode::TOO_MANY_REQUESTS => Err(ResolveError::RateLimited {
+                    message: "Buzzheavier rate limit reached, try again later".into(),
+                    retry_after: retry_after(response.headers()),
+                }),
                 status if status.is_success() => Ok(response),
                 status => Err(ResolveError::Http(status)),
             };
@@ -93,7 +94,10 @@ async fn fetch(client: &Client, url: &str, headers: HeaderMap) -> Result<Respons
             tokio::time::sleep(RETRY_DELAY).await;
         }
     }
-    Err("Buzzheavier is asking for a browser check, try again later".into())
+    Err(ResolveError::RateLimited {
+        message: "Buzzheavier is asking for a browser check, try again later".into(),
+        retry_after: None,
+    })
 }
 
 pub(crate) async fn resolve(client: &Client, uri: &str) -> Result<ResolvedDownload, ResolveError> {
