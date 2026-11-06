@@ -39,6 +39,14 @@ impl MirrorPlan {
     }
 }
 
+/// Pause before retrying a link whose host asked to wait. Without a stated wait
+/// the host gets a short default, and long waits are cut so the job stays responsive.
+pub(crate) fn rate_limit_delay(retry_after: Option<Duration>) -> Duration {
+    retry_after
+        .unwrap_or(Duration::from_secs(30))
+        .clamp(Duration::from_secs(1), Duration::from_secs(300))
+}
+
 pub(crate) fn native_cdn(uri: &str) -> bool {
     reqwest::Url::parse(uri)
         .is_ok_and(|url| url.scheme() == "https" && url.host_str() == Some("cdn.taxphobia.top"))
@@ -63,7 +71,7 @@ pub(crate) async fn inspect(client: &reqwest::Client, uri: &str) -> Result<u64, 
     };
     tokio::time::timeout(timeout, inspect_file(client, uri))
         .await
-        .map_err(|_| ResolveError::Link("Download host lookup timed out".to_owned()))?
+        .map_err(|_| ResolveError::Network("Download host lookup timed out".to_owned()))?
 }
 
 async fn inspect_file(client: &reqwest::Client, uri: &str) -> Result<u64, ResolveError> {
@@ -139,6 +147,23 @@ async fn inspect_file(client: &reqwest::Client, uri: &str) -> Result<u64, Resolv
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rate_limit_delay_respects_the_host_within_bounds() {
+        assert_eq!(rate_limit_delay(None), Duration::from_secs(30));
+        assert_eq!(
+            rate_limit_delay(Some(Duration::from_secs(90))),
+            Duration::from_secs(90)
+        );
+        assert_eq!(
+            rate_limit_delay(Some(Duration::ZERO)),
+            Duration::from_secs(1)
+        );
+        assert_eq!(
+            rate_limit_delay(Some(Duration::from_secs(3600))),
+            Duration::from_secs(300)
+        );
+    }
 
     #[test]
     fn source_size_allows_exactly_three_percent_without_overflow() {

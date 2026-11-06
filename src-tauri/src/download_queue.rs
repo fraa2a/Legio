@@ -1257,6 +1257,11 @@ enum TransferError {
     Network(String),
     Server(String),
     Link(String),
+    /// The host asked to wait before the next attempt on this link.
+    RateLimited {
+        message: String,
+        delay: Duration,
+    },
 }
 
 impl std::fmt::Display for TransferError {
@@ -1266,7 +1271,8 @@ impl std::fmt::Display for TransferError {
             Self::Local(message)
             | Self::Network(message)
             | Self::Server(message)
-            | Self::Link(message) => formatter.write_str(message),
+            | Self::Link(message)
+            | Self::RateLimited { message, .. } => formatter.write_str(message),
         }
     }
 }
@@ -1278,6 +1284,10 @@ impl From<ResolveError> for TransferError {
             ResolveError::Network(_) => Self::Network(message),
             ResolveError::Http(status) if status.is_server_error() => Self::Server(message),
             ResolveError::Http(_) | ResolveError::Link(_) => Self::Link(message),
+            ResolveError::RateLimited { retry_after, .. } => Self::RateLimited {
+                message,
+                delay: crate::download_selection::rate_limit_delay(retry_after),
+            },
         }
     }
 }
@@ -1349,6 +1359,7 @@ async fn transfer<F: std::future::Future<Output = bool>>(
     let mut current = job.clone();
     let mut failure = "No supported download links are available".to_owned();
     while let Some(uri) = plan.current().map(str::to_owned) {
+        let mut retry_delay = Duration::from_millis(250);
         if *stopped.borrow() {
             return Err(TransferError::Stopped);
         }
@@ -1395,7 +1406,12 @@ async fn transfer<F: std::future::Future<Output = bool>>(
             Err(error @ TransferError::Network(_)) if !online().await => {
                 return Err(error);
             }
-            Err(error) => failure = error.to_string(),
+            Err(error) => {
+                if let TransferError::RateLimited { delay, .. } = &error {
+                    retry_delay = *delay;
+                }
+                failure = error.to_string();
+            }
         }
         plan.fail();
         save_mirror_state(database.clone(), &current, &plan, false).await?;
@@ -1403,7 +1419,7 @@ async fn transfer<F: std::future::Future<Output = bool>>(
             tokio::select! {
                 biased;
                 _ = stopped.changed() => return Err(TransferError::Stopped),
-                () = tokio::time::sleep(Duration::from_millis(250)) => {},
+                () = tokio::time::sleep(retry_delay) => {},
             }
         }
     }

@@ -1,4 +1,5 @@
 use crate::database::{Database, database_error};
+use crate::download_resolver::ResolveError;
 use rusqlite::{OptionalExtension, params};
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -129,7 +130,8 @@ fn check_size(expected: Option<u64>, result: Result<u64, String>) -> Result<u64,
     })
 }
 
-/// Results are cached for 24 hours, failures included. Links on the native CDN
+/// Results are cached for 24 hours, permanent failures included. Transient
+/// failures (offline, timeouts, HTTP 429 and 5xx) are not cached. Links on the native CDN
 /// with a published size are trusted without a request.
 pub(crate) async fn check_links(
     database: Arc<Database>,
@@ -162,18 +164,20 @@ pub(crate) async fn check_links(
             };
             let client = client.clone();
             tasks.spawn(async move {
-                let result = crate::download_selection::inspect(&client, &uri)
-                    .await
-                    .map_err(|error| error.to_string());
-                (uri, expected, result)
+                let outcome = crate::download_selection::inspect(&client, &uri).await;
+                (uri, expected, outcome)
             });
         }
         let Some(joined) = tasks.join_next().await else {
             break;
         };
-        let (uri, expected, result) =
+        let (uri, expected, outcome) =
             joined.map_err(|error| format!("Link check task failed: {error}"))?;
-        fresh.insert(uri.clone(), result.clone());
+        let cacheable = !outcome.as_ref().is_err_and(ResolveError::is_transient);
+        let result = outcome.map_err(|error| error.to_string());
+        if cacheable {
+            fresh.insert(uri.clone(), result.clone());
+        }
         results.insert(uri, check_size(expected, result));
     }
     if !fresh.is_empty() {
@@ -193,6 +197,24 @@ mod tests {
         std::fs::create_dir_all(&directory).unwrap();
         let database = Database::open(&directory).unwrap();
         (directory, database)
+    }
+
+    #[test]
+    fn transient_failures_are_not_cacheable() {
+        use reqwest::StatusCode;
+        let transient = [
+            ResolveError::Network("offline".into()),
+            ResolveError::Http(StatusCode::TOO_MANY_REQUESTS),
+            ResolveError::Http(StatusCode::BAD_GATEWAY),
+            ResolveError::Http(StatusCode::REQUEST_TIMEOUT),
+        ];
+        assert!(transient.iter().all(ResolveError::is_transient));
+        let permanent = [
+            ResolveError::Http(StatusCode::NOT_FOUND),
+            ResolveError::Http(StatusCode::FORBIDDEN),
+            ResolveError::Link("The download link returned a web page".into()),
+        ];
+        assert!(!permanent.iter().any(ResolveError::is_transient));
     }
 
     #[test]
