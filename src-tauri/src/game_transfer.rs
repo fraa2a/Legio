@@ -196,7 +196,7 @@ fn transfer(app: &AppHandle, game_id: &str, destination: &str) -> Result<Transfe
         }
     }
     commit_transfer(database.database()?, &intent)?;
-    let warning = cleanup_transfer(database.database()?, &intent).err();
+    let warning = cleanup_transfer(database.database()?, &intent).unwrap_or_else(Some);
     if let Some(old_library) = game
         .installation_root
         .as_deref()
@@ -337,8 +337,12 @@ fn commit_transfer(database: &Database, intent: &TransferIntent) -> Result<(), S
     })
 }
 
-fn cleanup_transfer(database: &Database, intent: &TransferIntent) -> Result<(), String> {
-    require_not_running(&intent.source)?;
+/// Finishes a committed transfer. The destination is authoritative from then on, so an old
+/// copy that cannot be removed is reported as a warning instead of keeping the game blocked.
+fn cleanup_transfer(
+    database: &Database,
+    intent: &TransferIntent,
+) -> Result<Option<String>, String> {
     crate::game_library::publish(
         database,
         intent
@@ -369,20 +373,13 @@ fn cleanup_transfer(database: &Database, intent: &TransferIntent) -> Result<(), 
             return Err("Transfer cleanup requires the owned destination".to_owned());
         }
     }
-    if intent.source.exists() && !owns_directory(&intent.source, intent) {
-        return Err(
-            "Game transferred, but source ownership changed; old directory preserved".to_owned(),
-        );
-    }
-    match fs::remove_dir_all(&intent.source) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(format!(
-                "Game transferred, but old copy cleanup failed: {error}"
-            ));
-        }
-    }
+    let leftover = remove_source(intent).err().map(|error| {
+        crate::application_log::failure("cleanup_game_transfer", &error);
+        format!(
+            "Game transferred, but the old copy at {} was not removed ({error}). Delete it manually",
+            intent.source.display()
+        )
+    });
     match fs::remove_file(intent.destination.join(MARKER)) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -397,7 +394,23 @@ fn cleanup_transfer(database: &Database, intent: &TransferIntent) -> Result<(), 
             )
             .map_err(database_error)?;
         Ok(())
-    })
+    })?;
+    Ok(leftover)
+}
+
+fn remove_source(intent: &TransferIntent) -> Result<(), String> {
+    if !intent.source.exists() {
+        return Ok(());
+    }
+    require_not_running(&intent.source)?;
+    if !owns_directory(&intent.source, intent) {
+        return Err("Legio no longer recognizes it".to_owned());
+    }
+    match fs::remove_dir_all(&intent.source) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 fn reserve_source(intent: &TransferIntent) -> Result<(), String> {
@@ -596,7 +609,7 @@ fn recover_transfer(database: &Database, intent: &TransferIntent) -> Result<(), 
         if intent.phase != "committed" {
             commit_transfer(database, intent)?;
         }
-        cleanup_transfer(database, intent)
+        cleanup_transfer(database, intent).map(|_| ())
     }
 }
 
@@ -804,6 +817,44 @@ mod tests {
         assert!(!intent.destination.join(MARKER).exists());
         assert!(pending_transfers(&database, None).unwrap().is_empty());
         recover(&database).unwrap();
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn committed_transfer_unblocks_despite_leftover_source() {
+        let (root, database, intent) = fixture("copied");
+        copy_directory(&intent.source, &intent.temporary).unwrap();
+        fs::write(
+            intent.temporary.join(MARKER),
+            intent.temporary.to_string_lossy().as_bytes(),
+        )
+        .unwrap();
+        commit_transfer(&database, &intent).unwrap();
+        // A partial removal can delete the source marker before the rest of the old copy.
+        fs::remove_file(intent.source.join(MARKER)).unwrap();
+        ensure_launchable(&database, &intent.game_id).unwrap();
+        assert!(pending_transfers(&database, None).unwrap().is_empty());
+        assert!(intent.source.join(&intent.relative).is_file());
+        assert!(!intent.destination.join(MARKER).exists());
+        assert!(intent.destination.join(&intent.relative).is_file());
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn leftover_source_is_reported() {
+        let (root, database, intent) = fixture("copied");
+        copy_directory(&intent.source, &intent.temporary).unwrap();
+        fs::write(
+            intent.temporary.join(MARKER),
+            intent.temporary.to_string_lossy().as_bytes(),
+        )
+        .unwrap();
+        commit_transfer(&database, &intent).unwrap();
+        fs::remove_file(intent.source.join(MARKER)).unwrap();
+        let warning = cleanup_transfer(&database, &intent).unwrap().unwrap();
+        assert!(warning.contains(&*intent.source.to_string_lossy()));
         drop(database);
         fs::remove_dir_all(root).unwrap();
     }
