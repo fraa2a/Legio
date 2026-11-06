@@ -39,7 +39,7 @@
     "test:modding-links": "node --conditions=browser --test scripts/test_modding_links.mjs"
   },
   "dependencies": {
-    "@lucide/svelte": "1.54.0",
+    "@lucide/svelte": "1.66.0",
     "@tauri-apps/api": "^2.12.1",
     "@tauri-apps/plugin-dialog": "^2.8.4",
     "@tauri-apps/plugin-process": "^2.4.0",
