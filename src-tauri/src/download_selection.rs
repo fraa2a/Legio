@@ -63,7 +63,7 @@ pub(crate) async fn inspect(client: &reqwest::Client, uri: &str) -> Result<u64, 
     };
     tokio::time::timeout(timeout, inspect_file(client, uri))
         .await
-        .map_err(|_| ResolveError::Link("Download host lookup timed out".to_owned()))?
+        .map_err(|_| ResolveError::Network("Download host lookup timed out".to_owned()))?
 }
 
 async fn inspect_file(client: &reqwest::Client, uri: &str) -> Result<u64, ResolveError> {

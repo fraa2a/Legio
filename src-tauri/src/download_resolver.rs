@@ -46,6 +46,19 @@ pub(crate) enum ResolveError {
     Link(String),
 }
 
+impl ResolveError {
+    /// Failures that say nothing lasting about the link, so retrying later can succeed.
+    pub(crate) fn is_transient(&self) -> bool {
+        match self {
+            Self::Network(_) => true,
+            Self::Http(status) => {
+                status.is_server_error() || matches!(status.as_u16(), 408 | 425 | 429)
+            }
+            Self::Link(_) => false,
+        }
+    }
+}
+
 impl std::fmt::Display for ResolveError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
