@@ -269,7 +269,7 @@ test("native launch events invalidate stale reads and reduce polling during game
   const request = deferred();
   let stateListener, failureListener;
   globalThis.legioLaunchEvents = {
-    settings, info, active: writable(true),
+    settings, info, active: writable(true), toasts: [],
     list: () => request.promise,
     states: (callback) => { stateListener = callback; return Promise.resolve(() => {}); },
     failure: (callback) => { failureListener = callback; return Promise.resolve(() => {}); },
@@ -294,7 +294,7 @@ test("native launch events invalidate stale reads and reduce polling during game
       "../services/steam-accounts": service,
       "../utils/errors": errors,
       "./resource": await load("src/lib/stores/resource.ts"),
-      "./toast": dataModule("export const showToast = () => {};"),
+      "./toast": dataModule("export const showToast = (message, tone) => globalThis.legioLaunchEvents.toasts.push([message, tone]);"),
       "./window-activity": dataModule("export const windowActive = globalThis.legioLaunchEvents.active;"),
       "./app-info": dataModule("export const appInfo = globalThis.legioLaunchEvents.info;"),
       "./settings": dataModule("export const settings = globalThis.legioLaunchEvents.settings;"),
@@ -320,6 +320,7 @@ test("native launch events invalidate stale reads and reduce polling during game
     assert.equal(intervals.at(-1).cleared, true, "native events continue without background UI polling");
     failureListener("shortcut failure");
     assert.equal(get(launch.launchError), "shortcut failure");
+    assert.deepEqual(globalThis.legioLaunchEvents.toasts, [["shortcut failure", "error"]], "launch errors surface once, as a toast");
     stateListener([{ gameId: "game", status: "idle", error: "launch failed" }]);
     assert.equal(get(launch.hasRunningGame), false, "failed launches leave media active");
     assert.equal(get(launch.hasPendingLaunch), false);
