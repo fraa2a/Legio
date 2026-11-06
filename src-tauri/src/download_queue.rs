@@ -795,13 +795,14 @@ fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
             if let Some(manager) = worker.try_state::<crate::game_lifecycle::GameLaunchManager>()
                 && !crate::download_policy::processable(database, &manager, &job_id)?
             {
-                return Ok(());
+                return Ok(false);
             }
-            if status(database, &job_id)? == "downloaded" {
+            let extracted = status(database, &job_id)? == "downloaded";
+            if extracted {
                 stage_one(&worker.state::<DownloadQueueState>(), database, &job_id)?;
             }
             if status(database, &job_id)? != "staged" {
-                return Ok(());
+                return Ok(extracted);
             }
             let downloads = worker.state::<DownloadQueueState>().directory()?;
             let root = downloads
@@ -814,7 +815,7 @@ fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
                 if let (Some(manager), Some(game)) = (manager.as_ref(), target.as_ref()) {
                     let _operation = manager.operation()?;
                     if crate::download_policy::busy(database, manager, game)? {
-                        return Ok(());
+                        return Ok(extracted);
                     }
                     Some(manager.reserve_transfer(game)?)
                 } else {
@@ -838,29 +839,33 @@ fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
                 Ok(None) => {}
                 Err(error) => crate::application_log::failure("read_download_notification", error),
             }
-            Ok::<_, String>(())
+            Ok::<_, String>(true)
         })
         .await;
-        notify(&app);
-        if !matches!(outcome, Ok(Ok(()))) {
-            let error = match outcome {
-                Ok(Err(error)) => error,
-                Err(error) => format!("Installation task failed: {error}"),
-                Ok(Ok(())) => return,
-            };
-            let worker = app.clone();
-            let job_id = id.clone();
-            let saved_error = error.clone();
-            let persisted = tauri::async_runtime::spawn_blocking(move || {
+        // Notifying only on a state change keeps the policy loop from waking
+        // this task again while extraction or installation is deferred.
+        let error = match outcome {
+            Ok(Ok(true)) => {
+                notify(&app);
+                return;
+            }
+            Ok(Ok(false)) => return,
+            Ok(Err(error)) => error,
+            Err(error) => format!("Installation task failed: {error}"),
+        };
+        let worker = app.clone();
+        let job_id = id.clone();
+        let saved_error = error.clone();
+        let persisted = tauri::async_runtime::spawn_blocking(move || {
                 worker.state::<DatabaseState>().database()?.with_connection(|connection| {
                     connection.execute("UPDATE downloads SET error = ?2, status = CASE WHEN status = 'staging' THEN 'failed' ELSE status END WHERE id = ?1", params![job_id,saved_error]).map_err(db_error)?; Ok(())
                 })
             }).await;
-            crate::application_log::failure(
-                "automatic_game_installation",
-                format!("{error}; failure persistence: {persisted:?}"),
-            );
-        }
+        crate::application_log::failure(
+            "automatic_game_installation",
+            format!("{error}; failure persistence: {persisted:?}"),
+        );
+        notify(&app);
     });
 }
 
@@ -3206,6 +3211,34 @@ mod tests {
             fs::read(queue.path(&job.id, "stage").unwrap().join("Game/data.bin")).unwrap(),
             b"hello"
         );
+        drop(app);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn idle_staging_does_not_wake_the_policy() {
+        let (database, _queue, job, directory) = downloaded_fixture();
+        let app = test_app(&directory);
+        let queue = app.state::<DownloadQueueState>();
+        let changes = queue.policy_changes.subscribe();
+        let settle = || async {
+            while !queue.processing.lock().unwrap().is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+
+        // Nothing to stage, as when extraction is deferred.
+        set_status(&database, &job.id, "queued");
+        spawn_staging(app.handle(), &job.id);
+        settle().await;
+        assert!(!changes.has_changed().unwrap());
+
+        set_status(&database, &job.id, "downloaded");
+        spawn_staging(app.handle(), &job.id);
+        settle().await;
+        assert_eq!(status(&database, &job.id).unwrap(), "staged");
+        assert!(changes.has_changed().unwrap());
         drop(app);
         drop(database);
         fs::remove_dir_all(directory).unwrap();
