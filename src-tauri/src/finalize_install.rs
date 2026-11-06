@@ -487,7 +487,24 @@ fn cleanup_stage(database: &Database, id: &str, stage: &Path) -> Result<(), Stri
         return clear_staged_path(database, id);
     }
     remove_stage_directory(stage)?;
+    remove_download_files(download_root, id);
     clear_staged_path(database, id)
+}
+
+/// The installed game no longer needs its archive. A failure only wastes
+/// disk space, so it is logged and never fails the install.
+fn remove_download_files(download_root: &Path, id: &str) {
+    for extension in ["part", "archive"] {
+        let path = download_root.join(format!("{id}.{extension}"));
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => crate::application_log::failure(
+                "remove_download_archive",
+                format!("Could not remove {extension} file: {error}"),
+            ),
+        }
+    }
 }
 
 /// Removes an app-owned staging directory. A path that is not a regular
@@ -806,6 +823,18 @@ mod tests {
                     .map_err(database_error)
             })
             .unwrap()
+    }
+
+    #[test]
+    fn install_removes_downloaded_archive() {
+        let (database, data_dir, id) = fixture();
+        let downloads = data_dir.join("downloads");
+        fs::write(downloads.join(format!("{id}.archive")), b"zip").unwrap();
+        fs::write(downloads.join(format!("{id}.part")), b"zi").unwrap();
+        finalize(&database, &data_dir, &id, "bin/game.exe").unwrap();
+        assert_eq!(state(&database, &id).0, "installed");
+        assert!(!downloads.join(format!("{id}.archive")).exists());
+        assert!(!downloads.join(format!("{id}.part")).exists());
     }
 
     #[test]
