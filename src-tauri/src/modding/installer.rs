@@ -269,8 +269,9 @@ pub(crate) fn install_packages(
 
 /// Copies an extracted package into the profile and records it. An installed
 /// version of the same package is replaced: its files are moved aside and
-/// deleted only once the new version is in place. On failure a new package
-/// ends up not installed and an update keeps the old version.
+/// deleted only once the new version is in place. A disabled mod stays
+/// disabled. On failure a new package ends up not installed and an update
+/// keeps the old version.
 pub(super) fn install_cached_package(
     ctx: &ModdingContext<'_>,
     profile: &ModProfile,
@@ -300,7 +301,7 @@ pub(super) fn install_cached_package(
         profile_id: profile.id.clone(),
         full_name: full_name.clone(),
         version: id.version.to_string(),
-        enabled: true,
+        enabled: existing.is_none_or(|record| record.enabled),
         online_source,
         installed_at: now_milliseconds()?,
         install_order: existing.map_or_else(
@@ -317,6 +318,16 @@ pub(super) fn install_cached_package(
     // Rejects files owned by another mod before anything is written.
     ctx.database
         .replace_profile_mod_files(&profile.id, &full_name, &tracked_paths(&planned))?;
+    if !record.enabled {
+        // A disabled mod has no files in the profile, so only its records
+        // change; enabling it copies the new version.
+        if let Err(error) = ctx.database.upsert_profile_mod(&record) {
+            restore_tracked_files(ctx, &profile.id, &full_name, &old_files);
+            return Err(InstallError::Failed(error));
+        }
+        store_dependencies(ctx, &profile.id, &full_name, cache_dir);
+        return Ok(record);
+    }
     let set_aside = match SetAside::move_files(
         ctx.paths,
         profile_dir,
@@ -1196,6 +1207,28 @@ mod tests {
                 "BepInEx/plugins/Owner-Mod/manifest.json",
             ]
         );
+    }
+
+    #[test]
+    fn updating_a_disabled_mod_keeps_it_disabled() {
+        let env = Env::new();
+        let repo = repo();
+        env.install(&repo, &["Owner-Mod-1.0.0"], ResolveMode::Latest)
+            .unwrap();
+        set_mod_enabled(&env.ctx(), &env.profile.id, "Owner-Mod", false).unwrap();
+
+        env.install(&repo, &["Owner-Mod-2.0.0"], ResolveMode::Latest)
+            .unwrap();
+        let record = env.mods().remove(1);
+        assert_eq!((record.version.as_str(), record.enabled), ("2.0.0", false));
+        assert!(!env.exists("BepInEx/plugins/Owner-Mod"));
+
+        set_mod_enabled(&env.ctx(), &env.profile.id, "Owner-Mod", true).unwrap();
+        assert_eq!(
+            fs::read(env.profile_dir().join("BepInEx/plugins/Owner-Mod/Mod.dll")).unwrap(),
+            b"mod v2"
+        );
+        assert!(!env.exists("BepInEx/plugins/Owner-Mod/sound.ogg"));
     }
 
     #[test]

@@ -22,10 +22,7 @@ use super::{
     dependencies::{InstallRequest, PackageSource, ResolveMode, ResolvedPackage},
     ecosystem::EcosystemSchema,
     ecosystem_store::EcosystemStore,
-    installer::{
-        InstallOutcome, InstallProgress, InstallStage, ModdingContext, install_packages,
-        set_mod_enabled,
-    },
+    installer::{InstallOutcome, InstallProgress, InstallStage, ModdingContext, install_packages},
     loader_install::plan_loader_request,
     package_cache::{PackageCache, PackageVersionRecord},
     package_id::{PackageName, PackageVersionId, Version},
@@ -427,6 +424,55 @@ fn find_updates(
     Ok(updates)
 }
 
+/// Updates the named mods, or every mod with an update when `full_names` is
+/// absent, to their latest catalog version. Disabled mods stay disabled.
+fn update_from_catalog(
+    app: &AppHandle,
+    ctx: &ModdingContext<'_>,
+    community: &str,
+    profile_id: &str,
+    full_names: Option<&[String]>,
+    operation_id: Option<&str>,
+) -> Result<InstallOutcome, String> {
+    let wanted: Option<HashSet<String>> =
+        full_names.map(|names| names.iter().map(|name| name.to_lowercase()).collect());
+    let requests = find_updates(
+        ctx.database,
+        &app.state::<PackageCache>(),
+        community,
+        profile_id,
+    )?
+    .into_iter()
+    .filter(|update| {
+        wanted
+            .as_ref()
+            .is_none_or(|wanted| wanted.contains(&update.full_name.to_lowercase()))
+    })
+    .map(|update| {
+        Ok(InstallRequest {
+            package: update.full_name.parse()?,
+            version: Some(update.latest_version.parse()?),
+        })
+    })
+    .collect::<Result<Vec<_>, String>>()?;
+    if requests.is_empty() {
+        return Ok(InstallOutcome {
+            installed: Vec::new(),
+            skipped: Vec::new(),
+            warnings: Vec::new(),
+        });
+    }
+    install_from_catalog(
+        app,
+        ctx,
+        community,
+        profile_id,
+        operation_id,
+        &requests,
+        ResolveMode::Latest,
+    )
+}
+
 #[tauri::command]
 pub async fn install_mods(
     app: AppHandle,
@@ -545,64 +591,15 @@ pub async fn update_profile_mods(
             &schema,
             &profile_id,
             |ctx, community| {
-                let wanted: Option<HashSet<String>> =
-                    full_names.map(|names| names.iter().map(|name| name.to_lowercase()).collect());
-                let updates = find_updates(
-                    database,
-                    &app.state::<PackageCache>(),
-                    community,
-                    &profile_id,
-                )?
-                .into_iter()
-                .filter(|update| {
-                    wanted
-                        .as_ref()
-                        .is_none_or(|wanted| wanted.contains(&update.full_name.to_lowercase()))
-                })
-                .collect::<Vec<_>>();
-                if updates.is_empty() {
-                    return Ok(ModInstallResult::from(InstallOutcome {
-                        installed: Vec::new(),
-                        skipped: Vec::new(),
-                        warnings: Vec::new(),
-                    }));
-                }
-                let disabled: HashSet<String> = database
-                    .profile_mods(&profile_id)?
-                    .into_iter()
-                    .filter(|record| !record.enabled)
-                    .map(|record| record.full_name.to_lowercase())
-                    .collect();
-                let requests = updates
-                    .iter()
-                    .map(|update| {
-                        Ok(InstallRequest {
-                            package: update.full_name.parse()?,
-                            version: Some(update.latest_version.parse()?),
-                        })
-                    })
-                    .collect::<Result<Vec<_>, String>>()?;
-                let outcome = install_from_catalog(
+                update_from_catalog(
                     app,
                     ctx,
                     community,
                     &profile_id,
+                    full_names.as_deref(),
                     operation_id.as_deref(),
-                    &requests,
-                    ResolveMode::Latest,
-                )?;
-                for id in outcome
-                    .installed
-                    .iter()
-                    .filter(|id| disabled.contains(&id.package.to_string().to_lowercase()))
-                {
-                    set_mod_enabled(ctx, &profile_id, &id.package.to_string(), false).map_err(
-                        |error| {
-                            format!("{id} was updated but could not be disabled again: {error}")
-                        },
-                    )?;
-                }
-                Ok(ModInstallResult::from(outcome))
+                )
+                .map(ModInstallResult::from)
             },
         )
     })
