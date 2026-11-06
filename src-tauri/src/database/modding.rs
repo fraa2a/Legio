@@ -37,6 +37,10 @@ pub struct ProfileMod {
     pub online_source: bool,
     pub installed_at: i64,
     pub install_order: i64,
+    /// Content key of the cached files of a mod imported from an archive.
+    /// `None` for online mods and for local mods imported before the key.
+    #[serde(skip)]
+    pub local_cache_key: Option<String>,
 }
 
 impl Database {
@@ -232,7 +236,7 @@ impl Database {
             let mut statement = connection
                 .prepare(
                     "SELECT profile_id, full_name, version, enabled, online_source,
-                         installed_at, install_order
+                         installed_at, install_order, local_cache_key
                      FROM mod_profile_mods WHERE profile_id = ?1
                      ORDER BY install_order, full_name",
                 )
@@ -247,6 +251,7 @@ impl Database {
                         online_source: row.get(4)?,
                         installed_at: row.get(5)?,
                         install_order: row.get(6)?,
+                        local_cache_key: row.get(7)?,
                     })
                 })
                 .map_err(database_error)?
@@ -315,18 +320,22 @@ impl Database {
         let profile_id = parse_profile_id(&profile_mod.profile_id)?;
         require_mod_text(&profile_mod.full_name, "mod name")?;
         require_mod_text(&profile_mod.version, "mod version")?;
+        if let Some(key) = &profile_mod.local_cache_key {
+            validate_local_cache_key(key)?;
+        }
         self.with_connection(|connection| {
             require_profile(connection, &profile_id)?;
             connection
                 .execute(
                     "INSERT INTO mod_profile_mods (profile_id, full_name, version, enabled,
-                         online_source, installed_at, install_order)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                         online_source, installed_at, install_order, local_cache_key)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                      ON CONFLICT(profile_id, full_name) DO UPDATE SET
                          version = excluded.version, enabled = excluded.enabled,
                          online_source = excluded.online_source,
                          installed_at = excluded.installed_at,
-                         install_order = excluded.install_order",
+                         install_order = excluded.install_order,
+                         local_cache_key = excluded.local_cache_key",
                     params![
                         profile_id,
                         profile_mod.full_name,
@@ -335,6 +344,7 @@ impl Database {
                         profile_mod.online_source,
                         profile_mod.installed_at,
                         profile_mod.install_order,
+                        profile_mod.local_cache_key,
                     ],
                 )
                 .map_err(database_error)?;
@@ -633,6 +643,18 @@ fn require_mod_text(value: &str, label: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// The key becomes a folder name, so only a SHA-256 hex digest is accepted.
+fn validate_local_cache_key(key: &str) -> Result<(), String> {
+    if key.len() != 64
+        || !key
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        return Err("Local mod cache key is invalid".to_owned());
+    }
+    Ok(())
+}
+
 fn validate_relative_paths(paths: &[String]) -> Result<(), String> {
     paths
         .iter()
@@ -686,6 +708,7 @@ mod tests {
             online_source: true,
             installed_at: 5,
             install_order: order,
+            local_cache_key: None,
         }
     }
 
@@ -957,11 +980,17 @@ mod tests {
         let mut updated = mod_record(id, "A-First", 1);
         updated.version = "2.0.0".to_owned();
         updated.online_source = false;
+        updated.local_cache_key = Some("ab".repeat(32));
         database.upsert_profile_mod(&updated).unwrap();
         let mods = database.profile_mods(id).unwrap();
         assert_eq!(mods.len(), 2);
         assert_eq!(mods[0], updated);
         assert_eq!(mods[1].full_name, "B-Second");
+        for key in ["../x", &"AB".repeat(32), "abc"] {
+            let mut invalid = updated.clone();
+            invalid.local_cache_key = Some(key.to_owned());
+            assert!(database.upsert_profile_mod(&invalid).is_err(), "{key}");
+        }
 
         database
             .set_profile_mod_enabled(id, "A-First", false)

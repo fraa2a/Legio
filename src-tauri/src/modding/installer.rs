@@ -8,7 +8,9 @@ use std::{collections::HashMap, fmt, fs, path::Path};
 
 use serde::Serialize;
 
-use super::archive_cache::{CacheStage, FetchPackage, TempPath, ensure_cached, package_dir};
+use super::archive_cache::{
+    CacheStage, FetchPackage, PackageOrigin, TempPath, ensure_cached, package_dir,
+};
 use super::dependencies::{InstallRequest, PackageSource, ResolveMode, package_key, resolve_plan};
 use super::ecosystem::{EcosystemSchema, GameEntry, ModloaderPackage, PackageLoader};
 use super::install_rules::{PlannedFile, plan_install};
@@ -254,7 +256,14 @@ pub(crate) fn install_packages(
             InstallStage::Installing,
             position,
         );
-        install_cached_package(ctx, &profile, &profile_dir, &package.id, &cache_dir, true)?;
+        install_cached_package(
+            ctx,
+            &profile,
+            &profile_dir,
+            &package.id,
+            &cache_dir,
+            PackageOrigin::Thunderstore,
+        )?;
         outcome.installed.push(package.id.clone());
     }
     report_progress(
@@ -278,7 +287,7 @@ pub(super) fn install_cached_package(
     profile_dir: &Path,
     id: &PackageVersionId,
     cache_dir: &Path,
-    online_source: bool,
+    origin: PackageOrigin<'_>,
 ) -> Result<ProfileMod, InstallError> {
     let planned = plan_package(ctx, &id.package, cache_dir)?;
     fs::create_dir_all(profile_dir)
@@ -302,7 +311,7 @@ pub(super) fn install_cached_package(
         full_name: full_name.clone(),
         version: id.version.to_string(),
         enabled: existing.is_none_or(|record| record.enabled),
-        online_source,
+        online_source: origin == PackageOrigin::Thunderstore,
         installed_at: now_milliseconds()?,
         install_order: existing.map_or_else(
             || {
@@ -313,6 +322,10 @@ pub(super) fn install_cached_package(
             },
             |record| record.install_order,
         ),
+        local_cache_key: match origin {
+            PackageOrigin::LocalArchive(key) => Some(key.to_owned()),
+            PackageOrigin::Thunderstore | PackageOrigin::LegacyLocal => None,
+        },
     };
 
     // Rejects files owned by another mod before anything is written.
@@ -585,7 +598,7 @@ fn enable_mod(
     record: &ProfileMod,
     id: &PackageVersionId,
 ) -> Result<(), InstallError> {
-    let cache_dir = package_dir(ctx.paths, id, record.online_source);
+    let cache_dir = package_dir(ctx.paths, id, PackageOrigin::of(record));
     if !cache_dir.is_dir() {
         return Err(InstallError::CacheMissing {
             package: id.clone(),
@@ -707,7 +720,7 @@ pub(crate) fn declared_dependencies(
             continue;
         };
         let Some(dependencies) =
-            read_package_dependencies(&package_dir(paths, &id, record.online_source))
+            read_package_dependencies(&package_dir(paths, &id, PackageOrigin::of(record)))
         else {
             continue;
         };
@@ -1646,7 +1659,11 @@ mod tests {
             .unwrap();
         let ctx = env.ctx();
         set_all_mods_enabled(&ctx, &env.profile.id, false, |_| Ok(())).unwrap();
-        let lost = package_dir(&env.paths, &"Owner-Mod-2.0.0".parse().unwrap(), true);
+        let lost = package_dir(
+            &env.paths,
+            &"Owner-Mod-2.0.0".parse().unwrap(),
+            PackageOrigin::Thunderstore,
+        );
         fs::remove_dir_all(&lost).unwrap();
 
         let restored = RefCell::new(Vec::new());

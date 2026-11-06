@@ -822,5 +822,24 @@ pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
             ))
             .map_err(database_error)?;
     }
+    if version < 39 {
+        // Content key of the cached files of a mod imported from an archive.
+        // Older local imports keep NULL and their name and version path.
+        let exists: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('mod_profile_mods') WHERE name='local_cache_key')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(database_error)?;
+        if !exists {
+            transaction
+                .execute_batch("ALTER TABLE mod_profile_mods ADD COLUMN local_cache_key TEXT;")
+                .map_err(database_error)?;
+        }
+        transaction
+            .pragma_update(None, "user_version", 39)
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }

@@ -1,10 +1,11 @@
 //! Installs a mod from an archive the user picked, outside Thunderstore.
 
-use std::path::Path;
+use std::{fs::File, io, path::Path};
 
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
-use super::archive_cache::{package_dir, publish_directory, stage_archive};
+use super::archive_cache::{PackageOrigin, package_dir, publish_directory, stage_archive};
 use super::installer::{
     InstallError, InstallStage, ModdingContext, ProgressSink, install_cached_package,
     report_progress,
@@ -31,6 +32,8 @@ pub(crate) struct LocalImportOutcome {
 /// local (not online) mod. A `manifest.json` in the archive supplies the name,
 /// version and dependencies; without one the name comes from the file name and
 /// the version is 0.0.0. Importing the same name again replaces the mod.
+/// Each import is cached under its content key, so it never changes the files
+/// of another profile's import with the same name.
 pub(crate) fn import_local_mod(
     ctx: &ModdingContext<'_>,
     profile_id: &str,
@@ -62,8 +65,10 @@ pub(crate) fn import_local_mod(
             manifest
         }
     };
-    let target = package_dir(ctx.paths, &id, false);
-    publish_directory(stage, &target, true)?;
+    let key = content_key(&id, archive)?;
+    let origin = PackageOrigin::LocalArchive(&key);
+    let target = package_dir(ctx.paths, &id, origin);
+    publish_directory(stage, &target)?;
 
     report_progress(
         progress,
@@ -72,7 +77,7 @@ pub(crate) fn import_local_mod(
         InstallStage::Installing,
         (1, 1),
     );
-    let installed = install_cached_package(ctx, &profile, &profile_dir, &id, &target, false)?;
+    let installed = install_cached_package(ctx, &profile, &profile_dir, &id, &target, origin)?;
 
     let present: Vec<String> = ctx
         .database
@@ -94,6 +99,18 @@ pub(crate) fn import_local_mod(
         installed,
         missing_dependencies,
     })
+}
+
+/// SHA-256 of the package id and the archive. The id is part of it because
+/// without a manifest the file name names the package.
+fn content_key(id: &PackageVersionId, archive: &Path) -> Result<String, String> {
+    let read = |error: io::Error| format!("Cannot read the archive: {error}");
+    let mut file = File::open(archive).map_err(read)?;
+    let mut hasher = Sha256::new();
+    hasher.update(id.to_string().as_bytes());
+    hasher.update(b"\n");
+    io::copy(&mut file, &mut hasher).map_err(read)?;
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 fn identify(
@@ -148,8 +165,10 @@ fn sanitize_name(raw: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::database::ProfileMod;
     use crate::modding::dependencies::ResolveMode;
     use crate::modding::installer::{set_mod_enabled, uninstall_mod};
+    use crate::modding::profiles::create_profile;
     use crate::modding::test_support::{Env, FakeRepo, write_zip};
     use std::{fs, path::PathBuf};
 
@@ -161,6 +180,13 @@ mod tests {
 
     fn import(env: &Env, path: &Path) -> Result<LocalImportOutcome, InstallError> {
         import_local_mod(&env.ctx(), &env.profile.id, path, &|_| {})
+    }
+
+    fn cache_of(env: &Env, record: &ProfileMod) -> PathBuf {
+        let id = format!("{}-{}", record.full_name, record.version)
+            .parse()
+            .unwrap();
+        package_dir(&env.paths, &id, PackageOrigin::of(record))
     }
 
     fn temp_entries(env: &Env) -> usize {
@@ -199,7 +225,8 @@ mod tests {
             .unwrap(),
             b"dll"
         );
-        let cache = env.paths.root().join("local-cache/Local-Cool_Mod/1.2.3");
+        let cache = cache_of(&env, &outcome.installed);
+        assert!(cache.starts_with(env.paths.root().join("local-cache")));
         assert!(cache.join("CoolMod.dll").is_file());
         assert!(!env.paths.root().join("cache").exists());
         assert_eq!(temp_entries(&env), 0);
@@ -217,10 +244,7 @@ mod tests {
         let outcome = import(&env, &path).unwrap();
         assert_eq!(outcome.installed.full_name, "Local-My_Cool_Mod_v2");
         assert_eq!(outcome.installed.version, "0.0.0");
-        let cache = env
-            .paths
-            .root()
-            .join("local-cache/Local-My_Cool_Mod_v2/0.0.0");
+        let cache = cache_of(&env, &outcome.installed);
         let manifest = read_manifest(&cache).unwrap().unwrap();
         assert_eq!(manifest.version_number.as_deref(), Some("0.0.0"));
         assert!(env.exists("BepInEx/plugins/Local-My_Cool_Mod_v2/Thing.dll"));
@@ -259,7 +283,8 @@ mod tests {
         assert_eq!(mods.len(), 1);
         assert_eq!(mods[0].version, "1.1.0");
 
-        // Same version again refreshes the cached files.
+        // Same version again gets its own cache entry.
+        let cached = cache_of(&env, &mods[0]);
         let third = archive(
             &env,
             "mod3.zip",
@@ -272,9 +297,37 @@ mod tests {
             ],
         );
         import(&env, &third).unwrap();
-        let cache = env.paths.root().join("local-cache/Local-Mod/1.1.0");
+        let cache = cache_of(&env, &env.mods()[0]);
+        assert_ne!(cache, cached);
         assert!(cache.join("Newer.dll").is_file());
         assert!(!cache.join("New.dll").exists());
+        assert!(cached.join("New.dll").is_file());
+        assert!(env.exists("BepInEx/plugins/Local-Mod/Newer.dll"));
+        assert!(!env.exists("BepInEx/plugins/Local-Mod/New.dll"));
+    }
+
+    #[test]
+    fn imports_with_the_same_name_keep_their_own_files() {
+        let env = Env::new();
+        let other = create_profile(&env.database, &env.paths, &env.game_id, "Other").unwrap();
+        import(&env, &archive(&env, "mod.zip", &[("First.dll", "first")])).unwrap();
+        let elsewhere = env.directory.join("elsewhere");
+        fs::create_dir_all(&elsewhere).unwrap();
+        let second = elsewhere.join("mod.zip");
+        write_zip(&second, &[("Second.dll", "second")]);
+        import_local_mod(&env.ctx(), &other.id, &second, &|_| {}).unwrap();
+
+        set_mod_enabled(&env.ctx(), &env.profile.id, "Local-mod", false).unwrap();
+        set_mod_enabled(&env.ctx(), &env.profile.id, "Local-mod", true).unwrap();
+        assert!(env.exists("BepInEx/plugins/Local-mod/First.dll"));
+        assert!(!env.exists("BepInEx/plugins/Local-mod/Second.dll"));
+        assert_eq!(
+            env.files_of("Local-mod"),
+            [
+                "BepInEx/plugins/Local-mod/First.dll",
+                "BepInEx/plugins/Local-mod/manifest.json"
+            ]
+        );
     }
 
     #[test]

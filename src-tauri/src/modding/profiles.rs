@@ -391,6 +391,7 @@ mod tests {
                     online_source: true,
                     installed_at: 1,
                     install_order: 0,
+                    local_cache_key: None,
                 })
                 .unwrap();
             let tracked: Vec<String> = files.iter().map(|file| (*file).to_owned()).collect();

@@ -287,6 +287,7 @@ mod tests {
                 online_source: true,
                 installed_at: 0,
                 install_order: 0,
+                local_cache_key: None,
             },
             ProfileMod {
                 profile_id: "p".to_owned(),
@@ -296,6 +297,7 @@ mod tests {
                 online_source: true,
                 installed_at: 0,
                 install_order: 1,
+                local_cache_key: None,
             },
         ];
         let status = ModLaunchStatus {

@@ -11,6 +11,7 @@ use super::dependencies::ResolvedPackage;
 use super::package_id::PackageVersionId;
 use super::paths::ModdingPaths;
 use crate::archive_install::{StageOptions, verify_and_stage_with};
+use crate::database::ProfileMod;
 
 /// Downloads a package archive to the given path. Used only when the package
 /// is not cached yet.
@@ -58,22 +59,43 @@ impl Drop for TempPath {
     }
 }
 
+/// Where the extracted files of an installed package come from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PackageOrigin<'a> {
+    Thunderstore,
+    /// Imported from a local archive and stored under its content key, so
+    /// importing another archive never changes it.
+    LocalArchive(&'a str),
+    /// Imported from a local archive before imports were keyed by content.
+    LegacyLocal,
+}
+
+impl<'a> PackageOrigin<'a> {
+    pub(crate) fn of(record: &'a ProfileMod) -> Self {
+        match (record.online_source, record.local_cache_key.as_deref()) {
+            (true, _) => Self::Thunderstore,
+            (false, Some(key)) => Self::LocalArchive(key),
+            (false, None) => Self::LegacyLocal,
+        }
+    }
+}
+
 /// Where the extracted contents of a package version live. Packages imported
 /// from a local archive use their own tree so they cannot collide with a
 /// Thunderstore package of the same name.
 pub(crate) fn package_dir(
     paths: &ModdingPaths,
     id: &PackageVersionId,
-    online_source: bool,
+    origin: PackageOrigin<'_>,
 ) -> PathBuf {
-    if online_source {
-        paths.package_cache_dir(&id.package, &id.version)
-    } else {
-        paths
-            .root()
-            .join("local-cache")
+    let local = paths.root().join("local-cache");
+    match origin {
+        PackageOrigin::Thunderstore => paths.package_cache_dir(&id.package, &id.version),
+        // A hex key cannot collide with a legacy `Owner-Name` folder.
+        PackageOrigin::LocalArchive(key) => local.join(key),
+        PackageOrigin::LegacyLocal => local
             .join(id.package.to_string())
-            .join(id.version.to_string())
+            .join(id.version.to_string()),
     }
 }
 
@@ -85,7 +107,7 @@ pub(crate) fn ensure_cached(
     fetch: FetchPackage<'_>,
     on_stage: &dyn Fn(CacheStage),
 ) -> Result<PathBuf, String> {
-    let target = package_dir(paths, &package.id, true);
+    let target = package_dir(paths, &package.id, PackageOrigin::Thunderstore);
     if target.is_dir() {
         return Ok(target);
     }
@@ -95,7 +117,7 @@ pub(crate) fn ensure_cached(
     on_stage(CacheStage::Extracting);
     let stage = stage_archive(paths, archive.path())?;
     drop(archive);
-    publish_directory(stage, &target, false)?;
+    publish_directory(stage, &target)?;
     Ok(target)
 }
 
@@ -113,25 +135,18 @@ pub(crate) fn stage_archive(paths: &ModdingPaths, archive: &Path) -> Result<Temp
     Ok(stage)
 }
 
-/// Moves a staged directory to `target`. Without `replace`, a directory that
-/// already exists there (another install won the race) is kept as is.
-pub(crate) fn publish_directory(
-    stage: TempPath,
-    target: &Path,
-    replace: bool,
-) -> Result<(), String> {
+/// Moves a staged directory to `target`. Cached packages are never replaced:
+/// a directory that already exists there (another install won the race) is
+/// kept as is.
+pub(crate) fn publish_directory(stage: TempPath, target: &Path) -> Result<(), String> {
     let parent = target
         .parent()
         .ok_or_else(|| "Cache location has no parent".to_owned())?;
     fs::create_dir_all(parent)
         .map_err(|error| format!("Cannot create the package cache: {error}"))?;
-    if replace && target.exists() {
-        fs::remove_dir_all(target)
-            .map_err(|error| format!("Cannot replace the cached package: {error}"))?;
-    }
     match fs::rename(stage.path(), target) {
         Ok(()) => Ok(()),
-        Err(_) if !replace && target.is_dir() => Ok(()),
+        Err(_) if target.is_dir() => Ok(()),
         Err(error) => Err(format!("Cannot store the package in the cache: {error}")),
     }
 }
@@ -218,7 +233,14 @@ mod tests {
         let error =
             ensure_cached(&paths, &package("Owner-Mod-1.0.0"), &fetch, &|_| {}).unwrap_err();
         assert_eq!(error, "network down");
-        assert!(!package_dir(&paths, &package("Owner-Mod-1.0.0").id, true).exists());
+        assert!(
+            !package_dir(
+                &paths,
+                &package("Owner-Mod-1.0.0").id,
+                PackageOrigin::Thunderstore
+            )
+            .exists()
+        );
         assert_eq!(temp_entries(&paths), 0);
     }
 
@@ -237,7 +259,14 @@ mod tests {
         };
         assert!(ensure_cached(&paths, &package("Owner-Mod-1.0.0"), &html, &|_| {}).is_err());
         assert!(!root.0.join("escape.txt").exists());
-        assert!(!package_dir(&paths, &package("Owner-Mod-1.0.0").id, true).exists());
+        assert!(
+            !package_dir(
+                &paths,
+                &package("Owner-Mod-1.0.0").id,
+                PackageOrigin::Thunderstore
+            )
+            .exists()
+        );
         assert_eq!(temp_entries(&paths), 0);
     }
 
@@ -252,35 +281,29 @@ mod tests {
         fs::create_dir_all(stage.path()).unwrap();
         fs::write(stage.path().join("new"), "new").unwrap();
         let stage_path = stage.path().to_path_buf();
-        publish_directory(stage, &target, false).unwrap();
+        publish_directory(stage, &target).unwrap();
         assert!(target.join("old").is_file());
         assert!(!target.join("new").exists());
         assert!(!stage_path.exists());
     }
 
     #[test]
-    fn publishing_with_replace_swaps_the_contents() {
-        let root = Root::new();
-        let paths = root.paths();
-        let target = root.0.join("cache").join("x");
-        fs::create_dir_all(&target).unwrap();
-        fs::write(target.join("old"), "old").unwrap();
-        let stage = TempPath::new(&paths, "-stage").unwrap();
-        fs::create_dir_all(stage.path()).unwrap();
-        fs::write(stage.path().join("new"), "new").unwrap();
-        publish_directory(stage, &target, true).unwrap();
-        assert!(!target.join("old").exists());
-        assert!(target.join("new").is_file());
-    }
-
-    #[test]
     fn local_packages_use_their_own_tree() {
         let paths = ModdingPaths::new(Path::new("data"));
         let id: PackageVersionId = "Local-Mod-1.0.0".parse().unwrap();
-        assert_ne!(
-            package_dir(&paths, &id, true),
-            package_dir(&paths, &id, false)
+        let key = "ab".repeat(32);
+        let local = paths.root().join("local-cache");
+        assert_eq!(
+            package_dir(&paths, &id, PackageOrigin::Thunderstore),
+            paths.package_cache_dir(&id.package, &id.version)
         );
-        assert!(package_dir(&paths, &id, false).starts_with(paths.root().join("local-cache")));
+        assert_eq!(
+            package_dir(&paths, &id, PackageOrigin::LocalArchive(&key)),
+            local.join(&key)
+        );
+        assert_eq!(
+            package_dir(&paths, &id, PackageOrigin::LegacyLocal),
+            local.join("Local-Mod").join("1.0.0")
+        );
     }
 }
