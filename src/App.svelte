@@ -19,6 +19,7 @@
   import CloseButton from "./lib/components/ui/CloseButton.svelte";
   import AccountSwitchDialog from "./lib/features/library/AccountSwitchDialog.svelte";
   import ModLinkDialog from "./lib/features/modding/ModLinkDialog.svelte";
+  import SourceLinkDialog from "./lib/features/settings/SourceLinkDialog.svelte";
   import { hydrateApp } from "./lib/stores/bootstrap";
   import { paletteOpen } from "./lib/stores/command-palette";
   import { closeSettings, settingsOpen } from "./lib/stores/navigation";
@@ -128,6 +129,7 @@
 {#if $settings.status === "ready" && $settings.data.onboardingCompleted}
   <ModLinkDialog />
 {/if}
+<SourceLinkDialog />
 <ToastNotice />
 
 {#if $updateState.version && !updateDismissed && ($appInfo.data.platform !== "linux" || !$updateState.nativeNotified)}

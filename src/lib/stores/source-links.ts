@@ -1,11 +1,20 @@
 import { listen } from "@tauri-apps/api/event";
-import { writable } from "svelte/store";
+import { derived, writable } from "svelte/store";
 import { takeSourceLinks } from "../services/legio-source";
 import { toMessage } from "../utils/errors";
 import { openSettings } from "./navigation";
-import { addSource, sourceActionError } from "./source";
+import { sourceActionError } from "./source";
 
 export const sourceLinkRegistrationError = writable<string | null>(null);
+
+const queue = writable<readonly string[]>([]);
+
+// A link only proposes a source: it is added after the user confirms, one link at a time.
+export const currentSourceLink = derived(queue, (urls) => urls[0] ?? null);
+
+export function dismissSourceLink(): void {
+  queue.update((urls) => urls.slice(1));
+}
 let starting: Promise<void> | null = null;
 let draining = false;
 let requested = false;
@@ -22,7 +31,10 @@ async function drain(): Promise<void> {
       for (const request of pending.requests) {
         openSettings("sources");
         if (request.error !== null) sourceActionError.set(request.error);
-        else if (request.url !== null) await addSource(request.url);
+        else if (request.url !== null) {
+          const url = request.url;
+          queue.update((urls) => (urls.includes(url) ? urls : [...urls, url]));
+        }
       }
     }
   } catch (error) {
