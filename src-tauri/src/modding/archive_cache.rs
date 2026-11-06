@@ -36,6 +36,11 @@ impl TempPath {
     pub(crate) fn path(&self) -> &Path {
         &self.0
     }
+
+    /// Leaves the path on disk instead of removing it when dropped.
+    pub(crate) fn keep(mut self) -> PathBuf {
+        std::mem::take(&mut self.0)
+    }
 }
 
 impl Drop for TempPath {
