@@ -8,7 +8,9 @@ use std::{collections::HashMap, fmt, fs, path::Path};
 
 use serde::Serialize;
 
-use super::archive_cache::{CacheStage, FetchPackage, ensure_cached, package_dir};
+use super::archive_cache::{
+    CacheStage, FetchPackage, PackageOrigin, TempPath, ensure_cached, package_dir,
+};
 use super::dependencies::{InstallRequest, PackageSource, ResolveMode, package_key, resolve_plan};
 use super::ecosystem::{EcosystemSchema, GameEntry, ModloaderPackage, PackageLoader};
 use super::install_rules::{PlannedFile, plan_install};
@@ -254,7 +256,14 @@ pub(crate) fn install_packages(
             InstallStage::Installing,
             position,
         );
-        install_cached_package(ctx, &profile, &profile_dir, &package.id, &cache_dir, true)?;
+        install_cached_package(
+            ctx,
+            &profile,
+            &profile_dir,
+            &package.id,
+            &cache_dir,
+            PackageOrigin::Thunderstore,
+        )?;
         outcome.installed.push(package.id.clone());
     }
     report_progress(
@@ -268,15 +277,17 @@ pub(crate) fn install_packages(
 }
 
 /// Copies an extracted package into the profile and records it. An installed
-/// version of the same package is replaced. On failure the package ends up
-/// not installed, with the files it wrote removed.
+/// version of the same package is replaced: its files are moved aside and
+/// deleted only once the new version is in place. A disabled mod stays
+/// disabled. On failure a new package ends up not installed and an update
+/// keeps the old version.
 pub(super) fn install_cached_package(
     ctx: &ModdingContext<'_>,
     profile: &ModProfile,
     profile_dir: &Path,
     id: &PackageVersionId,
     cache_dir: &Path,
-    online_source: bool,
+    origin: PackageOrigin<'_>,
 ) -> Result<ProfileMod, InstallError> {
     let planned = plan_package(ctx, &id.package, cache_dir)?;
     fs::create_dir_all(profile_dir)
@@ -295,31 +306,12 @@ pub(super) fn install_cached_package(
             .profile_mod_files(&profile.id, &record.full_name)?,
         None => Vec::new(),
     };
-    let tracked = tracked_paths(&planned);
-
-    // Rejects files owned by another mod before anything is written.
-    ctx.database
-        .replace_profile_mod_files(&profile.id, &full_name, &tracked)?;
-    // Every old file goes before the copy, so a failed update cannot leave
-    // files of the previous version behind without a record.
-    if let Err(failure) = remove_files(profile_dir, &old_files) {
-        restore_tracked_files(ctx, &profile.id, &full_name, &failure.remaining);
-        return Err(InstallError::Failed(failure.error));
-    }
-
-    let written = match copy_planned(profile_dir, &planned) {
-        Ok(written) => written,
-        Err(failure) => {
-            let error = discard_install(ctx, profile, profile_dir, &full_name, &failure.written);
-            return Err(InstallError::Failed(append(failure.error, error)));
-        }
-    };
     let record = ProfileMod {
         profile_id: profile.id.clone(),
         full_name: full_name.clone(),
         version: id.version.to_string(),
-        enabled: true,
-        online_source,
+        enabled: existing.is_none_or(|record| record.enabled),
+        online_source: origin == PackageOrigin::Thunderstore,
         installed_at: now_milliseconds()?,
         install_order: existing.map_or_else(
             || {
@@ -330,13 +322,142 @@ pub(super) fn install_cached_package(
             },
             |record| record.install_order,
         ),
+        local_cache_key: match origin {
+            PackageOrigin::LocalArchive(key) => Some(key.to_owned()),
+            PackageOrigin::Thunderstore | PackageOrigin::LegacyLocal => None,
+        },
     };
-    if let Err(error) = ctx.database.upsert_profile_mod(&record) {
-        let cleanup = discard_install(ctx, profile, profile_dir, &full_name, &written);
+
+    // Rejects files owned by another mod before anything is written.
+    ctx.database
+        .replace_profile_mod_files(&profile.id, &full_name, &tracked_paths(&planned))?;
+    if !record.enabled {
+        // A disabled mod has no files in the profile, so only its records
+        // change; enabling it copies the new version.
+        if let Err(error) = ctx.database.upsert_profile_mod(&record) {
+            restore_tracked_files(ctx, &profile.id, &full_name, &old_files);
+            return Err(InstallError::Failed(error));
+        }
+        store_dependencies(ctx, &profile.id, &full_name, cache_dir);
+        return Ok(record);
+    }
+    let set_aside = match SetAside::move_files(
+        ctx.paths,
+        profile_dir,
+        &without_untracked(old_files.clone(), &planned),
+    ) {
+        Ok(set_aside) => set_aside,
+        Err(error) => {
+            restore_tracked_files(ctx, &profile.id, &full_name, &old_files);
+            return Err(InstallError::Failed(error));
+        }
+    };
+    let installed = copy_planned(profile_dir, &planned)
+        .map_err(|failure| (failure.written, failure.error))
+        .and_then(|written| {
+            ctx.database
+                .upsert_profile_mod(&record)
+                .map_err(|error| (written, error))
+        });
+    if let Err((written, error)) = installed {
+        let cleanup = if existing.is_some() {
+            let mut problems = Vec::new();
+            if let Err(failure) = remove_files(profile_dir, &written) {
+                problems.push(failure.error);
+            }
+            problems.extend(set_aside.restore(profile_dir));
+            restore_tracked_files(ctx, &profile.id, &full_name, &old_files);
+            cleanup_message("restore_mod_update", problems)
+        } else {
+            discard_install(ctx, profile, profile_dir, &full_name, &written)
+        };
         return Err(InstallError::Failed(append(error, cleanup)));
     }
+    set_aside.discard(profile_dir);
     store_dependencies(ctx, &profile.id, &full_name, cache_dir);
     Ok(record)
+}
+
+/// Files of the installed version moved out of the profile during an update,
+/// so that a failed update can put them back.
+struct SetAside {
+    backup: TempPath,
+    moved: Vec<String>,
+}
+
+impl SetAside {
+    /// Moves the files that exist into a temporary folder. When one cannot be
+    /// moved, the others are put back.
+    fn move_files(
+        paths: &ModdingPaths,
+        profile_dir: &Path,
+        files: &[String],
+    ) -> Result<Self, String> {
+        let mut set_aside = Self {
+            backup: TempPath::new(paths, "-backup")?,
+            moved: Vec::new(),
+        };
+        for relative in files {
+            if let Err(error) = set_aside.move_file(profile_dir, relative) {
+                let error = format!("{error}. Close the game if it is running and try again");
+                let problems = set_aside.restore(profile_dir);
+                return Err(append(
+                    error,
+                    cleanup_message("restore_mod_files", problems),
+                ));
+            }
+        }
+        Ok(set_aside)
+    }
+
+    fn move_file(&mut self, profile_dir: &Path, relative: &str) -> Result<(), String> {
+        let source = join_relative(profile_dir, relative)?;
+        match fs::symlink_metadata(&source) {
+            Ok(metadata) if metadata.is_dir() => {
+                return Err(format!("Cannot replace {relative}: it is a folder"));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(format!("Cannot inspect {relative}: {error}")),
+        }
+        let target = join_relative(self.backup.path(), relative)?;
+        rename_into(&source, &target)
+            .map_err(|error| format!("Cannot replace {relative}: {error}"))?;
+        self.moved.push(relative.to_owned());
+        Ok(())
+    }
+
+    /// Moves the files back into the profile and returns the problems. When
+    /// a file cannot be moved back, the temporary folder is kept and named.
+    fn restore(self, profile_dir: &Path) -> Vec<String> {
+        let mut problems = Vec::new();
+        for relative in &self.moved {
+            let restored = join_relative(self.backup.path(), relative).and_then(|source| {
+                rename_into(&source, &join_relative(profile_dir, relative)?)
+                    .map_err(|error| format!("Cannot put back {relative}: {error}"))
+            });
+            if let Err(error) = restored {
+                problems.push(error);
+            }
+        }
+        if !problems.is_empty() {
+            let kept = self.backup.keep();
+            problems.push(format!("the previous files are kept in {}", kept.display()));
+        }
+        problems
+    }
+
+    /// Deletes the moved files once the new version is in place.
+    fn discard(self, profile_dir: &Path) {
+        prune_empty_directories(profile_dir, &self.moved);
+    }
+}
+
+fn rename_into(source: &Path, target: &Path) -> Result<(), String> {
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    fs::rename(source, target).map_err(|error| error.to_string())
 }
 
 /// Removes a mod: tracked files are deleted, folders left empty are pruned
@@ -477,7 +598,7 @@ fn enable_mod(
     record: &ProfileMod,
     id: &PackageVersionId,
 ) -> Result<(), InstallError> {
-    let cache_dir = package_dir(ctx.paths, id, record.online_source);
+    let cache_dir = package_dir(ctx.paths, id, PackageOrigin::of(record));
     if !cache_dir.is_dir() {
         return Err(InstallError::CacheMissing {
             package: id.clone(),
@@ -599,7 +720,7 @@ pub(crate) fn declared_dependencies(
             continue;
         };
         let Some(dependencies) =
-            read_package_dependencies(&package_dir(paths, &id, record.online_source))
+            read_package_dependencies(&package_dir(paths, &id, PackageOrigin::of(record)))
         else {
             continue;
         };
@@ -670,6 +791,19 @@ fn tracked_paths(planned: &[PlannedFile]) -> Vec<String> {
         .iter()
         .filter(|file| file.tracked)
         .map(|file| file.destination.clone())
+        .collect()
+}
+
+/// Drops the files the new plan leaves untracked: a file an older version
+/// tracked but the new one treats as configuration stays with the user.
+fn without_untracked(files: Vec<String>, planned: &[PlannedFile]) -> Vec<String> {
+    files
+        .into_iter()
+        .filter(|path| {
+            !planned
+                .iter()
+                .any(|file| !file.tracked && file.destination == *path)
+        })
         .collect()
 }
 
@@ -788,13 +922,17 @@ fn discard_install(
     if let Err(error) = ctx.database.remove_profile_mod(&profile.id, full_name) {
         problems.push(error);
     }
+    cleanup_message("discard_mod_install", problems)
+}
+
+/// Logs the problems of undoing a failed change and describes them.
+fn cleanup_message(operation: &'static str, problems: Vec<String>) -> Option<String> {
     if problems.is_empty() {
-        None
-    } else {
-        let message = problems.join("; ");
-        crate::application_log::failure("discard_mod_install", &message);
-        Some(format!("cleanup also failed: {message}"))
+        return None;
     }
+    let message = problems.join("; ");
+    crate::application_log::failure(operation, &message);
+    Some(format!("cleanup also failed: {message}"))
 }
 
 fn restore_tracked_files(
@@ -1066,6 +1204,7 @@ mod tests {
         env.install(&repo, &["Owner-Mod-2.0.0"], ResolveMode::Latest)
             .unwrap();
         assert!(!env.exists("BepInEx/plugins/Owner-Mod/sound.ogg"));
+        assert_eq!(fs::read_dir(env.paths.temp_dir()).unwrap().count(), 0);
         assert_eq!(
             fs::read(env.profile_dir().join("BepInEx/plugins/Owner-Mod/Mod.dll")).unwrap(),
             b"mod v2"
@@ -1084,6 +1223,28 @@ mod tests {
     }
 
     #[test]
+    fn updating_a_disabled_mod_keeps_it_disabled() {
+        let env = Env::new();
+        let repo = repo();
+        env.install(&repo, &["Owner-Mod-1.0.0"], ResolveMode::Latest)
+            .unwrap();
+        set_mod_enabled(&env.ctx(), &env.profile.id, "Owner-Mod", false).unwrap();
+
+        env.install(&repo, &["Owner-Mod-2.0.0"], ResolveMode::Latest)
+            .unwrap();
+        let record = env.mods().remove(1);
+        assert_eq!((record.version.as_str(), record.enabled), ("2.0.0", false));
+        assert!(!env.exists("BepInEx/plugins/Owner-Mod"));
+
+        set_mod_enabled(&env.ctx(), &env.profile.id, "Owner-Mod", true).unwrap();
+        assert_eq!(
+            fs::read(env.profile_dir().join("BepInEx/plugins/Owner-Mod/Mod.dll")).unwrap(),
+            b"mod v2"
+        );
+        assert!(!env.exists("BepInEx/plugins/Owner-Mod/sound.ogg"));
+    }
+
+    #[test]
     fn existing_configuration_is_kept_on_update() {
         let env = Env::new();
         let repo = repo();
@@ -1098,6 +1259,78 @@ mod tests {
             !env.files_of("Owner-Mod")
                 .iter()
                 .any(|path| path.contains("config"))
+        );
+    }
+
+    fn loader_repo() -> FakeRepo {
+        let mut repo = FakeRepo::default();
+        for (id, core) in [
+            (LOADER, "core 1"),
+            ("BepInEx-BepInExPack-5.4.2200", "core 2"),
+        ] {
+            repo.add(
+                id,
+                &[],
+                &[
+                    ("BepInExPack/BepInEx/core/BepInEx.dll", core),
+                    ("BepInExPack/BepInEx/config/BepInEx.cfg", "default"),
+                ],
+            );
+        }
+        repo
+    }
+
+    #[test]
+    fn loader_update_and_uninstall_keep_its_config() {
+        let env = Env::new();
+        let repo = loader_repo();
+        env.install(&repo, &[LOADER], ResolveMode::Latest).unwrap();
+        let config = env.profile_dir().join("BepInEx/config/BepInEx.cfg");
+        assert_eq!(fs::read(&config).unwrap(), b"default");
+        assert_eq!(
+            env.files_of("BepInEx-BepInExPack"),
+            ["BepInEx/core/BepInEx.dll"]
+        );
+        fs::write(&config, "user edited").unwrap();
+
+        env.install(&repo, &["BepInEx-BepInExPack"], ResolveMode::Latest)
+            .unwrap();
+        assert_eq!(
+            fs::read(env.profile_dir().join("BepInEx/core/BepInEx.dll")).unwrap(),
+            b"core 2"
+        );
+        assert_eq!(fs::read(&config).unwrap(), b"user edited");
+
+        uninstall_mod(&env.ctx(), &env.profile.id, "BepInEx-BepInExPack").unwrap();
+        assert!(!env.exists("BepInEx/core/BepInEx.dll"));
+        assert_eq!(fs::read(&config).unwrap(), b"user edited");
+    }
+
+    #[test]
+    fn loader_update_keeps_a_config_tracked_by_older_installs() {
+        let env = Env::new();
+        let repo = loader_repo();
+        env.install(&repo, &[LOADER], ResolveMode::Latest).unwrap();
+        // Older installs tracked the loader config like any loader file.
+        env.database
+            .replace_profile_mod_files(
+                &env.profile.id,
+                "BepInEx-BepInExPack",
+                &[
+                    "BepInEx/config/BepInEx.cfg".to_owned(),
+                    "BepInEx/core/BepInEx.dll".to_owned(),
+                ],
+            )
+            .unwrap();
+        let config = env.profile_dir().join("BepInEx/config/BepInEx.cfg");
+        fs::write(&config, "user edited").unwrap();
+
+        env.install(&repo, &["BepInEx-BepInExPack"], ResolveMode::Latest)
+            .unwrap();
+        assert_eq!(fs::read(&config).unwrap(), b"user edited");
+        assert_eq!(
+            env.files_of("BepInEx-BepInExPack"),
+            ["BepInEx/core/BepInEx.dll"]
         );
     }
 
@@ -1182,7 +1415,7 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_update_leaves_no_file_of_the_mod() {
+    fn a_failed_update_keeps_the_old_version() {
         let env = Env::new();
         let mut repo = FakeRepo::default();
         repo.add(
@@ -1193,29 +1426,34 @@ mod tests {
         repo.add(
             "Owner-Wide-2.0.0",
             &[],
-            &[("a.dll", "a2"), ("b.dll", "b2"), ("c.dll", "c2")],
+            &[
+                ("a.dll", "a2"),
+                ("b.dll", "b2"),
+                ("c.dll", "c2"),
+                ("e.dll", "e2"),
+            ],
         );
         env.install(&repo, &["Owner-Wide-1.0.0"], ResolveMode::Latest)
             .unwrap();
-        // A folder where the first new file belongs makes the copy fail
-        // before the old files would be overwritten.
-        let blocker = env.profile_dir().join("BepInEx/plugins/Owner-Wide/a.dll");
+        let before = env.mods();
+        let tracked = env.files_of("Owner-Wide");
+        // A folder where the last new file belongs makes the copy fail after
+        // the old files were replaced.
+        let blocker = env.profile_dir().join("BepInEx/plugins/Owner-Wide/e.dll");
         fs::create_dir_all(&blocker).unwrap();
 
         env.install(&repo, &["Owner-Wide-2.0.0"], ResolveMode::Latest)
             .unwrap_err();
-        assert!(
-            env.mods()
-                .iter()
-                .all(|record| record.full_name != "Owner-Wide")
-        );
-        assert!(env.files_of("Owner-Wide").is_empty());
-        for name in ["b.dll", "c.dll", "d.dll"] {
-            assert!(
-                !env.exists(&format!("BepInEx/plugins/Owner-Wide/{name}")),
-                "{name}"
-            );
+        assert_eq!(env.mods(), before);
+        assert_eq!(env.files_of("Owner-Wide"), tracked);
+        for (name, content) in [("b.dll", "b1"), ("c.dll", "c1"), ("d.dll", "d1")] {
+            let path = env
+                .profile_dir()
+                .join(format!("BepInEx/plugins/Owner-Wide/{name}"));
+            assert_eq!(fs::read_to_string(path).unwrap(), content);
         }
+        assert!(!env.exists("BepInEx/plugins/Owner-Wide/a.dll"));
+        assert_eq!(fs::read_dir(env.paths.temp_dir()).unwrap().count(), 0);
     }
 
     #[test]
@@ -1224,6 +1462,7 @@ mod tests {
         let repo = repo();
         env.install(&repo, &["Owner-Mod-1.0.0"], ResolveMode::Latest)
             .unwrap();
+        let tracked = env.files_of("Owner-Mod");
         let blocker = env.profile_dir().join("BepInEx/plugins/Owner-Mod/Mod.dll");
         fs::remove_file(&blocker).unwrap();
         fs::create_dir_all(&blocker).unwrap();
@@ -1236,10 +1475,9 @@ mod tests {
             .find(|record| record.full_name == "Owner-Mod")
             .unwrap();
         assert_eq!(record.version, "1.0.0");
-        assert_eq!(
-            env.files_of("Owner-Mod"),
-            ["BepInEx/plugins/Owner-Mod/Mod.dll"]
-        );
+        assert_eq!(env.files_of("Owner-Mod"), tracked);
+        assert!(env.exists("BepInEx/plugins/Owner-Mod/sound.ogg"));
+        assert!(env.exists("BepInEx/plugins/Owner-Mod/manifest.json"));
     }
 
     #[test]
@@ -1421,7 +1659,11 @@ mod tests {
             .unwrap();
         let ctx = env.ctx();
         set_all_mods_enabled(&ctx, &env.profile.id, false, |_| Ok(())).unwrap();
-        let lost = package_dir(&env.paths, &"Owner-Mod-2.0.0".parse().unwrap(), true);
+        let lost = package_dir(
+            &env.paths,
+            &"Owner-Mod-2.0.0".parse().unwrap(),
+            PackageOrigin::Thunderstore,
+        );
         fs::remove_dir_all(&lost).unwrap();
 
         let restored = RefCell::new(Vec::new());

@@ -612,6 +612,7 @@ mod tests {
                     online_source: true,
                     installed_at: 1,
                     install_order: 0,
+                    local_cache_key: None,
                 })
                 .unwrap();
             self.database

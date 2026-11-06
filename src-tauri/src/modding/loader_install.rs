@@ -12,6 +12,10 @@ use super::package_id::PackageName;
 
 /// Package files that describe the package and are not part of the loader.
 const PACKAGE_FILES: [&str; 3] = ["manifest.json", "readme.md", "icon.png"];
+/// Loader settings the user edits, lowercase. Like mod configuration they are
+/// copied only when missing and never tracked, so updating or uninstalling the
+/// loader keeps them.
+const CONFIG_FOLDER: &str = "bepinex/config/";
 
 pub(crate) fn unsupported_loader_message(loader: PackageLoader) -> String {
     format!("The {loader:?} mod loader is not supported yet")
@@ -73,8 +77,8 @@ pub(crate) fn plan_loader_install(
         })
         .map(|(relative, source)| PlannedFile {
             source,
+            tracked: !relative.to_lowercase().starts_with(CONFIG_FOLDER),
             destination: relative,
-            tracked: true,
         })
         .collect())
 }
@@ -125,11 +129,12 @@ mod tests {
                 "winhttp.dll",
             ]
         );
+        let planned = plan_loader_install(&root, "BepInExPack").unwrap();
+        assert!(planned.iter().all(|file| file.source.is_file()));
         assert!(
-            plan_loader_install(&root, "BepInExPack")
-                .unwrap()
+            planned
                 .iter()
-                .all(|file| file.tracked && file.source.is_file())
+                .all(|file| file.tracked != file.destination.starts_with("BepInEx/config/"))
         );
         fs::remove_dir_all(root).unwrap();
     }
