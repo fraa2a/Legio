@@ -94,16 +94,20 @@ test("dialog fades its surface and content without isolating the surface backdro
   try {
     assert.equal(dom.window.getComputedStyle(dialog).opacity, "1", "opening dialog must not isolate the blurred surface");
     const content = dialog.querySelector(".legio-dialog-content");
+    const surface = dialog.querySelector(".legio-dialog-surface");
+    assert.equal(dom.window.getComputedStyle(surface).opacity, "0", "the empty panel must not appear before its content");
     assert.equal(dom.window.getComputedStyle(content).opacity, "0");
     advanceFrame();
     advanceFrame();
     flushSync();
     assert.equal(dom.window.getComputedStyle(dialog).opacity, "1");
     assert.equal(dom.window.getComputedStyle(content).opacity, "1");
+    assert.equal(dom.window.getComputedStyle(surface).opacity, "1");
     [...dialog.querySelectorAll("button")].find(button => button.textContent === "Close").click();
     flushSync();
     assert.equal(dom.window.getComputedStyle(dialog).opacity, "1", "closing dialog must retain access to the page backdrop");
     assert.equal(dom.window.getComputedStyle(content).opacity, "0");
+    assert.equal(dom.window.getComputedStyle(surface).opacity, "0", "the empty panel must not remain after its content fades");
   } finally {
     await unmount(instance);
   }

@@ -17,6 +17,7 @@ const CACHE_LIMIT: u32 = 128;
 const MAX_DETAILS_BYTES: usize = 512 * 1024;
 const STALE_SECONDS: i64 = 3 * 24 * 60 * 60;
 const MAX_SCREENSHOTS: usize = 8;
+const MAX_MOVIES: usize = 8;
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -65,6 +66,18 @@ pub struct Assets {
     pub capsule: Option<String>,
     pub background: Option<String>,
     pub screenshots: Vec<Screenshot>,
+    #[serde(default)]
+    pub movies: Vec<Movie>,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct Movie {
+    pub id: u64,
+    pub name: String,
+    pub thumbnail: Option<String>,
+    pub hls: Option<String>,
+    pub mp4: Option<String>,
+    pub webm: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -170,6 +183,43 @@ struct SteamData {
     background: Option<String>,
     #[serde(default)]
     screenshots: Vec<SteamScreenshot>,
+    #[serde(default)]
+    movies: Vec<SteamMovie>,
+}
+
+#[derive(Deserialize)]
+struct SteamMovie {
+    id: Option<u64>,
+    name: Option<String>,
+    thumbnail: Option<String>,
+    hls_h264: Option<String>,
+    #[serde(default)]
+    mp4: HashMap<String, String>,
+    #[serde(default)]
+    webm: HashMap<String, String>,
+}
+
+fn steam_movie(movie: SteamMovie) -> Option<Movie> {
+    let id = movie.id?;
+    let file = |formats: &HashMap<String, String>| {
+        ["max", "480"]
+            .iter()
+            .find_map(|key| steam_image(formats.get(*key).cloned()))
+    };
+    let hls = steam_image(movie.hls_h264);
+    let mp4 = file(&movie.mp4);
+    let webm = file(&movie.webm);
+    if hls.is_none() && mp4.is_none() && webm.is_none() {
+        return None;
+    }
+    Some(Movie {
+        id,
+        name: movie.name.unwrap_or_default(),
+        thumbnail: steam_image(movie.thumbnail),
+        hls,
+        mp4,
+        webm,
+    })
 }
 
 #[derive(Deserialize)]
@@ -305,6 +355,12 @@ fn decode(bytes: &[u8], app_id: u32) -> Result<SteamDetails, DetailsError> {
             header: steam_image(data.header_image),
             capsule: steam_image(data.capsule_image),
             background: steam_image(data.background),
+            movies: data
+                .movies
+                .into_iter()
+                .filter_map(steam_movie)
+                .take(MAX_MOVIES)
+                .collect(),
             screenshots: data
                 .screenshots
                 .into_iter()
@@ -397,6 +453,14 @@ fn cached_localized(
             details.assets.header = steam_image(details.assets.header);
             details.assets.capsule = steam_image(details.assets.capsule);
             details.assets.background = steam_image(details.assets.background);
+            details.assets.movies.truncate(MAX_MOVIES);
+            details.assets.movies.retain_mut(|movie| {
+                movie.thumbnail = steam_image(movie.thumbnail.take());
+                movie.hls = steam_image(movie.hls.take());
+                movie.mp4 = steam_image(movie.mp4.take());
+                movie.webm = steam_image(movie.webm.take());
+                movie.hls.is_some() || movie.mp4.is_some() || movie.webm.is_some()
+            });
             details.assets.screenshots.truncate(MAX_SCREENSHOTS);
             for image in &mut details.assets.screenshots {
                 image.thumbnail = steam_image(image.thumbnail.take());
@@ -437,12 +501,16 @@ fn cached(
     )
 }
 
-/// Returns the details and whether they predate the description and requirements fields.
+/// Returns the details and whether their cached schema needs refreshing.
 fn decode_cached(json: &str, app_id: u32) -> Result<(SteamDetails, bool), String> {
     let value: serde_json::Value = serde_json::from_str(json)
         .map_err(|error| format!("Invalid cached Steam details: {error}"))?;
-    let incomplete =
-        value.get("detailedDescription").is_none() || value.get("systemRequirements").is_none();
+    let incomplete = value.get("detailedDescription").is_none()
+        || value.get("systemRequirements").is_none()
+        || value
+            .get("assets")
+            .and_then(|assets| assets.get("movies"))
+            .is_none();
     let details: SteamDetails = serde_json::from_value(value)
         .map_err(|error| format!("Invalid cached Steam details: {error}"))?;
     if details.steam_app_id != app_id {
@@ -1037,9 +1105,43 @@ mod tests {
                 header: None,
                 capsule: None,
                 background: None,
-                screenshots: vec![]
+                screenshots: vec![],
+                movies: vec![],
             }
         );
+    }
+
+    #[test]
+    fn decodes_trailers_and_rejects_untrusted_streams() {
+        let mut value: serde_json::Value = serde_json::from_slice(&fixture(400)).unwrap();
+        value["400"]["data"]["movies"] = serde_json::json!([
+            {"id": 922, "name": "Portal Trailer", "thumbnail": "https://shared.fastly.steamstatic.com/movie.jpg", "hls_h264": "https://video.akamai.steamstatic.com/trailer.m3u8"},
+            {"id": 923, "name": "Legacy", "mp4": {"max": "https://cdn.steamstatic.com/movie.mp4"}},
+            {"id": 924, "name": "Rejected", "hls_h264": "https://steamstatic.com.evil.test/movie.m3u8"}
+        ]);
+        let details = decode(&serde_json::to_vec(&value).unwrap(), 400).unwrap();
+        let serialized = serde_json::to_value(details).unwrap();
+        let movies = serialized["assets"]["movies"]
+            .as_array()
+            .expect("trailers reach the gallery");
+        assert_eq!(movies.len(), 2);
+        assert_eq!(movies[0]["id"], 922);
+        assert_eq!(
+            movies[0]["hls"],
+            "https://video.akamai.steamstatic.com/trailer.m3u8"
+        );
+        assert_eq!(movies[1]["mp4"], "https://cdn.steamstatic.com/movie.mp4");
+    }
+
+    #[test]
+    fn cached_details_without_trailers_need_refresh() {
+        let details = decode(&fixture(400), 400).unwrap();
+        let mut value = serde_json::to_value(details).unwrap();
+        value["assets"].as_object_mut().unwrap().remove("movies");
+        value["detailedDescription"] = serde_json::Value::Null;
+        value["systemRequirements"] = serde_json::Value::Null;
+        let (_, incomplete) = decode_cached(&value.to_string(), 400).unwrap();
+        assert!(incomplete);
     }
 
     #[test]

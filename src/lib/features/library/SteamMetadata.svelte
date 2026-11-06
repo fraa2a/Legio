@@ -39,8 +39,8 @@
   {#if details === null}
     <p class="text-sm text-zinc-500">{t("Nessun dato Steam disponibile per questo titolo.", $language)}</p>
   {:else}
-    {#if screenshots.length > 0}
-      <ScreenshotGallery {steamAppId} name={details.name} {screenshots} />
+    {#if screenshots.length > 0 || (details.assets.movies?.length ?? 0) > 0}
+      <ScreenshotGallery {steamAppId} name={details.name} {screenshots} movies={details.assets.movies ?? []} />
     {/if}
 
     {#if description !== null}

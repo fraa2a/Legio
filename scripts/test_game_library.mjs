@@ -11,6 +11,8 @@ for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputE
 const { mount, unmount, flushSync } = await import("svelte");
 const { writable } = await import("svelte/store");
 globalThis.matchMedia = () => ({ matches: false });
+dom.window.HTMLCanvasElement.prototype.getContext = () => null;
+dom.window.HTMLMediaElement.prototype.pause = function () {};
 const settle = async () => { for (let i = 0; i < 5; i++) { await new Promise(resolve => setImmediate(resolve)); flushSync(); } };
 
 test("uninstall previews the exact directory and requires a second confirmation", async () => {
@@ -142,6 +144,139 @@ test("Steam descriptions keep link text without links or scripts", async () => {
   renderSteamDescription(target, '<p>See <a href="https://example.com">the site</a><script>alert(1)</script></p>');
   assert.equal(target.innerHTML, "<p>See the site</p>");
   delete globalThis.DOMParser;
+});
+
+test("Steam description images and GIFs survive sanitization", async () => {
+  const { load } = createModuleLoader({});
+  const { renderSteamDescription } = await import(await load("src/lib/features/library/steam-description.ts"));
+  globalThis.DOMParser = dom.window.DOMParser;
+  const target = document.createElement("div");
+  try {
+    const gif = "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/400/demo.gif";
+    const image = "https://images.steamusercontent.com/demo.png";
+    const renderer = renderSteamDescription(target, `<p>Gameplay<img src="${gif}" alt="Gameplay preview" onerror="alert(1)" style="position:fixed" srcset="https://evil.test/image.png 2x"></p><a href="https://evil.test"><img src="${image}"></a>`);
+    const images = [...target.querySelectorAll("img")];
+    assert.equal(images.length, 2);
+    assert.equal(images[0].src, gif);
+    assert.equal(images[0].alt, "Gameplay preview");
+    assert.equal(images[1].src, image);
+    assert.equal(images[1].alt, "");
+    assert.equal(images[0].getAttribute("loading"), "lazy");
+    assert.equal(images[0].getAttribute("referrerpolicy"), "no-referrer");
+    assert.equal(target.querySelector("[onerror],[style],[srcset],a"), null);
+    renderer.update("<p>New description</p>");
+    assert.equal(target.querySelector("img"), null);
+    assert.equal(target.textContent, "New description");
+  } finally { delete globalThis.DOMParser; }
+});
+
+test("Steam GIFs suspend decoding outside the viewport and resume near it", async () => {
+  const { load } = createModuleLoader({});
+  const { renderSteamDescription } = await import(await load("src/lib/features/library/steam-description.ts"));
+  globalThis.DOMParser = dom.window.DOMParser;
+  const observers = [];
+  globalThis.IntersectionObserver = class {
+    constructor(callback, options) { this.callback = callback; this.options = options; this.targets = new Set(); observers.push(this); }
+    observe(target) { this.targets.add(target); }
+    disconnect() { this.targets.clear(); this.disconnected = true; }
+    intersect(target, isIntersecting) { this.callback([{ target, isIntersecting }]); }
+  };
+  const target = document.createElement("div");
+  try {
+    const renderer = renderSteamDescription(target, '<img src="https://shared.fastly.steamstatic.com/demo.gif"><img src="https://shared.fastly.steamstatic.com/demo.png">');
+    const [gif, image] = target.querySelectorAll("img");
+    assert.equal(observers.length, 1);
+    assert.equal(observers[0].options.rootMargin, "300px 0px");
+    assert.deepEqual([...observers[0].targets], [gif]);
+    Object.defineProperties(gif, { complete: { configurable: true, value: true }, naturalWidth: { configurable: true, value: 640 }, naturalHeight: { configurable: true, value: 360 } });
+    observers[0].intersect(gif, false);
+    gif.dispatchEvent(new dom.window.Event("load"));
+    assert.equal(gif.hasAttribute("src"), false, "offscreen GIFs release their animated source after loading");
+    assert.equal(gif.getAttribute("width"), "640");
+    assert.equal(gif.getAttribute("height"), "360");
+    observers[0].intersect(gif, true);
+    assert.equal(gif.src, "https://shared.fastly.steamstatic.com/demo.gif");
+    assert.equal(image.src, "https://shared.fastly.steamstatic.com/demo.png", "static images stay loaded");
+    renderer.destroy();
+    assert.equal(observers[0].disconnected, true);
+  } finally { delete globalThis.DOMParser; delete globalThis.IntersectionObserver; }
+});
+
+test("Steam descriptions reject untrusted image sources", async () => {
+  const { load } = createModuleLoader({});
+  const { renderSteamDescription } = await import(await load("src/lib/features/library/steam-description.ts"));
+  globalThis.DOMParser = dom.window.DOMParser;
+  const target = document.createElement("div");
+  try {
+    for (const src of ["http://cdn.steamstatic.com/a.gif", "https://steamstatic.com.evil.test/a.png", "https://evilsteamstatic.com/a.png", "https://user@steamstatic.com/a.png", "https://steamstatic.com:444/a.png", "https://evil.test/a.png", "file:///tmp/a.png", "data:image/svg+xml,test", "javascript:alert(1)", "//cdn.steamstatic.com/a.png", "/image.png", ""]) {
+      renderSteamDescription(target, `<p>Safe text<img src="${src}"></p>`);
+      assert.equal(target.querySelector("img"), null, src);
+      assert.equal(target.textContent, "Safe text");
+    }
+  } finally { delete globalThis.DOMParser; }
+});
+
+test("Steam descriptions retain PEAK video animations and codec fallbacks", async () => {
+  const { load } = createModuleLoader({});
+  const { renderSteamDescription } = await import(await load("src/lib/features/library/steam-description.ts"));
+  globalThis.DOMParser = dom.window.DOMParser;
+  const target = document.createElement("div");
+  try {
+    const base = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3527290/extras/e82d11d9221b2a65adeb68d8cdbc3bd2";
+    renderSteamDescription(target, `<video autoplay muted loop playsinline poster="${base}.poster.avif" width=600 height=170 onplay="alert(1)" style="position:fixed"><source src="${base}.webm" type="video/webm; codecs=vp9"><source src="${base}.mp4" type="video/mp4"></video>`);
+    const video = target.querySelector("video");
+    assert.ok(video, "Steam now delivers GIF-like animations as video elements");
+    assert.equal(video.autoplay, true);
+    assert.equal(video.muted, true);
+    assert.equal(video.defaultMuted, true);
+    assert.equal(video.loop, true);
+    assert.equal(video.playsInline, true);
+    assert.equal(video.controls, false);
+    assert.equal(video.poster, `${base}.poster.avif`);
+    assert.equal(video.width, 600);
+    assert.equal(video.height, 170);
+    assert.deepEqual([...video.querySelectorAll("source")].map(source => [source.src, source.type]), [[`${base}.webm`, "video/webm; codecs=vp9"], [`${base}.mp4`, "video/mp4"]]);
+    assert.equal(target.querySelector("[onplay],[style]"), null);
+  } finally { delete globalThis.DOMParser; }
+});
+
+test("Steam video animations validate every source and poster", async () => {
+  const { load } = createModuleLoader({});
+  const { renderSteamDescription } = await import(await load("src/lib/features/library/steam-description.ts"));
+  globalThis.DOMParser = dom.window.DOMParser;
+  const target = document.createElement("div");
+  try {
+    const safe = "https://shared.fastly.steamstatic.com/animation.webm";
+    renderSteamDescription(target, `<video src="https://evil.test/a.mp4" poster="file:///tmp/a.png"><source src="https://steamstatic.com.evil.test/a.webm"><source src="${safe}" type="video/webm" onerror="alert(1)"></video>`);
+    const video = target.querySelector("video");
+    assert.ok(video);
+    assert.equal(video.hasAttribute("src"), false);
+    assert.equal(video.hasAttribute("poster"), false);
+    assert.equal(video.querySelectorAll("source").length, 1);
+    assert.equal(video.querySelector("source").src, safe);
+    assert.equal(target.querySelector("[onerror]"), null);
+    renderSteamDescription(target, '<video src="https://evil.test/a.mp4"><source src="javascript:alert(1)"></video><p>Safe text</p>');
+    assert.equal(target.querySelector("video,source"), null);
+    assert.equal(target.textContent, "Safe text");
+    renderSteamDescription(target, `<video src="${safe}"></video>`);
+    assert.equal(target.querySelector("video").src, safe);
+  } finally { delete globalThis.DOMParser; }
+});
+
+test("Steam video animations respect reduced motion", async () => {
+  const { load } = createModuleLoader({});
+  const { renderSteamDescription } = await import(await load("src/lib/features/library/steam-description.ts"));
+  globalThis.DOMParser = dom.window.DOMParser;
+  const previousMatchMedia = globalThis.matchMedia;
+  globalThis.matchMedia = () => ({ matches: true });
+  try {
+    const target = document.createElement("div");
+    renderSteamDescription(target, '<video autoplay src="https://shared.fastly.steamstatic.com/animation.mp4"></video>');
+    const video = target.querySelector("video");
+    assert.ok(video);
+    assert.equal(video.autoplay, false);
+    assert.equal(video.controls, false);
+  } finally { globalThis.matchMedia = previousMatchMedia; delete globalThis.DOMParser; }
 });
 
 test("library removal stops at the first failed game and keeps the library", async () => {
