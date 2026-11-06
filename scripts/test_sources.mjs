@@ -62,34 +62,35 @@ test("failed additions preserve installed sources and allow retry", async () => 
   assert.equal(get(store.sourceActionError), null);
 });
 
-test("startup links and links arriving during installation are processed once", async () => {
+test("source links wait for confirmation and are queued once", async () => {
   let listener;
   let reads = 0;
-  const first = deferred();
-  const adds = [];
+  const calls = [];
   const queue = [{ url: "https://example.invalid/one.json", error: null }];
-  const { load } = fixture("sourceLinks", async (command, args) => {
+  const { load } = fixture("sourceLinks", async (command) => {
+    calls.push(command);
     if (command === "take_source_links") {
       reads++;
       return { requests: queue.splice(0), registrationError: null };
-    }
-    if (command === "add_download_source") {
-      adds.push(args.url);
-      return adds.length === 1 ? first.promise : installed;
     }
     throw new Error(command);
   }, async (_event, callback) => { listener = callback; return () => {}; });
   const links = await import(await load("src/lib/stores/source-links.ts"));
   const startup = links.startSourceLinks();
   await new Promise(setImmediate);
-  queue.push({ url: "https://example.invalid/two.json", error: null });
+  queue.push({ url: "https://example.invalid/two.json", error: null }, { url: "https://example.invalid/one.json", error: null });
   listener();
-  first.resolve(installed);
   await startup;
   await links.startSourceLinks();
-  assert.deepEqual(adds, ["https://example.invalid/one.json", "https://example.invalid/two.json"]);
+  await new Promise(setImmediate);
   assert.equal(reads, 2);
-  assert.deepEqual(globalThis.sourceLinks.sections, ["sources", "sources"]);
+  assert.deepEqual(calls, ["take_source_links", "take_source_links"]);
+  assert.equal(get(links.currentSourceLink), "https://example.invalid/one.json");
+  links.dismissSourceLink();
+  assert.equal(get(links.currentSourceLink), "https://example.invalid/two.json");
+  links.dismissSourceLink();
+  assert.equal(get(links.currentSourceLink), null);
+  assert.deepEqual(globalThis.sourceLinks.sections, ["sources", "sources", "sources"]);
 });
 
 test("invalid external links display an error without adding a source", async () => {

@@ -1149,5 +1149,8 @@
   "Ultimo rilascio": "Latest release",
   "Documento": "Document",
   "{0} non è una mod e non si può installare.": "{0} is not a mod and cannot be installed.",
-  "Mod importata da un archivio locale: non è su Thunderstore.": "Mod imported from a local archive: it is not on Thunderstore."
+  "Mod importata da un archivio locale: non è su Thunderstore.": "Mod imported from a local archive: it is not on Thunderstore.",
+  "Aggiungere questa sorgente?": "Add this source?",
+  "Un collegamento chiede di aggiungere una sorgente di download. Aggiungila solo se ti fidi di chi la pubblica: può proporre qualsiasi file da scaricare.": "A link asks to add a download source. Only add it if you trust its publisher: it can offer any file for download.",
+  "Aggiungi sorgente": "Add source"
 }
