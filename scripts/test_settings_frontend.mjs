@@ -188,4 +188,8 @@ test("only failed finalizations expose retry while active work stays protected",
   assert.equal(service.canRetryDownload('finalizing', ''), false);
   assert.equal(service.canRetryDownload('installed', 'shortcut warning'), false);
   assert.equal(service.canRetryDownload('failed', 'network error'), true);
+  assert.equal(service.canRetryDownload('downloaded', 'settings unreadable'), true);
+  assert.equal(service.canRetryDownload('downloaded', null), false);
+  assert.equal(service.canRemoveDownload('downloaded', 'settings unreadable'), true);
+  assert.equal(service.canRemoveDownload('downloaded', null), false);
 });

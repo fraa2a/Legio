@@ -1893,6 +1893,15 @@ pub async fn retry_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result
         let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
         let _operation = manager.operation()?;
         crate::download_policy::require_resumable(database, &manager, &id)?;
+        // Clearing the error lets schedule_installations stage the archive again.
+        if status(database, &id)? == "downloaded" {
+            return database.with_connection(|connection| {
+                connection
+                    .execute("UPDATE downloads SET error = NULL WHERE id = ?1", [&id])
+                    .map_err(db_error)?;
+                Ok(())
+            });
+        }
         if status(database, &id)? == "staged" {
             crate::overlay_update::recover(database)?;
             if let Some(game) = crate::game_updates::target(database, &id)? {
@@ -2009,6 +2018,32 @@ const REMOVABLE: [DownloadStatus; 3] = [
 /// cleanup may drop them without a confirmation.
 const FINISHED: [DownloadStatus; 2] = [DownloadStatus::Cancelled, DownloadStatus::Installed];
 
+/// A downloaded job whose staging failed before it started is no longer
+/// scheduled, so it is removable once no staging task still holds it.
+fn has_stalled_staging(
+    queue: &DownloadQueueState,
+    database: &Database,
+    id: &str,
+) -> Result<bool, String> {
+    if queue
+        .processing
+        .lock()
+        .map_err(|_| "Processing lock was poisoned".to_owned())?
+        .contains(id)
+    {
+        return Ok(false);
+    }
+    database.with_connection(|connection| {
+        connection
+            .query_row(
+                "SELECT error IS NOT NULL FROM downloads WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .map_err(db_error)
+    })
+}
+
 fn remove_entry(queue: &DownloadQueueState, database: &Database, id: &str) -> Result<(), String> {
     let id = Uuid::parse_str(id)
         .map_err(|_| "Download ID is invalid".to_owned())?
@@ -2017,6 +2052,8 @@ fn remove_entry(queue: &DownloadQueueState, database: &Database, id: &str) -> Re
     if !REMOVABLE
         .iter()
         .any(|candidate| candidate.as_str() == status)
+        && !(status == DownloadStatus::Downloaded.as_str()
+            && has_stalled_staging(queue, database, &id)?)
     {
         return Err(format!("Cannot remove a {status} download"));
     }
@@ -4186,6 +4223,52 @@ mod tests {
             assert_eq!(error, format!("Cannot remove a {status} download"));
             assert_eq!(status_of(&database, &job.id).as_deref(), Some(status));
         }
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn set_error(database: &Database, id: &str, error: &str) {
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET error = ?2 WHERE id = ?1",
+                        params![id, error],
+                    )
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn removes_a_downloaded_entry_after_staging_failed() {
+        let (database, queue, job, directory) = downloaded_fixture();
+        set_error(&database, &job.id, "Settings are unreadable");
+        queue.processing.lock().unwrap().insert(job.id.clone());
+        assert!(remove_entry(&queue, &database, &job.id).is_err());
+        queue.processing.lock().unwrap().clear();
+
+        remove_entry(&queue, &database, &job.id).unwrap();
+
+        assert_eq!(status_of(&database, &job.id), None);
+        assert!(!queue.path(&job.id, "archive").unwrap().exists());
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn retry_stages_a_downloaded_entry_after_staging_failed() {
+        let (database, _queue, job, directory) = downloaded_fixture();
+        set_error(&database, &job.id, "Settings are unreadable");
+        let app = test_app(&directory);
+
+        retry_download(app.handle().clone(), job.id.clone())
+            .await
+            .unwrap();
+
+        wait_for_status(&database, &job.id, "staged");
+        drop(app);
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
