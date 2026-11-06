@@ -600,9 +600,24 @@ fn source_moved(intent: &TransferIntent) -> Result<bool, String> {
     }
 }
 
+fn is_absent(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_err_and(|error| error.kind() == io::ErrorKind::NotFound)
+}
+
+/// A copy that vanished before publication cannot be committed, but the owned source still holds the game.
+fn copy_lost(intent: &TransferIntent) -> bool {
+    intent.phase == "copied"
+        && is_absent(&intent.temporary)
+        && is_absent(&intent.destination)
+        && owns_directory(&intent.source, intent)
+        && intent.source.join(&intent.relative).is_file()
+}
+
 fn recover_transfer(database: &Database, intent: &TransferIntent) -> Result<(), String> {
     let pending = matches!(intent.phase.as_str(), "prepared" | "moving");
-    if pending && !source_moved(intent)? {
+    if copy_lost(intent) {
+        rollback_prepared(database, intent, false)
+    } else if pending && !source_moved(intent)? {
         // A move never creates the temporary directory, so only the copy path removes it.
         rollback_prepared(database, intent, intent.phase == "prepared")
     } else {
@@ -751,11 +766,33 @@ mod tests {
     #[test]
     fn failed_transfer_recovery_keeps_only_its_game_blocked() {
         let (root, database, intent) = fixture("copied");
+        // Without the source marker, recovery can neither commit nor roll back.
+        fs::remove_file(intent.source.join(MARKER)).unwrap();
         recover(&database).unwrap();
         assert!(ensure_launchable(&database, &intent.game_id).is_err());
         ensure_launchable(&database, "unrelated-game").unwrap();
         assert_eq!(pending_transfers(&database, None).unwrap().len(), 1);
         assert!(intent.source.join(&intent.relative).is_file());
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn copied_transfer_without_copy_rolls_back() {
+        let (root, database, intent) = fixture("copied");
+        recover(&database).unwrap();
+        ensure_launchable(&database, &intent.game_id).unwrap();
+        assert!(pending_transfers(&database, None).unwrap().is_empty());
+        assert!(intent.source.join(&intent.relative).is_file());
+        assert!(!intent.source.join(MARKER).exists());
+        assert_eq!(
+            database
+                .game(&intent.game_id)
+                .unwrap()
+                .installation_root
+                .as_deref(),
+            intent.source.to_str()
+        );
         drop(database);
         fs::remove_dir_all(root).unwrap();
     }
