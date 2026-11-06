@@ -4,7 +4,10 @@ use crate::{
     game_lifecycle::{GameLaunchManager, GameStatus},
 };
 use rusqlite::params;
-use std::{collections::HashSet, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+};
 use tauri::{AppHandle, Manager, Runtime};
 
 pub(crate) fn busy(
@@ -112,19 +115,37 @@ pub(crate) fn sync(
     let mut changed = false;
     let mut restored_priority = false;
     let mut blocked = HashSet::new();
+    // A target that cannot be checked, such as a removed game or a deleted
+    // folder, fails its own updates instead of stopping the whole queue.
+    let mut unavailable = HashMap::new();
     let targets: HashSet<_> = jobs
         .iter()
         .filter_map(|job| job.target.as_deref())
         .collect();
     for game in targets {
-        if busy(database, manager, game)? {
-            blocked.insert(game.to_owned());
+        match busy(database, manager, game) {
+            Ok(true) => {
+                blocked.insert(game.to_owned());
+            }
+            Ok(false) => {}
+            Err(error) => {
+                unavailable.insert(
+                    game.to_owned(),
+                    format!("Update target is unavailable: {error}"),
+                );
+            }
         }
     }
     playing |= !blocked.is_empty();
     database.with_connection(|connection| {
         let transaction = connection.unchecked_transaction().map_err(database_error)?;
         for PolicyJob { id, target, status, previous, manual, automatic, interrupted } in &jobs {
+            if let Some(error) = target.as_ref().and_then(|game| unavailable.get(game)) {
+                transaction.execute("UPDATE downloads SET status = 'failed', error = ?2, pause_reason = NULL, speed_bps = 0, eta_seconds = NULL WHERE id = ?1", params![id, error]).map_err(database_error)?;
+                if status == "downloading" { interruptions.push(id.clone()); }
+                changed = true;
+                continue;
+            }
             let reason = if target.as_ref().is_some_and(|game| blocked.contains(game)) { Some("game_running") }
                 else if *automatic && !settings.automatic_game_updates { Some("automatic_disabled") }
                 else if playing && !settings.download_while_playing && !manual { Some("playing") } else { None };
@@ -310,6 +331,77 @@ mod tests {
         assert!(database.settings().is_err());
         let queue = DownloadQueueState::new(Ok(root.clone()), "test").unwrap();
         assert!(!sync(&database, &GameLaunchManager::default(), &queue).unwrap());
+        drop(database);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn removed_update_target_fails_only_its_job() {
+        let root =
+            std::env::temp_dir().join(format!("legio-removed-target-{}", uuid::Uuid::new_v4()));
+        let database = Database::open(&root).unwrap();
+        let manifest = br#"{"schemaVersion":1,"generatedAt":"2026-09-22T00:00:00Z","verified":[{"steamAppId":400,"name":"Portal","release":{"version":"1","publishedAt":"2026-09-22T00:00:00Z"},"download":{"url":"https://example.invalid/portal.zip","sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","sizeBytes":10}}],"unverified":[]}"#;
+        database.with_connection(|c| {
+            c.execute("INSERT INTO download_sources (id, url, manifest, fetched_at) VALUES ('test-source', 'https://example.invalid/games.json', ?1, 1)", [manifest.as_slice()]).map_err(database_error)?;
+            Ok(())
+        }).unwrap();
+        for _ in 0..2 {
+            crate::download_queue::enqueue(
+                &database,
+                400,
+                "https://example.invalid/portal.zip",
+                "1",
+                false,
+            )
+            .unwrap();
+        }
+        let ids: Vec<String> = database
+            .with_connection(|c| {
+                let mut query = c
+                    .prepare("SELECT id FROM downloads ORDER BY queue_position")
+                    .map_err(database_error)?;
+                query
+                    .query_map([], |row| row.get(0))
+                    .map_err(database_error)?
+                    .collect::<Result<_, _>>()
+                    .map_err(database_error)
+            })
+            .unwrap();
+        let (update, other) = (&ids[0], &ids[1]);
+        database
+            .with_connection(|c| {
+                c.execute(
+                    "UPDATE downloads SET target_game_id = ?2 WHERE id = ?1",
+                    params![update, uuid::Uuid::new_v4().to_string()],
+                )
+                .map_err(database_error)?;
+                Ok(())
+            })
+            .unwrap();
+        let queue = DownloadQueueState::new(Ok(root.clone()), "test").unwrap();
+
+        assert!(sync(&database, &GameLaunchManager::default(), &queue).unwrap());
+
+        let row = |id: &str| {
+            database
+                .with_connection(|c| {
+                    c.query_row(
+                        "SELECT status, error FROM downloads WHERE id = ?1",
+                        [id],
+                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+                    )
+                    .map_err(database_error)
+                })
+                .unwrap()
+        };
+        assert_eq!(
+            row(update),
+            (
+                "failed".to_owned(),
+                Some("Update target is unavailable: game was not found".to_owned())
+            )
+        );
+        assert_eq!(row(other), ("queued".to_owned(), None));
         drop(database);
         std::fs::remove_dir_all(root).unwrap();
     }

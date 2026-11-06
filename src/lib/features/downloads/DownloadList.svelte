@@ -178,7 +178,7 @@
             onClick={() => onCancel(job)}
           />
         {/if}
-        {#if canRemoveDownload(job.status)}
+        {#if canRemoveDownload(job.status, job.error)}
           <Button
             label={t("Rimuovi", $language)}
             variant="secondary"

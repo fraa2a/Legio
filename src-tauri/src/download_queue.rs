@@ -124,6 +124,7 @@ pub struct DownloadQueueState {
     /// Shorter timeouts keep link checks responsive before a download is queued.
     link_client: reqwest::Client,
     running: AtomicBool,
+    /// Holds `kick` off until startup recovery has reset interrupted jobs.
     starting: AtomicBool,
     active: std::sync::Mutex<Option<(String, tokio::sync::watch::Sender<bool>)>>,
     bandwidth_limit: AtomicU64,
@@ -155,7 +156,7 @@ impl DownloadQueueState {
             client,
             link_client,
             running: AtomicBool::new(false),
-            starting: AtomicBool::new(false),
+            starting: AtomicBool::new(true),
             active: std::sync::Mutex::new(None),
             bandwidth_limit: AtomicU64::new(0),
             wake: tokio::sync::Notify::new(),
@@ -794,13 +795,14 @@ fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
             if let Some(manager) = worker.try_state::<crate::game_lifecycle::GameLaunchManager>()
                 && !crate::download_policy::processable(database, &manager, &job_id)?
             {
-                return Ok(());
+                return Ok(false);
             }
-            if status(database, &job_id)? == "downloaded" {
+            let extracted = status(database, &job_id)? == "downloaded";
+            if extracted {
                 stage_one(&worker.state::<DownloadQueueState>(), database, &job_id)?;
             }
             if status(database, &job_id)? != "staged" {
-                return Ok(());
+                return Ok(extracted);
             }
             let downloads = worker.state::<DownloadQueueState>().directory()?;
             let root = downloads
@@ -813,7 +815,7 @@ fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
                 if let (Some(manager), Some(game)) = (manager.as_ref(), target.as_ref()) {
                     let _operation = manager.operation()?;
                     if crate::download_policy::busy(database, manager, game)? {
-                        return Ok(());
+                        return Ok(extracted);
                     }
                     Some(manager.reserve_transfer(game)?)
                 } else {
@@ -837,29 +839,33 @@ fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
                 Ok(None) => {}
                 Err(error) => crate::application_log::failure("read_download_notification", error),
             }
-            Ok::<_, String>(())
+            Ok::<_, String>(true)
         })
         .await;
-        notify(&app);
-        if !matches!(outcome, Ok(Ok(()))) {
-            let error = match outcome {
-                Ok(Err(error)) => error,
-                Err(error) => format!("Installation task failed: {error}"),
-                Ok(Ok(())) => return,
-            };
-            let worker = app.clone();
-            let job_id = id.clone();
-            let saved_error = error.clone();
-            let persisted = tauri::async_runtime::spawn_blocking(move || {
+        // Notifying only on a state change keeps the policy loop from waking
+        // this task again while extraction or installation is deferred.
+        let error = match outcome {
+            Ok(Ok(true)) => {
+                notify(&app);
+                return;
+            }
+            Ok(Ok(false)) => return,
+            Ok(Err(error)) => error,
+            Err(error) => format!("Installation task failed: {error}"),
+        };
+        let worker = app.clone();
+        let job_id = id.clone();
+        let saved_error = error.clone();
+        let persisted = tauri::async_runtime::spawn_blocking(move || {
                 worker.state::<DatabaseState>().database()?.with_connection(|connection| {
                     connection.execute("UPDATE downloads SET error = ?2, status = CASE WHEN status = 'staging' THEN 'failed' ELSE status END WHERE id = ?1", params![job_id,saved_error]).map_err(db_error)?; Ok(())
                 })
             }).await;
-            crate::application_log::failure(
-                "automatic_game_installation",
-                format!("{error}; failure persistence: {persisted:?}"),
-            );
-        }
+        crate::application_log::failure(
+            "automatic_game_installation",
+            format!("{error}; failure persistence: {persisted:?}"),
+        );
+        notify(&app);
     });
 }
 
@@ -1903,6 +1909,15 @@ pub async fn retry_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result
         let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
         let _operation = manager.operation()?;
         crate::download_policy::require_resumable(database, &manager, &id)?;
+        // Clearing the error lets schedule_installations stage the archive again.
+        if status(database, &id)? == "downloaded" {
+            return database.with_connection(|connection| {
+                connection
+                    .execute("UPDATE downloads SET error = NULL WHERE id = ?1", [&id])
+                    .map_err(db_error)?;
+                Ok(())
+            });
+        }
         if status(database, &id)? == "staged" {
             crate::overlay_update::recover(database)?;
             if let Some(game) = crate::game_updates::target(database, &id)? {
@@ -2019,6 +2034,32 @@ const REMOVABLE: [DownloadStatus; 3] = [
 /// cleanup may drop them without a confirmation.
 const FINISHED: [DownloadStatus; 2] = [DownloadStatus::Cancelled, DownloadStatus::Installed];
 
+/// A downloaded job whose staging failed before it started is no longer
+/// scheduled, so it is removable once no staging task still holds it.
+fn has_stalled_staging(
+    queue: &DownloadQueueState,
+    database: &Database,
+    id: &str,
+) -> Result<bool, String> {
+    if queue
+        .processing
+        .lock()
+        .map_err(|_| "Processing lock was poisoned".to_owned())?
+        .contains(id)
+    {
+        return Ok(false);
+    }
+    database.with_connection(|connection| {
+        connection
+            .query_row(
+                "SELECT error IS NOT NULL FROM downloads WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .map_err(db_error)
+    })
+}
+
 fn remove_entry(queue: &DownloadQueueState, database: &Database, id: &str) -> Result<(), String> {
     let id = Uuid::parse_str(id)
         .map_err(|_| "Download ID is invalid".to_owned())?
@@ -2027,6 +2068,8 @@ fn remove_entry(queue: &DownloadQueueState, database: &Database, id: &str) -> Re
     if !REMOVABLE
         .iter()
         .any(|candidate| candidate.as_str() == status)
+        && !(status == DownloadStatus::Downloaded.as_str()
+            && has_stalled_staging(queue, database, &id)?)
     {
         return Err(format!("Cannot remove a {status} download"));
     }
@@ -2207,6 +2250,7 @@ fn recover_on_start(app: &AppHandle) -> Result<(), String> {
 
 pub fn start(app: AppHandle) -> Result<(), String> {
     let recovered = recover_on_start(&app);
+    // Claims may only start once interrupted transfers have been reset.
     app.state::<DownloadQueueState>()
         .starting
         .store(false, Ordering::Release);
@@ -2622,7 +2666,7 @@ mod tests {
             settings.download_notifications = false;
             database.save_settings(settings).unwrap();
         }
-        tauri::test::mock_builder()
+        let app = tauri::test::mock_builder()
             .manage(state)
             .manage(crate::game_lifecycle::GameLaunchManager::new())
             .manage(crate::game_artwork::GameArtworkStore::new(Err(
@@ -2630,7 +2674,42 @@ mod tests {
             )))
             .manage(DownloadQueueState::new(Ok(directory.to_path_buf()), "test").unwrap())
             .build(context)
-            .unwrap()
+            .unwrap();
+        // Fixtures stand in for a completed startup recovery.
+        app.state::<DownloadQueueState>()
+            .starting
+            .store(false, Ordering::Release);
+        app
+    }
+
+    #[test]
+    fn kick_waits_for_startup_recovery() {
+        let (database, directory) = database_with_source();
+        let job = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
+        let app = tauri::test::mock_builder()
+            .manage(DatabaseState::new(Ok(directory.clone())))
+            .manage(DownloadQueueState::new(Ok(directory.clone()), "test").unwrap())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+
+        kick(app.handle().clone());
+
+        assert!(
+            !app.state::<DownloadQueueState>()
+                .running
+                .load(Ordering::Acquire)
+        );
+        assert_eq!(status_of(&database, &job.id).as_deref(), Some("queued"));
+        drop(app);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     fn wait_for_status(database: &Database, id: &str, expected: &str) {
@@ -3185,6 +3264,34 @@ mod tests {
             fs::read(queue.path(&job.id, "stage").unwrap().join("Game/data.bin")).unwrap(),
             b"hello"
         );
+        drop(app);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn idle_staging_does_not_wake_the_policy() {
+        let (database, _queue, job, directory) = downloaded_fixture();
+        let app = test_app(&directory);
+        let queue = app.state::<DownloadQueueState>();
+        let changes = queue.policy_changes.subscribe();
+        let settle = || async {
+            while !queue.processing.lock().unwrap().is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+
+        // Nothing to stage, as when extraction is deferred.
+        set_status(&database, &job.id, "queued");
+        spawn_staging(app.handle(), &job.id);
+        settle().await;
+        assert!(!changes.has_changed().unwrap());
+
+        set_status(&database, &job.id, "downloaded");
+        spawn_staging(app.handle(), &job.id);
+        settle().await;
+        assert_eq!(status(&database, &job.id).unwrap(), "staged");
+        assert!(changes.has_changed().unwrap());
         drop(app);
         drop(database);
         fs::remove_dir_all(directory).unwrap();
@@ -4132,6 +4239,52 @@ mod tests {
             assert_eq!(error, format!("Cannot remove a {status} download"));
             assert_eq!(status_of(&database, &job.id).as_deref(), Some(status));
         }
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn set_error(database: &Database, id: &str, error: &str) {
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET error = ?2 WHERE id = ?1",
+                        params![id, error],
+                    )
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn removes_a_downloaded_entry_after_staging_failed() {
+        let (database, queue, job, directory) = downloaded_fixture();
+        set_error(&database, &job.id, "Settings are unreadable");
+        queue.processing.lock().unwrap().insert(job.id.clone());
+        assert!(remove_entry(&queue, &database, &job.id).is_err());
+        queue.processing.lock().unwrap().clear();
+
+        remove_entry(&queue, &database, &job.id).unwrap();
+
+        assert_eq!(status_of(&database, &job.id), None);
+        assert!(!queue.path(&job.id, "archive").unwrap().exists());
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn retry_stages_a_downloaded_entry_after_staging_failed() {
+        let (database, _queue, job, directory) = downloaded_fixture();
+        set_error(&database, &job.id, "Settings are unreadable");
+        let app = test_app(&directory);
+
+        retry_download(app.handle().clone(), job.id.clone())
+            .await
+            .unwrap();
+
+        wait_for_status(&database, &job.id, "staged");
+        drop(app);
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }

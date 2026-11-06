@@ -48,7 +48,7 @@ export function canResumeDownload(status: string): boolean {
 }
 
 export function canRetryDownload(status: string, error?: string | null): boolean {
-  return supportsDownloadAction(status, "retry") || ((status === "finalizing" || status === "staged") && Boolean(error));
+  return supportsDownloadAction(status, "retry") || ((status === "downloaded" || status === "finalizing" || status === "staged") && Boolean(error));
 }
 
 export function canCancelDownload(status: string): boolean {
@@ -59,8 +59,8 @@ export function canFinalizeDownload(status: string): boolean {
   return supportsDownloadAction(status, "finalize");
 }
 
-export function canRemoveDownload(status: string): boolean {
-  return supportsDownloadAction(status, "remove");
+export function canRemoveDownload(status: string, error?: string | null): boolean {
+  return supportsDownloadAction(status, "remove") || (status === "downloaded" && Boolean(error));
 }
 
 export function isFinishedDownloadStatus(status: string): boolean {

@@ -110,7 +110,7 @@
         {#if canCancelDownload(job.status)}
           <Button label={t("Annulla", $language)} variant="danger-soft" disabled={busy} onClick={onCancel} />
         {/if}
-        {#if canRemoveDownload(job.status)}
+        {#if canRemoveDownload(job.status, job.error)}
           <Button label={t("Rimuovi", $language)} variant="secondary" disabled={busy} onClick={onRemove} />
         {/if}
       </div>
