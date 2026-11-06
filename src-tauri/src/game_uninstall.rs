@@ -152,7 +152,27 @@ pub(crate) fn is_system_directory(path: &Path) -> bool {
 /// Whether `path` lies in an operating system directory that Legio must never write to or delete.
 #[cfg(windows)]
 pub(crate) fn is_system_directory(path: &Path) -> bool {
-    std::env::var_os("SystemRoot").is_some_and(|system| path.starts_with(Path::new(&system)))
+    std::env::var_os("SystemRoot").is_some_and(|system| {
+        is_within_windows_directory(&path.to_string_lossy(), &system.to_string_lossy())
+    })
+}
+
+// Windows paths ignore case and accept both separators, which Path::starts_with does not.
+#[cfg(any(windows, test))]
+fn is_within_windows_directory(path: &str, directory: &str) -> bool {
+    let path = normalize_windows_path(path);
+    let directory = normalize_windows_path(directory);
+    path == directory
+        || path
+            .strip_prefix(&directory)
+            .is_some_and(|rest| rest.starts_with('\\'))
+}
+
+#[cfg(any(windows, test))]
+fn normalize_windows_path(path: &str) -> String {
+    path.replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_lowercase()
 }
 
 fn remove_installation(
@@ -318,6 +338,28 @@ mod tests {
     use super::*;
     use crate::database::{CreateGameInput, database_error};
     use rusqlite::params;
+
+    #[test]
+    fn system_directory_match() {
+        assert!(is_within_windows_directory(
+            r"C:\WINDOWS\System32\game.exe",
+            r"C:\Windows"
+        ));
+        assert!(is_within_windows_directory(
+            "c:/windows/system32",
+            r"C:\Windows\"
+        ));
+        assert!(is_within_windows_directory(r"C:\Windows", r"C:\WINDOWS"));
+        // Sibling directories that only share a name prefix are not system directories.
+        assert!(!is_within_windows_directory(
+            r"C:\WindowsApps\game.exe",
+            r"C:\Windows"
+        ));
+        assert!(!is_within_windows_directory(
+            r"D:\Games\Windows",
+            r"C:\Windows"
+        ));
+    }
 
     struct Fixture {
         root: PathBuf,
