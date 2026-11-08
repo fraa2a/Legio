@@ -2496,7 +2496,7 @@ name = "legio"
 version = "0.3.1"
 dependencies = [
  "ammonia",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "compress-tools",
  "dirs",
