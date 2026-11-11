@@ -26,6 +26,7 @@
     "test:catalog": "node --conditions=browser --test scripts/test_catalog.mjs scripts/test_store_filters.mjs",
     "test:acl": "node --test scripts/test_command_acl.mjs",
     "test:docs": "node --test scripts/test_documentation.mjs",
+    "test:i18n": "node --test scripts/test_i18n_catalog.mjs",
     "test:launcher": "node --conditions=browser --test scripts/test_settings_frontend.mjs scripts/test_app_updater.mjs scripts/test_preferences.mjs scripts/test_settings_loading.mjs",
     "test:select": "node --conditions=browser --test scripts/test_select.mjs",
     "test:artwork-cache": "node --conditions=browser --test scripts/test_steam_image_cache.mjs",
