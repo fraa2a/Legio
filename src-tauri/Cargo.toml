@@ -21,7 +21,7 @@ image = { version = "0.25", default-features = false, features = ["ico", "png", 
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 regex = "1"
 rquickjs = { version = "=0.14.0", default-features = false, features = ["std"] }
-rusqlite = { version = "0.40.2", features = ["bundled"] }
+rusqlite = { version = "0.40.2", features = ["bundled", "hooks"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["raw_value"] }
 toml = "1.1.6"
@@ -59,3 +59,8 @@ webview2-com = "=0.39.1"
 windows = { version = "=0.62.2", default-features = false }
 winreg = "0.56.0"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_Globalization", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 3

@@ -6,7 +6,12 @@ pub(crate) use modding::{GameModding, MAX_PROFILE_NAME_CHARS, ModProfile, Profil
 #[cfg(test)]
 pub(crate) use sessions::RunningGamePresence;
 
-use std::{collections::BTreeMap, fs, path::Path, sync::Mutex};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::Path,
+    sync::{Mutex, MutexGuard, PoisonError},
+};
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -390,14 +395,22 @@ pub(crate) fn close_test_database(state: &DatabaseState) {
     let mut connection = database.connection.lock().unwrap();
     let opened = std::mem::replace(&mut *connection, Connection::open_in_memory().unwrap());
     opened.close().unwrap();
+    database.invalidate_settings();
 }
 
 pub struct Database {
     connection: Mutex<Connection>,
+    // Lock order: connection, then settings_cache. Never the reverse.
+    settings_cache: Mutex<Option<Settings>>,
     pub(crate) source_cache: Mutex<Option<crate::legio_source_cache::CachedSource>>,
+    downloads_changed: tokio::sync::watch::Sender<()>,
 }
 
 impl Database {
+    pub(crate) fn subscribe_downloads_changes(&self) -> tokio::sync::watch::Receiver<()> {
+        self.downloads_changed.subscribe()
+    }
+
     pub(crate) fn storage_root(&self, data_dir: &Path) -> Result<std::path::PathBuf, String> {
         Ok(self
             .settings()?
@@ -535,88 +548,48 @@ impl Database {
             .map_err(|error| format!("could not open the local database: {error}"))?;
 
         connection
-            .execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
+            .execute_batch(
+                "PRAGMA foreign_keys = ON;
+                 PRAGMA journal_mode = WAL;
+                 PRAGMA synchronous = NORMAL;
+                 PRAGMA busy_timeout = 5000;",
+            )
             .map_err(|error| format!("could not configure the local database: {error}"))?;
         migrate(&connection)?;
+        initialize_preferences(&connection)?;
+        let downloads_changed = tokio::sync::watch::channel(()).0;
+        // Covers every write to the table, whichever code path performs it.
+        let notifier = downloads_changed.clone();
+        connection
+            .update_hook(Some(
+                move |_: rusqlite::hooks::Action, _: &str, table: &str, _: i64| {
+                    if table == "downloads" {
+                        notifier.send_replace(());
+                    }
+                },
+            ))
+            .map_err(|error| format!("could not watch the local database: {error}"))?;
         let database = Self {
             connection: Mutex::new(connection),
+            settings_cache: Mutex::new(None),
             source_cache: Mutex::new(None),
+            downloads_changed,
         };
         database.recover_open_game_sessions(now_milliseconds()?)?;
         Ok(database)
     }
 
     pub fn settings(&self) -> Result<Settings, String> {
-        self.with_connection(|connection| {
-            let stored_preferences: Option<String> = connection
-                .query_row(
-                    "SELECT value FROM settings WHERE key = 'app_preferences'",
-                    [],
-                    |row| row.get(0),
-                )
-                .optional()
-                .map_err(database_error)?;
-            let stored_theme: Option<String> = connection
-                .query_row(
-                    "SELECT value FROM settings WHERE key = ?1",
-                    [THEME_KEY],
-                    |row| row.get(0),
-                )
-                .optional()
-                .map_err(database_error)?;
-            let stored_poll_minutes: Option<String> = connection
-                .query_row(
-                    "SELECT value FROM settings WHERE key = ?1",
-                    [STEAM_LIBRARY_POLL_MINUTES_KEY],
-                    |row| row.get(0),
-                )
-                .optional()
-                .map_err(database_error)?;
-            let existing = stored_theme.is_some()
-                || stored_poll_minutes.is_some()
-                || connection
-                    .query_row("SELECT EXISTS(SELECT 1 FROM games)", [], |row| {
-                        row.get::<_, bool>(0)
-                    })
-                    .map_err(database_error)?;
-            let theme = stored_theme.map_or(Ok(Theme::System), |value| Theme::parse(&value))?;
-            let steam_library_poll_minutes =
-                stored_poll_minutes.map_or(Ok(DEFAULT_STEAM_LIBRARY_POLL_MINUTES), |value| {
-                    value.parse::<u32>().map_err(|error| {
-                        format!("stored Steam library poll interval is invalid: {error}")
-                    })
-                })?;
-            validate_steam_library_poll_minutes(steam_library_poll_minutes)?;
-            let initialize_preferences = stored_preferences.is_none();
-            let mut settings = stored_preferences.map_or_else(
-                || {
-                    Ok(Settings {
-                        onboarding_completed: existing,
-                        ..Settings::default()
-                    })
-                },
-                |value| {
-                    serde_json::from_str::<Settings>(&value).map_err(|error| {
-                        format!("stored application preferences are invalid: {error}")
-                    })
-                },
-            )?;
-            settings.theme = theme;
-            settings.steam_library_poll_minutes = steam_library_poll_minutes;
-            crate::appearance::validate(&settings.appearance)?;
-            // Persist first-run detection before background Steam import can add games.
-            if initialize_preferences {
-                let preferences =
-                    serde_json::to_string(&settings).map_err(|error| error.to_string())?;
-                connection
-                    .execute(
-                        "INSERT INTO settings (key, value) VALUES ('app_preferences', ?1)",
-                        [preferences],
-                    )
-                    .map_err(database_error)?;
-            }
-            Ok(settings)
-        })
+        if let Some(settings) = self.settings_cache().clone() {
+            return Ok(settings);
+        }
+        let connection = self.lock_connection()?;
+        let (settings, stored) = load_settings(&connection)?;
+        // Unstored preferences depend on the games table, so only stored ones are cached.
+        if stored {
+            *self.settings_cache() = Some(settings.clone());
+        }
+        Ok(settings)
     }
 
     pub fn save_settings(&self, settings: Settings) -> Result<Settings, String> {
@@ -657,46 +630,18 @@ impl Database {
             }
         }
         let preferences = encode_json(&settings)?;
-        self.with_connection(|connection| {
-            let transaction = connection.unchecked_transaction().map_err(database_error)?;
-            let current: Option<String> = transaction.query_row(
-                "SELECT value FROM settings WHERE key = 'app_preferences'", [], |row| row.get(0)
-            ).optional().map_err(database_error)?;
-            let old_path = current.map(|value| serde_json::from_str::<Settings>(&value)
-                .map(|stored| stored.download_path)
-                .map_err(|error| format!("stored application preferences are invalid: {error}")))
-                .transpose()?.flatten();
-            if old_path != settings.download_path {
-                let active: bool = transaction.query_row(
-                    "SELECT EXISTS(SELECT 1 FROM downloads WHERE status NOT IN ('installed', 'cancelled') OR (status = 'installed' AND staged_path IS NOT NULL))",
-                    [], |row| row.get(0)
-                ).map_err(database_error)?;
-                if active { return Err("Finish or remove active downloads before changing the download directory".to_owned()); }
-            }
-            transaction
-                .execute(
-                    "INSERT INTO settings (key, value) VALUES (?1, ?2)
-                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                    params![THEME_KEY, settings.theme.as_str()],
-                )
-                .map_err(database_error)?;
-            transaction
-                .execute(
-                    "INSERT INTO settings (key, value) VALUES (?1, ?2)
-                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                    params![
-                        STEAM_LIBRARY_POLL_MINUTES_KEY,
-                        settings.steam_library_poll_minutes.to_string()
-                    ],
-                )
-                .map_err(database_error)?;
-            transaction.execute(
-                "INSERT INTO settings (key, value) VALUES ('app_preferences', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                [preferences],
-            ).map_err(database_error)?;
-            transaction.commit().map_err(database_error)?;
-            Ok(settings)
-        })
+        let connection = self.lock_connection()?;
+        let stored = store_settings(&connection, &settings, preferences);
+        // Cache exactly what a read returns. A failed save or reload leaves the cache empty
+        // so the next settings() call reads and reports the database state.
+        let cached = match stored {
+            Ok(()) => load_settings(&connection)
+                .ok()
+                .map(|(settings, _)| settings),
+            Err(_) => None,
+        };
+        *self.settings_cache() = cached;
+        stored.map(|()| settings)
     }
 
     /// Loads the persistent download bandwidth limit. Zero means unlimited.
@@ -1087,12 +1032,167 @@ impl Database {
         &self,
         operation: impl FnOnce(&Connection) -> Result<T, String>,
     ) -> Result<T, String> {
-        let connection = self
-            .connection
-            .lock()
-            .map_err(|_| "local database lock was poisoned".to_owned())?;
-        operation(&connection)
+        let connection = self.lock_connection()?;
+        let changes = connection.total_changes();
+        let result = operation(&connection);
+        // Any write may touch the settings table, so drop the cache while still holding the connection.
+        if connection.total_changes() != changes {
+            self.invalidate_settings();
+        }
+        result
     }
+
+    fn lock_connection(&self) -> Result<MutexGuard<'_, Connection>, String> {
+        self.connection
+            .lock()
+            .map_err(|_| "local database lock was poisoned".to_owned())
+    }
+
+    fn settings_cache(&self) -> MutexGuard<'_, Option<Settings>> {
+        // The cache holds plain data that is replaced whole, so a poisoned lock is still consistent.
+        self.settings_cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn invalidate_settings(&self) {
+        *self.settings_cache() = None;
+    }
+}
+
+/// Writes all three settings entries in one transaction.
+fn store_settings(
+    connection: &Connection,
+    settings: &Settings,
+    preferences: String,
+) -> Result<(), String> {
+    let transaction = connection.unchecked_transaction().map_err(database_error)?;
+    let current: Option<String> = transaction
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'app_preferences'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(database_error)?;
+    let old_path = current
+        .map(|value| {
+            serde_json::from_str::<Settings>(&value)
+                .map(|stored| stored.download_path)
+                .map_err(|error| format!("stored application preferences are invalid: {error}"))
+        })
+        .transpose()?
+        .flatten();
+    if old_path != settings.download_path {
+        let active: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM downloads WHERE status NOT IN ('installed', 'cancelled') OR (status = 'installed' AND staged_path IS NOT NULL))",
+            [], |row| row.get(0)
+        ).map_err(database_error)?;
+        if active {
+            return Err(
+                "Finish or remove active downloads before changing the download directory"
+                    .to_owned(),
+            );
+        }
+    }
+    transaction
+        .execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![THEME_KEY, settings.theme.as_str()],
+        )
+        .map_err(database_error)?;
+    transaction
+        .execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![
+                STEAM_LIBRARY_POLL_MINUTES_KEY,
+                settings.steam_library_poll_minutes.to_string()
+            ],
+        )
+        .map_err(database_error)?;
+    transaction.execute(
+        "INSERT INTO settings (key, value) VALUES ('app_preferences', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [preferences],
+    ).map_err(database_error)?;
+    transaction.commit().map_err(database_error)
+}
+
+/// Reads the stored settings and whether the `app_preferences` entry exists.
+fn load_settings(connection: &Connection) -> Result<(Settings, bool), String> {
+    let stored_preferences: Option<String> = connection
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'app_preferences'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(database_error)?;
+    let stored_theme: Option<String> = connection
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            [THEME_KEY],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(database_error)?;
+    let stored_poll_minutes: Option<String> = connection
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            [STEAM_LIBRARY_POLL_MINUTES_KEY],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(database_error)?;
+    let existing = stored_theme.is_some()
+        || stored_poll_minutes.is_some()
+        || connection
+            .query_row("SELECT EXISTS(SELECT 1 FROM games)", [], |row| {
+                row.get::<_, bool>(0)
+            })
+            .map_err(database_error)?;
+    let theme = stored_theme.map_or(Ok(Theme::System), |value| Theme::parse(&value))?;
+    let steam_library_poll_minutes =
+        stored_poll_minutes.map_or(Ok(DEFAULT_STEAM_LIBRARY_POLL_MINUTES), |value| {
+            value
+                .parse::<u32>()
+                .map_err(|error| format!("stored Steam library poll interval is invalid: {error}"))
+        })?;
+    validate_steam_library_poll_minutes(steam_library_poll_minutes)?;
+    let stored = stored_preferences.is_some();
+    let mut settings = stored_preferences.map_or_else(
+        || {
+            Ok(Settings {
+                onboarding_completed: existing,
+                ..Settings::default()
+            })
+        },
+        |value| {
+            serde_json::from_str::<Settings>(&value)
+                .map_err(|error| format!("stored application preferences are invalid: {error}"))
+        },
+    )?;
+    settings.theme = theme;
+    settings.steam_library_poll_minutes = steam_library_poll_minutes;
+    crate::appearance::validate(&settings.appearance)?;
+    Ok((settings, stored))
+}
+
+/// Persists first-run detection before background Steam import can add games.
+fn initialize_preferences(connection: &Connection) -> Result<(), String> {
+    // Invalid stored values are left in place for settings() to report.
+    let Ok((settings, false)) = load_settings(connection) else {
+        return Ok(());
+    };
+    let preferences = serde_json::to_string(&settings).map_err(|error| error.to_string())?;
+    connection
+        .execute(
+            "INSERT INTO settings (key, value) VALUES ('app_preferences', ?1)",
+            [preferences],
+        )
+        .map_err(database_error)?;
+    Ok(())
 }
 
 pub(crate) fn now_milliseconds() -> Result<i64, String> {
@@ -1501,6 +1601,98 @@ mod tests {
         );
         drop(state);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn open_initializes_preferences_before_the_first_read() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let stored: bool = database
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM settings WHERE key = 'app_preferences')",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .map_err(database_error)
+            })
+            .unwrap();
+        assert!(stored);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn cached_settings_follow_save_settings() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let mut settings = database.settings().unwrap();
+        settings.theme = Theme::Light;
+        settings.steam_library_poll_minutes = 60;
+        settings.language = crate::locale::LanguagePreference::Italian;
+        database.save_settings(settings.clone()).unwrap();
+        assert_eq!(database.settings().unwrap(), settings);
+        drop(database);
+        let reopened = Database::open(&directory).unwrap();
+        assert_eq!(reopened.settings().unwrap(), settings);
+        drop(reopened);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn cached_settings_follow_direct_writes() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let write = |sql: &str| {
+            database
+                .with_connection(|connection| connection.execute_batch(sql).map_err(database_error))
+                .unwrap();
+        };
+        assert_eq!(database.settings().unwrap().theme, Theme::System);
+        write("INSERT INTO settings (key, value) VALUES ('theme', 'dark')");
+        assert_eq!(database.settings().unwrap().theme, Theme::Dark);
+        write("INSERT INTO settings (key, value) VALUES ('steam_library_poll_minutes', '45')");
+        assert_eq!(database.settings().unwrap().steam_library_poll_minutes, 45);
+        write(
+            r#"UPDATE settings SET value = '{"theme":"dark","language":"it"}' WHERE key = 'app_preferences'"#,
+        );
+        assert_eq!(
+            database.settings().unwrap().language,
+            crate::locale::LanguagePreference::Italian
+        );
+        write("UPDATE settings SET value = 'invalid JSON' WHERE key = 'app_preferences'");
+        assert!(database.settings().is_err());
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn failed_save_keeps_cached_settings() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let original = database.settings().unwrap();
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute_batch(
+                        "CREATE TRIGGER reject_settings BEFORE UPDATE ON settings
+                         BEGIN SELECT RAISE(ABORT, 'rejected'); END;",
+                    )
+                    .map_err(database_error)
+            })
+            .unwrap();
+        assert!(
+            database
+                .save_settings(Settings {
+                    theme: Theme::Light,
+                    ..original.clone()
+                })
+                .is_err()
+        );
+        assert_eq!(database.settings().unwrap(), original);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -2006,7 +2198,9 @@ mod tests {
         assert_eq!(cached_query, "portal");
         let database = Database {
             connection: Mutex::new(connection),
+            settings_cache: Mutex::new(None),
             source_cache: Mutex::new(None),
+            downloads_changed: tokio::sync::watch::channel(()).0,
         };
         assert_eq!(database.settings().unwrap().theme, Theme::Dark);
         assert_eq!(

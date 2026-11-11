@@ -2859,6 +2859,47 @@ mod tests {
     }
 
     #[test]
+    fn download_writes_notify_subscribers() {
+        let (database, directory) = database_with_source();
+        let mut changes = database.subscribe_downloads_changes();
+        let job = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
+        assert!(changes.has_changed().unwrap());
+        changes.borrow_and_update();
+        database
+            .with_connection(|connection| {
+                connection
+                    .query_row("SELECT COUNT(*) FROM downloads", [], |row| {
+                        row.get::<_, i64>(0)
+                    })
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(!changes.has_changed().unwrap());
+        claim(&database).unwrap();
+        update_progress(&database, &job.id, 5, 1, None, None).unwrap();
+        assert!(changes.has_changed().unwrap());
+        changes.borrow_and_update();
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute("DELETE FROM downloads WHERE id = ?1", [&job.id])
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(changes.has_changed().unwrap());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn reorder_rolls_back_when_a_later_update_fails() {
         let (database, directory) = database_with_source();
         let first = enqueue(
