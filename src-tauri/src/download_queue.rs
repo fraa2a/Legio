@@ -21,7 +21,7 @@ use uuid::Uuid;
 use crate::{
     archive_install,
     database::{Database, DatabaseState},
-    download_resolver::ResolveError,
+    download_resolver::{PlainHttp, ResolveError},
     finalize_install,
 };
 
@@ -116,6 +116,7 @@ struct Transfer {
     url: String,
     size: u64,
     etag: Option<String>,
+    plain_http: PlainHttp,
 }
 
 pub struct DownloadQueueState {
@@ -557,16 +558,16 @@ pub(crate) fn enqueue_prepared(
 
 fn claim(database: &Database) -> Result<Option<Transfer>, String> {
     database.with_connection(|connection| {
-        let row: Option<(String, String, i64, Option<String>)> = connection.query_row(
-            "SELECT id, url, size_bytes, etag FROM downloads WHERE status = 'queued' ORDER BY queue_position, created_at, id LIMIT 1",
-            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        let row: Option<(String, String, i64, Option<String>, String)> = connection.query_row(
+            "SELECT id, url, size_bytes, etag, sha256 FROM downloads WHERE status = 'queued' ORDER BY queue_position, created_at, id LIMIT 1",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
         ).optional().map_err(db_error)?;
-        let Some((id, url, size, etag)) = row else { return Ok(None); };
+        let Some((id, url, size, etag, hash)) = row else { return Ok(None); };
         connection.execute(
             "UPDATE downloads SET status = 'downloading', updated_at = ?2 WHERE id = ?1",
             params![id, now()?],
         ).map_err(db_error)?;
-        Ok(Some(Transfer { id, url, size: u64::try_from(size).map_err(|_| "Invalid stored download size".to_owned())?, etag }))
+        Ok(Some(Transfer { id, url, size: u64::try_from(size).map_err(|_| "Invalid stored download size".to_owned())?, etag, plain_http: PlainHttp::for_hash(Some(&hash)) }))
     })
 }
 
@@ -1289,7 +1290,9 @@ impl From<ResolveError> for TransferError {
         match error {
             ResolveError::Network(_) => Self::Network(message),
             ResolveError::Http(status) if status.is_server_error() => Self::Server(message),
-            ResolveError::Http(_) | ResolveError::Link(_) => Self::Link(message),
+            ResolveError::Http(_) | ResolveError::Link(_) | ResolveError::Insecure => {
+                Self::Link(message)
+            }
             ResolveError::RateLimited { retry_after, .. } => Self::RateLimited {
                 message,
                 delay: crate::download_selection::rate_limit_delay(retry_after),
@@ -1373,7 +1376,7 @@ async fn transfer<F: std::future::Future<Output = bool>>(
             let inspected = tokio::select! {
                 biased;
                 _ = stopped.changed() => return Err(TransferError::Stopped),
-                result = crate::download_selection::inspect(&queue.client, &uri) => result,
+                result = crate::download_selection::inspect(&queue.client, &uri, current.plain_http) => result,
             };
             match inspected {
                 Ok(size) if crate::download_selection::size_matches(plan.expected_size, size) => {
@@ -1495,7 +1498,7 @@ async fn transfer_once(
     let mut resolved = tokio::select! {
         biased;
         _ = stopped.changed() => return Err(TransferError::Stopped),
-        result = crate::download_resolver::resolve(&queue.client, &job.url) => result?,
+        result = crate::download_resolver::resolve(&queue.client, &job.url, job.plain_http) => result?,
     };
     if resolved.files.len() != 1 {
         return Err("Grouped downloads are not supported by this transfer yet".into());
@@ -1522,14 +1525,14 @@ async fn transfer_once(
     let mut response = tokio::select! {
         biased;
         _ = stopped.changed() => return Err(TransferError::Stopped),
-        result = crate::download_resolver::get(&queue.client, &resolved.url, headers) => result?,
+        result = crate::download_resolver::get(&queue.client, &resolved.url, headers, job.plain_http) => result?,
     };
     if offset > 0 && !resume_matches(&response, job, offset) {
         offset = 0;
         response = tokio::select! {
             biased;
             _ = stopped.changed() => return Err(TransferError::Stopped),
-            result = crate::download_resolver::get(&queue.client, &resolved.url, resolved.headers.clone()) => result?,
+            result = crate::download_resolver::get(&queue.client, &resolved.url, resolved.headers.clone(), job.plain_http) => result?,
         };
     }
     if response.status()
@@ -1796,6 +1799,7 @@ pub async fn queue_download(
                 .iter()
                 .map(|uri| (uri.clone(), expected_size))
                 .collect(),
+            PlainHttp::for_hash(entry.download.sha256.as_deref()),
         )
         .await?;
         let mut first_error = None;

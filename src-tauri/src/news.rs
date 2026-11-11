@@ -146,7 +146,7 @@ pub async fn refresh(app: AppHandle, state: &NetworkState) -> Result<Snapshot, S
     let fetched = state
         .news()
         .await
-        .map_err(|error| format!("Could not fetch news: {error:?}"));
+        .map_err(|error| format!("Could not fetch news: {error}"));
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatabaseState>();
         let database = state.database()?;

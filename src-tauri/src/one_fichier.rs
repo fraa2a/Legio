@@ -1,4 +1,6 @@
-use crate::download_resolver::{ResolveError, ResolvedDownload, ResolvedFile, network_error};
+use crate::download_resolver::{
+    PlainHttp, ResolveError, ResolvedDownload, ResolvedFile, network_error,
+};
 use regex::Regex;
 use reqwest::{
     Client, StatusCode, Url,
@@ -74,7 +76,13 @@ pub(crate) async fn inspect(client: &Client, uri: &str) -> Result<u64, ResolveEr
     checker
         .query_pairs_mut()
         .append_pair("links[]", &page_url(id));
-    let report = crate::download_resolver::text(client, checker.as_str(), HeaderMap::new()).await?;
+    let report = crate::download_resolver::text(
+        client,
+        checker.as_str(),
+        HeaderMap::new(),
+        PlainHttp::Refused,
+    )
+    .await?;
     let info = parse_file_info(&report, id)?;
     if crate::archive_install::is_multipart_name(Path::new(&info.name)) {
         return Err("Multipart archive files are not supported".into());

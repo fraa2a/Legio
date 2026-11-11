@@ -7,6 +7,25 @@ use std::time::{Duration, Instant};
 const STOP_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) const LAUNCH_TOKEN_ENV: &str = "LEGIO_LAUNCH_TOKEN";
 
+pub(crate) fn validate_environment_variables(
+    environment: &std::collections::BTreeMap<String, String>,
+    label: &str,
+) -> Result<(), String> {
+    for (key, value) in environment {
+        if key.is_empty()
+            || key.chars().any(char::is_control)
+            || key.contains('=')
+            || value.contains('\0')
+        {
+            return Err(format!("{label} contains an invalid variable"));
+        }
+        if key.eq_ignore_ascii_case(LAUNCH_TOKEN_ENV) {
+            return Err(format!("{label} variable {key} is managed by Legio"));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(any(windows, test))]
 #[derive(Default)]
 pub(crate) struct NativeProcessHistory {

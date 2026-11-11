@@ -15,6 +15,8 @@ use std::os::unix::fs::PermissionsExt;
 
 const MAX_ENTRIES: usize = 100_000;
 const MAX_EXPANSION_RATIO: u64 = 200;
+// Kept free on the staging filesystem for filesystem overhead and the rest of the system.
+const FREE_SPACE_MARGIN: u64 = 512 * 1024 * 1024;
 
 /// Extraction behavior that callers opt into. The default keeps every entry name strict.
 #[derive(Debug, Clone, Copy, Default)]
@@ -40,6 +42,19 @@ pub fn verify_and_stage_with(
     expected_sha256: Option<&str>,
     stage: &Path,
     options: StageOptions,
+) -> Result<(), String> {
+    stage_with_free_space(archive, expected_sha256, stage, options, |path| {
+        crate::installed_folder::disk_space(path).map(|(free, _)| free)
+    })
+}
+
+/// Reads free space through `free_space` so tests can inject it.
+fn stage_with_free_space(
+    archive: &Path,
+    expected_sha256: Option<&str>,
+    stage: &Path,
+    options: StageOptions,
+    free_space: impl FnOnce(&Path) -> Result<u64, String>,
 ) -> Result<(), String> {
     let metadata = fs::symlink_metadata(archive)
         .map_err(|error| format!("Cannot inspect download: {error}"))?;
@@ -96,8 +111,13 @@ pub fn verify_and_stage_with(
     let staging_parent = stage.parent().ok_or("Staging path has no parent")?;
     fs::create_dir_all(staging_parent)
         .map_err(|error| format!("Cannot create staging parent: {error}"))?;
+    // Unknown free space falls back to the ratio limit so unusual filesystems can still install.
+    let free_bytes = free_space(staging_parent)
+        .inspect_err(|error| crate::application_log::failure("extraction_disk_space", error))
+        .ok();
+    let limit = ExtractionLimit::new(archive_bytes, free_bytes);
     fs::create_dir(stage).map_err(|error| format!("Cannot create staging directory: {error}"))?;
-    let result = extract(source, stage, archive_bytes, options);
+    let result = extract(source, stage, limit, options);
     if let Err(error) = result {
         fs::remove_dir_all(stage).map_err(|cleanup| {
             format!(
@@ -110,10 +130,41 @@ pub fn verify_and_stage_with(
     Ok(())
 }
 
+/// Upper bound on bytes written while extracting, and which bound it came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ExtractionLimit {
+    bytes: u64,
+    by_free_space: bool,
+}
+
+impl ExtractionLimit {
+    fn new(archive_bytes: u64, free_bytes: Option<u64>) -> Self {
+        let ratio = archive_bytes.saturating_mul(MAX_EXPANSION_RATIO);
+        match free_bytes.map(|free| free.saturating_sub(FREE_SPACE_MARGIN)) {
+            Some(space) if space < ratio => Self {
+                bytes: space,
+                by_free_space: true,
+            },
+            _ => Self {
+                bytes: ratio,
+                by_free_space: false,
+            },
+        }
+    }
+
+    fn exceeded(self) -> String {
+        if self.by_free_space {
+            "Not enough free disk space to extract the archive. Free disk space and retry".into()
+        } else {
+            "Archive exceeds the extraction size limit".into()
+        }
+    }
+}
+
 fn extract(
     source: File,
     stage: &Path,
-    archive_bytes: u64,
+    limit: ExtractionLimit,
     options: StageOptions,
 ) -> Result<(), String> {
     let entries = ArchiveIteratorBuilder::new(source)
@@ -126,7 +177,6 @@ fn extract(
     let mut current_mode = 0u32;
     let mut seen = HashSet::new();
     let mut expanded = 0u64;
-    let limit = archive_bytes.saturating_mul(MAX_EXPANSION_RATIO);
 
     for entry in entries {
         match entry {
@@ -154,8 +204,8 @@ fn extract(
                         .map_err(|error| format!("Cannot create directory {name}: {error}"))?;
                 } else if kind == 0o100000 {
                     let declared = u64::try_from(stat.st_size).unwrap_or(0);
-                    if expanded.saturating_add(declared) > limit {
-                        return Err("Archive exceeds the extraction size limit".into());
+                    if expanded.saturating_add(declared) > limit.bytes {
+                        return Err(limit.exceeded());
                     }
                     let parent = target.parent().ok_or("Archive path has no parent")?;
                     fs::create_dir_all(parent)
@@ -182,8 +232,8 @@ fn extract(
                     .as_mut()
                     .ok_or("Archive contains data outside a file")?;
                 expanded = expanded.saturating_add(bytes.len() as u64);
-                if expanded > limit {
-                    return Err("Archive exceeds the extraction size limit".into());
+                if expanded > limit.bytes {
+                    return Err(limit.exceeded());
                 }
                 file.write_all(&bytes).map_err(|error| {
                     format!("Cannot write staged file: {error}. Free disk space and retry")
@@ -689,6 +739,75 @@ mod tests {
         assert!(result.unwrap_err().contains("no files"));
         assert!(!root.join("staging").exists());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    fn stage_safe_zip(
+        free_space: impl FnOnce(&Path) -> Result<u64, String>,
+    ) -> (PathBuf, Result<(), String>) {
+        let (root, archive) = fixture(
+            include_bytes!("../test-fixtures/archive/safe.zip"),
+            "safe.zip",
+        );
+        let stage = root.join("staging");
+        let result =
+            stage_with_free_space(&archive, None, &stage, StageOptions::default(), free_space);
+        (root, result)
+    }
+
+    #[test]
+    fn archive_within_free_space_is_staged() {
+        // safe.zip holds one 5-byte file.
+        let (root, result) = stage_safe_zip(|_| Ok(FREE_SPACE_MARGIN + 5));
+        result.unwrap();
+        assert_eq!(
+            fs::read(root.join("staging/Game/data.bin")).unwrap(),
+            b"hello"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn archive_beyond_free_space_leaves_no_staging() {
+        for free in [FREE_SPACE_MARGIN + 4, 0] {
+            let (root, result) = stage_safe_zip(|_| Ok(free));
+            assert!(
+                result.unwrap_err().contains("Not enough free disk space"),
+                "{free}"
+            );
+            assert!(!root.join("staging").exists(), "{free}");
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn unknown_free_space_falls_back_to_ratio_limit() {
+        let (root, result) = stage_safe_zip(|_| Err("unsupported filesystem".into()));
+        result.unwrap();
+        fs::remove_dir_all(root).unwrap();
+
+        let (root, archive) = fixture(
+            include_bytes!("../test-fixtures/archive/bomb.zip"),
+            "bomb.zip",
+        );
+        let stage = root.join("staging");
+        let error = stage_with_free_space(&archive, None, &stage, StageOptions::default(), |_| {
+            Err("unsupported filesystem".into())
+        })
+        .unwrap_err();
+        assert!(error.contains("size limit"));
+        assert!(!stage.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn extraction_limit_takes_the_lower_bound() {
+        let ratio = ExtractionLimit::new(10, Some(u64::MAX));
+        assert_eq!(ratio.bytes, 10 * MAX_EXPANSION_RATIO);
+        assert!(!ratio.by_free_space);
+        let space = ExtractionLimit::new(10, Some(FREE_SPACE_MARGIN + 7));
+        assert_eq!(space.bytes, 7);
+        assert!(space.by_free_space);
+        assert_eq!(ExtractionLimit::new(10, None), ratio);
     }
 
     #[test]
