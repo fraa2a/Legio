@@ -53,7 +53,7 @@
     "@tauri-apps/cli": "^2.12.4",
     "eslint": "^10.14.0",
     "eslint-plugin-svelte": "^3.23.1",
-    "jsdom": "^30.1.1",
+    "jsdom": "^31.0.0",
     "svelte": "^5.57.3",
     "svelte-check": "^4.7.8",
     "tailwindcss": "^4.3.5",
