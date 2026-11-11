@@ -21,6 +21,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Smaller debug information shortens CI builds and caches; panics and backtraces keep file and line numbers.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -29,6 +33,7 @@ jobs:
   plan:
     name: Select checks and release
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       code: ${{ steps.plan.outputs.code }}
       release: ${{ steps.plan.outputs.release }}
@@ -50,6 +55,7 @@ jobs:
   docs:
     name: Documentation
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -67,6 +73,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -157,24 +164,14 @@ jobs:
     needs: plan
     if: needs.plan.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            curl \
-            file \
-            libayatana-appindicator3-dev \
-            libarchive-dev \
-            librsvg2-dev \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libxdo-dev \
-            wget
+        timeout-minutes: 30
+        uses: ./.github/actions/linux-dependencies
 
       - name: Set up Rust 1.98.1
         run: |
@@ -185,6 +182,7 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: src-tauri -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Check formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
@@ -200,6 +198,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
     env:
       VCPKGRS_TRIPLET: x64-windows-static-md
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-cache
@@ -217,19 +216,8 @@ jobs:
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            curl \
-            file \
-            libayatana-appindicator3-dev \
-            libarchive-dev \
-            librsvg2-dev \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libxdo-dev \
-            wget
+        timeout-minutes: 30
+        uses: ./.github/actions/linux-dependencies
 
       - name: Set up Rust 1.98.1
         shell: bash
@@ -269,6 +257,7 @@ jobs:
         with:
           workspaces: src-tauri -> target
           key: ${{ matrix.os }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
