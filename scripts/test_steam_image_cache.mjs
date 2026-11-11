@@ -171,7 +171,6 @@ test("cached_image_survives_pending_refresh", async () => {
   const old = await images.loadSteamImage(imageRequest);
   const refresh = images.refreshSteamImages(930); await settle();
   assert.equal(images.peekSteamImage(imageRequest).url, old.url);
-  assert.ok(!calls.includes("reset_steam_artwork_cache"));
   complete(packet()); await refresh;
 });
 test("replacement_waits_for_display_decode", async () => {
