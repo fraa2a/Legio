@@ -427,6 +427,7 @@ impl GameLaunchManager {
             config.arguments.extend(plan.arguments);
         }
         validate_launch_arguments(&config.arguments)?;
+        game_process::validate_environment_variables(&config.environment, "Launch environment")?;
         let working_directory =
             game_working_directory(config.working_directory.as_deref(), parent)?;
         let mut command = crate::background_process::command(&executable);
@@ -1547,10 +1548,8 @@ fn validate_launch_arguments(arguments: &[String]) -> Result<(), String> {
 fn validate_launch_environment(
     environment: &std::collections::BTreeMap<String, String>,
 ) -> Result<(), String> {
-    for (key, value) in environment {
-        if key.is_empty() || key.contains('=') || key.contains('\0') || value.contains('\0') {
-            return Err("Compatibility environment contains an invalid variable".to_owned());
-        }
+    game_process::validate_environment_variables(environment, "Compatibility environment")?;
+    for key in environment.keys() {
         if [
             "WINEPREFIX",
             "PROTONPATH",
@@ -1561,7 +1560,6 @@ fn validate_launch_environment(
             "STEAM_COMPAT_DATA_PATH",
             "STEAM_COMPAT_CLIENT_INSTALL_PATH",
             "WINEDLLOVERRIDES",
-            game_process::LAUNCH_TOKEN_ENV,
         ]
         .iter()
         .any(|reserved| key.eq_ignore_ascii_case(reserved))
@@ -2500,6 +2498,55 @@ mod tests {
         drop(database);
         drop(reopened);
         // The mock runtime can retain this SQLite file until process exit on Windows.
+    }
+
+    #[test]
+    fn native_launch_rejects_invalid_stored_environment() {
+        let base = test_dir("native-launch-invalid-environment");
+        let database_dir = base.join("database");
+        let app = native_test_app(&database_dir);
+        let executable = std::env::current_exe().unwrap();
+        let state = app.state::<DatabaseState>();
+        let database = state.shared_database().unwrap();
+        let game = database
+            .create_game(crate::database::CreateGameInput {
+                name: "Invalid environment".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        crate::manual_import::set_executable(&state, &game.id, executable.to_str().unwrap())
+            .unwrap();
+        let manager = app.state::<GameLaunchManager>().inner().clone();
+        let cases = [
+            ("", "value"),
+            ("A=B", "value"),
+            ("A\0B", "value"),
+            ("KEY", "va\0lue"),
+            (game_process::LAUNCH_TOKEN_ENV, "value"),
+        ];
+        for (key, value) in cases {
+            // Written directly: the save path rejects these values.
+            let environment = serde_json::to_string(
+                &[(key, value)]
+                    .into_iter()
+                    .collect::<std::collections::BTreeMap<_, _>>(),
+            )
+            .unwrap();
+            database
+                .with_connection(|connection| {
+                    connection
+                        .execute(
+                            "INSERT OR REPLACE INTO game_native_launch_config (game_id, arguments, working_directory, environment) VALUES (?1, '[]', NULL, ?2)",
+                            rusqlite::params![game.id, environment],
+                        )
+                        .map_err(|error| error.to_string())
+                })
+                .unwrap();
+            let error = manager
+                .launch_native(app.handle().clone(), game.id.clone())
+                .unwrap_err();
+            assert!(error.starts_with("Launch environment"), "{error}");
+        }
     }
 
     #[cfg(target_os = "linux")]
