@@ -54,7 +54,7 @@
     "eslint-plugin-svelte": "^3.23.1",
     "jsdom": "^30.1.1",
     "svelte": "^5.57.3",
-    "svelte-check": "^4.0.0",
+    "svelte-check": "^4.7.8",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.0.0",
     "typescript-eslint": "^8.72.1",
