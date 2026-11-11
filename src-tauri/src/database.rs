@@ -504,18 +504,16 @@ impl Database {
                 .working_directory
                 .as_deref()
                 .is_some_and(|path| path.contains('\0'))
-            || config.environment.iter().any(|(key, value)| {
-                key.is_empty()
-                    || key.contains('=')
-                    || key.chars().any(char::is_control)
-                    || value.contains('\0')
-            })
         {
             return Err(
                 "Native launch settings contain an invalid argument, path, or environment variable"
                     .to_owned(),
             );
         }
+        crate::game_process::validate_environment_variables(
+            &config.environment,
+            "Launch environment",
+        )?;
         let arguments = encode_json(&config.arguments)?;
         let environment = encode_json(&config.environment)?;
         self.with_connection(|connection| {
@@ -2241,6 +2239,43 @@ mod tests {
         drop(database);
         let database = Database::open(&directory).unwrap();
         assert_eq!(database.native_launch_config(&game.id).unwrap(), config);
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn native_launch_config_rejects_invalid_environment() {
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let game = database
+            .create_game(CreateGameInput {
+                name: "Native environment".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        for (key, value) in [
+            ("", "value"),
+            ("A=B", "value"),
+            ("A\0B", "value"),
+            ("KEY", "va\0lue"),
+            ("LEGIO_LAUNCH_TOKEN", "value"),
+        ] {
+            let error = database
+                .save_native_launch_config(
+                    &game.id,
+                    NativeLaunchConfig {
+                        arguments: Vec::new(),
+                        working_directory: None,
+                        environment: BTreeMap::from([(key.to_owned(), value.to_owned())]),
+                    },
+                )
+                .unwrap_err();
+            assert!(error.starts_with("Launch environment"), "{error}");
+        }
+        assert_eq!(
+            database.native_launch_config(&game.id).unwrap(),
+            NativeLaunchConfig::default()
+        );
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
