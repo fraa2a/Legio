@@ -1,0 +1,33 @@
+[advisories]
+version = 2
+ignore = [
+    { id = "RUSTSEC-2025-0134", reason = "unmaintained transitive dependency of tokio-tungstenite 0.21 via the Steam client crates" },
+    { id = "RUSTSEC-2026-0049", reason = "rustls-webpki 0.102.8 comes from rustls 0.22, which has no patched release" },
+    { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.102.8 comes from rustls 0.22, which has no patched release" },
+    { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.102.8 comes from rustls 0.22, which has no patched release" },
+    { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.102.8 comes from rustls 0.22, which has no patched release" },
+    { id = "RUSTSEC-2026-0346", reason = "rustls 0.22.4 has no patched release; also affects 0.23, which a cargo update fixes" },
+    { id = "RUSTSEC-2026-0349", reason = "rustls 0.22.4 has no patched release; also affects 0.23, which a cargo update fixes" },
+    { id = "RUSTSEC-2026-0382", reason = "rustls-webpki 0.102.8 has no patched release; also affects 0.103, which a cargo update fixes" },
+    { id = "RUSTSEC-2023-0071", reason = "rsa has no stable patched release; transitive dependency of the Steam client crates" },
+    { id = "RUSTSEC-2026-0459", reason = "fix needs rusqlite 0.41, an incompatible update" },
+    { id = "RUSTSEC-2026-0367", reason = "zip 4.6.1 is a transitive dependency of tauri-plugin-updater; the app uses zip 9.2.0 directly" },
+    { id = "RUSTSEC-2026-0368", reason = "zip 4.6.1 is a transitive dependency of tauri-plugin-updater; the app uses zip 9.2.0 directly" },
+    { id = "RUSTSEC-2026-0369", reason = "zip 4.6.1 is a transitive dependency of tauri-plugin-updater; the app uses zip 9.2.0 directly" },
+    { id = "RUSTSEC-2026-0429", reason = "zip 4.6.1 is a transitive dependency of tauri-plugin-updater; the app uses zip 9.2.0 directly" },
+    { id = "RUSTSEC-2024-0370", reason = "unmaintained proc-macro dependency of the gtk3 bindings via tauri" },
+    { id = "RUSTSEC-2024-0449", reason = "unmaintained transitive dependency of serde_yaml_ng" },
+    { id = "RUSTSEC-2026-0370", reason = "unmaintained transitive dependency of zbus via the notification and single-instance plugins" },
+    { id = "RUSTSEC-2026-0371", reason = "unmaintained transitive dependency of zbus via the notification and single-instance plugins" },
+    { id = "RUSTSEC-2026-0372", reason = "unmaintained transitive dependency of zbus via the notification and single-instance plugins" },
+]
+
+[bans]
+multiple-versions = "allow"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
