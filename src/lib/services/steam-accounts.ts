@@ -12,13 +12,6 @@ export interface SavedSteamAccounts {
   diagnostics: string[];
 }
 
-export interface SteamAccountCheck {
-  status: "not_required" | "missing_saved_account" | "match" | "mismatch" | "unknown";
-  accountRequirementMet: boolean;
-  selectedSteamId: string | null;
-  message: string | null;
-}
-
 export function listSavedSteamAccounts(): Promise<SavedSteamAccounts> {
   return invoke<SavedSteamAccounts>("list_saved_steam_accounts");
 }

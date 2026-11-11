@@ -242,27 +242,6 @@ mod platform {
     }
 }
 
-#[cfg(not(any(windows, target_os = "linux")))]
-mod platform {
-    use tauri::AppHandle;
-
-    use super::LinkHandler;
-
-    const UNSUPPORTED: &str = "Thunderstore links are not supported on this platform";
-
-    pub(super) fn handler(_app: &AppHandle) -> Result<LinkHandler, String> {
-        Err(UNSUPPORTED.to_owned())
-    }
-
-    pub(super) fn register(_app: &AppHandle) -> Result<(), String> {
-        Err(UNSUPPORTED.to_owned())
-    }
-
-    pub(super) fn release(_app: &AppHandle) -> Result<bool, String> {
-        Err(UNSUPPORTED.to_owned())
-    }
-}
-
 /// `contents` of a `mimeapps.list` without the default-handler line of
 /// `mime` that points at `desktop_file`, or `None` if there is no such line.
 #[cfg(any(target_os = "linux", test))]

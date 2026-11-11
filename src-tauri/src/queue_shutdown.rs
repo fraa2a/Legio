@@ -182,19 +182,13 @@ fn notify_countdown(app: &AppHandle) {
 const POWER_OFF_COMMANDS: &[&[&str]] = &[&["systemctl", "poweroff"], &["shutdown", "-P", "now"]];
 #[cfg(target_os = "windows")]
 const POWER_OFF_COMMANDS: &[&[&str]] = &[&["shutdown", "/s", "/t", "0"]];
-#[cfg(target_os = "macos")]
-const POWER_OFF_COMMANDS: &[&[&str]] = &[&[
-    "osascript",
-    "-e",
-    "tell application \"System Events\" to shut down",
-]];
 
 #[cfg(target_os = "linux")]
 fn run(request: &mut Command) -> Result<std::process::Output, String> {
     crate::process_output::capture(request, COMMAND_TIMEOUT).map_err(str::to_owned)
 }
 
-// The Windows and macOS commands return as soon as the shutdown is requested.
+// The Windows command returns as soon as the shutdown is requested.
 #[cfg(not(target_os = "linux"))]
 fn run(request: &mut Command) -> Result<std::process::Output, String> {
     request.output().map_err(|error| error.to_string())

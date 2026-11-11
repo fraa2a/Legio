@@ -376,11 +376,6 @@ fn path_style(game: &Game) -> Option<PathStyle> {
         .then_some(PathStyle::Wine)
 }
 
-#[cfg(not(any(windows, target_os = "linux")))]
-fn path_style(_game: &Game) -> Option<PathStyle> {
-    None
-}
-
 /// Proton prefix of a Steam game: `<library>/steamapps/compatdata/<appid>/pfx`.
 #[cfg(target_os = "linux")]
 fn steam_prefix(game: &Game) -> Option<PathBuf> {
