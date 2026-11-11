@@ -3,9 +3,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_notification::NotificationExt;
 
 use crate::{
-    database::{
-        self, AccountCheck, CreateGameInput, DatabaseState, Game, Settings, UpdateGameInput,
-    },
+    database::{self, CreateGameInput, DatabaseState, Game, Settings, UpdateGameInput},
     diagnostics::{Diagnostics, LogStatus},
     legio_source_cache, link_check, manual_import,
     network::{ConnectivityCheck, NetworkState, NetworkStatus},
@@ -616,28 +614,6 @@ pub async fn launch_steam_game(
 }
 
 #[tauri::command]
-pub async fn launch_game_with_runner(
-    app: AppHandle,
-    game_id: String,
-    runner_path: String,
-) -> Result<(), String> {
-    let manager = app
-        .state::<crate::game_lifecycle::GameLaunchManager>()
-        .inner()
-        .clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        manager.record_launch_request(&game_id, false);
-        let result = manager.launch_with_runner(app, game_id.clone(), runner_path);
-        if result.is_err() {
-            manager.record_launch_request(&game_id, true);
-        }
-        result
-    })
-    .await
-    .map_err(|error| format!("Compatibility runner launch task failed: {error}"))?
-}
-
-#[tauri::command]
 pub async fn launch_configured_game_with_runner(
     app: AppHandle,
     game_id: String,
@@ -751,28 +727,6 @@ pub async fn set_game_steam_account_preference(
     .map_err(|error| format!("Steam account preference task failed: {error}"))?
 }
 
-#[tauri::command]
-pub async fn check_game_steam_account(
-    app: AppHandle,
-    game_id: String,
-) -> Result<AccountCheck, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let check = app
-            .state::<DatabaseState>()
-            .database()?
-            .check_game_steam_account(&game_id)?;
-        if check.selected_steam_id.is_none() {
-            return Ok(check);
-        }
-        Ok(steam_local::check_saved_account_presence(
-            check,
-            &steam_local::scan_saved_accounts(),
-        ))
-    })
-    .await
-    .map_err(|error| format!("Steam account check task failed: {error}"))?
-}
-
 #[cfg(test)]
 mod desktop_environment_tests {
     use super::normalize_desktop_environment;
@@ -802,13 +756,6 @@ mod desktop_environment_tests {
         assert_eq!(normalize_desktop_environment(false, None), None);
         assert_eq!(normalize_desktop_environment(false, Some("  ")), None);
     }
-}
-
-#[tauri::command]
-pub async fn scan_steam_installations() -> Result<steam_local::SteamScan, String> {
-    tauri::async_runtime::spawn_blocking(steam_local::scan_default_installations)
-        .await
-        .map_err(|error| format!("Steam scan task failed: {error}"))
 }
 
 #[tauri::command]
@@ -1009,11 +956,6 @@ pub async fn get_steam_details(
 }
 
 #[tauri::command]
-pub async fn reset_steam_artwork_cache(app: AppHandle, steam_app_id: u32) -> Result<(), String> {
-    crate::steam_assets::reset(app, steam_app_id).await
-}
-
-#[tauri::command]
 pub fn get_artwork_display_width(app: AppHandle) -> u32 {
     crate::artwork_display::refresh(&app)
 }
@@ -1081,25 +1023,6 @@ pub async fn refresh_news(
     state: State<'_, crate::network::NetworkState>,
 ) -> Result<crate::news::Snapshot, String> {
     crate::news::refresh(app, state.inner()).await
-}
-
-#[tauri::command]
-pub async fn prefetch_steam_hero(
-    app: AppHandle,
-    state: State<'_, NetworkState>,
-    steam_app_id: u32,
-) -> Result<(), String> {
-    Box::pin(crate::steam_assets::get_asset(
-        app,
-        state.inner(),
-        steam_app_id,
-        crate::steam_assets::AssetKind::Hero,
-        None,
-        false,
-        false,
-    ))
-    .await
-    .map(|_| ())
 }
 
 #[tauri::command]
@@ -1195,14 +1118,9 @@ mod tests {
             metadata <= 4096,
             "Artwork metadata future occupies {metadata} bytes"
         );
-        let prefetch = future_size(|(app, state)| prefetch_steam_hero(app, state, 730));
         assert!(
             asset <= 4096,
             "Artwork command future occupies {asset} bytes"
-        );
-        assert!(
-            prefetch <= 4096,
-            "Artwork prefetch future occupies {prefetch} bytes"
         );
     }
 }

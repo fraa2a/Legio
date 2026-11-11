@@ -1,6 +1,6 @@
 export type StatusTone = "neutral" | "info" | "success" | "danger" | "warning";
 export type ProgressTone = "default" | "accent" | "warning" | "danger" | "success";
-type Action = "pause" | "resume" | "retry" | "cancel" | "remove" | "finalize";
+type Action = "pause" | "resume" | "retry" | "cancel" | "remove";
 interface DownloadState {
   description: string;
   badge: string;
@@ -107,7 +107,7 @@ const downloadStates = {
     progress: "accent",
     section: "processing",
     rank: 4,
-    actions: ["finalize"],
+    actions: [],
     active: true,
     reorderable: false,
   },

@@ -278,41 +278,6 @@ impl AssetCacheState {
             .and_then(|(assets, _)| assets.community_icon_jpeg_url(app_id)))
     }
 
-    fn reset_app(&self, app_id: u32) -> Result<(), String> {
-        let mut guard = self
-            .lock
-            .lock()
-            .map_err(|_| "Image cache lock was poisoned")?;
-        let directory = self.directory()?;
-        let prefix = format!("{app_id}-");
-        match fs::read_dir(directory) {
-            Ok(entries) => {
-                for entry in entries {
-                    let entry =
-                        entry.map_err(|error| format!("Could not read image cache: {error}"))?;
-                    let path = entry.path();
-                    if entry.file_name().to_string_lossy().starts_with(&prefix)
-                        && path
-                            .extension()
-                            .is_some_and(|extension| extension == "asset")
-                    {
-                        fs::remove_file(path)
-                            .map_err(|error| format!("Could not reset cached image: {error}"))?;
-                    }
-                }
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(format!("Could not read image cache: {error}")),
-        }
-        match fs::remove_file(directory.join("pics").join(format!("{app_id}.json"))) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(format!("Could not reset Steam image metadata: {error}")),
-        }
-        guard.entries = None;
-        Ok(())
-    }
-
     pub(crate) fn maintain(&self) -> Result<(), String> {
         let mut guard = self
             .lock
@@ -1216,6 +1181,7 @@ pub async fn get_asset_for_request<R: tauri::Runtime>(
         },
     }
 }
+#[cfg(test)]
 pub async fn get_asset<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     network: &NetworkState,
@@ -1500,20 +1466,6 @@ async fn get_asset_core<R: tauri::Runtime>(
     Ok(result)
 }
 
-pub(crate) async fn reset(app: tauri::AppHandle, steam_app_id: u32) -> Result<(), String> {
-    if steam_app_id == 0 {
-        return Err("Invalid Steam App ID".to_owned());
-    }
-    let state = app.state::<AssetCacheState>().inner().clone();
-    let metadata_lock = state.metadata_lock(steam_app_id)?;
-    let mut metadata = metadata_lock.lock().await;
-    *metadata = crate::steam_pics::Lookup::default();
-    let cache = state.clone();
-    tauri::async_runtime::spawn_blocking(move || cache.reset_app(steam_app_id))
-        .await
-        .map_err(|error| format!("Image cache reset task failed: {error}"))?
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1616,45 +1568,6 @@ mod tests {
         assert!(!artwork_expired(Some(Duration::from_secs(431_999))));
         assert!(artwork_expired(Some(Duration::from_secs(432_000))));
         assert!(artwork_expired(None));
-    }
-    #[test]
-    fn resetting_game_images_removes_only_the_selected_apps_assets_and_metadata() {
-        let cache = cache();
-        cache
-            .write(
-                "400-logo",
-                "https://cdn.cloudflare.steamstatic.com/steam/apps/400/logo.png",
-                PNG,
-                "image/png",
-            )
-            .unwrap();
-        cache
-            .write(
-                "400-header",
-                "https://cdn.cloudflare.steamstatic.com/steam/apps/400/header.jpg",
-                PNG,
-                "image/png",
-            )
-            .unwrap();
-        cache
-            .write(
-                "4000-logo",
-                "https://cdn.cloudflare.steamstatic.com/steam/apps/4000/logo.png",
-                PNG,
-                "image/png",
-            )
-            .unwrap();
-        let directory = cache.directory().unwrap();
-        fs::create_dir_all(directory.join("pics")).unwrap();
-        fs::write(directory.join("pics/400.json"), "{}").unwrap();
-        fs::write(directory.join("pics/4000.json"), "{}").unwrap();
-        cache.reset_app(400).unwrap();
-        assert!(cache.read_cached("400-logo", None).unwrap().is_none());
-        assert!(cache.read_cached("400-header", None).unwrap().is_none());
-        assert!(cache.read_cached("4000-logo", None).unwrap().is_some());
-        assert!(!directory.join("pics/400.json").exists());
-        assert!(directory.join("pics/4000.json").exists());
-        fs::remove_dir_all(directory.parent().unwrap()).unwrap();
     }
     use std::{
         io::{Read, Write},

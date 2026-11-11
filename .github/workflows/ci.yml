@@ -122,6 +122,9 @@ jobs:
       - name: Check Tauri command permissions
         run: corepack pnpm test:acl
 
+      - name: Check translation catalog
+        run: corepack pnpm test:i18n
+
       - name: Test library artwork on cold startup
         run: corepack pnpm test:artwork
 

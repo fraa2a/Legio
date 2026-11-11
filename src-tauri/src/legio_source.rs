@@ -4,8 +4,6 @@ use chrono::{DateTime, FixedOffset};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
-use crate::network::NetworkState;
-
 pub const MAX_MANIFEST_BYTES: usize = crate::hydra_source::MAX_BYTES;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -85,19 +83,6 @@ impl fmt::Display for ManifestError {
 }
 
 impl std::error::Error for ManifestError {}
-
-pub async fn fetch_manifest(network: &NetworkState, url: &str) -> Result<Manifest, String> {
-    validate_manifest_url(url).map_err(|error| error.to_string())?;
-    let bytes = network
-        .legio_source(url)
-        .await
-        .map_err(|error| format!("Could not fetch Legio source: {error:?}"))?;
-    tauri::async_runtime::spawn_blocking(move || {
-        parse_manifest(&bytes).map_err(|error| format!("Invalid Legio source: {error}"))
-    })
-    .await
-    .map_err(|error| format!("Legio source parsing task failed: {error}"))?
-}
 
 pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ManifestError> {
     if bytes.len() > MAX_MANIFEST_BYTES {
