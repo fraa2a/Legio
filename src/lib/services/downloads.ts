@@ -55,10 +55,6 @@ export function canCancelDownload(status: string): boolean {
   return supportsDownloadAction(status, "cancel");
 }
 
-export function canFinalizeDownload(status: string): boolean {
-  return supportsDownloadAction(status, "finalize");
-}
-
 export function canRemoveDownload(status: string, error?: string | null): boolean {
   return supportsDownloadAction(status, "remove") || (status === "downloaded" && Boolean(error));
 }
