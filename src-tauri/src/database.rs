@@ -556,7 +556,12 @@ impl Database {
             .map_err(|error| format!("could not open the local database: {error}"))?;
 
         connection
-            .execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
+            .execute_batch(
+                "PRAGMA foreign_keys = ON;
+                 PRAGMA journal_mode = WAL;
+                 PRAGMA synchronous = NORMAL;
+                 PRAGMA busy_timeout = 5000;",
+            )
             .map_err(|error| format!("could not configure the local database: {error}"))?;
         migrate(&connection)?;
         let database = Self {
