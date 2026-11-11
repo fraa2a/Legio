@@ -27,6 +27,17 @@ pub enum NetworkError {
     TooLarge,
 }
 
+impl std::fmt::Display for NetworkError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Timeout => f.write_str("the request timed out"),
+            Self::Transport { message } => f.write_str(message),
+            Self::Http { status } => write!(f, "HTTP {status}"),
+            Self::TooLarge => f.write_str("the response is too large"),
+        }
+    }
+}
+
 impl From<reqwest::Error> for NetworkError {
     fn from(error: reqwest::Error) -> Self {
         if error.is_timeout() {
@@ -119,7 +130,7 @@ impl NetworkState {
             .map_err(|_| "Catalog lookup is unavailable")?;
         self.hydra_search(body)
             .await
-            .map_err(|error| format!("Catalog lookup failed: {error:?}"))
+            .map_err(|error| format!("Catalog lookup failed: {error}"))
     }
 
     /// Runs `attempt` again after a growing wait (base delay times the retry number)

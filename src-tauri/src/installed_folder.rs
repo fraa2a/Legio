@@ -167,6 +167,14 @@ pub(crate) fn open_file(path: &Path) -> Result<(), String> {
     open_with_first(&candidates, path).map_err(|error| format!("Could not open the file: {error}"))
 }
 
+/// Opens a web address with the system browser.
+#[cfg(target_os = "linux")]
+pub(crate) fn open_url(url: &str) -> Result<(), String> {
+    let candidates: [(&str, &[&str]); 1] = [("xdg-open", NO_ARGS)];
+    open_with_first(&candidates, Path::new(url))
+        .map_err(|error| format!("Could not open the page in the browser: {error}"))
+}
+
 #[cfg(target_os = "linux")]
 fn open_with_first(candidates: &[(&str, &[&str])], path: &Path) -> Result<(), String> {
     let mut last = String::new();
@@ -196,7 +204,17 @@ fn try_open(program: &str, prefix: &[&str], path: &Path) -> Result<(), String> {
             Err(error) => return Err(format!("{program} could not be waited for: {error}")),
         }
     }
+    reap_in_background(child);
     Ok(())
+}
+
+// A still-running opener (a file manager in use) is left alone, but it must be
+// waited on once it exits or it stays a zombie until the launcher quits.
+#[cfg(target_os = "linux")]
+fn reap_in_background(mut child: std::process::Child) {
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
 }
 
 #[cfg(target_os = "linux")]
@@ -224,12 +242,39 @@ pub(crate) fn open_file(path: &Path) -> Result<(), String> {
     open_with_explorer(path).map_err(|error| format!("Could not open the file: {error}"))
 }
 
-// explorer.exe reports a failure status even when it opens the path, so only
-// a failed spawn is treated as an error.
+/// Opens a web address with the system browser.
 #[cfg(windows)]
-fn open_with_explorer(path: &Path) -> std::io::Result<()> {
+pub(crate) fn open_url(url: &str) -> Result<(), String> {
+    open_with_explorer(url)
+        .map_err(|error| format!("Could not open the page in the browser: {error}"))
+}
+
+// explorer.exe reports a failure status even when it opens the path, so only
+// a failed spawn is treated as an error. It also hands URLs to the default
+// browser.
+#[cfg(windows)]
+fn open_with_explorer(target: impl AsRef<std::ffi::OsStr>) -> std::io::Result<()> {
     crate::background_process::command("explorer.exe")
-        .arg(path)
+        .arg(target)
         .spawn()
         .map(|_| ())
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::reap_in_background;
+
+    #[test]
+    fn reaps_finished_child() {
+        let child = std::process::Command::new("true").spawn().unwrap();
+        let pid = child.id() as libc::pid_t;
+        reap_in_background(child);
+        // A zombie still answers kill(0), so this only fails once it is reaped.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        // SAFETY: signal 0 only checks that the process exists.
+        while unsafe { libc::kill(pid, 0) } == 0 {
+            assert!(std::time::Instant::now() < deadline, "child not reaped");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
 }

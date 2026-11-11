@@ -359,7 +359,7 @@ async fn fetch_catalog(
         network
             .legio_source(url)
             .await
-            .map_err(|error| format!("Could not fetch source: {error:?}"))?
+            .map_err(|error| format!("Could not fetch source: {error}"))?
     };
     let games = tauri::async_runtime::spawn_blocking(move || {
         database.with_connection(|connection| {

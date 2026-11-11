@@ -746,7 +746,7 @@ async fn load_asset_inner(
                 }
                 result => result.map(|bytes| (bytes, None)),
             }
-            .map_err(|error| format!("Steam image request failed: {error:?}"))
+            .map_err(|error| format!("Steam image request failed: {error}"))
         })
         .await;
     let fetched = match fetched {
