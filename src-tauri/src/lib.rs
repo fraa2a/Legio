@@ -94,6 +94,7 @@ use modding::{
 
 struct TrayAvailable(bool);
 struct LaunchEvents(tauri::async_runtime::JoinHandle<()>);
+struct DownloadEvents(tauri::async_runtime::JoinHandle<()>);
 #[derive(Default)]
 pub(crate) struct StartupLaunch {
     pub game_id: Option<String>,
@@ -277,6 +278,21 @@ fn run_application(
                         }
                         Err(error) => application_log::failure("read_game_activity", error),
                     }
+                }
+            })));
+            let mut download_changes = app
+                .state::<database::DatabaseState>()
+                .database()
+                .map_err(std::io::Error::other)?
+                .subscribe_downloads_changes();
+            let download_events_app = app.handle().clone();
+            app.manage(DownloadEvents(tauri::async_runtime::spawn(async move {
+                while download_changes.changed().await.is_ok() {
+                    if let Err(error) = download_events_app.emit("legio:downloads-changed", ()) {
+                        application_log::failure("publish_download_changes", error);
+                    }
+                    // Progress is persisted twice a second; one event per second matches the UI.
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 }
             })));
             app.state::<download_queue::DownloadQueueState>()
@@ -593,6 +609,7 @@ fn run_application(
                     .record("info", "shutdown", None, None, true);
                 app.state::<discord_presence::PresenceService>().shutdown();
                 app.state::<LaunchEvents>().0.abort();
+                app.state::<DownloadEvents>().0.abort();
             }
         });
     Ok(())

@@ -1,4 +1,5 @@
 import { downloadState } from "../services/download-status";
+import { onDownloadListChanged } from "../services/download-events";
 import { gameUpdates } from "./game-updates";
 import { games } from "./games";
 import { windowVisible } from "./window-activity";
@@ -73,14 +74,13 @@ export const installedFolderError = writable<string | null>(null);
 
 let progressTimer: ReturnType<typeof setInterval> | undefined;
 let progressPollingSubscribed = false;
+let eventsReady = false;
 
 function syncProgressPolling(count: number): void {
-  if (count === 0) {
-    clearInterval(progressTimer);
-    progressTimer = undefined;
-    return;
-  }
-  progressTimer ??= setInterval(() => void downloads.load(), 1000);
+  clearInterval(progressTimer);
+  progressTimer = undefined;
+  if (count === 0) return;
+  progressTimer = setInterval(() => void downloads.load(), eventsReady ? 30000 : 1000);
 }
 
 export function startDownloadProgressPolling(): void {
@@ -91,6 +91,14 @@ export function startDownloadProgressPolling(): void {
     syncProgressPolling(active ? get(activeDownloadCount) : 0);
   });
   activeDownloadCount.subscribe((count) => syncProgressPolling(get(windowVisible) ? count : 0));
+  onDownloadListChanged(() => {
+    if (get(windowVisible)) void downloads.load();
+  }).then(() => {
+    eventsReady = true;
+    syncProgressPolling(get(windowVisible) ? get(activeDownloadCount) : 0);
+  }).catch((error: unknown) => {
+    console.warn("Download events unavailable; polling remains enabled", error);
+  });
 }
 
 export async function queueJob(steamAppId: number, downloadUrl: string, releaseVersion: string, acceptUnverified: boolean, sourceId?: string | null, preferredUri?: string | null, libraryId?: string | null): Promise<void> {

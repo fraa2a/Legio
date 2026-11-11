@@ -422,9 +422,14 @@ pub struct Database {
     // Lock order: connection, then settings_cache. Never the reverse.
     settings_cache: Mutex<Option<Settings>>,
     pub(crate) source_cache: Mutex<Option<crate::legio_source_cache::CachedSource>>,
+    downloads_changed: tokio::sync::watch::Sender<()>,
 }
 
 impl Database {
+    pub(crate) fn subscribe_downloads_changes(&self) -> tokio::sync::watch::Receiver<()> {
+        self.downloads_changed.subscribe()
+    }
+
     pub(crate) fn storage_root(&self, data_dir: &Path) -> Result<std::path::PathBuf, String> {
         Ok(self
             .settings()?
@@ -573,10 +578,23 @@ impl Database {
             .map_err(|error| format!("could not configure the local database: {error}"))?;
         migrate(&connection)?;
         initialize_preferences(&connection)?;
+        let downloads_changed = tokio::sync::watch::channel(()).0;
+        // Covers every write to the table, whichever code path performs it.
+        let notifier = downloads_changed.clone();
+        connection
+            .update_hook(Some(
+                move |_: rusqlite::hooks::Action, _: &str, table: &str, _: i64| {
+                    if table == "downloads" {
+                        notifier.send_replace(());
+                    }
+                },
+            ))
+            .map_err(|error| format!("could not watch the local database: {error}"))?;
         let database = Self {
             connection: Mutex::new(connection),
             settings_cache: Mutex::new(None),
             source_cache: Mutex::new(None),
+            downloads_changed,
         };
         database.recover_open_game_sessions(now_milliseconds()?)?;
         Ok(database)
@@ -2250,6 +2268,7 @@ mod tests {
             connection: Mutex::new(connection),
             settings_cache: Mutex::new(None),
             source_cache: Mutex::new(None),
+            downloads_changed: tokio::sync::watch::channel(()).0,
         };
         assert_eq!(database.settings().unwrap().theme, Theme::Dark);
         assert_eq!(

@@ -412,12 +412,14 @@ test("download UI polling stops while hidden and catches completed work on resto
     "@tauri-apps/api/core": dataModule("export const invoke = (...args) => globalThis.legioDownloadVisibility.invoke(...args);"),
     "src/lib/i18n": localeUrl,
     "src/lib/stores/game-updates": dataModule("export const gameUpdates = { load: async () => {}, reload: async () => {} };"),
+    "src/lib/services/download-events": dataModule("export const onDownloadListChanged = async (callback) => { globalThis.legioDownloadVisibility.emit = callback; return () => {}; };"),
     "src/lib/stores/window-activity": dataModule("export const windowVisible = globalThis.legioDownloadVisibility.active;"),
   });
   const timers = new Set();
+  const delays = [];
   const originalSet = globalThis.setInterval;
   const originalClear = globalThis.clearInterval;
-  globalThis.setInterval = () => { const timer = {}; timers.add(timer); return timer; };
+  globalThis.setInterval = (_callback, delay) => { const timer = {}; timers.add(timer); delays.push(delay); return timer; };
   globalThis.clearInterval = (timer) => timers.delete(timer);
   try {
     const module = await import(await load("src/lib/stores/downloads.ts"));
@@ -428,13 +430,19 @@ test("download UI polling stops while hidden and catches completed work on resto
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(requests, 1);
     assert.equal(timers.size, 1);
+    assert.equal(delays.at(-1), 30000, "events replace the one second poll with a safety net");
+    globalThis.legioDownloadVisibility.emit();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(requests, 2, "a download change event reloads the list");
     active.set(false);
+    globalThis.legioDownloadVisibility.emit();
+    assert.equal(requests, 2, "hidden windows ignore download change events");
     assert.equal(timers.size, 0);
     jobs = [{ id: "download", status: "installed" }];
-    assert.equal(requests, 1, "native work can continue without hidden UI requests");
+    assert.equal(requests, 2, "native work can continue without hidden UI requests");
     active.set(true);
     await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(requests, 2);
+    assert.equal(requests, 3);
     assert.equal(get(module.downloads).data[0].status, "installed");
     assert.equal(timers.size, 0);
   } finally {
