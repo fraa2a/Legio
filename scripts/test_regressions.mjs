@@ -465,7 +465,6 @@ test("manual artwork refresh renews its visible URLs while retaining other games
   await first;
   assert.notEqual(images.peekSteamImage(request(400)).url, old.url);
   assert.equal(images.peekSteamImage(request(401)).url, untouched.url);
-  assert.equal(calls.filter(([command]) => command === "reset_steam_artwork_cache").length, 0);
   assert.ok(calls.filter(([command, args]) => command === "get_steam_asset" && args.policy === "force_refresh").every(([, args]) => args.steamAppId === 400));
   retained.release();
 });

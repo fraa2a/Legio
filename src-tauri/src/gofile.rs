@@ -1,4 +1,4 @@
-use crate::download_resolver::{Provider, ResolveError, ResolvedDownload, ResolvedFile};
+use crate::download_resolver::{ResolveError, ResolvedDownload, ResolvedFile};
 use reqwest::{
     Client, Method, Url,
     header::{HeaderMap, HeaderValue},
@@ -661,10 +661,7 @@ pub(crate) async fn resolve(
     let file = tokio::time::timeout(Duration::from_secs(120), official(client, id, password))
         .await
         .map_err(|_| ResolveError::Network("GoFile resolution timed out".to_owned()))??;
-    Ok(ResolvedDownload {
-        provider: Provider::Gofile,
-        files: vec![file],
-    })
+    Ok(ResolvedDownload { files: vec![file] })
 }
 
 #[cfg(test)]

@@ -226,11 +226,6 @@ pub(crate) fn active_account_id(steam_root: &Path) -> Result<Option<String>, Str
     {
         linux_selected_account_id(steam_root)
     }
-    #[cfg(not(any(windows, target_os = "linux")))]
-    {
-        let _ = steam_root;
-        Ok(None)
-    }
 }
 
 fn wait_until_stopped(timeout: Duration, cancel: &AtomicBool) -> Result<(), String> {
@@ -334,11 +329,6 @@ fn running_processes() -> Result<SteamProcesses, String> {
         }
     }
     Ok(processes)
-}
-
-#[cfg(not(any(windows, target_os = "linux")))]
-fn running_processes() -> Result<SteamProcesses, String> {
-    Err("Steam process inspection is unsupported on this platform".to_owned())
 }
 
 #[cfg(windows)]

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 const root = new URL("../src-tauri/", import.meta.url);
 const read = path => readFileSync(new URL(path, root), "utf8");
@@ -10,9 +10,22 @@ const registered = new Set([...handler.matchAll(/\b[a-z_]+::([a-z_]+)/g)].map(ma
 const manifest = quoted(read("build.rs").split("commands(&[")[1].split("])")[0]);
 const allowed = quoted(read("permissions/main.toml").split("commands.allow = [")[1].split("]")[0]);
 
+const frontend = new URL("../src/", import.meta.url);
+const sources = readdirSync(frontend, { recursive: true })
+  .filter(path => /\.(ts|svelte)$/.test(path))
+  .map(path => readFileSync(new URL(path, frontend), "utf8"));
+// Matches invoke("name") and invoke<Type>("name") with a string literal first argument.
+const invoked = new Set(sources.flatMap(text => [...text.matchAll(/\binvoke(?:<[^(]*?>)?\(\s*["'`]([a-z_]+)["'`]/g)].map(match => match[1])));
+// Commands invoked in a way the literal scan cannot see.
+const dynamicallyInvoked = new Set([]);
+
 test("every registered Tauri command has manifest and main window permission entries", () => {
   assert.deepEqual([...registered].filter(command => !manifest.has(command)), []);
   assert.deepEqual([...registered].filter(command => !allowed.has(command)), []);
   assert.deepEqual([...manifest].filter(command => !registered.has(command)), []);
   assert.deepEqual([...allowed].filter(command => !registered.has(command)), []);
+});
+
+test("every registered Tauri command is invoked by the frontend", () => {
+  assert.deepEqual([...registered].filter(command => !invoked.has(command) && !dynamicallyInvoked.has(command)), []);
 });

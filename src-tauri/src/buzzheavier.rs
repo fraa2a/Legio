@@ -1,5 +1,5 @@
 use crate::download_resolver::{
-    Provider, ResolveError, ResolvedDownload, ResolvedFile, network_error, retry_after,
+    ResolveError, ResolvedDownload, ResolvedFile, network_error, retry_after,
 };
 use regex::Regex;
 use reqwest::{
@@ -121,7 +121,6 @@ pub(crate) async fn resolve(client: &Client, uri: &str) -> Result<ResolvedDownlo
     );
     let response = fetch(client, &format!("{SITE}{path}"), headers).await?;
     Ok(ResolvedDownload {
-        provider: Provider::Buzzheavier,
         files: vec![ResolvedFile {
             url: redirect_target(response.headers())?,
             name: None,
