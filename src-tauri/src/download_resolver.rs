@@ -34,7 +34,6 @@ pub(crate) struct ResolvedFile {
     pub headers: HeaderMap,
 }
 pub(crate) struct ResolvedDownload {
-    pub provider: Provider,
     pub files: Vec<ResolvedFile>,
 }
 
@@ -466,7 +465,6 @@ pub(crate) async fn resolve(
         }
     };
     Ok(ResolvedDownload {
-        provider,
         files: vec![ResolvedFile {
             url,
             name: None,

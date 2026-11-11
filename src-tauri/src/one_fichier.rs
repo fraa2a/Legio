@@ -1,5 +1,5 @@
 use crate::download_resolver::{
-    PlainHttp, Provider, ResolveError, ResolvedDownload, ResolvedFile, network_error,
+    PlainHttp, ResolveError, ResolvedDownload, ResolvedFile, network_error,
 };
 use regex::Regex;
 use reqwest::{
@@ -194,7 +194,6 @@ pub(crate) async fn resolve(client: &Client, uri: &str) -> Result<ResolvedDownlo
     }
     let html = crate::download_resolver::body_text(response).await?;
     Ok(ResolvedDownload {
-        provider: Provider::OneFichier,
         files: vec![ResolvedFile {
             url: parse_download_page(&html)?,
             name: None,

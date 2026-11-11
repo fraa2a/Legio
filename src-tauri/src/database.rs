@@ -362,25 +362,6 @@ pub struct PlaytimeSummary {
     pub last_played_at: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum AccountCheckStatus {
-    NotRequired,
-    MissingSavedAccount,
-    Match,
-    Mismatch,
-    Unknown,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct AccountCheck {
-    pub status: AccountCheckStatus,
-    pub account_requirement_met: bool,
-    pub selected_steam_id: Option<String>,
-    pub message: Option<&'static str>,
-}
-
 pub struct DatabaseState {
     database: Result<std::sync::Arc<Database>, String>,
 }
@@ -1082,24 +1063,6 @@ impl Database {
         })
     }
 
-    pub fn check_game_steam_account(&self, game_id: &str) -> Result<AccountCheck, String> {
-        let game_id = parse_game_id(game_id)?;
-        self.with_connection(|connection| {
-            let selected_steam_id: Option<Option<String>> = connection
-                .query_row(
-                    "SELECT steam_account_id FROM games WHERE id = ?1",
-                    [game_id],
-                    |row| row.get(0),
-                )
-                .optional()
-                .map_err(database_error)?;
-            let selected_steam_id =
-                selected_steam_id.ok_or_else(|| "game was not found".to_owned())?;
-            // Saved Steam accounts do not establish the active client identity.
-            Ok(account_preflight(selected_steam_id, None))
-        })
-    }
-
     pub fn remove_game(&self, id: &str) -> Result<(), String> {
         let id = parse_game_id(id)?;
 
@@ -1453,35 +1416,6 @@ fn parse_steam_id(value: &str) -> Result<u64, String> {
         .ok()
         .filter(|id| *id > 0 && id.to_string() == value)
         .ok_or_else(|| "Steam ID is invalid".to_owned())
-}
-
-pub(crate) fn account_preflight(
-    selected_steam_id: Option<String>,
-    active_steam_id: Option<&str>,
-) -> AccountCheck {
-    let (status, message) = match (selected_steam_id.as_deref(), active_steam_id) {
-        (None, _) => (AccountCheckStatus::NotRequired, None),
-        (Some(selected), Some(active)) if selected == active => (AccountCheckStatus::Match, None),
-        (Some(_), Some(_)) => (
-            AccountCheckStatus::Mismatch,
-            Some("Steam is signed into a different account. Change accounts in Steam and retry."),
-        ),
-        (Some(_), None) => (
-            AccountCheckStatus::Unknown,
-            Some(
-                "Legio cannot verify which Steam account is active. Account-specific launch is unavailable.",
-            ),
-        ),
-    };
-    AccountCheck {
-        account_requirement_met: matches!(
-            status,
-            AccountCheckStatus::NotRequired | AccountCheckStatus::Match
-        ),
-        selected_steam_id,
-        status,
-        message,
-    }
 }
 
 pub(crate) fn database_error(error: rusqlite::Error) -> String {
@@ -2963,22 +2897,11 @@ mod tests {
                 steam_app_id: Some(400),
             })
             .unwrap();
-        assert_eq!(
-            database.check_game_steam_account(&game.id).unwrap().status,
-            AccountCheckStatus::NotRequired
-        );
         let selected = database
             .set_game_steam_account(&game.id, Some("76561198000000001"))
             .unwrap();
         assert_eq!(
             selected.steam_account_id.as_deref(),
-            Some("76561198000000001")
-        );
-        let check = database.check_game_steam_account(&game.id).unwrap();
-        assert_eq!(check.status, AccountCheckStatus::Unknown);
-        assert!(!check.account_requirement_met);
-        assert_eq!(
-            check.selected_steam_id.as_deref(),
             Some("76561198000000001")
         );
         assert_eq!(
@@ -3039,24 +2962,6 @@ mod tests {
             "game was not found or has no Steam App ID"
         );
         fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
-    fn account_preflight_requires_verified_match_for_selected_account() {
-        let selected = Some("76561198000000001".to_owned());
-        let matched = account_preflight(selected.clone(), Some("76561198000000001"));
-        assert_eq!(matched.status, AccountCheckStatus::Match);
-        assert!(matched.account_requirement_met);
-        let mismatched = account_preflight(selected.clone(), Some("76561198000000002"));
-        assert_eq!(mismatched.status, AccountCheckStatus::Mismatch);
-        assert!(!mismatched.account_requirement_met);
-        assert!(mismatched.message.unwrap().contains("Change accounts"));
-        let unknown = account_preflight(selected, None);
-        assert_eq!(unknown.status, AccountCheckStatus::Unknown);
-        assert!(!unknown.account_requirement_met);
-        let no_requirement = account_preflight(None, None);
-        assert_eq!(no_requirement.status, AccountCheckStatus::NotRequired);
-        assert!(no_requirement.account_requirement_met);
     }
 
     #[test]

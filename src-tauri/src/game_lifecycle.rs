@@ -486,34 +486,6 @@ impl GameLaunchManager {
         Ok(())
     }
 
-    #[cfg(not(any(windows, target_os = "linux")))]
-    pub(crate) fn launch_native<R: Runtime>(
-        &self,
-        _app: AppHandle<R>,
-        _game_id: String,
-    ) -> Result<(), String> {
-        Err("Native executable launch is supported on Windows only".to_owned())
-    }
-
-    #[cfg(target_os = "linux")]
-    pub(crate) fn launch_with_runner(
-        &self,
-        app: AppHandle,
-        game_id: String,
-        runner_path: String,
-    ) -> Result<(), String> {
-        let config = EffectiveCompatibilityConfig {
-            runner_path: Some(runner_path),
-            ..EffectiveCompatibilityConfig::default()
-        };
-        self.launch_with_compatibility_config(
-            app,
-            game_id,
-            config,
-            runner_discovery::resolve_runner,
-        )
-    }
-
     #[cfg(target_os = "linux")]
     pub(crate) fn launch_configured(&self, app: AppHandle, game_id: String) -> Result<(), String> {
         let game = app.state::<DatabaseState>().database()?.game(&game_id)?;

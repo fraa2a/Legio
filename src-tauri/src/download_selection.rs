@@ -91,7 +91,6 @@ async fn inspect_file(
         return Err("Only a single archive per download link is supported".into());
     }
     let file = resolved.files.pop().ok_or("Download contains no files")?;
-    let _provider = resolved.provider;
     let name = file.name.or_else(|| {
         reqwest::Url::parse(&file.url)
             .ok()
