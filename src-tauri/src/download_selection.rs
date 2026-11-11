@@ -1,4 +1,4 @@
-use crate::download_resolver::{self, Provider, ResolveError};
+use crate::download_resolver::{self, PlainHttp, Provider, ResolveError};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -63,22 +63,30 @@ pub(crate) fn supported(uri: &str) -> bool {
     matches!(download_resolver::classify(uri), Ok(provider) if !matches!(provider, Provider::Torrent | Provider::Unsupported))
 }
 
-pub(crate) async fn inspect(client: &reqwest::Client, uri: &str) -> Result<u64, ResolveError> {
+pub(crate) async fn inspect(
+    client: &reqwest::Client,
+    uri: &str,
+    plain_http: PlainHttp,
+) -> Result<u64, ResolveError> {
     let timeout = if download_resolver::classify(uri)? == Provider::Gofile {
         Duration::from_secs(125)
     } else {
         Duration::from_secs(20)
     };
-    tokio::time::timeout(timeout, inspect_file(client, uri))
+    tokio::time::timeout(timeout, inspect_file(client, uri, plain_http))
         .await
         .map_err(|_| ResolveError::Network("Download host lookup timed out".to_owned()))?
 }
 
-async fn inspect_file(client: &reqwest::Client, uri: &str) -> Result<u64, ResolveError> {
+async fn inspect_file(
+    client: &reqwest::Client,
+    uri: &str,
+    plain_http: PlainHttp,
+) -> Result<u64, ResolveError> {
     if download_resolver::classify(uri)? == Provider::OneFichier {
         return crate::one_fichier::inspect(client, uri).await;
     }
-    let mut resolved = download_resolver::resolve(client, uri).await?;
+    let mut resolved = download_resolver::resolve(client, uri, plain_http).await?;
     if resolved.files.len() != 1 {
         return Err("Only a single archive per download link is supported".into());
     }
@@ -99,7 +107,7 @@ async fn inspect_file(client: &reqwest::Client, uri: &str) -> Result<u64, Resolv
         "range",
         reqwest::header::HeaderValue::from_static("bytes=0-7"),
     );
-    let mut response = download_resolver::get(client, &file.url, headers).await?;
+    let mut response = download_resolver::get(client, &file.url, headers, plain_http).await?;
     if !matches!(
         response.status(),
         reqwest::StatusCode::OK | reqwest::StatusCode::PARTIAL_CONTENT
@@ -244,7 +252,12 @@ mod tests {
             socket.write_all(response.as_bytes()).unwrap();
             socket.write_all(&body).unwrap();
         });
-        let result = inspect(&crate::download_resolver::client().unwrap(), &uri).await;
+        let result = inspect(
+            &crate::download_resolver::client().unwrap(),
+            &uri,
+            PlainHttp::Allowed,
+        )
+        .await;
         server.join().unwrap();
         result
     }

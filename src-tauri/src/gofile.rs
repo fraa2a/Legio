@@ -1,4 +1,4 @@
-use crate::download_resolver::{Provider, ResolveError, ResolvedDownload, ResolvedFile};
+use crate::download_resolver::{PlainHttp, Provider, ResolveError, ResolvedDownload, ResolvedFile};
 use reqwest::{
     Client, Method, Url,
     header::{HeaderMap, HeaderValue},
@@ -380,7 +380,7 @@ async fn website_text(client: &Client, url: &str) -> Result<String, GofileError>
     headers.insert("user-agent", HeaderValue::from_static(USER_AGENT));
     headers.insert("referer", HeaderValue::from_static("https://gofile.io/"));
     // Do not execute script bodies delivered through a cross-origin redirect.
-    let response = crate::download_resolver::get(client, url, headers).await?;
+    let response = crate::download_resolver::get(client, url, headers, PlainHttp::Refused).await?;
     let host = response.url().host_str().unwrap_or_default();
     if response.url().scheme() != "https" || !(host == "gofile.io" || host.ends_with(".gofile.io"))
     {
@@ -646,7 +646,8 @@ async fn official(
         }
         result => result,
     }?;
-    crate::download_resolver::head(client, &file.url, file.headers.clone()).await?;
+    crate::download_resolver::head(client, &file.url, file.headers.clone(), PlainHttp::Refused)
+        .await?;
     Ok(file)
 }
 

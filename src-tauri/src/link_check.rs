@@ -1,5 +1,5 @@
 use crate::database::{Database, database_error};
-use crate::download_resolver::ResolveError;
+use crate::download_resolver::{PlainHttp, ResolveError};
 use rusqlite::{OptionalExtension, params};
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -86,7 +86,7 @@ pub(crate) async fn check_game(
         .state::<crate::database::DatabaseState>()
         .shared_database()?;
     let read_database = database.clone();
-    let links = tauri::async_runtime::spawn_blocking(move || {
+    let (allowed, refused) = tauri::async_runtime::spawn_blocking(move || {
         let mut links = BTreeMap::new();
         for row in crate::legio_source_cache::cached_rows(&read_database)?.iter() {
             for entry in row.manifest.verified.iter().chain(&row.manifest.unverified) {
@@ -99,16 +99,33 @@ pub(crate) async fn check_game(
                     .and_then(|id| row.catalog.candidates.get(id))
                     .cloned()
                     .unwrap_or_else(|| vec![entry.download.url.clone()]);
+                let policy = PlainHttp::for_hash(entry.download.sha256.as_deref());
                 for uri in uris {
-                    links.insert(uri, entry.download.size_bytes);
+                    // A link shared with an unhashed release is never probed over plain HTTP.
+                    let policy = match links.get(&uri) {
+                        Some((_, PlainHttp::Refused)) => PlainHttp::Refused,
+                        _ => policy,
+                    };
+                    links.insert(uri, (entry.download.size_bytes, policy));
                 }
             }
         }
-        Ok::<_, String>(links.into_iter().collect::<Vec<_>>())
+        let (refused, allowed): (Vec<_>, Vec<_>) = links
+            .into_iter()
+            .partition(|(_, (_, policy))| *policy == PlainHttp::Refused);
+        let strip = |links: Vec<(String, (Option<u64>, PlainHttp))>| {
+            links
+                .into_iter()
+                .map(|(uri, (size, _))| (uri, size))
+                .collect::<Vec<_>>()
+        };
+        Ok::<_, String>((strip(allowed), strip(refused)))
     })
     .await
     .map_err(|error| format!("Source cache task failed: {error}"))??;
-    let results = check_links(database, &crate::download_resolver::client()?, links).await?;
+    let client = crate::download_resolver::client()?;
+    let mut results = check_links(database.clone(), &client, allowed, PlainHttp::Allowed).await?;
+    results.extend(check_links(database, &client, refused, PlainHttp::Refused).await?);
     Ok(results
         .into_iter()
         .filter_map(|(uri, result)| result.ok().map(|size| (uri, size)))
@@ -137,6 +154,7 @@ pub(crate) async fn check_links(
     database: Arc<Database>,
     client: &reqwest::Client,
     links: Vec<(String, Option<u64>)>,
+    plain_http: PlainHttp,
 ) -> Result<LinkResults, String> {
     let uris: Vec<String> = links.iter().map(|(uri, _)| uri.clone()).collect();
     let read_database = database.clone();
@@ -147,7 +165,10 @@ pub(crate) async fn check_links(
     let mut fresh = LinkResults::new();
     let mut pending = Vec::new();
     for (uri, expected) in links {
-        if let (true, Some(size)) = (crate::download_selection::native_cdn(&uri), expected) {
+        // Depends on the job, so it is neither cached nor probed.
+        if plain_http == PlainHttp::Refused && !uri.starts_with("https://") {
+            results.insert(uri, Err(ResolveError::Insecure.to_string()));
+        } else if let (true, Some(size)) = (crate::download_selection::native_cdn(&uri), expected) {
             results.insert(uri, Ok(size));
         } else if let Some(result) = cached.get(&uri) {
             results.insert(uri, check_size(expected, result.clone()));
@@ -164,7 +185,7 @@ pub(crate) async fn check_links(
             };
             let client = client.clone();
             tasks.spawn(async move {
-                let outcome = crate::download_selection::inspect(&client, &uri).await;
+                let outcome = crate::download_selection::inspect(&client, &uri, plain_http).await;
                 (uri, expected, outcome)
             });
         }
@@ -173,7 +194,9 @@ pub(crate) async fn check_links(
         };
         let (uri, expected, outcome) =
             joined.map_err(|error| format!("Link check task failed: {error}"))?;
-        let cacheable = !outcome.as_ref().is_err_and(ResolveError::is_transient);
+        let cacheable = !outcome
+            .as_ref()
+            .is_err_and(|error| error.is_transient() || matches!(error, ResolveError::Insecure));
         let result = outcome.map_err(|error| error.to_string());
         if cacheable {
             fresh.insert(uri.clone(), result.clone());
@@ -263,7 +286,12 @@ mod tests {
         let uri = "https://cdn.taxphobia.top/game.zip".to_owned();
         let results = tokio::time::timeout(
             std::time::Duration::from_millis(500),
-            check_links(Arc::new(database), &client, vec![(uri.clone(), Some(10))]),
+            check_links(
+                Arc::new(database),
+                &client,
+                vec![(uri.clone(), Some(10))],
+                PlainHttp::Allowed,
+            ),
         )
         .await
         .unwrap()
@@ -310,13 +338,15 @@ mod tests {
         });
         let client = crate::download_resolver::client().unwrap();
         let links = vec![(good.clone(), None), (page.clone(), None)];
-        let first = check_links(database.clone(), &client, links.clone())
+        let first = check_links(database.clone(), &client, links.clone(), PlainHttp::Allowed)
             .await
             .unwrap();
         server.join().unwrap();
         assert_eq!(first[&good], Ok(10));
         assert!(first[&page].is_err());
-        let second = check_links(database, &client, links).await.unwrap();
+        let second = check_links(database, &client, links, PlainHttp::Allowed)
+            .await
+            .unwrap();
         assert_eq!(second, first);
         std::fs::remove_dir_all(directory).unwrap();
     }

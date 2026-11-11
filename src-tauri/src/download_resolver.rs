@@ -38,12 +38,38 @@ pub(crate) struct ResolvedDownload {
     pub files: Vec<ResolvedFile>,
 }
 
+/// Plain HTTP is only acceptable when the archive hash is verified after the transfer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PlainHttp {
+    Allowed,
+    Refused,
+}
+
+impl PlainHttp {
+    pub(crate) fn for_hash(sha256: Option<&str>) -> Self {
+        if sha256.is_some_and(|hash| !hash.is_empty()) {
+            Self::Allowed
+        } else {
+            Self::Refused
+        }
+    }
+
+    pub(crate) fn require_secure(self, url: &Url) -> Result<(), ResolveError> {
+        if self == Self::Refused && url.scheme() != "https" {
+            return Err(ResolveError::Insecure);
+        }
+        Ok(())
+    }
+}
+
 /// Lets the download queue decide whether a failure waits for connectivity or tries another link.
 #[derive(Debug)]
 pub(crate) enum ResolveError {
     Network(String),
     Http(StatusCode),
     Link(String),
+    /// The link needs plain HTTP and the job has no hash to verify the archive.
+    Insecure,
     /// The host asks to try again later; `retry_after` is its stated wait, if any.
     RateLimited {
         message: String,
@@ -59,7 +85,7 @@ impl ResolveError {
             Self::Http(status) => {
                 status.is_server_error() || matches!(status.as_u16(), 408 | 425 | 429)
             }
-            Self::Link(_) => false,
+            Self::Link(_) | Self::Insecure => false,
         }
     }
 }
@@ -69,6 +95,9 @@ impl std::fmt::Display for ResolveError {
         match self {
             Self::Network(message) => write!(formatter, "Network: {message}"),
             Self::Http(status) => write!(formatter, "HTTP {}", status.as_u16()),
+            Self::Insecure => {
+                formatter.write_str("Download host does not offer a secure connection")
+            }
             Self::Link(message) | Self::RateLimited { message, .. } => formatter.write_str(message),
         }
     }
@@ -151,16 +180,18 @@ pub(crate) async fn get(
     client: &Client,
     uri: &str,
     headers: HeaderMap,
+    plain_http: PlainHttp,
 ) -> Result<Response, ResolveError> {
-    follow_redirects(client, Method::GET, uri, headers).await
+    follow_redirects(client, Method::GET, uri, headers, plain_http).await
 }
 
 pub(crate) async fn head(
     client: &Client,
     uri: &str,
     headers: HeaderMap,
+    plain_http: PlainHttp,
 ) -> Result<Response, ResolveError> {
-    follow_redirects(client, Method::HEAD, uri, headers).await
+    follow_redirects(client, Method::HEAD, uri, headers, plain_http).await
 }
 
 async fn follow_redirects(
@@ -168,6 +199,7 @@ async fn follow_redirects(
     method: Method,
     uri: &str,
     mut headers: HeaderMap,
+    plain_http: PlainHttp,
 ) -> Result<Response, ResolveError> {
     let mut url = Url::parse(uri).map_err(|_| "Invalid resolved URL")?;
     for hop in 0..=5 {
@@ -177,6 +209,7 @@ async fn follow_redirects(
         {
             return Err("Invalid resolved URL".into());
         }
+        plain_http.require_secure(&url)?;
         // IP literal hosts are never passed to the DNS resolver.
         if !crate::public_address::is_public_host(&url) {
             return Err("Download host is not a public internet address".into());
@@ -199,9 +232,7 @@ async fn follow_redirects(
             let next = url
                 .join(location)
                 .map_err(|_| "Invalid redirect location")?;
-            if url.scheme() == "https" && next.scheme() != "https" {
-                return Err("Download redirected to an insecure connection".into());
-            }
+            reject_downgrade(&url, &next)?;
             if url.origin() != next.origin() {
                 headers.remove("authorization");
                 headers.remove("cookie");
@@ -223,12 +254,20 @@ async fn follow_redirects(
     Err("Download redirect limit reached".into())
 }
 
+fn reject_downgrade(from: &Url, to: &Url) -> Result<(), ResolveError> {
+    if from.scheme() == "https" && to.scheme() != "https" {
+        return Err("Download redirected to an insecure connection".into());
+    }
+    Ok(())
+}
+
 pub(crate) async fn text(
     client: &Client,
     url: &str,
     headers: HeaderMap,
+    plain_http: PlainHttp,
 ) -> Result<String, ResolveError> {
-    body_text(get(client, url, headers).await?).await
+    body_text(get(client, url, headers, plain_http).await?).await
 }
 
 pub(crate) async fn body_text(mut response: Response) -> Result<String, ResolveError> {
@@ -339,7 +378,11 @@ pub(crate) fn client() -> Result<Client, String> {
         .map_err(|error| error.to_string())
 }
 
-pub(crate) async fn resolve(client: &Client, uri: &str) -> Result<ResolvedDownload, ResolveError> {
+pub(crate) async fn resolve(
+    client: &Client,
+    uri: &str,
+    plain_http: PlainHttp,
+) -> Result<ResolvedDownload, ResolveError> {
     let provider = classify(uri)?;
     let mut headers = HeaderMap::new();
     let url = match provider {
@@ -353,9 +396,10 @@ pub(crate) async fn resolve(client: &Client, uri: &str) -> Result<ResolvedDownlo
                 .ok_or("Invalid PixelDrain file ID")?;
             format!("https://pixeldrain.com/api/file/{id}?download")
         }
-        Provider::Mediafire | Provider::FuckingFast => {
-            extract_link(provider, &text(client, uri, HeaderMap::new()).await?)?
-        }
+        Provider::Mediafire | Provider::FuckingFast => extract_link(
+            provider,
+            &text(client, uri, HeaderMap::new(), plain_http).await?,
+        )?,
         Provider::Rootz => {
             let parsed = Url::parse(uri).map_err(|_| "Invalid Rootz URL")?;
             let id = parsed
@@ -366,7 +410,7 @@ pub(crate) async fn resolve(client: &Client, uri: &str) -> Result<ResolvedDownlo
                         .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
                 })
                 .ok_or("Invalid Rootz file ID")?;
-            let html = text(client, uri, HeaderMap::new()).await?;
+            let html = text(client, uri, HeaderMap::new(), plain_http).await?;
             let token = ROOTZ_PAGE_TOKEN
                 .as_ref()
                 .ok_or("Rootz page token pattern is invalid")?
@@ -387,6 +431,7 @@ pub(crate) async fn resolve(client: &Client, uri: &str) -> Result<ResolvedDownlo
                     client,
                     &format!("https://www.rootz.so/api/files/download-by-short?shortId={id}"),
                     headers.clone(),
+                    PlainHttp::Refused,
                 )
                 .await?,
             )
@@ -452,6 +497,103 @@ async fn resolve_gofile(client: &Client, uri: &str) -> Result<ResolvedDownload, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Serves one canned response per connection and counts the requests received.
+    fn serve(responses: Vec<String>) -> (String, std::thread::JoinHandle<usize>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            listener.set_nonblocking(true).unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            let mut served = 0;
+            for response in responses {
+                let mut socket = loop {
+                    match listener.accept() {
+                        Ok((socket, _)) => break socket,
+                        Err(_) if std::time::Instant::now() < deadline => {
+                            std::thread::sleep(Duration::from_millis(10));
+                        }
+                        Err(_) => return served,
+                    }
+                };
+                socket.set_nonblocking(false).unwrap();
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while !request.ends_with(b"\r\n\r\n") {
+                    socket.read_exact(&mut byte).unwrap();
+                    request.push(byte[0]);
+                }
+                socket.write_all(response.as_bytes()).unwrap();
+                served += 1;
+            }
+            served
+        });
+        (base, server)
+    }
+
+    const OK: &str = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nPK";
+
+    #[tokio::test]
+    async fn plain_http_with_a_hash_is_allowed() {
+        let (base, server) = serve(vec![OK.to_owned()]);
+        let client = client().unwrap();
+        let hash = PlainHttp::for_hash(Some("abc"));
+        assert!(get(&client, &base, HeaderMap::new(), hash).await.is_ok());
+        assert_eq!(server.join().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn plain_http_without_a_hash_is_refused_before_any_request() {
+        let (base, server) = serve(vec![OK.to_owned()]);
+        let client = client().unwrap();
+        for hash in [None, Some("")] {
+            let policy = PlainHttp::for_hash(hash);
+            for result in [
+                get(&client, &base, HeaderMap::new(), policy).await,
+                head(&client, &base, HeaderMap::new(), policy).await,
+            ] {
+                assert!(matches!(result, Err(ResolveError::Insecure)));
+            }
+            assert!(matches!(
+                text(&client, &base, HeaderMap::new(), policy).await,
+                Err(ResolveError::Insecure)
+            ));
+        }
+        assert_eq!(server.join().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn plain_http_landing_page_is_refused_without_a_hash() {
+        let client = client().unwrap();
+        for uri in [
+            "http://www.mediafire.com/file/abc/game.zip",
+            "http://fuckingfast.co/abc",
+            "http://rootz.so/d/abc",
+        ] {
+            let result = resolve(&client, uri, PlainHttp::Refused).await;
+            assert!(matches!(result, Err(ResolveError::Insecure)), "{uri}");
+        }
+    }
+
+    #[test]
+    fn https_needs_no_hash() {
+        let url = Url::parse("https://example.org/game.zip").unwrap();
+        assert!(PlainHttp::Refused.require_secure(&url).is_ok());
+        assert!(PlainHttp::for_hash(Some("abc")) == PlainHttp::Allowed);
+    }
+
+    #[test]
+    fn https_to_http_redirect_is_always_rejected() {
+        let secure = Url::parse("https://example.org/a").unwrap();
+        let plain = Url::parse("http://example.org/b").unwrap();
+        assert!(reject_downgrade(&secure, &plain).is_err());
+        assert!(reject_downgrade(&secure, &secure).is_ok());
+        assert!(reject_downgrade(&plain, &plain).is_ok());
+    }
 
     #[test]
     fn classifies_hosts_without_substring_spoofing() {
