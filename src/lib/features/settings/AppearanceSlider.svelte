@@ -29,9 +29,9 @@
 
 <div class="flex min-w-0 flex-col gap-3 rounded-xl bg-black/10 p-3 light:bg-white/70">
   <div class="flex items-center justify-between gap-2">
-    <label for={id} class="min-w-0 truncate text-sm font-medium text-zinc-200 light:text-zinc-800">{label}</label>
+    <label for={id} class="min-w-0 truncate text-sm font-medium text-legio-fg">{label}</label>
     <div class="flex shrink-0 items-center gap-1">
-      <output for={id} class="text-xs tabular-nums text-zinc-400 light:text-zinc-600">{value}<span class="ml-0.5">{unit}</span></output>
+      <output for={id} class="text-xs tabular-nums text-legio-fg-muted">{value}<span class="ml-0.5">{unit}</span></output>
       <ResetSetting label={t("Ripristina {0}", $language, [label])} {disabled} onClick={() => onChange(resetValue)} />
     </div>
   </div>

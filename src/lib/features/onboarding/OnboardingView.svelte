@@ -22,7 +22,7 @@
 
 <main class="legio-content min-h-0 flex-1 overflow-auto rounded-xl bg-black p-6 light:bg-zinc-50" aria-labelledby="onboarding-title">
   <div class="mx-auto flex max-w-2xl flex-col gap-6">
-  <div class="flex items-center gap-3 px-6 text-white light:text-zinc-900">
+  <div class="flex items-center gap-3 px-6 text-legio-fg">
     <Logo size="size-9" />
     <span class="font-mono text-2xl font-bold tracking-[0.12em]">LEGIO</span>
   </div>
@@ -30,17 +30,17 @@
     <header>
       <div class="mb-4 flex gap-1.5" aria-hidden="true">
         {#each steps as stepName, index (stepName)}
-          <span class="h-1 flex-1 rounded-full transition-colors duration-300 {index <= step ? 'bg-legio-accent' : 'bg-white/15 light:bg-zinc-900/15'}"></span>
+          <span class="h-1 flex-1 rounded-full transition-colors duration-300 {index <= step ? 'bg-legio-accent' : 'bg-legio-fill-active'}"></span>
         {/each}
       </div>
-      <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Configurazione iniziale", $language)} · {step + 1} / {steps.length}</p>
-      <h1 tabindex="-1" id="onboarding-title" class="mt-2 text-3xl font-semibold text-zinc-50 light:text-zinc-900">{t(steps[step], $language)}</h1>
-      <p class="mt-2 text-sm text-zinc-400 light:text-zinc-600">{t("Potrai cambiare tutte queste scelte nelle impostazioni.", $language)}</p>
+      <p class="text-sm text-legio-fg-muted">{t("Configurazione iniziale", $language)} · {step + 1} / {steps.length}</p>
+      <h1 tabindex="-1" id="onboarding-title" class="mt-2 text-3xl font-semibold text-legio-fg">{t(steps[step], $language)}</h1>
+      <p class="mt-2 text-sm text-legio-fg-muted">{t("Potrai cambiare tutte queste scelte nelle impostazioni.", $language)}</p>
     </header>
     {#if $onboarding.error}<ErrorBanner message={$onboarding.error} />{/if}
     {#if $onboarding.draft}
       {#if step === 0}
-        <p class="text-sm text-zinc-300 light:text-zinc-700">{t("Configuriamo insieme le impostazioni principali del launcher.", $language)}</p>
+        <p class="text-sm text-legio-fg">{t("Configuriamo insieme le impostazioni principali del launcher.", $language)}</p>
         <SelectField id="onboarding-language" label={t("Lingua dell'interfaccia", $language)} value={$onboarding.draft.language} disabled={$onboarding.saving}
           options={[{ value: "system", label: t("Sistema", $language) }, { value: "it", label: "Italiano" }, { value: "en", label: "English" }]}
           onChange={(value) => { if (value === "system" || value === "it" || value === "en") changeOnboarding({ language: value }); }} />
@@ -52,13 +52,13 @@
           onBusyChange={(busy) => { appearanceBusy = busy; }}
         />
       {:else if step === 2}
-        <p class="text-sm text-zinc-300 light:text-zinc-700">{t("Scegli dove salvare download e installazioni. Steam verrà rilevato automaticamente.", $language)}</p>
-        <p class="break-all text-sm text-zinc-400 light:text-zinc-600">{$onboarding.draft.downloadPath ?? t("Cartella predefinita di Legio", $language)}</p>
+        <p class="text-sm text-legio-fg">{t("Scegli dove salvare download e installazioni. Steam verrà rilevato automaticamente.", $language)}</p>
+        <p class="break-all text-sm text-legio-fg-muted">{$onboarding.draft.downloadPath ?? t("Cartella predefinita di Legio", $language)}</p>
         <div class="flex flex-wrap gap-2">
           <Button label={t("Imposta cartella...", $language)} variant="secondary" onClick={() => void chooseOnboardingDirectory()} />
           <Button label={t("Usa cartella predefinita", $language)} variant="secondary" onClick={() => changeOnboarding({ downloadPath: null })} />
         </div>
-        <p class="text-sm text-zinc-400 light:text-zinc-600">{t("La verifica aiuta a rilevare archivi corrotti o alterati. Ti consigliamo di lasciarla attiva.", $language)}</p>
+        <p class="text-sm text-legio-fg-muted">{t("La verifica aiuta a rilevare archivi corrotti o alterati. Ti consigliamo di lasciarla attiva.", $language)}</p>
       {:else if step === 3}
         {#if $appInfo.data.trayAvailable}
         <Toggle label={t("Riduci nell'area di notifica alla chiusura", $language)} checked={$onboarding.draft.closeToTray} onChange={(checked) => changeOnboarding({ closeToTray: checked })} />
@@ -68,7 +68,7 @@
         <Toggle label={t("Apri Legio sulla Libreria", $language)} checked={$onboarding.draft.launchInLibrary} onChange={(checked) => changeOnboarding({ launchInLibrary: checked })} />
         <Toggle label={t("Notifica di sistema al termine del download", $language)} checked={$onboarding.draft.downloadNotifications} onChange={(checked) => changeOnboarding({ downloadNotifications: checked })} />
       {:else if linux && step === 4}
-        <p class="text-sm text-zinc-300 light:text-zinc-700">{t("Per i giochi Windows scegli Proton o Wine. Puoi mantenere la selezione automatica e configurare ogni gioco in seguito.", $language)}</p>
+        <p class="text-sm text-legio-fg">{t("Per i giochi Windows scegli Proton o Wine. Puoi mantenere la selezione automatica e configurare ogni gioco in seguito.", $language)}</p>
         {#if $onboarding.loading}<p role="status">{t("Caricamento...", $language)}</p>{/if}
         {#if $onboarding.compatibility}
           <SelectField id="onboarding-runner" label={t("Runner", $language)} value={$onboarding.compatibility.runnerPath ?? ""} disabled={$onboarding.loading}
@@ -81,11 +81,11 @@
           </div>
           <Toggle label={t("Log di debug", $language)} checked={$onboarding.compatibility.debugLogging} onChange={(checked) => changeCompatibility({ debugLogging: checked })} />
         {/if}
-        {#each $onboarding.diagnostics as diagnostic (diagnostic)}<p class="text-sm text-zinc-400 light:text-zinc-600">{diagnostic}</p>{/each}
-        {#if !$onboarding.loading && $onboarding.runners.length === 0}<p class="text-sm text-zinc-400 light:text-zinc-600">{t("Nessun runner rilevato. Installa Proton tramite Steam o Wine per avviare giochi Windows.", $language)}</p>{/if}
+        {#each $onboarding.diagnostics as diagnostic (diagnostic)}<p class="text-sm text-legio-fg-muted">{diagnostic}</p>{/each}
+        {#if !$onboarding.loading && $onboarding.runners.length === 0}<p class="text-sm text-legio-fg-muted">{t("Nessun runner rilevato. Installa Proton tramite Steam o Wine per avviare giochi Windows.", $language)}</p>{/if}
       {:else}
-        <p class="text-sm text-zinc-300 light:text-zinc-700">{t("Salva la configurazione e apri la tua libreria. Potrai aggiungere giochi manualmente o cercarli nello store.", $language)}</p>
-        <dl class="grid grid-cols-2 gap-3 text-sm text-zinc-300 light:text-zinc-700">
+        <p class="text-sm text-legio-fg">{t("Salva la configurazione e apri la tua libreria. Potrai aggiungere giochi manualmente o cercarli nello store.", $language)}</p>
+        <dl class="grid grid-cols-2 gap-3 text-sm text-legio-fg">
           <dt>{t("Lingua", $language)}</dt><dd>{$onboarding.draft.language}</dd>
           <dt>{t("Tema", $language)}</dt><dd>{t(themePresets.find((preset) => preset.id === $onboarding.draft?.theme)?.name ?? $onboarding.draft.theme, $language)}</dd>
           <dt>{t("Cartella giochi", $language)}</dt><dd class="break-all">{$onboarding.draft.downloadPath ?? t("Cartella predefinita di Legio", $language)}</dd>

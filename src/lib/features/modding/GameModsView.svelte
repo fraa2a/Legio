@@ -419,7 +419,7 @@
             />
           {/key}
         {/if}
-        <div class="ml-auto flex min-w-0 items-center gap-3 pl-2 text-sm text-zinc-400 light:text-zinc-600">
+        <div class="ml-auto flex min-w-0 items-center gap-3 pl-2 text-sm text-legio-fg-muted">
           {#if profile !== null && profileSize !== null}
             <span class="inline-flex shrink-0 items-center gap-1.5 tabular-nums" title={t("Spazio occupato dal profilo", $language)}>
               <Icon name="folder" size="size-4" />

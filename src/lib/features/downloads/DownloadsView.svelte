@@ -184,7 +184,7 @@
         {#if sections.queue.length > 0}
           <Panel title={t("Coda download", $language)}>
             {#snippet actions()}
-              <span class="text-xs text-zinc-500 light:text-zinc-600">
+              <span class="text-xs text-legio-fg-muted">
                 {t("{0} in attesa", $language, [sections.queue.length])}
               </span>
             {/snippet}

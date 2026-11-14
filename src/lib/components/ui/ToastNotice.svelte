@@ -5,8 +5,16 @@
   import { fly } from "svelte/transition";
   import { reducedMotion } from "../../utils/motion";
   import { t, language } from "../../i18n";
-  import Icon from "./Icon.svelte";
+  import type { ToastTone } from "../../stores/toast";
+  import Icon, { type IconName } from "./Icon.svelte";
   import IconButton from "./IconButton.svelte";
+
+  const tones: Record<ToastTone, { icon: IconName; text: string; line: string }> = {
+    info: { icon: "info", text: "text-legio-info", line: "inset-ring-legio-info/25" },
+    success: { icon: "success", text: "text-legio-success", line: "inset-ring-legio-success/25" },
+    warning: { icon: "warning", text: "text-legio-warning", line: "inset-ring-legio-warning/25" },
+    error: { icon: "danger", text: "text-legio-error", line: "inset-ring-legio-error/25" },
+  };
 
   let notice: HTMLDivElement | undefined = $state();
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
@@ -59,13 +67,15 @@
   aria-live="polite"
 >
   {#each $toast as notification (notification.id)}
+    {@const tone = tones[notification.tone]}
     <div
       transition:fly={{ y: 16, duration: reducedMotion ? 0 : 180 }}
       role={notification.tone === "error" ? "alert" : "status"}
-      class="pointer-events-auto flex items-start gap-3 rounded-xl border border-white/15 px-4 py-3 text-sm shadow-xl {notification.tone === 'error' ? 'bg-red-700 text-white' : notification.tone === 'success' ? 'bg-emerald-700 text-white' : notification.tone === 'warning' ? 'bg-amber-700 text-white' : 'bg-zinc-900 text-zinc-100 light:border-zinc-900/15 light:bg-zinc-50 light:text-zinc-900'}"
+      class="legio-popover pointer-events-auto flex items-start gap-3 rounded-xl px-4 py-3 text-sm text-legio-fg shadow-xl shadow-black/30 inset-ring light:shadow-zinc-900/15 {tone.line}"
     >
+      <span class="mt-0.5 shrink-0 {tone.text}"><Icon name={tone.icon} size="size-4" /></span>
       <p class="min-w-0 flex-1 break-words">{notification.message}</p>
-      {#if notification.onRetry}<button type="button" class="shrink-0 rounded px-2 py-0.5 font-semibold hover:bg-white/15" onclick={() => { dismissToast(notification.id); notification.onRetry?.(); }}>{notification.retryLabel ?? t("Riprova", $language)}</button>{/if}
+      {#if notification.onRetry}<button type="button" class="shrink-0 rounded px-2 py-0.5 font-semibold hover:bg-legio-fill-hover" onclick={() => { dismissToast(notification.id); notification.onRetry?.(); }}>{notification.retryLabel ?? t("Riprova", $language)}</button>{/if}
       <IconButton size="xs" variant="plain" label={t("Chiudi notifica", $language)} onClick={() => dismissToast(notification.id)}><Icon name="close" size="size-4" /></IconButton>
     </div>
   {/each}

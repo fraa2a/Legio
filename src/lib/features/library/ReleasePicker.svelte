@@ -145,7 +145,7 @@
 {/snippet}
 
 {#snippet monogram(name: string, size: string)}
-  <span class="flex {size} shrink-0 items-center justify-center rounded-md bg-zinc-700/60 text-sm font-semibold text-zinc-100 light:bg-zinc-200 light:text-zinc-800" aria-hidden="true">{name.trim().charAt(0).toUpperCase() || "?"}</span>
+  <span class="flex {size} shrink-0 items-center justify-center rounded-md bg-zinc-700/60 text-sm font-semibold text-legio-fg light:bg-zinc-200" aria-hidden="true">{name.trim().charAt(0).toUpperCase() || "?"}</span>
 {/snippet}
 
 {#snippet badges(option: ReleaseOption)}
@@ -157,8 +157,8 @@
 
 {#snippet connector(last: boolean)}
   <span class="relative -my-2 w-9 shrink-0 self-stretch" aria-hidden="true">
-    <span class="absolute left-1/2 -top-0.5 {last ? 'h-[calc(50%+2px)] rounded-bl-md border-b' : '-bottom-0.5'} w-4 border-l-2 border-white/25 light:border-zinc-900/25"></span>
-    {#if !last}<span class="absolute top-1/2 left-1/2 w-4 border-t-2 border-white/25 light:border-zinc-900/25"></span>{/if}
+    <span class="absolute left-1/2 -top-0.5 {last ? 'h-[calc(50%+2px)] rounded-bl-md border-b' : '-bottom-0.5'} w-4 border-l-2 border-legio-line-strong"></span>
+    {#if !last}<span class="absolute top-1/2 left-1/2 w-4 border-t-2 border-legio-line-strong"></span>{/if}
   </span>
 {/snippet}
 
@@ -168,7 +168,7 @@
 />
 
 <div bind:this={root} class="relative h-15 {className}">
-  <div class="absolute inset-x-0 top-0 z-20 flex flex-col overflow-hidden rounded-xl border border-white/10 legio-glass text-zinc-100 transition-shadow duration-200 light:border-zinc-900/10 light:text-zinc-900 {open ? 'shadow-xl shadow-black/30 light:shadow-zinc-900/15' : ''}">
+  <div class="absolute inset-x-0 top-0 z-20 flex flex-col overflow-hidden rounded-xl legio-glass text-legio-fg transition-shadow duration-200 {open ? 'shadow-xl shadow-black/30 light:shadow-zinc-900/15' : ''}">
     <button
       bind:this={trigger}
       type="button"
@@ -179,7 +179,7 @@
       disabled={disabled || !hasChoices}
       onkeydown={handleKeydown}
       onclick={() => (open ? close() : void expand())}
-      class="flex h-15 w-full shrink-0 items-center gap-3 px-3 text-left transition-colors enabled:hover:bg-white/10 disabled:cursor-default light:enabled:hover:bg-zinc-900/5"
+      class="flex h-15 w-full shrink-0 items-center gap-3 px-3 text-left transition-colors enabled:hover:bg-legio-fill-hover disabled:cursor-default"
     >
       {@render icon(selected.profileOf ?? selected.name, "size-10")}
       <span class="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -187,9 +187,9 @@
           <span class="min-w-0 truncate text-base leading-5 font-semibold">{selected.name}</span>
           {@render badges(selected)}
         </span>
-        <span class="truncate text-xs leading-4 text-zinc-400 light:text-zinc-600">{selected.profileOf === undefined ? "" : `${selected.profileOf} · `}{details(selected)}{chosenLink === null ? "" : ` · ${chosenLink}`}</span>
+        <span class="truncate text-xs leading-4 text-legio-fg-muted">{selected.profileOf === undefined ? "" : `${selected.profileOf} · `}{details(selected)}{chosenLink === null ? "" : ` · ${chosenLink}`}</span>
       </span>
-      {#if hasChoices}<span class="shrink-0 text-zinc-400 transition-transform duration-200 light:text-zinc-600 {open ? 'rotate-180' : ''}"><Icon name="chevron-down" size="size-4" /></span>{/if}
+      {#if hasChoices}<span class="shrink-0 text-legio-fg-muted transition-transform duration-200 {open ? 'rotate-180' : ''}"><Icon name="chevron-down" size="size-4" /></span>{/if}
     </button>
 
     {#if open}
@@ -200,9 +200,9 @@
         onkeydown={handleKeydown}
         class="overflow-hidden"
       >
-        <div class="flex flex-col gap-2 border-t border-white/10 p-2 light:border-zinc-900/10">
+        <div class="flex flex-col gap-2 border-t border-legio-line-subtle p-2">
           <div data-group>
-            <p id="{panelId}-releases" class="px-2 pt-1 pb-1.5 text-xs font-medium text-zinc-400 light:text-zinc-600">{t("Versione", $language)}</p>
+            <p id="{panelId}-releases" class="px-2 pt-1 pb-1.5 text-xs font-medium text-legio-fg-muted">{t("Versione", $language)}</p>
             <div bind:this={listbox} role="listbox" aria-labelledby="{panelId}-releases" class="flex max-h-44 flex-col gap-0.5 overflow-y-auto">
               {#each options as option (option.id)}
                 <button
@@ -212,31 +212,31 @@
                   tabindex={option.id === selectedId ? 0 : -1}
                   disabled={option.disabled}
                   onclick={() => choose(option.id)}
-                  class="flex min-h-14 items-center gap-3 rounded-lg px-2 py-2 text-left outline-none enabled:hover:bg-white/10 focus-visible:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50 aria-selected:bg-white/10 light:enabled:hover:bg-zinc-900/5 light:focus-visible:bg-zinc-900/5 light:aria-selected:bg-zinc-900/10 "
+                  class="flex min-h-14 items-center gap-3 rounded-lg px-2 py-2 text-left outline-none enabled:hover:bg-legio-fill-hover focus-visible:bg-legio-fill-hover disabled:cursor-not-allowed disabled:opacity-50 aria-selected:bg-legio-fill-hover "
                 >
                   {#if option.profileOf !== undefined}{@render connector(option.lastProfile === true)}{/if}
                   {@render icon(option.profileOf ?? option.name, "size-9")}
                   <span class="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span class="flex min-w-0 items-center gap-1.5">
-                      <span class="min-w-0 truncate text-sm font-semibold text-zinc-100 light:text-zinc-900">{option.name}</span>
+                      <span class="min-w-0 truncate text-sm font-semibold text-legio-fg">{option.name}</span>
                       {@render badges(option)}
                     </span>
-                    <span class="truncate text-xs text-zinc-400 light:text-zinc-600">{details(option)}</span>
+                    <span class="truncate text-xs text-legio-fg-muted">{details(option)}</span>
                   </span>
                   {#if option.id === selectedId}<Icon name="check" size="size-4 shrink-0 text-legio-success" />{/if}
                 </button>
               {/each}
             </div>
             {#if onAdd}
-              <button type="button" class="mt-1 flex h-11 w-full items-center gap-3 rounded-lg px-2 text-left text-sm text-zinc-200 outline-none hover:bg-white/10 focus-visible:bg-white/10 light:text-zinc-800 light:hover:bg-zinc-900/5 light:focus-visible:bg-zinc-900/5" onclick={() => { open = false; onAdd(); }}>
+              <button type="button" class="mt-1 flex h-11 w-full items-center gap-3 rounded-lg px-2 text-left text-sm text-legio-fg outline-none hover:bg-legio-fill-hover focus-visible:bg-legio-fill-hover" onclick={() => { open = false; onAdd(); }}>
                 <span class="flex size-9 shrink-0 items-center justify-center"><Icon name="plus" size="size-5" /></span>{t("Aggiungi un'altra versione", $language)}
               </button>
             {/if}
           </div>
 
           {#if showLinks}
-            <div data-group class="border-t border-white/10 pt-1 light:border-zinc-900/10">
-              <p id="{panelId}-links" class="px-2 pt-1 pb-1.5 text-xs font-medium text-zinc-400 light:text-zinc-600">{t("Collegamento di download", $language)}</p>
+            <div data-group class="border-t border-legio-line-subtle pt-1">
+              <p id="{panelId}-links" class="px-2 pt-1 pb-1.5 text-xs font-medium text-legio-fg-muted">{t("Collegamento di download", $language)}</p>
               <div role="radiogroup" aria-labelledby="{panelId}-links" class="flex flex-wrap gap-1.5 px-2 pb-2">
                 {#each linkOptions as option (option.value)}
                   <button
@@ -246,7 +246,7 @@
                     tabindex={option.value === link ? 0 : -1}
                     disabled={linksDisabled}
                     onclick={() => { link = option.value; close(); }}
-                    class="flex h-8 max-w-full items-center gap-1.5 rounded-full border border-white/10 px-3 text-sm text-zinc-200 outline-none transition-colors hover:bg-white/10 focus-visible:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50 aria-checked:border-white/30 aria-checked:bg-white/15 aria-checked:text-white light:border-zinc-900/10 light:text-zinc-800 light:hover:bg-zinc-900/5 light:focus-visible:bg-zinc-900/5 light:aria-checked:border-zinc-900/30 light:aria-checked:bg-zinc-900/10 light:aria-checked:text-zinc-950"
+                    class="flex h-8 max-w-full items-center gap-1.5 rounded-full border border-legio-line-subtle px-3 text-sm text-legio-fg outline-none transition-colors hover:bg-legio-fill-hover focus-visible:bg-legio-fill-hover disabled:cursor-not-allowed disabled:opacity-50 aria-checked:border-legio-line-strong aria-checked:bg-legio-fill-active aria-checked:text-legio-fg"
                   >
                     {#if option.value === link}<Icon name="check" size="size-3.5 shrink-0 text-legio-success" />{/if}
                     <span class="min-w-0 truncate">{option.label}</span>

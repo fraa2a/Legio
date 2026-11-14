@@ -38,9 +38,9 @@
     defaultValue={defaultSettings.thunderstoreLinksEnabled}
     disabled={saving || !supported || $settings.status !== "ready"}
     onChange={(enabled) => void save(enabled)} />
-  <p class="text-xs text-zinc-500">{t("Il pulsante \"Install with Mod Manager\" di Thunderstore apre Legio al posto del gestore mod attuale (per esempio r2modman) e propone di installare la mod in uno dei tuoi giochi. Disattivando l'opzione, Legio lascia il collegamento; r2modman lo riprende al prossimo avvio.", $language)}</p>
+  <p class="text-xs text-legio-fg-subtle">{t("Il pulsante \"Install with Mod Manager\" di Thunderstore apre Legio al posto del gestore mod attuale (per esempio r2modman) e propone di installare la mod in uno dei tuoi giochi. Disattivando l'opzione, Legio lascia il collegamento; r2modman lo riprende al prossimo avvio.", $language)}</p>
   {#if !supported}
-    <p class="text-xs text-zinc-500">{t("Non disponibile su macOS.", $language)}</p>
+    <p class="text-xs text-legio-fg-subtle">{t("Non disponibile su macOS.", $language)}</p>
   {/if}
   {#if note !== null}<Callout tone="warning" variant="inline" message={note} />{/if}
   {#if error}<ErrorBanner message={error} />{/if}

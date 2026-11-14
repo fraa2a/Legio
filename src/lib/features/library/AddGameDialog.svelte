@@ -146,16 +146,16 @@
   {#snippet children(dismiss)}
   <div class="flex flex-col gap-5">
     <div class="flex flex-col gap-2">
-        <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Associa il gioco corretto su Steam se il rilevamento automatico è errato o non trova il gioco.", $language)}</p>
+        <p class="text-xs text-legio-fg-muted">{t("Associa il gioco corretto su Steam se il rilevamento automatico è errato o non trova il gioco.", $language)}</p>
         <SteamGameSearch id="add-steam-game-search" bind:value={steamQuery} disabled={pending}
           onQueryChange={() => { selectedSteamGame = null; }}
           onSelect={(game) => { selectSteamGame(game); return true; }} />
         {#if previewPending}
-          <p class="text-xs text-zinc-400" role="status">{t("Rilevamento del gioco su Steam...", $language)}</p>
+          <p class="text-xs text-legio-fg-muted" role="status">{t("Rilevamento del gioco su Steam...", $language)}</p>
         {:else if previewError !== null}
           <Callout tone="warning" variant="inline" message={t("Rilevamento non disponibile: {0}", $language, [previewError])} />
         {:else if preview?.status === "no_match"}
-          <p class="text-xs text-zinc-500">{t("Nessuna corrispondenza esatta. Cerca il gioco per nome.", $language)}</p>
+          <p class="text-xs text-legio-fg-subtle">{t("Nessuna corrispondenza esatta. Cerca il gioco per nome.", $language)}</p>
         {:else if preview?.status === "unavailable"}
           <Callout tone="warning" variant="inline" message={t("Rilevamento non disponibile: {0}.", $language, [preview.message ?? t("riprova più tardi", $language)])} />
         {:else if preview?.status === "matched"}
@@ -169,13 +169,13 @@
           </div>
         {/if}
         {#if parsedAppId !== null}
-          <div class="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-2 light:border-zinc-900/10 light:bg-white">
+          <div class="flex items-center gap-3 rounded-xl border border-legio-line-subtle bg-white/5 p-2 light:bg-white">
             <div class="h-16 w-32 shrink-0 overflow-hidden rounded-lg bg-zinc-800 light:bg-zinc-200">
               <SteamArtwork steamAppId={parsedAppId} asset="header" caption={false} alt="" class="size-full object-cover" />
             </div>
             <div class="min-w-0">
-              <p class="truncate text-sm font-medium text-zinc-100 light:text-zinc-900">{details?.name ?? selectedSteamGame?.name ?? t("Gioco Steam", $language)}</p>
-              <p class="text-xs text-zinc-500">{t("Gioco selezionato", $language)}</p>
+              <p class="truncate text-sm font-medium text-legio-fg">{details?.name ?? selectedSteamGame?.name ?? t("Gioco Steam", $language)}</p>
+              <p class="text-xs text-legio-fg-subtle">{t("Gioco selezionato", $language)}</p>
               {#if detailsState?.status === "error"}<Callout tone="warning" variant="inline" message={t("Copertina non disponibile.", $language)} />{/if}
             </div>
           </div>
@@ -192,9 +192,9 @@
     />
     {#if duplicateName}<Callout tone="warning" message={t("Il nome è già usato per questo gioco Steam. Scegli un nome diverso.", $language)} />{/if}
 
-    <div class="flex flex-col gap-2 border-t border-white/10 pt-4 light:border-zinc-900/10">
-      <span class="text-sm font-medium text-zinc-100 light:text-zinc-900">{t("Eseguibile del gioco", $language)}</span>
-      <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Scegli il file del gioco oppure scansiona la sua cartella. Puoi aggiungerlo anche senza eseguibile se hai selezionato un gioco Steam.", $language)}</p>
+    <div class="flex flex-col gap-2 border-t border-legio-line-subtle pt-4">
+      <span class="text-sm font-medium text-legio-fg">{t("Eseguibile del gioco", $language)}</span>
+      <p class="text-xs text-legio-fg-muted">{t("Scegli il file del gioco oppure scansiona la sua cartella. Puoi aggiungerlo anche senza eseguibile se hai selezionato un gioco Steam.", $language)}</p>
       <div class="flex flex-wrap items-center gap-2">
         <Button label={t("Scegli .exe", $language)} variant="secondary" disabled={pending} onClick={() => void pickExecutable()} />
         <Button label={t("Scansiona cartella", $language)} variant="secondary" disabled={pending} onClick={() => void browseGameDirectory()} />
@@ -202,19 +202,19 @@
           <Button label={t("Ripeti scansione", $language)} variant="secondary" disabled={pending} onClick={() => void rescanCurrentDirectory()} />
         {/if}
       </div>
-      <p class="min-h-5 break-all text-xs text-zinc-400 light:text-zinc-600">{selectedPath ?? t("Nessun file selezionato", $language)}</p>
+      <p class="min-h-5 break-all text-xs text-legio-fg-muted">{selectedPath ?? t("Nessun file selezionato", $language)}</p>
       {#if $manualImport.status === "loading"}
-        <p class="text-sm text-zinc-400" role="status">{t("Scansione degli eseguibili in corso...", $language)}</p>
+        <p class="text-sm text-legio-fg-muted" role="status">{t("Scansione degli eseguibili in corso...", $language)}</p>
       {:else if $manualImport.status === "empty"}
-        <p class="text-sm text-zinc-400">{t("Nessun eseguibile trovato nella cartella.", $language)}</p>
+        <p class="text-sm text-legio-fg-muted">{t("Nessun eseguibile trovato nella cartella.", $language)}</p>
       {:else if $manualImport.status === "error" && $manualImport.error !== null}
         <ErrorBanner message={$manualImport.error} onRetry={() => void rescanCurrentDirectory()} />
       {/if}
       {#if $manualImport.candidates.length > 0}
-        <fieldset class="max-h-40 space-y-1 overflow-y-auto rounded-lg bg-white/5 p-2 light:bg-zinc-100" disabled={pending}>
+        <fieldset class="max-h-40 space-y-1 overflow-y-auto rounded-lg bg-legio-fill p-2" disabled={pending}>
           <legend class="sr-only">{t("Eseguibili trovati", $language)}</legend>
           {#each $manualImport.candidates as candidate (candidate.path)}
-            <label class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-zinc-200 hover:bg-white/10 light:text-zinc-800 light:hover:bg-zinc-200">
+            <label class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-legio-fg hover:bg-legio-fill-hover">
               <input type="radio" name="add-game-executable" checked={selectedPath === candidate.path} onchange={() => chooseCandidate(candidate.path)} class="size-4 accent-white" />
               <span class="min-w-0 truncate" title={candidate.path}>{candidate.path}</span>
             </label>

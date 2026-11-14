@@ -61,8 +61,8 @@
   {#if ready.length > 0}
     <section class="flex flex-col gap-3 rounded-2xl legio-glass p-5" aria-labelledby="mods-ready-title">
       <div>
-        <h2 id="mods-ready-title" class="text-base font-semibold text-zinc-100 light:text-zinc-900">{t("Giochi con mod", $language)}</h2>
-        <p class="mt-0.5 text-sm text-zinc-400 light:text-zinc-600">{t("Le mod vivono nei profili di Legio: la cartella del gioco resta pulita e puoi tornare alla versione vanilla in ogni momento.", $language)}</p>
+        <h2 id="mods-ready-title" class="text-base font-semibold text-legio-fg">{t("Giochi con mod", $language)}</h2>
+        <p class="mt-0.5 text-sm text-legio-fg-muted">{t("Le mod vivono nei profili di Legio: la cartella del gioco resta pulita e puoi tornare alla versione vanilla in ogni momento.", $language)}</p>
       </div>
       <ul class="grid auto-rows-max grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-4">
         {#each ready as game (game.gameId)}
@@ -75,8 +75,8 @@
   {#if others.length > 0}
     <section class="flex flex-col gap-3 rounded-2xl legio-glass p-5" aria-labelledby="mods-other-title">
       <div>
-        <h2 id="mods-other-title" class="text-base font-semibold text-zinc-100 light:text-zinc-900">{t("Altri giochi", $language)}</h2>
-        <p class="mt-0.5 text-sm text-zinc-400 light:text-zinc-600">{t("Per ora Legio installa le mod dei giochi che usano BepInEx. Collega a mano i giochi che Thunderstore non ha riconosciuto.", $language)}</p>
+        <h2 id="mods-other-title" class="text-base font-semibold text-legio-fg">{t("Altri giochi", $language)}</h2>
+        <p class="mt-0.5 text-sm text-legio-fg-muted">{t("Per ora Legio installa le mod dei giochi che usano BepInEx. Collega a mano i giochi che Thunderstore non ha riconosciuto.", $language)}</p>
       </div>
       <ul class="grid auto-rows-max grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-4">
         {#each others as game (game.gameId)}

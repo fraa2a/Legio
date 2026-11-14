@@ -33,14 +33,14 @@
 
   const variantClass = $derived.by(() => {
     if (variant === "soft") {
-      return "bg-white/10 text-zinc-200 hover:bg-white/25 hover:text-white light:bg-zinc-900/10 light:text-zinc-700 light:hover:bg-zinc-900/20 light:hover:text-zinc-900";
+      return "bg-legio-fill-hover text-legio-fg hover:bg-legio-fill-active hover:text-legio-fg";
     }
-    if (variant === "plain") return "hover:bg-white/15 light:hover:bg-zinc-900/10";
+    if (variant === "plain") return "hover:bg-legio-fill-active";
     if (variant === "danger") {
-      return "text-zinc-300 hover:bg-legio-danger hover:text-white light:text-zinc-600 light:hover:text-white";
+      return "text-legio-fg-muted hover:bg-legio-danger hover:text-white";
     }
-    if (pressed) return "bg-white/10 text-white hover:bg-white/15 light:bg-zinc-900/10 light:text-zinc-900 light:hover:bg-zinc-900/15";
-    return "text-zinc-400 hover:bg-white/10 hover:text-zinc-100 light:text-zinc-600 light:hover:bg-zinc-900/10 light:hover:text-zinc-900";
+    if (pressed) return "bg-legio-fill-hover text-legio-fg hover:bg-legio-fill-active";
+    return "text-legio-fg-muted hover:bg-legio-fill-hover hover:text-legio-fg";
   });
 </script>
 

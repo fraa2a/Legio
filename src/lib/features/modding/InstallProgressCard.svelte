@@ -36,10 +36,10 @@
 <section class="flex flex-wrap items-center gap-4 rounded-2xl legio-glass p-4" aria-label={t("Installazione delle mod", $language)}>
   <Spinner />
   <div class="min-w-0 flex-1 basis-56" role="status" aria-live="polite">
-    <p class="truncate text-sm font-medium text-zinc-100 light:text-zinc-900">
-      {title}{#if packageName !== null}<span class="font-normal text-zinc-400 light:text-zinc-600"> · {packageName}</span>{/if}
+    <p class="truncate text-sm font-medium text-legio-fg">
+      {title}{#if packageName !== null}<span class="font-normal text-legio-fg-muted"> · {packageName}</span>{/if}
     </p>
-    <div class="mt-0.5 flex flex-wrap gap-x-4 text-xs tabular-nums text-zinc-400 light:text-zinc-600">
+    <div class="mt-0.5 flex flex-wrap gap-x-4 text-xs tabular-nums text-legio-fg-muted">
       {#if progress !== null && progress.total > 0}<span>{t("Pacchetto {0} di {1}", $language, [progress.current, progress.total])}</span>{/if}
       {#if bytes !== null}<span>{bytes}</span>{/if}
     </div>

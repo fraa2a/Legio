@@ -157,7 +157,7 @@
       <div class="legio-glass flex h-11 items-center rounded-xl p-1">
         <button
           type="button"
-          class="flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm text-zinc-400 transition-colors duration-200 hover:bg-white/10 hover:text-zinc-100 light:text-zinc-600 light:hover:bg-zinc-900/10 light:hover:text-zinc-900"
+          class="flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm text-legio-fg-muted transition-colors duration-200 hover:bg-legio-fill-hover hover:text-legio-fg"
           onclick={navigateBack}
         >
           <Icon name="back" />
@@ -169,7 +169,7 @@
   </div>
   {#if searchList}
     <div class="legio-glass col-start-2 flex h-11 w-full min-w-0 max-w-lg justify-self-center items-center gap-2 rounded-xl px-3">
-      <Icon name="search" size="h-4 w-4 shrink-0 text-zinc-500" />
+      <Icon name="search" size="h-4 w-4 shrink-0 text-legio-fg-subtle" />
       <input
         bind:this={searchInput}
         value={libraryList ? $libraryQuery : $storeQuery}
@@ -177,7 +177,7 @@
         aria-label={libraryList ? t("Cerca nella libreria", $language) : t("Cerca nello store", $language)}
         placeholder={libraryList ? t("Cerca nella libreria", $language) : t("Cerca nello store", $language)}
         oninput={(event) => libraryList ? libraryQuery.set(event.currentTarget.value) : storeQuery.set(event.currentTarget.value)}
-        class="h-full min-w-0 flex-1 bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-500 light:text-zinc-900"
+        class="h-full min-w-0 flex-1 bg-transparent text-sm text-legio-fg outline-none placeholder:text-legio-fg-subtle"
       />
       {#if storeList}
         <IconButton
@@ -195,7 +195,7 @@
         bind:this={heading}
         data-page-heading
         tabindex="-1"
-        class="w-full truncate text-center text-lg font-semibold text-zinc-200 select-none focus:outline-none light:text-zinc-800"
+        class="w-full truncate text-center text-lg font-semibold text-legio-fg select-none focus:outline-none"
       >
         {title}
       </h1>

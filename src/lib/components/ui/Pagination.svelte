@@ -29,14 +29,14 @@
   </Button>
   {#each numbers as item, index (item === "gap" ? `gap${index}` : item)}
     {#if item === "gap"}
-      <span aria-hidden="true" class="px-1 text-xs text-zinc-500">...</span>
+      <span aria-hidden="true" class="px-1 text-xs text-legio-fg-subtle">...</span>
     {:else}
       <Button label={t("Pagina {0}", $language, [item])} variant={item === page ? "primary" : "secondary"} size="sm" square pressed={item === page} {disabled} onClick={() => select(item)}>
         {item}
       </Button>
     {/if}
   {/each}
-  {#if hasMore}<span aria-hidden="true" class="px-1 text-xs text-zinc-500">...</span>{/if}
+  {#if hasMore}<span aria-hidden="true" class="px-1 text-xs text-legio-fg-subtle">...</span>{/if}
   <Button label={t("Pagina successiva", $language)} variant="secondary" size="sm" square disabled={disabled || (page >= pageCount && !hasMore)} onClick={() => select(page + 1)}>
     <Icon name="next" size="size-4" />
   </Button>

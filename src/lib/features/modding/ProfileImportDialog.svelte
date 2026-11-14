@@ -180,7 +180,7 @@
       <section class="flex flex-wrap items-center gap-4 rounded-2xl legio-glass p-4" aria-label={t("Aggiornamento del catalogo mod", $language)}>
         <Spinner />
         <div class="min-w-0 flex-1 basis-56" role="status" aria-live="polite">
-          <p class="truncate text-sm font-medium text-zinc-100 light:text-zinc-900">{t("Aggiornamento del catalogo mod...", $language)}</p>
+          <p class="truncate text-sm font-medium text-legio-fg">{t("Aggiornamento del catalogo mod...", $language)}</p>
           <ProgressBar value={catalogPercent(catalogProgress.chunksDone, catalogProgress.chunksTotal)} tone="accent" label={t("Avanzamento del catalogo", $language)} class="mt-2 h-1.5" />
         </div>
       </section>
@@ -190,7 +190,7 @@
       <SegmentedControl name="mod-profile-import-source" label={t("Origine", $language)} options={sourceOptions} value={source} onChange={(value) => (source = value as ImportSource)} />
       {#if source === "file"}
         <div class="flex items-center gap-3">
-          <p class="min-w-0 flex-1 truncate text-sm {path === null ? 'text-zinc-500' : 'text-zinc-100 light:text-zinc-900'}" title={path ?? undefined}>
+          <p class="min-w-0 flex-1 truncate text-sm {path === null ? 'text-legio-fg-subtle' : 'text-legio-fg'}" title={path ?? undefined}>
             {path === null ? t("Nessun file selezionato", $language) : fileNameOf(path)}
           </p>
           <Button label={t("Scegli file...", $language)} variant="secondary" onClick={() => void chooseFile()} />

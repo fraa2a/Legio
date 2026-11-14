@@ -87,7 +87,7 @@
     onRetry={refresh}
   />
 
-  <p class="text-sm text-zinc-400 light:text-zinc-600">{t("L'account scelto viene applicato al prossimo avvio. Steam viene chiuso e riavviato quando serve per passare all'account salvato.", $language)}</p>
+  <p class="text-sm text-legio-fg-muted">{t("L'account scelto viene applicato al prossimo avvio. Steam viene chiuso e riavviato quando serve per passare all'account salvato.", $language)}</p>
 
   <div class="flex items-end gap-2"><div class="min-w-0 flex-1"><SelectField
     id="steam-account"
@@ -105,5 +105,5 @@
     <ErrorBanner message={actionError} />
   {/if}
 
-  {#if pending}<p class="text-sm text-zinc-400" role="status">{t("Salvataggio...", $language)}</p>{/if}
+  {#if pending}<p class="text-sm text-legio-fg-muted" role="status">{t("Salvataggio...", $language)}</p>{/if}
 </Panel>

@@ -156,8 +156,8 @@
   if (open && !root?.contains(event.target as Node)) close(false);
 }} />
 
-<div bind:this={root} class="relative flex flex-col {variant === 'hero' ? `h-15 justify-center border border-white/10 backdrop-blur-md light:border-zinc-900/10 ${boxShape} ${open ? openSurface : 'bg-zinc-950/60 hover:bg-zinc-950/75 light:bg-zinc-100/70 light:hover:bg-zinc-200'}` : 'gap-1.5'} {className}">
-  <span id={`${id}-label`} class={labelHidden ? "sr-only" : `${variant === "hero" ? "px-3 pt-1 text-xs" : "text-sm"} text-zinc-400 light:text-zinc-600`}>{label}</span>
+<div bind:this={root} class="relative flex flex-col {variant === 'hero' ? `h-15 justify-center border border-legio-line-subtle backdrop-blur-md ${boxShape} ${open ? openSurface : 'bg-zinc-950/60 hover:bg-zinc-950/75 light:bg-zinc-100/70 light:hover:bg-zinc-200'}` : 'gap-1.5'} {className}">
+  <span id={`${id}-label`} class={labelHidden ? "sr-only" : `${variant === "hero" ? "px-3 pt-1 text-xs" : "text-sm"} text-legio-fg-muted`}>{label}</span>
   <button
     bind:this={trigger}
     {id}
@@ -169,14 +169,14 @@
     aria-controls={`${id}-options`}
     onkeydown={handleKeydown}
     onclick={() => expanded ? close(true) : void showOptions()}
-    class="flex w-full items-center justify-between gap-3 px-3 text-left text-sm text-zinc-100 transition-colors disabled:cursor-not-allowed disabled:opacity-50 light:text-zinc-900 {variant === 'hero'
+    class="flex w-full items-center justify-between gap-3 px-3 text-left text-sm text-legio-fg transition-colors disabled:cursor-not-allowed disabled:opacity-50 {variant === 'hero'
       ? 'h-10 rounded-lg bg-transparent'
       : variant === 'toolbar'
         ? `h-11 ${boxShape} ${open ? openSurface : 'legio-glass'}`
-        : `h-10 ${boxShape} ${borderless ? '' : 'border border-white/10 hover:border-white/25 focus-visible:border-white/50 light:border-zinc-900/10 light:hover:border-zinc-900/25'} ${open ? openSurface : 'bg-white/5 hover:bg-white/10 light:bg-white'}`}"
+        : `h-10 ${boxShape} ${borderless ? '' : 'border border-legio-line-subtle hover:border-legio-line-strong focus-visible:border-legio-line-strong'} ${open ? openSurface : 'bg-white/5 hover:bg-white/10 light:bg-white'}`}"
   >
     <span class="truncate">{selectedLabel}</span>
-    <span class="shrink-0 text-zinc-400 transition-transform duration-200 motion-reduce:transition-none {expanded ? 'rotate-180' : ''}"><Icon name="chevron-down" size="size-4" /></span>
+    <span class="shrink-0 text-legio-fg-muted transition-transform duration-200 motion-reduce:transition-none {expanded ? 'rotate-180' : ''}"><Icon name="chevron-down" size="size-4" /></span>
   </button>
   {#if open}
     <div
@@ -193,7 +193,7 @@
       style:right="auto"
       style:width="{optionsWidth}px"
       style:max-height="{optionsMaxHeight}px"
-      class="fixed z-50 m-0 overflow-auto border-white/10 p-1 light:border-zinc-900/10 {listShape} {listBorder} {openSurface}"
+      class="fixed z-50 m-0 overflow-auto border-legio-line-subtle p-1 {listShape} {listBorder} {openSurface}"
     >
       {#each options as option (option.value)}
         <button
@@ -202,7 +202,7 @@
           aria-selected={option.value === value}
           tabindex={option.value === value ? 0 : -1}
           onclick={() => choose(option.value)}
-          class="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm text-zinc-200 outline-none hover:bg-white/10 focus-visible:bg-white/10 aria-selected:bg-white/10 aria-selected:text-white light:text-zinc-800 light:hover:bg-zinc-900/5 light:focus-visible:bg-zinc-900/5 light:aria-selected:bg-zinc-900/10 light:aria-selected:text-zinc-950"
+          class="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm text-legio-fg outline-none hover:bg-legio-fill-hover focus-visible:bg-legio-fill-hover aria-selected:bg-legio-fill-hover aria-selected:text-legio-fg"
         >
           <span class="min-w-0 break-words">{option.label}</span>
           {#if option.value === value}<Icon name="check" size="size-4 shrink-0 text-legio-success" />{/if}

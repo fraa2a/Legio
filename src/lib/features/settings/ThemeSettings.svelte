@@ -220,9 +220,9 @@
     <fieldset disabled={busy} class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       <legend class="sr-only">{t("Palette predefinite", $language)}</legend>
       {#each themeOptions as option (option.id)}
-        <label class="flex cursor-pointer flex-col gap-2 rounded-xl border p-2 transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-legio-accent {theme === option.id ? 'border-legio-accent bg-legio-accent/10' : 'border-white/10 hover:bg-white/5 light:border-zinc-900/10 light:hover:bg-zinc-900/5'}">
+        <label class="flex cursor-pointer flex-col gap-2 rounded-xl border p-2 transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-legio-accent {theme === option.id ? 'border-legio-accent bg-legio-accent/10' : 'border-legio-line-subtle hover:bg-legio-fill'}">
           <input class="sr-only" type="radio" name="theme" value={option.id} checked={theme === option.id} onchange={() => { theme = option.id; }} />
-          <span class="relative block h-20 overflow-hidden rounded-lg border border-white/10 light:border-zinc-900/10" aria-hidden="true">
+          <span class="relative block h-20 overflow-hidden rounded-lg border border-legio-line-subtle" aria-hidden="true">
             {#if option.preset}
               {@render paletteMock(option.preset.palette, "inset-0")}
             {:else if darkPalette && lightPalette}
@@ -231,14 +231,14 @@
             {/if}
           </span>
           <span class="flex items-center justify-between gap-2 px-1">
-            <span class="truncate text-sm text-zinc-100 light:text-zinc-900">{option.label}</span>
+            <span class="truncate text-sm text-legio-fg">{option.label}</span>
             {#if theme === option.id}<span class="shrink-0 text-legio-accent"><Icon name="check" size="size-4" /></span>{/if}
           </span>
         </label>
       {/each}
     </fieldset>
     <div class="flex items-center gap-1">
-      <label for="theme-accent" class="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-zinc-300 light:text-zinc-700"><span>{t("Colore di accento", $language)}</span><input id="theme-accent" type="color" disabled={busy} value={draft.accent ?? paletteAccent} class="h-9 w-12 cursor-pointer rounded border border-white/15 bg-transparent light:border-zinc-900/15" oninput={(event) => { draft.accent = event.currentTarget.value; }} /></label>
+      <label for="theme-accent" class="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-legio-fg"><span>{t("Colore di accento", $language)}</span><input id="theme-accent" type="color" disabled={busy} value={draft.accent ?? paletteAccent} class="h-9 w-12 cursor-pointer rounded border border-legio-line bg-transparent" oninput={(event) => { draft.accent = event.currentTarget.value; }} /></label>
       <ResetSetting label={t("Ripristina {0}", $language, [t("Colore di accento", $language)])} disabled={busy || draft.accent === null} onClick={() => { draft.accent = null; }} />
     </div>
   </SettingsGroup>
@@ -246,10 +246,10 @@
   <SettingsGroup title={t("Sfondo e animazioni", $language)} icon="image" collapsible>
     <div class="flex flex-wrap gap-2">
       <Button variant="secondary" label={t("Scegli uno sfondo", $language)} disabled={busy || saving} onClick={() => void selectBackground()} />
-      {#if draft.background !== null}<Button variant="secondary" label={t("Rimuovi sfondo", $language)} disabled={busy} onClick={() => { draft.background = null; }} />{/if}
+      {#if draft.background !== null}<Button variant="danger-soft" label={t("Rimuovi sfondo", $language)} disabled={busy} onClick={() => { draft.background = null; }} />{/if}
     </div>
     {#if draft.background !== null}
-      <p class="text-xs text-zinc-500">{t("PNG, JPEG o WebP, fino a 16 MiB e 16 megapixel.", $language)}</p>
+      <p class="text-xs text-legio-fg-subtle">{t("PNG, JPEG o WebP, fino a 16 MiB e 16 megapixel.", $language)}</p>
       <div class="grid gap-3 sm:grid-cols-2">
         {#each backgroundEffects as effect (effect.key)}
           <AppearanceSlider id={"theme-" + effect.key} label={effect.label} value={draft[effect.key]} min={effect.min} max={effect.max} unit={effect.unit} resetValue={defaultAppearance()[effect.key]} disabled={busy} onChange={(value) => { draft[effect.key] = value; }} />
@@ -263,16 +263,16 @@
     {/if}
     {#if draft.animatedBackground === "dither"}
       <fieldset disabled={busy} class="grid gap-3 sm:grid-cols-2">
-        <legend class="mb-2 text-sm font-medium text-zinc-100 light:text-zinc-900">{t("Impostazioni dither", $language)}</legend>
+        <legend class="mb-2 text-sm font-medium text-legio-fg">{t("Impostazioni dither", $language)}</legend>
         {#each ditherEffects as effect (effect.key)}
           <AppearanceSlider id={"theme-dither-" + effect.key} label={effect.label} value={draft.dither[effect.key]} min={effect.min} max={effect.max} step={effect.step} unit="" resetValue={defaultDither()[effect.key]} disabled={busy} onChange={(value) => setDitherValue(effect.key, value, effect.decimals)} />
         {/each}
         <div class="flex items-center gap-1">
-          <label for="theme-dither-waveColor" class="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-zinc-300 light:text-zinc-700"><span>{t("Colore dell'onda", $language)}</span><input id="theme-dither-waveColor" type="color" value={draft.dither.waveColor ?? accent} class="h-9 w-12 cursor-pointer rounded border border-white/15 bg-transparent light:border-zinc-900/15" oninput={(event) => { draft.dither.waveColor = event.currentTarget.value; }} /></label>
+          <label for="theme-dither-waveColor" class="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-legio-fg"><span>{t("Colore dell'onda", $language)}</span><input id="theme-dither-waveColor" type="color" value={draft.dither.waveColor ?? accent} class="h-9 w-12 cursor-pointer rounded border border-legio-line bg-transparent" oninput={(event) => { draft.dither.waveColor = event.currentTarget.value; }} /></label>
           <ResetSetting label={t("Ripristina {0}", $language, [t("Colore dell'onda", $language)])} disabled={busy || draft.dither.waveColor === null} onClick={() => { draft.dither.waveColor = null; }} />
         </div>
         <div class="flex items-center gap-1">
-          <label for="theme-dither-backgroundColor" class="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-zinc-300 light:text-zinc-700"><span>{t("Colore di fondo", $language)}</span><input id="theme-dither-backgroundColor" type="color" value={draft.dither.backgroundColor} class="h-9 w-12 cursor-pointer rounded border border-white/15 bg-transparent light:border-zinc-900/15" oninput={(event) => { draft.dither.backgroundColor = event.currentTarget.value; }} /></label>
+          <label for="theme-dither-backgroundColor" class="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-legio-fg"><span>{t("Colore di fondo", $language)}</span><input id="theme-dither-backgroundColor" type="color" value={draft.dither.backgroundColor} class="h-9 w-12 cursor-pointer rounded border border-legio-line bg-transparent" oninput={(event) => { draft.dither.backgroundColor = event.currentTarget.value; }} /></label>
           <ResetSetting label={t("Ripristina {0}", $language, [t("Colore di fondo", $language)])} disabled={busy || draft.dither.backgroundColor === defaultDither().backgroundColor} onClick={() => { draft.dither.backgroundColor = defaultDither().backgroundColor; }} />
         </div>
         {#each ditherToggles as toggle (toggle.key)}

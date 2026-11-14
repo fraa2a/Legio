@@ -36,7 +36,7 @@
 
 <Dialog {open} {title} dismissible={!pending} {onClose}>
   {#snippet children(dismiss)}
-    {#if message}<p class="text-sm text-zinc-300 light:text-zinc-700">{message}</p>{/if}
+    {#if message}<p class="text-sm text-legio-fg">{message}</p>{/if}
     {@render details?.()}
     {#if error !== null}<ErrorBanner message={error} />{/if}
     <div class="flex justify-end gap-2">

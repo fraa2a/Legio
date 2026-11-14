@@ -27,7 +27,7 @@
   });
 </script>
 
-<span bind:this={frame} class="relative flex shrink-0 items-center justify-center overflow-hidden bg-white/5 text-zinc-500 light:bg-zinc-900/5 light:text-zinc-400 {className}" aria-hidden="true">
+<span bind:this={frame} class="relative flex shrink-0 items-center justify-center overflow-hidden bg-legio-fill text-legio-fg-subtle {className}" aria-hidden="true">
   {#if url !== null}
     <img src={url} alt="" draggable="false" class="size-full object-cover" onerror={() => (url = null)} />
   {:else}

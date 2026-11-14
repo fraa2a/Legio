@@ -93,12 +93,12 @@
     <div
       role="group"
       aria-label={t("Download in corso: {0}", $language, [lead.name])}
-      class="group/download relative overflow-hidden flex shrink-0 flex-col gap-2 rounded-lg border border-white/10 bg-white/5 p-2 light:border-zinc-900/15 light:bg-zinc-100"
+      class="group/download relative overflow-hidden flex shrink-0 flex-col gap-2 rounded-lg border border-legio-line-subtle bg-legio-fill p-2"
     >
       <WaveFill value={percent} active={moving} />
       <div class="relative flex min-h-7 items-center gap-2">
         <DownloadCover steamAppId={lead.steamAppId} name={lead.name} class="h-12 w-8" rounded="md" />
-        <p class="min-w-0 flex-1 truncate text-xs font-medium text-white light:text-zinc-900">
+        <p class="min-w-0 flex-1 truncate text-xs font-medium text-legio-fg">
           {lead.name}
         </p>
         {#if quickActions.length > 0}
@@ -112,7 +112,7 @@
         {/if}
         <span
           role="progressbar" aria-label={t("Avanzamento di {0}", $language, [lead.name])} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(percent)}
-          class="shrink-0 text-xs font-semibold text-zinc-300 light:text-zinc-700 {quickActions.length > 0
+          class="shrink-0 text-xs font-semibold text-legio-fg {quickActions.length > 0
             ? 'pointer-events-none absolute right-0 group-hover/download:opacity-0 group-focus-within/download:opacity-0'
             : ''}"
         >
@@ -122,7 +122,7 @@
 
 
       <div
-        class="relative flex items-center justify-between gap-2 text-[0.6875rem] text-zinc-300 light:text-zinc-700"
+        class="relative flex items-center justify-between gap-2 text-[0.6875rem] text-legio-fg"
       >
         <span class="truncate">{detailLabel}</span>
         {#if lead.speedBps > 0}
@@ -139,7 +139,7 @@
       type="button"
       aria-label={t("Download in corso: {0}, {1}. Apri la sezione Download", $language, [lead.name, percentLabel])}
       onclick={() => selectSection("downloads")}
-      class="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/5 text-zinc-200 transition-colors duration-200 hover:bg-white/10 hover:text-white light:bg-zinc-900/5 light:text-zinc-500 light:hover:bg-zinc-900/10 light:hover:text-zinc-900"
+      class="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-legio-fill text-legio-fg-muted transition-colors duration-200 hover:bg-legio-fill-hover hover:text-legio-fg"
     >
       <WaveFill compact value={percent} active={moving} />
       <span class="relative">

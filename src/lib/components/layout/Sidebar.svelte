@@ -78,7 +78,7 @@
     : "w-16"} transition-[width] duration-300 ease-out"
 >
   <nav class="mt-2 flex min-h-0 flex-1 flex-col gap-1 p-2" aria-label={t("Navigazione principale", $language)}>
-    <div class="flex w-full items-center text-white light:text-zinc-900">
+    <div class="flex w-full items-center text-legio-fg">
       <span class="flex h-12 w-full items-center gap-2 overflow-hidden rounded-lg">
         <span class="ml-2 flex size-8 shrink-0 items-center justify-center">
           <Logo />

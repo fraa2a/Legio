@@ -55,10 +55,10 @@
   {onClose}
 >
   {#if directory !== null}
-    <p class="break-all rounded-lg bg-white/5 p-3 font-mono text-xs text-zinc-200 light:bg-zinc-900/5 light:text-zinc-800">{directory}</p>
+    <p class="break-all rounded-lg bg-legio-fill p-3 font-mono text-xs text-legio-fg">{directory}</p>
     <Callout tone="danger" message={t("Verranno eliminati anche eventuali salvataggi e mod presenti in questa cartella. L'operazione non può essere annullata.", $language)} />
   {:else if error === null}
-    <p class="text-sm text-zinc-400 light:text-zinc-600" role="status">{t("Verifica della cartella del gioco...", $language)}</p>
+    <p class="text-sm text-legio-fg-muted" role="status">{t("Verifica della cartella del gioco...", $language)}</p>
   {/if}
-  {#if pending}<p class="text-sm text-zinc-400 light:text-zinc-600" role="status">{t("Disinstallazione in corso...", $language)}</p>{/if}
+  {#if pending}<p class="text-sm text-legio-fg-muted" role="status">{t("Disinstallazione in corso...", $language)}</p>{/if}
 </ConfirmDialog>

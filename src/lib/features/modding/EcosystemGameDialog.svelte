@@ -77,7 +77,7 @@
 <Dialog {open} title={t("Gioco Thunderstore", $language)} dismissible={!pending} {onClose}>
   {#snippet children(close)}
     <div class="flex flex-col gap-4">
-      <p class="text-sm text-zinc-400 light:text-zinc-600">
+      <p class="text-sm text-legio-fg-muted">
         {t("Scegli il gioco Thunderstore che corrisponde a {0}. Le mod e i profili useranno il suo catalogo.", $language, [gameName])}
       </p>
       <TextField id="ecosystem-game-search" type="search" label={t("Cerca", $language)} placeholder={t("Nome del gioco", $language)} bind:value={query} />
@@ -90,7 +90,7 @@
       />
       {#if $ecosystemGames.data.length > 0}
         {#if matches.length === 0}
-          <p class="py-6 text-center text-sm text-zinc-400 light:text-zinc-600">{t("Nessun gioco corrisponde alla ricerca.", $language)}</p>
+          <p class="py-6 text-center text-sm text-legio-fg-muted">{t("Nessun gioco corrisponde alla ricerca.", $language)}</p>
         {:else}
           <div role="group" aria-label={t("Giochi Thunderstore", $language)} class="-mx-1 flex max-h-72 flex-col gap-0.5 overflow-y-auto px-1">
             {#each matches as game (game.id)}
@@ -98,9 +98,9 @@
                 type="button"
                 aria-pressed={game.id === selectedId}
                 onclick={() => (chosen = game.id)}
-                class="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2 text-left outline-none transition-colors hover:bg-white/10 focus-visible:bg-white/10 aria-pressed:bg-white/10 light:hover:bg-zinc-900/5 light:focus-visible:bg-zinc-900/5 light:aria-pressed:bg-zinc-900/10"
+                class="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2 text-left outline-none transition-colors hover:bg-legio-fill-hover focus-visible:bg-legio-fill-hover aria-pressed:bg-legio-fill-hover"
               >
-                <span class="min-w-0 flex-1 truncate text-sm text-zinc-100 light:text-zinc-900">{game.displayName}</span>
+                <span class="min-w-0 flex-1 truncate text-sm text-legio-fg">{game.displayName}</span>
                 {#if !game.supported}<Badge tone="warning" title={t("Loader non supportato", $language)} />{/if}
                 {#if game.id === selectedId}<Icon name="check" size="size-4 shrink-0 text-legio-success" />{/if}
               </button>
