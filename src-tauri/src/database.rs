@@ -79,7 +79,10 @@ pub struct CompatibilityDefaults {
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct LinuxPerformance {
     pub game_mode: bool,
+    pub mangohud: bool,
     pub gamescope: Option<GamescopeConfig>,
+    /// Command prefix placed directly before the game command.
+    pub wrapper: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -92,6 +95,20 @@ pub struct GamescopeConfig {
 
 impl LinuxPerformance {
     pub(crate) fn validate(&self) -> Result<(), String> {
+        if self
+            .wrapper
+            .first()
+            .is_some_and(|program| program.trim().is_empty())
+        {
+            return Err("Custom wrapper command needs a program name".to_owned());
+        }
+        if self
+            .wrapper
+            .iter()
+            .any(|argument| argument.chars().any(char::is_control))
+        {
+            return Err("Custom wrapper command cannot contain control characters".to_owned());
+        }
         if let Some(config) = &self.gamescope {
             if config.width.is_some() != config.height.is_some()
                 || config
@@ -3026,11 +3043,13 @@ mod tests {
         assert_eq!(overrides.linux_performance, LinuxPerformance::default());
         overrides.linux_performance = LinuxPerformance {
             game_mode: true,
+            mangohud: true,
             gamescope: Some(GamescopeConfig {
                 width: Some(1280),
                 height: Some(720),
                 fps: Some(123),
             }),
+            wrapper: vec!["taskset".to_owned(), "-c".to_owned(), "0-7".to_owned()],
         };
         database
             .save_game_compatibility_overrides(&game.id, overrides.clone())
