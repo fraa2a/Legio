@@ -27,6 +27,10 @@ Legio uses source-available SA-NC-PD 1.0, not an open-source license. Read [LICE
 - Keep current documentation in `_meta/docs` and images in `_meta/screenshots`.
 - Put review results in PRs and release notes in GitHub Releases. Update known issues when taking ownership or resolving them.
 
+## Translations
+
+The app ships Italian and English. Italian source strings are the catalog keys in `src/lib/i18n/en.json`, which holds their English text. External translations for other languages are not accepted until the catalog moves to stable keys.
+
 ## Versioning
 
 `src-tauri/Cargo.toml` owns the version. Do not bump it during normal work: an increase requests a release. Follow Semantic Versioning; never reuse or decrease released versions. Create tags manually only for release recovery. See [Releases and updates](_meta/docs/UPDATING.md).
