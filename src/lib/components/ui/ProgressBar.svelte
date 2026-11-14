@@ -33,7 +33,7 @@
   aria-valuenow={Math.round(percent)}
 >
   <span
-    class="block h-full transition-[width] duration-300 motion-reduce:transition-none {variant === 'default' ? 'rounded-full' : ''} {fillClass}"
+    class="block h-full transition-[width] duration-(--legio-motion-slow) motion-reduce:transition-none {variant === 'default' ? 'rounded-full' : ''} {fillClass}"
     style:width={`${percent}%`}
   ></span>
 </span>

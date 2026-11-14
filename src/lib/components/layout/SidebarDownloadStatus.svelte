@@ -93,19 +93,19 @@
     <div
       role="group"
       aria-label={t("Download in corso: {0}", $language, [lead.name])}
-      class="group/download relative overflow-hidden flex shrink-0 flex-col gap-2 rounded-lg border border-legio-line-subtle bg-legio-fill p-2"
+      class="group/download relative overflow-hidden flex shrink-0 flex-col gap-2 rounded-control border border-legio-line-subtle bg-legio-fill p-2"
     >
       <WaveFill value={percent} active={moving} />
       <div class="relative flex min-h-7 items-center gap-2">
-        <DownloadCover steamAppId={lead.steamAppId} name={lead.name} class="h-12 w-8" rounded="md" />
+        <DownloadCover steamAppId={lead.steamAppId} name={lead.name} class="h-12 w-8" radius="control" />
         <p class="min-w-0 flex-1 truncate text-xs font-medium text-legio-fg">
           {lead.name}
         </p>
         {#if quickActions.length > 0}
           <div class="pointer-events-none flex shrink-0 items-center gap-1 opacity-0 group-hover/download:pointer-events-auto group-hover/download:opacity-100 group-focus-within/download:pointer-events-auto group-focus-within/download:opacity-100">
             {#each quickActions as action (action.title)}
-              <IconButton size="sm" variant="soft" disabled={busy} label={action.label} title={action.title} onClick={action.trigger}>
-                <Icon name={action.icon} size="size-3.5" />
+              <IconButton size="inline-md" variant="soft" disabled={busy} label={action.label} title={action.title} onClick={action.trigger}>
+                <Icon name={action.icon} size="sm" />
               </IconButton>
             {/each}
           </div>
@@ -122,7 +122,7 @@
 
 
       <div
-        class="relative flex items-center justify-between gap-2 text-[0.6875rem] text-legio-fg"
+        class="relative flex items-center justify-between gap-2 text-xs text-legio-fg"
       >
         <span class="truncate">{detailLabel}</span>
         {#if lead.speedBps > 0}
@@ -131,7 +131,7 @@
       </div>
 
       {#if actionError}
-        <p class="relative text-[0.6875rem] text-legio-error" role="alert">{actionError}</p>
+        <p class="relative text-xs text-legio-error" role="alert">{actionError}</p>
       {/if}
     </div>
   {:else}
@@ -139,11 +139,11 @@
       type="button"
       aria-label={t("Download in corso: {0}, {1}. Apri la sezione Download", $language, [lead.name, percentLabel])}
       onclick={() => selectSection("downloads")}
-      class="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-legio-fill text-legio-fg-muted transition-colors duration-200 hover:bg-legio-fill-hover hover:text-legio-fg"
+      class="relative flex size-control-lg shrink-0 items-center justify-center overflow-hidden rounded-control bg-legio-fill text-legio-fg-muted transition-colors hover:bg-legio-fill-hover hover:text-legio-fg"
     >
       <WaveFill compact value={percent} active={moving} />
       <span class="relative">
-        <Icon name={lead.pauseReason === "game_running" ? "pause" : "downloads"} size="h-5 w-5" />
+        <Icon name={lead.pauseReason === "game_running" ? "pause" : "downloads"} size="lg" />
       </span>
     </button>
   {/if}

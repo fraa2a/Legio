@@ -18,7 +18,7 @@
 
 <!-- Keyboard activation of a link also dispatches click, so one handler covers both. -->
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="mod-markdown rounded-lg bg-legio-fill p-4 text-sm" onclick={openLink} onauxclick={openLink}>
+<div class="mod-markdown rounded-control bg-legio-fill p-4 text-sm" onclick={openLink} onauxclick={openLink}>
   <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized by the backend renderer -->
   {@html html}
 </div>

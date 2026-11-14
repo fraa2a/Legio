@@ -12,6 +12,6 @@
 </script>
 
 <Button {label} variant="download" size="hero" class="relative w-60 overflow-hidden" {onClick}>
-  <Icon name="download" size="size-6" />
+  <Icon name="download" size="xl" />
   <ProgressBar variant="button" {value} label={progressLabel} />
 </Button>

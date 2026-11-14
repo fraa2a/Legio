@@ -42,7 +42,7 @@
 </script>
 
 <ArtworkScope active={visible}>
-  <li bind:this={row} class="tile legio-glass group relative overflow-hidden rounded-xl">
+  <li bind:this={row} class="tile legio-glass group relative overflow-hidden rounded-card">
     <div
       class="legio-artwork-zoom absolute inset-0"
       aria-hidden="true"

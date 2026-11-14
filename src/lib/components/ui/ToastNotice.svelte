@@ -6,6 +6,7 @@
   import { reducedMotion } from "../../utils/motion";
   import { t, language } from "../../i18n";
   import type { ToastTone } from "../../stores/toast";
+  import Button from "./Button.svelte";
   import Icon, { type IconName } from "./Icon.svelte";
   import IconButton from "./IconButton.svelte";
 
@@ -42,7 +43,7 @@
       if (notice.matches(":popover-open")) notice.hidePopover();
       notice.showPopover();
     } else if (notice.matches(":popover-open")) {
-      hideTimer = setTimeout(() => notice?.hidePopover(), 180);
+      hideTimer = setTimeout(() => notice?.hidePopover(), 200);
     }
   });
 
@@ -69,14 +70,14 @@
   {#each $toast as notification (notification.id)}
     {@const tone = tones[notification.tone]}
     <div
-      transition:fly={{ y: 16, duration: reducedMotion ? 0 : 180 }}
+      transition:fly={{ y: 16, duration: reducedMotion ? 0 : 200 }}
       role={notification.tone === "error" ? "alert" : "status"}
-      class="legio-popover pointer-events-auto flex items-start gap-3 rounded-xl px-4 py-3 text-sm text-legio-fg shadow-xl shadow-black/30 inset-ring light:shadow-zinc-900/15 {tone.line}"
+      class="legio-popover pointer-events-auto flex items-start gap-3 rounded-card p-4 text-sm text-legio-fg shadow-xl shadow-black/30 inset-ring light:shadow-zinc-900/15 {tone.line}"
     >
-      <span class="mt-0.5 shrink-0 {tone.text}"><Icon name={tone.icon} size="size-4" /></span>
+      <span class="mt-0.5 shrink-0 {tone.text}"><Icon name={tone.icon} /></span>
       <p class="min-w-0 flex-1 break-words">{notification.message}</p>
-      {#if notification.onRetry}<button type="button" class="shrink-0 rounded px-2 py-0.5 font-semibold hover:bg-legio-fill-hover" onclick={() => { dismissToast(notification.id); notification.onRetry?.(); }}>{notification.retryLabel ?? t("Riprova", $language)}</button>{/if}
-      <IconButton size="xs" variant="plain" label={t("Chiudi notifica", $language)} onClick={() => dismissToast(notification.id)}><Icon name="close" size="size-4" /></IconButton>
+      {#if notification.onRetry}<Button label={notification.retryLabel ?? t("Riprova", $language)} variant="link" class="shrink-0" onClick={() => { dismissToast(notification.id); notification.onRetry?.(); }} />{/if}
+      <IconButton size="inline-sm" variant="plain" label={t("Chiudi notifica", $language)} onClick={() => dismissToast(notification.id)}><Icon name="close" /></IconButton>
     </div>
   {/each}
 </div>

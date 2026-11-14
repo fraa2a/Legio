@@ -98,11 +98,11 @@
                 type="button"
                 aria-pressed={game.id === selectedId}
                 onclick={() => (chosen = game.id)}
-                class="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2 text-left outline-none transition-colors hover:bg-legio-fill-hover focus-visible:bg-legio-fill-hover aria-pressed:bg-legio-fill-hover"
+                class="flex min-h-control-md w-full items-center gap-3 rounded-control px-3 py-2 text-left outline-none transition-colors hover:bg-legio-fill-hover focus-visible:bg-legio-fill-hover aria-pressed:bg-legio-fill-hover"
               >
                 <span class="min-w-0 flex-1 truncate text-sm text-legio-fg">{game.displayName}</span>
                 {#if !game.supported}<Badge tone="warning" title={t("Loader non supportato", $language)} />{/if}
-                {#if game.id === selectedId}<Icon name="check" size="size-4 shrink-0 text-legio-success" />{/if}
+                {#if game.id === selectedId}<Icon name="check" class="shrink-0 text-legio-success" />{/if}
               </button>
             {/each}
           </div>

@@ -37,7 +37,7 @@ function steamDescriptionVideo(element: Element): HTMLVideoElement | null {
   video.playsInline = true;
   video.controls = false;
   video.preload = "metadata";
-  video.className = "my-3 block h-auto max-w-full rounded-lg";
+  video.className = "my-3 block h-auto max-w-full rounded-control";
   const poster = steamDescriptionMediaUrl(element.getAttribute("poster"));
   if (poster !== null) video.poster = poster;
   for (const dimension of ["width", "height"] as const) {
@@ -101,7 +101,7 @@ export function renderSteamDescription(target: HTMLElement, source: string): { u
         image.setAttribute("loading", "lazy");
         image.setAttribute("decoding", "async");
         image.setAttribute("referrerpolicy", "no-referrer");
-        image.className = "my-3 block h-auto max-w-full rounded-lg";
+        image.className = "my-3 block h-auto max-w-full rounded-control";
         const width = Number(element.getAttribute("width"));
         const height = Number(element.getAttribute("height"));
         if (Number.isInteger(width) && width > 0 && width <= 16384) image.width = width;

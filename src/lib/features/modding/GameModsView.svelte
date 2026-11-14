@@ -309,27 +309,27 @@
 {/snippet}
 
 {#snippet profileActions()}
-  <div class="legio-glass flex h-11 items-center gap-0.5 rounded-xl p-1" role="toolbar" aria-label={t("Profilo delle mod", $language)}>
+  <div class="legio-glass flex h-control-md items-center gap-0.5 rounded-card p-1" role="toolbar" aria-label={t("Profilo delle mod", $language)}>
     <IconButton label={t("Nuovo profilo", $language)} title={t("Nuovo profilo", $language)} onClick={() => afterDiscard(() => (nameDialog = { kind: "create" }))}>
-      <Icon name="plus" size="size-4" />
+      <Icon name="plus" />
     </IconButton>
     <IconButton label={t("Rinomina profilo", $language)} title={t("Rinomina profilo", $language)} disabled={profile === null} onClick={() => (nameDialog = { kind: "rename" })}>
-      <Icon name="pencil" size="size-4" />
+      <Icon name="pencil" />
     </IconButton>
     <IconButton label={t("Duplica profilo", $language)} title={t("Duplica profilo", $language)} disabled={profile === null || busy} onClick={() => afterDiscard(() => (nameDialog = { kind: "duplicate" }))}>
-      <Icon name="copy" size="size-4" />
+      <Icon name="copy" />
     </IconButton>
     <IconButton label={t("Importa profilo", $language)} title={t("Importa profilo", $language)} onClick={() => (importOpen = true)}>
-      <Icon name="upload" size="size-4" />
+      <Icon name="upload" />
     </IconButton>
     <IconButton label={t("Condividi profilo", $language)} title={t("Condividi profilo", $language)} disabled={profile === null} onClick={() => (shareOpen = true)}>
-      <Icon name="share" size="size-4" />
+      <Icon name="share" />
     </IconButton>
     <IconButton label={t("Apri la cartella del profilo", $language)} title={t("Apri la cartella del profilo", $language)} disabled={profile === null} onClick={() => void openFolder()}>
-      <Icon name="folder-open" size="size-4" />
+      <Icon name="folder-open" />
     </IconButton>
     <IconButton variant="danger" label={t("Elimina profilo", $language)} title={t("Elimina profilo", $language)} disabled={profile === null || running || busy} onClick={() => (deleteOpen = true)}>
-      <Icon name="trash" size="size-4" />
+      <Icon name="trash" />
     </IconButton>
   </div>
 {/snippet}
@@ -401,7 +401,7 @@
         <InstallProgressCard {progress} {cancelling} onCancel={() => void cancel()} />
       {/if}
 
-      <div class="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl legio-glass p-2">
+      <div class="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 rounded-panel legio-glass p-2">
         {#if profile !== null && ecosystemGameId !== null}
           {#key tabRevision}
             <SegmentedControl
@@ -422,14 +422,14 @@
         <div class="ml-auto flex min-w-0 items-center gap-3 pl-2 text-sm text-legio-fg-muted">
           {#if profile !== null && profileSize !== null}
             <span class="inline-flex shrink-0 items-center gap-1.5 tabular-nums" title={t("Spazio occupato dal profilo", $language)}>
-              <Icon name="folder" size="size-4" />
+              <Icon name="folder" />
               {formatBytes(profileSize, $language)}
             </span>
           {/if}
           <span class="min-w-0 truncate">{t("Thunderstore: {0}", $language, [game.displayName ?? game.name])}</span>
           {#if canChooseEcosystemGame(game)}
-            <IconButton size="sm" label={t("Cambia gioco Thunderstore", $language)} title={t("Cambia gioco Thunderstore", $language)} disabled={running} onClick={() => (bindingOpen = true)}>
-              <Icon name="pencil" size="size-4" />
+            <IconButton size="inline-md" label={t("Cambia gioco Thunderstore", $language)} title={t("Cambia gioco Thunderstore", $language)} disabled={running} onClick={() => (bindingOpen = true)}>
+              <Icon name="pencil" />
             </IconButton>
           {/if}
         </div>
@@ -445,10 +445,10 @@
           >
             <div class="flex flex-wrap justify-center gap-2">
               <Button label={t("Crea profilo", $language)} onClick={() => (nameDialog = { kind: "create" })}>
-                <Icon name="plus" size="size-4" />
+                <Icon name="plus" />
               </Button>
               <Button label={t("Importa profilo", $language)} variant="secondary" onClick={() => (importOpen = true)}>
-                <Icon name="upload" size="size-4" />
+                <Icon name="upload" />
               </Button>
             </div>
           </EmptyState>
