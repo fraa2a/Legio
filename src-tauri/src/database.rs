@@ -404,11 +404,32 @@ pub struct Database {
     settings_cache: Mutex<Option<Settings>>,
     pub(crate) source_cache: Mutex<Option<crate::legio_source_cache::CachedSource>>,
     downloads_changed: tokio::sync::watch::Sender<()>,
+    library_changed: tokio::sync::watch::Sender<()>,
 }
 
 impl Database {
     pub(crate) fn subscribe_downloads_changes(&self) -> tokio::sync::watch::Receiver<()> {
         self.downloads_changed.subscribe()
+    }
+
+    pub(crate) fn subscribe_library_changes(&self) -> tokio::sync::watch::Receiver<()> {
+        self.library_changed.subscribe()
+    }
+
+    /// Opens an existing database without migrating or writing to it.
+    pub(crate) fn open_read_only(data_dir: &Path) -> Result<Self, String> {
+        let connection = Connection::open_with_flags(
+            data_dir.join("legio.sqlite3"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(|error| format!("could not open the local database: {error}"))?;
+        Ok(Self {
+            connection: Mutex::new(connection),
+            settings_cache: Mutex::new(None),
+            source_cache: Mutex::new(None),
+            downloads_changed: tokio::sync::watch::channel(()).0,
+            library_changed: tokio::sync::watch::channel(()).0,
+        })
     }
 
     pub(crate) fn storage_root(&self, data_dir: &Path) -> Result<std::path::PathBuf, String> {
@@ -560,12 +581,19 @@ impl Database {
         let downloads_changed = tokio::sync::watch::channel(()).0;
         // Covers every write to the table, whichever code path performs it.
         let notifier = downloads_changed.clone();
+        let library_changed = tokio::sync::watch::channel(()).0;
+        let library_notifier = library_changed.clone();
         connection
             .update_hook(Some(
-                move |_: rusqlite::hooks::Action, _: &str, table: &str, _: i64| {
-                    if table == "downloads" {
+                move |_: rusqlite::hooks::Action, _: &str, table: &str, _: i64| match table {
+                    "downloads" => {
                         notifier.send_replace(());
                     }
+                    // The tray menu lists recent games and is labelled in the saved language.
+                    "games" | "game_sessions" | "hidden_games" | "settings" => {
+                        library_notifier.send_replace(());
+                    }
+                    _ => {}
                 },
             ))
             .map_err(|error| format!("could not watch the local database: {error}"))?;
@@ -574,6 +602,7 @@ impl Database {
             settings_cache: Mutex::new(None),
             source_cache: Mutex::new(None),
             downloads_changed,
+            library_changed,
         };
         database.recover_open_game_sessions(now_milliseconds()?)?;
         Ok(database)
@@ -2201,6 +2230,7 @@ mod tests {
             settings_cache: Mutex::new(None),
             source_cache: Mutex::new(None),
             downloads_changed: tokio::sync::watch::channel(()).0,
+            library_changed: tokio::sync::watch::channel(()).0,
         };
         assert_eq!(database.settings().unwrap().theme, Theme::Dark);
         assert_eq!(
