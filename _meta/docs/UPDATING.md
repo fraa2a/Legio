@@ -4,6 +4,8 @@ Increasing the version in `src-tauri/Cargo.toml` on `main` triggers a release af
 
 Legio checks for updates at startup and from Settings. The manifest distinguishes the installed package format. Tauri verifies the signature before installation. On Ubuntu and Fedora, package installation may require administrator authorization. On Windows, the NSIS installer is launched. Legio restarts after installation.
 
+Before an update changes the database schema, Legio saves a consistent copy of `legio.sqlite3` to the `database-backups` folder in the application data directory, named with the previous schema version and a timestamp. The three newest copies are kept. If the copy fails, the schema is not changed and the [recovery screen](TROUBLESHOOTING.md#database-does-not-open) explains the error.
+
 The Arch package `legio-launcher-bin` uses the AppImage published on GitHub. The pipeline updates the PKGBUILD and `.SRCINFO` on AUR for every stable release. AUR users update through their package manager; Legio displays the new version without overwriting files managed by pacman.
 
 The AUR package declares `umu-launcher` as a runtime dependency, so AUR helpers install it alongside Legio. Arch users need the `multilib` repository enabled. Standalone AppImage, `.deb` and `.rpm` downloads do not bundle umu; install it separately to launch manually imported games through Proton or GE-Proton.
