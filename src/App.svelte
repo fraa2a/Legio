@@ -33,6 +33,7 @@
   import { observeMediaPlayback } from "./lib/services/media-playback";
   import { startArtworkDisplayTracking } from "./lib/services/artwork-display";
   import { applicationErrorStack, describeApplicationError, logApplicationEvent } from "./lib/services/application-log";
+  import { allowsNativeContextMenu } from "./lib/utils/context-menu";
 
   const mediaActive = derived([windowVisible, hasRunningGame], ([$visible, $running]) => $visible && !$running);
   const appearance = $derived($appearancePreview?.appearance ?? $settings.data.appearance);
@@ -82,7 +83,7 @@
   });
 
   function blockContextMenu(event: MouseEvent) {
-    event.preventDefault();
+    if (!allowsNativeContextMenu(event.target)) event.preventDefault();
   }
 </script>
 
@@ -111,7 +112,7 @@
     {#if $databaseFailure.data !== null}
       <DatabaseRecoveryView failure={$databaseFailure.data} />
     {:else if $settings.status === "error" || $appInfo.status === "error"}
-      <ErrorBanner message={$settings.error ?? $appInfo.error ?? t("Impossibile caricare la configurazione.", $language)} onRetry={() => void hydrateApp()} />
+      <ErrorBanner message={t("Impossibile caricare la configurazione.", $language)} detail={$settings.error ?? $appInfo.error} onRetry={() => void hydrateApp()} />
     {:else if $settings.status !== "ready" || $appInfo.status !== "ready"}
       <p class="p-6" role="status">{t("Caricamento...", $language)}</p>
     {:else if !$settings.data.onboardingCompleted}

@@ -50,7 +50,7 @@ const hiddenForSession = new Set<string>();
 const restoreOnExit = new Set<string>();
 const reportedErrors = new Map<string, string>();
 const reportedLogErrors = new Map<string, string>();
-launchError.subscribe((message) => { if (message) showToast(describeModdingError(message), "error"); });
+launchError.subscribe((message) => { if (message) showToast(t("Impossibile avviare il gioco.", undefined), "error", { detail: describeModdingError(message) }); });
 
 launchStates.subscribe((state) => {
   for (const launch of state.data) {
@@ -58,7 +58,7 @@ launchStates.subscribe((state) => {
       reportedErrors.set(launch.gameId, launch.error);
       const logPath = launch.compatibilityLogPath;
       const message = describeModdingError(launch.error);
-      showToast(logPath ? `${message} ${t("Log degli avvii: {0}", undefined, [logPath])}` : message, "error");
+      showToast(t("Impossibile avviare il gioco.", undefined), "error", { detail: logPath ? `${message} ${t("Log degli avvii: {0}", undefined, [logPath])}` : message });
     } else if (!launch.error) reportedErrors.delete(launch.gameId);
     if (launch.compatibilityLogError && reportedLogErrors.get(launch.gameId) !== launch.compatibilityLogError) {
       reportedLogErrors.set(launch.gameId, launch.compatibilityLogError);

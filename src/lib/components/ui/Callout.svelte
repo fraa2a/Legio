@@ -4,6 +4,8 @@
   import Button from "./Button.svelte";
   import Icon, { type IconName } from "./Icon.svelte";
   import IconButton from "./IconButton.svelte";
+  import CopyButton from "./CopyButton.svelte";
+  import { failureReport, technicalDetail } from "../../utils/error-message";
 
   type Tone = "info" | "success" | "warning" | "danger";
 
@@ -11,6 +13,8 @@
     tone = "info",
     title,
     message,
+    detail,
+    copyable = false,
     items = [],
     variant = "banner",
     onRetry,
@@ -22,6 +26,9 @@
     tone?: Tone;
     title?: string;
     message?: string;
+    // Technical text kept apart from the summary in `message`.
+    detail?: string | null;
+    copyable?: boolean;
     items?: string[];
     variant?: "banner" | "inline";
     onRetry?: () => void;
@@ -41,6 +48,8 @@
   };
   const style = $derived(styles[tone]);
   const banner = $derived(variant === "banner");
+  const technical = $derived(message === undefined ? null : technicalDetail(message, detail));
+  const reportText = $derived(message === undefined ? "" : failureReport(message, detail));
 </script>
 
 {#snippet list()}
@@ -54,9 +63,18 @@
   class="flex items-start gap-3 {banner ? `rounded-card border p-4 text-sm ${style.box}` : 'text-xs'} {className}"
 >
   <span class="mt-0.5 shrink-0 {style.text}"><Icon name={style.icon} size={banner ? "md" : "sm"} /></span>
-  <div class="min-w-0 flex-1 break-words text-legio-fg">
+  <div class="min-w-0 flex-1 select-text break-words text-legio-fg" data-selectable>
     {#if title}<p class="font-medium text-legio-fg">{title}</p>{/if}
     {#if message}<p>{message}</p>{/if}
+    {#if technical !== null}
+      <details class="group mt-1">
+        <summary class="flex w-fit cursor-pointer list-none items-center gap-1 text-xs text-legio-fg-muted transition-colors hover:text-legio-fg">
+          {t("Dettagli tecnici", $language)}
+          <span class="transition-transform group-open:rotate-180 motion-reduce:transition-none"><Icon name="chevron-down" size="sm" /></span>
+        </summary>
+        <pre class="mt-1 whitespace-pre-wrap break-words font-mono text-xs text-legio-fg-muted">{technical}</pre>
+      </details>
+    {/if}
     {@render children?.()}
     {#if items.length > collapseAfter}
       <details class="group mt-1">
@@ -71,5 +89,6 @@
     {/if}
   </div>
   {#if onRetry}<Button label={retryLabel} variant="link" size={banner ? "md" : "sm"} class="shrink-0" onClick={onRetry} />{/if}
+  {#if copyable && message !== undefined}<CopyButton text={reportText} size="inline-sm" label={t("Copia l'errore", $language)} />{/if}
   {#if onDismiss}<IconButton size="inline-sm" variant="plain" label={t("Chiudi avviso", $language)} onClick={onDismiss}><Icon name="close" size="sm" /></IconButton>{/if}
 </div>
