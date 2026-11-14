@@ -8,4 +8,6 @@ Include the affected version or revision, the operating system, reproduction ste
 
 ## Supported versions
 
-Legio is under active development. Security fixes target the current supported release line and the default branch when no stable release exists.
+Only the latest released version receives fixes, including security fixes. Older versions do not receive fixes: update to the latest release through the built-in updater, or through the package manager for the AUR package.
+
+The minimum supported database schema is the one created by any released version. Migrations start from schema version 0 and upgrade in sequence to the current version. Downgrading to an older version is not supported: Legio refuses to migrate a database whose schema is newer than its build supports.
