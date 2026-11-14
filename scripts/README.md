@@ -8,6 +8,7 @@ Run from the repository root. [package.json](../package.json) defines `test:*` c
 | --- | --- |
 | `test_*.mjs` | Regression suites; use package commands for the required Node flags |
 | `test_documentation.mjs` | Local Markdown links and image paths (`test:docs`) |
+| `test_ui_spec.mjs` | Radius, color and control height scales from [Legio UI](../_meta/docs/UI.md) (`test:ui-spec`) |
 | `test_module_loader.mjs` | Svelte/TypeScript loading with mocks; not a standalone suite |
 | `fixtures/gofile-wt.js` | Protocol fixture shared with Rust via `include_str!` |
 
