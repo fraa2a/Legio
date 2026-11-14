@@ -27,7 +27,7 @@
     "test:acl": "node --test scripts/test_command_acl.mjs",
     "test:docs": "node --test scripts/test_documentation.mjs",
     "test:i18n": "node --test scripts/test_i18n_catalog.mjs",
-    "test:launcher": "node --conditions=browser --test scripts/test_settings_frontend.mjs scripts/test_app_updater.mjs scripts/test_preferences.mjs scripts/test_settings_loading.mjs",
+    "test:launcher": "node --conditions=browser --test scripts/test_settings_frontend.mjs scripts/test_app_updater.mjs scripts/test_preferences.mjs scripts/test_settings_loading.mjs scripts/test_database_recovery.mjs",
     "test:select": "node --conditions=browser --test scripts/test_select.mjs",
     "test:artwork-cache": "node --conditions=browser --test scripts/test_steam_image_cache.mjs",
     "test:visual": "node --conditions=browser --test scripts/test_visual_rendering.mjs scripts/test_dither_renderer.mjs",
