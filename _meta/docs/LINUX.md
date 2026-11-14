@@ -20,17 +20,20 @@ Existing prefixes and saves stay in place. Only one game can use a shared prefix
 
 ## Optional controls
 
-Install [GameMode](https://github.com/FeralInteractive/gamemode) or [gamescope](https://github.com/ValveSoftware/gamescope), then reopen the game's compatibility panel. Their executables must be in PATH or `~/.local/bin`. Both are off by default and apply to manually imported games.
+Install [GameMode](https://github.com/FeralInteractive/gamemode), [MangoHud](https://github.com/flightlessmango/MangoHud) or [gamescope](https://github.com/ValveSoftware/gamescope), then reopen the game's compatibility panel. Their executables must be in PATH or `~/.local/bin`. They are off by default and apply to manually imported games.
 
 - **GameMode:** requires its user service and preload libraries; Legio does not configure them.
+- **MangoHud:** shows an in-game performance overlay. With gamescope enabled, Legio passes `--mangoapp` instead of wrapping the game.
 - **gamescope:** offers an internal resolution and optional FPS cap. Lower resolution affects quality; the extra compositor can affect latency.
+
+- **Custom wrapper command:** a prefix such as `prime-run` or `taskset -c 0-7` placed directly before the game command. It is split into arguments like launch options and never runs through a shell; the program must be in PATH or an absolute path.
 
 These controls and Wine Wayland are independent. Test one change at a time; an FPS gain is not guaranteed.
 
 <details>
 <summary>Launch order and environment</summary>
 
-Commands use `gamescope [options] -- gamemoderun umu-run game.exe [arguments]`, omitting disabled wrappers. Online Fix replaces umu with `runtime/run -- proton run`; Wine uses its own executable. Steam-managed games keep the Steam launch path.
+Commands use `gamescope [options] [--mangoapp] -- gamemoderun mangohud <wrapper> umu-run game.exe [arguments]`, omitting disabled wrappers (`mangohud` is only used without gamescope). Online Fix replaces umu with `runtime/run -- proton run`; Wine uses its own executable. Steam-managed games keep the Steam launch path.
 
 Runner-default graphics and Wayland options clear inherited overrides for those settings. Explicit shader-cache overrides are preserved; [vkd3d](https://github.com/HansKristian-Work/vkd3d-proton) uses a per-game cache directory. Set umu's `GAMEID` and `STORE` explicitly when needed; Legio does not derive an umu ID from the Steam App ID.
 

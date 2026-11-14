@@ -39,6 +39,8 @@
   let runnerDiagnostics = $state<string[]>([]);
   let gameModeAvailable = $state(false);
   let gamescopeAvailable = $state(false);
+  let mangohudAvailable = $state(false);
+  let wrapperText = $state("");
   let argumentsBefore = $state("");
   let argumentsAfter = $state("");
   let environmentText = $state("");
@@ -58,13 +60,13 @@
   let disposed = false;
 
   function compatibilityDraft() {
-    return { overrides: structuredClone($state.snapshot(overrides)), argumentsBefore, argumentsAfter, environmentText, dllOverridesText };
+    return { overrides: structuredClone($state.snapshot(overrides)), argumentsBefore, argumentsAfter, environmentText, dllOverridesText, wrapperText };
   }
 
   function nativeDraft() {
     return { nativeArguments, nativeWorkingDirectory, nativeEnvironmentText };
   }
-  const compatibilitySnapshot = $derived(JSON.stringify({ overrides, argumentsBefore, argumentsAfter, environmentText, dllOverridesText }));
+  const compatibilitySnapshot = $derived(JSON.stringify({ overrides, argumentsBefore, argumentsAfter, environmentText, dllOverridesText, wrapperText }));
   const nativeSnapshot = $derived(JSON.stringify({ nativeArguments, nativeWorkingDirectory, nativeEnvironmentText }));
   const compatibilityGame = $derived($appInfo.data.platform === "linux" && (game.executablePath === null || /\.exe$/i.test(game.executablePath)));
   const currentSnapshot = $derived(compatibilityGame ? compatibilitySnapshot : nativeSnapshot);
@@ -104,7 +106,7 @@
       const [overrideResult, defaultsResult, runnersResult, onlineFixResult] = await Promise.allSettled([
         getGameCompatibilityOverrides(game.id),
         getCompatibilityDefaults(),
-        section === "compatibility" ? listCompatibilityRunners() : Promise.resolve({ runners: [], diagnostics: [], gameModeAvailable: false, gamescopeAvailable: false }),
+        section === "compatibility" ? listCompatibilityRunners() : Promise.resolve({ runners: [], diagnostics: [], gameModeAvailable: false, mangohudAvailable: false, gamescopeAvailable: false }),
         section === "compatibility" ? getGameOnlineFixDetected(game.id) : Promise.resolve(false),
       ]);
       if (overrideResult.status === "fulfilled") {
@@ -113,6 +115,7 @@
         argumentsAfter = formatLaunchArguments(overrides.argumentsAfter ?? []);
         environmentText = mapToText(overrides.environment ?? {});
         dllOverridesText = mapToText(overrides.dllOverrides ?? {});
+        wrapperText = formatLaunchArguments(overrides.linuxPerformance.wrapper);
       } else {
         loadError = toMessage(overrideResult.reason);
       }
@@ -123,6 +126,7 @@
         runnerDiagnostics = runnersResult.value.diagnostics;
         gameModeAvailable = runnersResult.value.gameModeAvailable;
         gamescopeAvailable = runnersResult.value.gamescopeAvailable;
+        mangohudAvailable = runnersResult.value.mangohudAvailable;
       } else if (loadError === null) {
         loadError = toMessage(runnersResult.reason);
       }
@@ -246,7 +250,7 @@
   async function saveCompatibility(captured?: string): Promise<void> {
     const values: ReturnType<typeof compatibilityDraft> = captured === undefined ? compatibilityDraft() : JSON.parse(captured);
     const snapshot = JSON.stringify(values);
-    const { overrides: draft, argumentsBefore: before, argumentsAfter: after, environmentText: environment, dllOverridesText: dll } = values;
+    const { overrides: draft, argumentsBefore: before, argumentsAfter: after, environmentText: environment, dllOverridesText: dll, wrapperText: wrapper } = values;
     saving = true;
     saveError = null;
     saved = false;
@@ -258,10 +262,11 @@
         ...draft,
         argumentsBefore: draft.argumentsBefore === null ? null : parseLaunchArguments(before),
         argumentsAfter: draft.argumentsAfter === null ? null : parseLaunchArguments(after),
+        linuxPerformance: { ...draft.linuxPerformance, wrapper: parseLaunchArguments(wrapper) },
         environment: draft.environment === null ? null : parseEnvironment(environment, draft.debugLogging ?? defaults?.debugLogging ?? false),
         dllOverrides: draft.dllOverrides === null ? null : parseMap(dll, t("Override DLL", $language)),
       });
-      baseline = JSON.stringify({ overrides: updated, argumentsBefore: before, argumentsAfter: after, environmentText: environment, dllOverridesText: dll });
+      baseline = JSON.stringify({ overrides: updated, argumentsBefore: before, argumentsAfter: after, environmentText: environment, dllOverridesText: dll, wrapperText: wrapper });
       if (!disposed && compatibilitySnapshot === snapshot) overrides = updated;
       failedSnapshot = null;
       saved = true;
@@ -281,6 +286,7 @@
     argumentsAfter = "";
     environmentText = "";
     dllOverridesText = "";
+    wrapperText = "";
   }
 
   async function saveNative(captured?: string): Promise<void> {
@@ -382,11 +388,17 @@
       <Toggle label="GameMode" checked={overrides.linuxPerformance.gameMode}
         disabled={!gameModeAvailable && !overrides.linuxPerformance.gameMode}
         onChange={(checked) => setPerformance({ gameMode: checked })} />
+      <Toggle label="MangoHud" checked={overrides.linuxPerformance.mangohud}
+        disabled={!mangohudAvailable && !overrides.linuxPerformance.mangohud}
+        onChange={(checked) => setPerformance({ mangohud: checked })} />
       <Toggle label="Gamescope" checked={overrides.linuxPerformance.gamescope !== null}
         disabled={!gamescopeAvailable && overrides.linuxPerformance.gamescope === null}
         onChange={(checked) => setPerformance({ gamescope: checked ? { width: null, height: null, fps: null } : null })} />
       {#if !gameModeAvailable || !gamescopeAvailable}
         <p class="text-xs text-zinc-500">{t("Installa GameMode o gamescope e riapri queste impostazioni per abilitarli.", $language)}</p>
+      {/if}
+      {#if !mangohudAvailable}
+        <p class="text-xs text-zinc-500">{t("Installa MangoHud e riapri queste impostazioni per abilitarlo.", $language)}</p>
       {/if}
       {#if overrides.linuxPerformance.gamescope !== null}
         {@const config = overrides.linuxPerformance.gamescope}
@@ -401,6 +413,8 @@
         </div>
         <p class="text-xs text-zinc-500">{t("Una risoluzione inferiore riduce la qualità visiva. Il limite FPS può ridurre consumi e temperature.", $language)}</p>
       {/if}
+      <TextField id="linux-wrapper-command" label={t("Comando wrapper personalizzato", $language)} value={wrapperText} placeholder="prime-run" oninput={(value) => (wrapperText = value)} />
+      <p class="text-xs text-zinc-500">{t("Prefisso eseguito prima del gioco, ad esempio prime-run o taskset -c 0-7. Non passa da una shell.", $language)}</p>
       <p class="text-xs text-zinc-500">{t("GameMode e Gamescope sono facoltativi. Confronta prestazioni e frametime sul gioco; Wayland resta una scelta separata.", $language)}</p>
     </div>
 

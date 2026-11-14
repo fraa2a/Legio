@@ -33,7 +33,9 @@ export interface GamescopeConfig {
 
 export interface LinuxPerformance {
   gameMode: boolean;
+  mangohud: boolean;
   gamescope: GamescopeConfig | null;
+  wrapper: string[];
 }
 
 export interface GameCompatibilityOverrides {
@@ -76,6 +78,7 @@ export function compatibilityRunnerLabel(runner: CompatibilityRunner): string {
 export interface RunnerDiscovery {
   ntsyncAvailable: boolean;
   gameModeAvailable: boolean;
+  mangohudAvailable: boolean;
   gamescopeAvailable: boolean;
   runners: CompatibilityRunner[];
   diagnostics: string[];
@@ -107,7 +110,7 @@ export const emptyGameCompatibilityOverrides: GameCompatibilityOverrides = {
   wayland: null,
   debugLogging: null,
   onlineFix: null,
-  linuxPerformance: { gameMode: false, gamescope: null },
+  linuxPerformance: { gameMode: false, mangohud: false, gamescope: null, wrapper: [] },
 };
 
 export function getCompatibilityDefaults(): Promise<CompatibilityDefaults> {
