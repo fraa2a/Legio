@@ -72,7 +72,7 @@
     <div
       transition:fly={{ y: 16, duration: reducedMotion ? 0 : 200 }}
       role={notification.tone === "error" ? "alert" : "status"}
-      class="legio-popover pointer-events-auto flex items-start gap-3 rounded-card p-4 text-sm text-legio-fg shadow-xl shadow-black/30 inset-ring light:shadow-zinc-900/15 {tone.line}"
+      class="legio-popover pointer-events-auto flex items-start gap-3 rounded-card p-inset-compact text-sm text-legio-fg shadow-xl shadow-black/30 inset-ring light:shadow-zinc-900/15 {tone.line}"
     >
       <span class="mt-0.5 shrink-0 {tone.text}"><Icon name={tone.icon} /></span>
       <p class="min-w-0 flex-1 break-words">{notification.message}</p>

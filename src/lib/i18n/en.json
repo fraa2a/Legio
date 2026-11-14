@@ -1141,5 +1141,22 @@
   "Riavvio...": "Restarting...",
   "Usa un database nuovo": "Use a new database",
   "Ricominciare con un database nuovo?": "Start with a new database?",
-  "Legio si riavvierà con una libreria vuota. Il database attuale non viene eliminato e potrai recuperarlo dalla cartella dati.": "Legio will restart with an empty library. The current database is not deleted and you can recover it from the data folder."
+  "Legio si riavvierà con una libreria vuota. Il database attuale non viene eliminato e potrai recuperarlo dalla cartella dati.": "Legio will restart with an empty library. The current database is not deleted and you can recover it from the data folder.",
+  "Compatta": "Compact",
+  "Normale": "Normal",
+  "Ampia": "Wide",
+  "Squadrati": "Sharp",
+  "Morbidi": "Soft",
+  "Tondi": "Round",
+  "Densità": "Density",
+  "Angoli": "Corners",
+  "Dimensione del testo": "Text size",
+  "Interfaccia": "Interface",
+  "Vai a {0}": "Go to {0}",
+  "Vai alla ricerca": "Go to search",
+  "Gioca dalla pagina del gioco": "Play from the game page",
+  "Mostra le scorciatoie": "Show shortcuts",
+  "Scorciatoie": "Shortcuts",
+  "Aiuto": "Help",
+  "Invio": "Enter"
 }

@@ -18,7 +18,7 @@
   const titleId = $props.id();
 </script>
 
-<section class="flex flex-col gap-4 rounded-panel legio-glass p-6 {className}" aria-labelledby={titleId}>
+<section class="flex flex-col gap-rhythm-row rounded-panel legio-glass p-inset-wide {className}" aria-labelledby={titleId}>
   <div class="flex shrink-0 flex-wrap items-center justify-between gap-3">
     <div class="min-w-0">
       <h2 id={titleId} class="text-base font-semibold text-legio-fg">{title}</h2>

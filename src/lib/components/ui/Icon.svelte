@@ -29,6 +29,7 @@
   import Info from "@lucide/svelte/icons/info";
   import Languages from "@lucide/svelte/icons/languages";
   import LibraryBig from "@lucide/svelte/icons/library-big";
+  import Keyboard from "@lucide/svelte/icons/keyboard";
   import Link from "@lucide/svelte/icons/link";
   import Maximize2 from "@lucide/svelte/icons/maximize-2";
   import Minimize2 from "@lucide/svelte/icons/minimize-2";
@@ -123,6 +124,7 @@
     "speed": Gauge,
     "gamepad": Gamepad2,
     "power": Power,
+    "keyboard": Keyboard,
     "link": Link,
     "hidden": EyeOff,
     "logs": ScrollText,

@@ -1820,6 +1820,9 @@ mod tests {
                 background_blur: 16,
                 background_opacity: 40,
                 transparent: true,
+                density: crate::appearance::Density::Wide,
+                corners: crate::appearance::Corners::Sharp,
+                text_scale: 110,
                 ..crate::appearance::Appearance::default()
             },
             ..Settings::default()

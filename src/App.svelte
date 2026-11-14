@@ -24,6 +24,9 @@
   import SourceLinkDialog from "./lib/features/settings/SourceLinkDialog.svelte";
   import { checkForAppUpdateWhenEnabled, hydrateApp } from "./lib/stores/bootstrap";
   import { paletteOpen } from "./lib/stores/command-palette";
+  import { shortcutsOpen } from "./lib/stores/shortcuts";
+  import { handleShortcutKey } from "./lib/features/shortcuts/shortcut-actions";
+  import ShortcutsDialog from "./lib/features/shortcuts/ShortcutsDialog.svelte";
   import { closeSettings, settingsOpen } from "./lib/stores/navigation";
   import { settings } from "./lib/stores/settings";
   import { databaseFailure } from "./lib/stores/database-recovery";
@@ -96,10 +99,7 @@
   onpointerdown={() => { document.documentElement.dataset.inputMethod = "pointer"; }}
   onkeydown={(event) => {
     if (event.key === "Tab" || event.key.startsWith("Arrow")) document.documentElement.dataset.inputMethod = "keyboard";
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k" && $settings.status === "ready" && $settings.data.onboardingCompleted) {
-      event.preventDefault();
-      paletteOpen.update((open) => !open);
-    }
+    if ($settings.status === "ready" && $settings.data.onboardingCompleted) handleShortcutKey(event);
   }}
 />
 
@@ -128,6 +128,10 @@
 
 {#if $paletteOpen}
   <CommandPalette />
+{/if}
+
+{#if $shortcutsOpen}
+  <ShortcutsDialog />
 {/if}
 
 <AccountSwitchDialog />
