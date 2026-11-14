@@ -131,6 +131,7 @@ fn main() {
             "search_catalog",
             "refresh_catalog",
             "get_steam_details",
+            "get_protondb_summary",
             "get_steam_asset",
             "finish_steam_asset_update",
             "set_artwork_game",

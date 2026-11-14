@@ -161,6 +161,15 @@ impl NetworkState {
             .await
     }
 
+    pub async fn protondb_summary(&self, app_id: u32) -> Result<Vec<u8>, NetworkError> {
+        self.get(
+            &crate::protondb::summary_url(app_id),
+            crate::protondb::MAX_SUMMARY_BYTES,
+            Operation::ProtonDb,
+        )
+        .await
+    }
+
     pub async fn steam_asset(&self, url: &str) -> Result<Vec<u8>, NetworkError> {
         self.get(url, MAX_ASSET_BYTES, Operation::SteamAsset).await
     }

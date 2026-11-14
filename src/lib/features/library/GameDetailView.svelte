@@ -38,6 +38,10 @@
   import SteamArtwork from "./SteamArtwork.svelte";
   import SystemRequirements from "./SystemRequirements.svelte";
   import GameInstalledSize from "./GameInstalledSize.svelte";
+  import GameLinks from "./GameLinks.svelte";
+  import ProtonDbPanel from "./ProtonDbPanel.svelte";
+  import { gameLinks } from "./game-links";
+  import { badgeTier } from "./protondb";
   import Icon from "../../components/ui/Icon.svelte";
   import Callout from "../../components/ui/Callout.svelte";
   import ReleasePicker, { type ReleaseOption } from "./ReleasePicker.svelte";
@@ -56,6 +60,8 @@
   import { libraryOrganization, organizationByGame, setFavorite } from "../../stores/library-organization";
   import OrganizeGameDialog from "./OrganizeGameDialog.svelte";
   import { collectionMembership, libraryEntries } from "./library-organize";
+  import { appInfo } from "../../stores/app-info";
+  import { ensureProtonDb, protonDb } from "../../stores/protondb";
 
   let { storeGame = null, gameId = null }: { storeGame?: StoreGameSelection | null; gameId?: string | null } = $props();
 
@@ -66,6 +72,11 @@
   const launch = $derived(game === null ? undefined : $launchStateByGame.get(game.id));
   const detailsState = $derived(steamAppId === null ? null : ($steamDetails[steamAppId] ?? null));
   const details = $derived(detailsState?.details ?? null);
+  const linux = $derived($appInfo.data.platform === "linux");
+  const protonState = $derived(steamAppId === null || !linux ? null : ($protonDb[steamAppId] ?? null));
+  const moddable = $derived(game === null ? undefined : $moddableGameById.get(game.id));
+  const usefulLinks = $derived(gameLinks({ steamAppId, thunderstoreCommunity: moddable?.ecosystemGameId ?? moddable?.steamMatchId ?? null, linux }));
+  const protonUrl = $derived(usefulLinks.find((link) => link.kind === "protondb")?.url ?? null);
   const knownReleases = $derived(steamAppId === null ? [] : sourceReleasesFor($source.data.manifest, steamAppId));
   let linkSizes = $state<Record<string, number> | null>(null);
   let linkError = $state<string | null>(null);
@@ -137,6 +148,10 @@
       (cause: unknown) => { if (!cancelled) linkError = toMessage(cause); },
     );
     return () => { cancelled = true; };
+  });
+
+  $effect(() => {
+    if (linux && steamAppId !== null) void ensureProtonDb(steamAppId);
   });
 
   $effect(() => {
@@ -393,11 +408,16 @@
     {#if game !== null}<GameInstalledSize {game} />{/if}
     {#if game !== null}<GameUpdateButton gameId={game.id} />{/if}
 
+    <GameLinks links={usefulLinks} rating={badgeTier(protonState?.summary ?? null)} />
+
     <div class="grid flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
       <div class="min-w-0">
         {#if steamAppId !== null}<SteamMetadata {steamAppId} />{/if}
       </div>
       <div class="flex min-w-0 flex-col gap-4">
+        {#if protonUrl !== null && (protonState?.status === "loading" || protonState?.status === "ready" || protonState?.status === "empty")}
+          <ProtonDbPanel summary={protonState.summary} loading={protonState.status === "loading"} url={protonUrl} />
+        {/if}
         <SystemRequirements
           requirements={details?.systemRequirements ?? null}
           loading={detailsState?.status === "loading"}
