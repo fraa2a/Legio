@@ -222,7 +222,7 @@ jobs:
       - name: Set up Rust 1.98.1
         shell: bash
         run: |
-          rustup toolchain install 1.98.1 --profile minimal
+          rustup toolchain install 1.98.1 --profile minimal --component clippy
           rustup default 1.98.1
 
       - name: Configure Windows archive cache
@@ -272,61 +272,19 @@ jobs:
         shell: bash
         run: corepack pnpm install --frozen-lockfile
 
-      - name: Test Windows local JSON sources and converted catalogs
+      - name: Run Windows Clippy
         if: runner.os == 'Windows'
         shell: bash
         env:
           LEGIO_WINDOWS_TESTS: "1"
-        run: |
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib local_source::tests
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib legio_source::tests
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib legio_source_cache::tests
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib source_catalog::tests
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --locked -- -D warnings
 
-      - name: Test Windows game updates and executable paths
+      - name: Run Windows Rust tests
         if: runner.os == 'Windows'
         shell: bash
         env:
           LEGIO_WINDOWS_TESTS: "1"
-        run: |
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_library::tests
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_transfer::tests
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib finalize_install::tests
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib manual_import::tests
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib overlay_update::tests
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_updates::tests
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib update_policy
-
-      - name: Test Windows development data isolation
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LEGIO_WINDOWS_TESTS: "1"
-        run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib app_profile::tests::'
-
-      - name: Test Windows application logging
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LEGIO_WINDOWS_TESTS: "1"
-        run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib application_log::tests::'
-
-      - name: Test Windows artwork conversion and blur
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LEGIO_WINDOWS_TESTS: "1"
-        run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib image_trim::tests::'
-
-      - name: Test Windows artwork scheduling, metadata and cache publication
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LEGIO_WINDOWS_TESTS: "1"
-        run: |
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib artwork_
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib steam_details::tests::
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib steam_assets::tests::
+        run: cargo test --manifest-path src-tauri/Cargo.toml --all-features --locked
 
       - name: Test release artwork command stack usage on Windows
         if: runner.os == 'Windows'
@@ -335,36 +293,6 @@ jobs:
           LEGIO_WINDOWS_TESTS: "1"
           CARGO_PROFILE_RELEASE_DEBUG: "1"
         run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --release --lib commands::tests::'
-
-      - name: Test Windows WebView diagnostics
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LEGIO_WINDOWS_TESTS: "1"
-        run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib webview_diagnostics::tests::'
-
-      - name: Test Windows Steam discovery
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LEGIO_WINDOWS_TESTS: "1"
-        run: |
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib steam_local::tests::
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib steam_import::tests::
-
-      - name: Test Windows game process control
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LEGIO_WINDOWS_TESTS: "1"
-        run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_process::tests::'
-
-      - name: Test Windows native lifecycle manager
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LEGIO_WINDOWS_TESTS: "1"
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_lifecycle::tests::native_manager_lifecycle_tracks_a_controlled_process
 
       - name: Build Tauri application
         if: needs.plan.outputs.release != 'true' && !(github.event_name == 'workflow_dispatch' && inputs.test_packages)
