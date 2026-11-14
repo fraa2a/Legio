@@ -11,6 +11,7 @@
   import Callout from "../../components/ui/Callout.svelte";
   import { appInfo } from "../../stores/app-info";
   import { getCompatibilityLogsDirectory } from "../../services/game-settings";
+  import DataTransferSettings from "./DataTransferSettings.svelte";
 
   let status = $state<NetworkLogStatus | null>(null);
   let applicationStatus = $state<ApplicationLogStatus | null>(null);
@@ -65,4 +66,5 @@
     {#if status?.lastError}<Callout tone="warning" message={status.lastError} />{/if}
     {#if applicationStatus?.lastError}<Callout tone="warning" message={applicationStatus.lastError} />{/if}
   </SettingsGroup>
+  <DataTransferSettings />
 </section>

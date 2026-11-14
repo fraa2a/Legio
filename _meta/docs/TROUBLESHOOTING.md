@@ -46,3 +46,9 @@ If the local database cannot be opened or updated, Legio shows a recovery screen
 - **Use a new database** to start with an empty library.
 
 Restoring and resetting never delete the current database: it is renamed to `legio-broken-<timestamp>.sqlite3` in the data folder, together with its `-wal` and `-shm` files. Legio then restarts.
+
+## Moving data to another PC
+
+**Settings > Advanced > Data** exports the library, playtime, settings, custom game icons and banners and the theme background to one `.zip` file, also useful as a manual backup. Caches, downloads, logs, mod files and installed games are not included.
+
+**Import** checks the file (format, size, entry names and database integrity) and refuses exports from a newer Legio. After confirmation Legio restarts and applies it before opening the database. The replaced database is kept as `legio-replaced-<timestamp>.sqlite3` and the replaced images in `legio-replaced-files-<timestamp>` in the data folder. Install folders recorded on another PC may not exist here; those games need to be reinstalled or linked again. If the import cannot be applied, the current data stays in place and a warning is shown at startup.
