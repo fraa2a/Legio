@@ -21,6 +21,18 @@ class ReleaseManifestTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Missing signature"):
                 release_manifest(assets, "1.2.3", "fraa2a/Legio")
 
+    def test_includes_trimmed_notes_only_when_present(self):
+        with tempfile.TemporaryDirectory() as directory:
+            assets = Path(directory)
+            for suffix in (".deb", ".rpm", ".AppImage", ".exe"):
+                (assets / f"Legio.Launcher{suffix}").write_bytes(b"bundle")
+                (assets / f"Legio.Launcher{suffix}.sig").write_text("signature", encoding="utf-8")
+
+            self.assertNotIn("notes", release_manifest(assets, "1.2.3", "fraa2a/Legio"))
+            self.assertNotIn("notes", release_manifest(assets, "1.2.3", "fraa2a/Legio", "  \n"))
+            manifest = release_manifest(assets, "1.2.3", "fraa2a/Legio", "\n## Changes\n- Fix\n")
+            self.assertEqual(manifest["notes"], "## Changes\n- Fix")
+
 
 if __name__ == "__main__":
     unittest.main()

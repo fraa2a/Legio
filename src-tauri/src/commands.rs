@@ -56,6 +56,14 @@ pub async fn get_app_info(app: AppHandle) -> Result<AppInfo, String> {
 }
 
 #[tauri::command]
+pub async fn check_app_update(
+    app: AppHandle,
+    webview: tauri::Webview,
+) -> Result<Option<crate::app_update::UpdateMetadata>, String> {
+    crate::app_update::check(&app, webview, is_aur_package()).await
+}
+
+#[tauri::command]
 pub async fn notify_update_available(
     app: AppHandle,
     version: String,

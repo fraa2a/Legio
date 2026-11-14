@@ -7,6 +7,7 @@ use tauri::{
 };
 
 mod app_profile;
+mod app_update;
 mod appearance;
 mod application_log;
 pub mod archive_install;
@@ -474,6 +475,7 @@ fn run_application(
         .invoke_handler(tauri::generate_handler![
             commands::is_aur_package,
             commands::get_app_info,
+            commands::check_app_update,
             commands::notify_update_available,
             commands::get_news,
             commands::refresh_news,
