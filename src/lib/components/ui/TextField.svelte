@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  export const textFieldClass = "w-full rounded-lg border border-transparent bg-white/5 px-3 py-2 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-500 focus:border-white/40 disabled:opacity-50 light:bg-white light:text-zinc-900 light:focus:border-zinc-900/40";
+  export const textFieldClass = "w-full rounded-lg border border-transparent bg-white/5 px-3 py-2 text-sm text-legio-fg outline-none transition-colors placeholder:text-legio-fg-subtle focus:border-legio-line-strong disabled:opacity-50 light:bg-white";
 </script>
 
 <script lang="ts">
@@ -44,7 +44,7 @@
 </script>
 
 <div class="flex flex-col gap-1.5">
-  <label for={id} class={labelHidden ? "sr-only" : "text-sm text-zinc-400 light:text-zinc-600"}>{label}</label>
+  <label for={id} class={labelHidden ? "sr-only" : "text-sm text-legio-fg-muted"}>{label}</label>
   {#if type === "textarea"}
     <textarea {id} {rows} {placeholder} {disabled} {readonly} {value} oninput={changed}
       aria-invalid={error ? true : undefined} aria-describedby={describedBy} class="{textFieldClass} font-mono"></textarea>
@@ -67,6 +67,6 @@
     <p id={`${id}-error`} class="text-xs text-legio-error" role="alert">{error}</p>
   {/if}
   {#if hint}
-    <p id={`${id}-hint`} class="text-xs text-zinc-500">{hint}</p>
+    <p id={`${id}-hint`} class="text-xs text-legio-fg-subtle">{hint}</p>
   {/if}
 </div>

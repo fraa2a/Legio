@@ -114,7 +114,7 @@
             {#key game.id}<GameSettingsPanel {game} section="launch" />{/key}
           {:else}
             <Panel title={t("Opzioni di avvio", $language)}>
-              <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Seleziona prima un eseguibile nella sezione Posizioni.", $language)}</p>
+              <p class="text-sm text-legio-fg-muted">{t("Seleziona prima un eseguibile nella sezione Posizioni.", $language)}</p>
             </Panel>
           {/if}
         </div>
@@ -122,8 +122,8 @@
         <div class="flex flex-col gap-4">
           {#if !steamManaged}<ExecutablePanel {game} />{:else}
             <Panel title={t("Installazione Steam", $language)}>
-              <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Steam gestisce il percorso di installazione per questo gioco.", $language)}</p>
-              <p class="break-all text-sm text-zinc-200 light:text-zinc-800">{game.steamInstallPath}</p>
+              <p class="text-sm text-legio-fg-muted">{t("Steam gestisce il percorso di installazione per questo gioco.", $language)}</p>
+              <p class="break-all text-sm text-legio-fg">{game.steamInstallPath}</p>
             </Panel>
           {/if}
           {#if game.executablePath !== null}
@@ -132,10 +132,10 @@
           {#if !steamManaged && game.executablePath !== null}
             <Panel title={t("Trasferisci gioco", $language)}>
               <div class="flex flex-col gap-3">
-                <p class="break-all text-sm text-zinc-400 light:text-zinc-600">{currentLibrary === null ? t("Questo gioco non si trova in una libreria di Legio.", $language) : t("Libreria attuale: {0}", $language, [currentLibrary.root])}</p>
+                <p class="break-all text-sm text-legio-fg-muted">{currentLibrary === null ? t("Questo gioco non si trova in una libreria di Legio.", $language) : t("Libreria attuale: {0}", $language, [currentLibrary.root])}</p>
                 <div><Button label={transferPending ? t("Trasferimento...", $language) : t("Sposta in un'altra libreria...", $language)}
                   disabled={running || transferPending} onClick={() => (transferPickerOpen = true)} /></div>
-                {#if running}<p class="text-sm text-zinc-400">{t("Chiudi il gioco prima di trasferirlo.", $language)}</p>{/if}
+                {#if running}<p class="text-sm text-legio-fg-muted">{t("Chiudi il gioco prima di trasferirlo.", $language)}</p>{/if}
                 {#if transferDone}<Callout tone="success" variant="inline" message={t("Gioco trasferito.", $language)} />{/if}
                 {#if transferWarning}<ErrorBanner message={transferWarning} tone="warning" />{/if}
                 {#if transferError}<ErrorBanner message={transferError} />{/if}
@@ -150,7 +150,7 @@
           {#key game.id}<GameSettingsPanel {game} section="compatibility" />{/key}
         {:else}
           <Panel title={t("Compatibilità", $language)}>
-            <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Seleziona prima un eseguibile per configurare il runner e gli argomenti di avvio.", $language)}</p>
+            <p class="text-sm text-legio-fg-muted">{t("Seleziona prima un eseguibile per configurare il runner e gli argomenti di avvio.", $language)}</p>
           </Panel>
         {/if}
       {:else if selectedCategory === "mods"}

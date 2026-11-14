@@ -117,14 +117,14 @@
 </script>
 
 <Panel title={t("Personalizzazione", $language)}>
-  <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Scegli le immagini usate per questo gioco. I file vengono copiati nei dati di Legio.", $language)}</p>
+  <p class="text-sm text-legio-fg-muted">{t("Scegli le immagini usate per questo gioco. I file vengono copiati nei dati di Legio.", $language)}</p>
   <div class="flex flex-wrap items-center gap-3">
     <Button label={t("Aggiorna immagini", $language)} variant="secondary" disabled={pending || game.steamAppId === null} onClick={() => void refreshImages()}><RefreshIcon spinning={refreshingImages} /></Button>
-    <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Riscarica le immagini Steam senza modificare quelle personalizzate.", $language)}</p>
+    <p class="text-xs text-legio-fg-muted">{t("Riscarica le immagini Steam senza modificare quelle personalizzate.", $language)}</p>
   </div>
   {#if error !== null}<ErrorBanner message={error} onRetry={() => void load()} />{/if}
   {#if loading}
-    <p class="text-sm text-zinc-400" role="status">{t("Caricamento delle immagini...", $language)}</p>
+    <p class="text-sm text-legio-fg-muted" role="status">{t("Caricamento delle immagini...", $language)}</p>
   {:else}
     <div class="grid gap-5">
       <section class="flex flex-col gap-3">

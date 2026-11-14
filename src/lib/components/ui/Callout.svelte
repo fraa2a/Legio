@@ -53,13 +53,13 @@
   class="flex items-start gap-3 {banner ? `rounded-xl border px-4 py-3 text-sm ${style.box}` : 'text-xs'} {className}"
 >
   <span class="mt-0.5 shrink-0 {style.text}"><Icon name={style.icon} size={banner ? "size-4" : "size-3.5"} /></span>
-  <div class="min-w-0 flex-1 break-words text-zinc-300 light:text-zinc-700">
-    {#if title}<p class="font-medium text-zinc-50 light:text-zinc-900">{title}</p>{/if}
+  <div class="min-w-0 flex-1 break-words text-legio-fg">
+    {#if title}<p class="font-medium text-legio-fg">{title}</p>{/if}
     {#if message}<p>{message}</p>{/if}
     {@render children?.()}
     {#if items.length > collapseAfter}
       <details class="group mt-1">
-        <summary class="flex w-fit cursor-pointer list-none items-center gap-1 text-xs text-zinc-400 transition-colors hover:text-zinc-100 light:text-zinc-600 light:hover:text-zinc-900">
+        <summary class="flex w-fit cursor-pointer list-none items-center gap-1 text-xs text-legio-fg-muted transition-colors hover:text-legio-fg">
           {t("Mostra i dettagli ({0})", $language, [items.length])}
           <span class="transition-transform group-open:rotate-180 motion-reduce:transition-none"><Icon name="chevron-down" size="size-3.5" /></span>
         </summary>
@@ -69,6 +69,6 @@
       {@render list()}
     {/if}
   </div>
-  {#if onRetry}<button type="button" class="shrink-0 rounded px-2 py-0.5 font-semibold text-zinc-100 hover:bg-white/10 light:text-zinc-900 light:hover:bg-zinc-900/10" onclick={onRetry}>{retryLabel}</button>{/if}
+  {#if onRetry}<button type="button" class="shrink-0 rounded px-2 py-0.5 font-semibold text-legio-fg hover:bg-legio-fill-hover" onclick={onRetry}>{retryLabel}</button>{/if}
   {#if onDismiss}<IconButton size="xs" variant="plain" label={t("Chiudi avviso", $language)} onClick={onDismiss}><Icon name="close" size="size-3.5" /></IconButton>{/if}
 </div>

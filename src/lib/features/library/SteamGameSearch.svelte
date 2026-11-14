@@ -73,16 +73,16 @@
   <TextField {id} label={t("Cerca gioco su Steam", $language)} type="search" value={value} placeholder={t("Cerca per nome", $language)} disabled={disabled || selecting}
     oninput={(next) => { value = next; onQueryChange?.(); }} />
   {#if searchStatus === "loading"}
-    <p class="text-xs text-zinc-400" role="status">{t("Ricerca in corso...", $language)}</p>
+    <p class="text-xs text-legio-fg-muted" role="status">{t("Ricerca in corso...", $language)}</p>
   {:else if searchStatus === "empty" && searchError === null}
-    <p class="text-xs text-zinc-500">{t("Nessun risultato per questa ricerca.", $language)}</p>
+    <p class="text-xs text-legio-fg-subtle">{t("Nessun risultato per questa ricerca.", $language)}</p>
   {/if}
   {#if searchError !== null}<Callout tone="warning" variant="inline" message={t("Ricerca non disponibile: {0}", $language, [searchError])} />{/if}
   {#if searchResults.length > 0 && value.trim().length >= 2}
-    <ul class="max-h-36 overflow-y-auto rounded-lg border border-white/10 bg-white/5 light:border-zinc-900/10 light:bg-white" aria-label={t("Risultati Steam", $language)}>
+    <ul class="max-h-36 overflow-y-auto rounded-lg border border-legio-line-subtle bg-white/5 light:bg-white" aria-label={t("Risultati Steam", $language)}>
       {#each searchResults as result (result.steamAppId)}
         <li>
-          <button type="button" class="flex h-12 w-full items-center px-3 text-left text-sm text-zinc-200 hover:bg-white/10 focus-visible:-outline-offset-2 light:text-zinc-800 light:hover:bg-zinc-900/5"
+          <button type="button" class="flex h-12 w-full items-center px-3 text-left text-sm text-legio-fg hover:bg-legio-fill-hover focus-visible:-outline-offset-2"
             disabled={disabled || selecting} onclick={() => void choose(result)}>
             <span class="truncate">{result.name}</span>
           </button>

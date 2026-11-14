@@ -71,9 +71,9 @@
     disabled={loading || saving}
     oninput={(value) => (argumentsText = value)}
   /></div><ResetSetting label={t("Ripristina opzioni di avvio", $language)} disabled={loading || saving || argumentsText === ""} onClick={() => { argumentsText = ""; }} /></div>
-  <p class="text-xs text-zinc-500">{t("Gli argomenti vengono passati a Steam quando avvii questo gioco da Legio.", $language)}</p>
+  <p class="text-xs text-legio-fg-subtle">{t("Gli argomenti vengono passati a Steam quando avvii questo gioco da Legio.", $language)}</p>
   <div class="flex items-center gap-3">
-    {#if saving}<span class="text-sm text-zinc-400" role="status">{t("Salvataggio...", $language)}</span>{/if}
+    {#if saving}<span class="text-sm text-legio-fg-muted" role="status">{t("Salvataggio...", $language)}</span>{/if}
     {#if saved}<Callout tone="success" variant="inline" message={t("Salvato", $language)} />{/if}
   </div>
 </Panel>

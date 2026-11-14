@@ -15,18 +15,25 @@ html[data-motion-paused="true"] *::after {
   --color-legio-success: var(--legio-success);
   --color-legio-warning: var(--legio-warning);
   --color-legio-error: var(--legio-error);
+  --color-legio-fg: var(--legio-text);
+  --color-legio-fg-muted: var(--legio-fg-muted);
+  --color-legio-fg-subtle: var(--legio-fg-subtle);
+  --color-legio-line-subtle: var(--legio-line-subtle);
+  --color-legio-line: var(--legio-line);
+  --color-legio-line-strong: var(--legio-line-strong);
+  --color-legio-fill: var(--legio-fill);
+  --color-legio-fill-hover: var(--legio-fill-hover);
+  --color-legio-fill-active: var(--legio-fill-active);
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --color-legio-download: #2563eb;
   --color-legio-download-hover: #1d4ed8;
   --color-legio-play: #008038;
-  --color-legio-activity: #9ef3f5;
+  --color-legio-activity: var(--legio-accent);
   --color-legio-play-hover: #006b2b;
   --color-legio-launching: #a16207;
   --color-legio-launching-hover: #854d0e;
-  --color-legio-running: #b91c1c;
-  --color-legio-running-hover: #991b1b;
-  --color-legio-danger: #e81123;
-  --color-legio-danger-hover: #c50e1e;
+  --color-legio-danger: #b91c1c;
+  --color-legio-danger-hover: #991b1b;
 }
 
 @utility scrollbar-none {
@@ -84,6 +91,16 @@ html, body, #app { width: 100%; height: 100%; min-width: 0; min-height: 0; }
   --legio-error: #fca5a5;
   --legio-surface: #18181b;
   --legio-text: #fafafa;
+  --legio-muted: #a1a1aa;
+  /* Lines and fills are fractions of the text color, so every palette tints them. */
+  --legio-fg-muted: var(--legio-muted);
+  --legio-fg-subtle: var(--color-zinc-500);
+  --legio-line-subtle: color-mix(in srgb, var(--legio-text) 10%, transparent);
+  --legio-line: color-mix(in srgb, var(--legio-text) 15%, transparent);
+  --legio-line-strong: color-mix(in srgb, var(--legio-text) 30%, transparent);
+  --legio-fill: color-mix(in srgb, var(--legio-text) 5%, transparent);
+  --legio-fill-hover: color-mix(in srgb, var(--legio-text) 10%, transparent);
+  --legio-fill-active: color-mix(in srgb, var(--legio-text) 15%, transparent);
   --legio-surface-opacity: 0;
   --legio-surface-blur: blur(40px);
   --legio-dialog-opacity: 0;
@@ -121,10 +138,15 @@ html, body, #app { width: 100%; height: 100%; min-width: 0; min-height: 0; }
 :root[data-transparent="true"] body,
 :root[data-transparent="true"] .legio-backdrop { background: transparent; }
 @layer components {
-  /* A hairline that appears with the fill, so panels stay readable without a wallpaper. */
+  /* A hairline that appears with the fill, so surfaces stay readable without a wallpaper.
+     It fills Tailwind's inset ring slot, so shadow utilities keep it and inset-ring utilities replace it. */
   .legio-panel, .legio-glass {
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--legio-text) calc(var(--legio-surface-opacity) * 18%), transparent);
+    --tw-inset-ring-shadow: inset 0 0 0 1px color-mix(in srgb, var(--legio-text) calc(var(--legio-surface-opacity) * 18%), transparent);
   }
+  .legio-popover {
+    --tw-inset-ring-shadow: inset 0 0 0 1px color-mix(in srgb, var(--legio-text) calc(var(--legio-dialog-opacity) * 18%), transparent);
+  }
+  .legio-panel, .legio-glass, .legio-popover { box-shadow: var(--tw-inset-ring-shadow); }
 }
 .legio-content { background-color: transparent; }
 .legio-artwork-zoom {
@@ -134,16 +156,11 @@ html, body, #app { width: 100%; height: 100%; min-width: 0; min-height: 0; }
 .group:hover > .legio-artwork-zoom { transform: translateZ(0) scale(1.05); }
 dialog.legio-dialog {
   opacity: 1;
-  border-color: transparent;
   box-shadow: none;
-  transition: border-color 180ms ease, box-shadow 180ms ease;
+  transition: box-shadow 180ms ease;
 }
 dialog.legio-dialog[data-visible="true"] {
-  border-color: rgb(255 255 255 / 0.15);
   box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.4);
-}
-:root[data-theme="light"] dialog.legio-dialog[data-visible="true"] {
-  border-color: rgb(24 24 27 / 0.15);
 }
 dialog.legio-dialog > .legio-dialog-content {
   opacity: 0;
@@ -180,6 +197,7 @@ dialog.legio-dialog > .legio-dialog-surface {
   opacity: 0;
   transition: opacity 180ms ease;
   background-color: color-mix(in srgb, var(--legio-surface) calc(var(--legio-dialog-opacity) * 100%), transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--legio-text) calc(var(--legio-dialog-opacity) * 18%), transparent);
   -webkit-backdrop-filter: var(--legio-dialog-blur);
   backdrop-filter: var(--legio-dialog-blur);
 }

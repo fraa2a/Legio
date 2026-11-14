@@ -221,7 +221,7 @@
 </script>
 
 {#if storeGame === null && game === null}
-  <p class="legio-glass rounded-xl p-6 text-zinc-400 light:text-zinc-600">{t("Il gioco non è più disponibile.", $language)}</p>
+  <p class="legio-glass rounded-xl p-6 text-legio-fg-muted">{t("Il gioco non è più disponibile.", $language)}</p>
 {:else}
   <div class="relative isolate flex min-h-full flex-col gap-4">
     {#if customBannerUrl !== null || steamAppId !== null}
@@ -320,7 +320,7 @@
     </section>
 
     {#if checkingLinks}
-      <p class="text-xs text-zinc-400" role="status">{t("Verifica dei link di download...", $language)}</p>
+      <p class="text-xs text-legio-fg-muted" role="status">{t("Verifica dei link di download...", $language)}</p>
     {:else if linkError !== null}
       <Callout tone="warning" variant="inline" message={t("Verifica dei link non disponibile: {0}", $language, [linkError])} />
     {/if}
@@ -352,20 +352,20 @@
           <div class="flex flex-col gap-3">
             <dl class="grid gap-2 text-sm">
               <div class="flex flex-wrap gap-x-3">
-                <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">{t("Versione", $language)}</dt>
-                <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">{entry?.release.version ?? t("non pubblicata", $language)}</dd>
+                <dt class="w-40 shrink-0 text-legio-fg-muted">{t("Versione", $language)}</dt>
+                <dd class="min-w-0 flex-1 break-words text-legio-fg">{entry?.release.version ?? t("non pubblicata", $language)}</dd>
               </div>
               <div class="flex flex-wrap gap-x-3">
-                <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">{t("Pubblicato", $language)}</dt>
-                <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">{entry?.release.publishedAt == null ? t("non pubblicato", $language) : formatDate(entry.release.publishedAt, $language)}</dd>
+                <dt class="w-40 shrink-0 text-legio-fg-muted">{t("Pubblicato", $language)}</dt>
+                <dd class="min-w-0 flex-1 break-words text-legio-fg">{entry?.release.publishedAt == null ? t("non pubblicato", $language) : formatDate(entry.release.publishedAt, $language)}</dd>
               </div>
               <div class="flex flex-wrap gap-x-3">
-                <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">{t("Dimensione", $language)}</dt>
-                <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">{entry?.download.sizeBytes == null ? t("Dimensione sconosciuta", $language) : formatBytes(entry.download.sizeBytes, $language)}</dd>
+                <dt class="w-40 shrink-0 text-legio-fg-muted">{t("Dimensione", $language)}</dt>
+                <dd class="min-w-0 flex-1 break-words text-legio-fg">{entry?.download.sizeBytes == null ? t("Dimensione sconosciuta", $language) : formatBytes(entry.download.sizeBytes, $language)}</dd>
               </div>
               <div class="flex flex-wrap gap-x-3">
-                <dt class="w-40 shrink-0 text-zinc-400 light:text-zinc-600">Manifest</dt>
-                <dd class="min-w-0 flex-1 break-words text-zinc-100 light:text-zinc-900">
+                <dt class="w-40 shrink-0 text-legio-fg-muted">Manifest</dt>
+                <dd class="min-w-0 flex-1 break-words text-legio-fg">
                   {entry === null || $source.data.cachedAt === null ? t("non disponibile", $language) : formatDateTime($source.data.cachedAt, $language)}
                   {#if entry !== null && $source.data.stale} <span class="text-legio-warning">{t("· cache scaduta", $language)}</span>{/if}
                 </dd>
@@ -431,7 +431,7 @@
 
 
 {#snippet nameText()}
-  <span class="block max-w-full truncate rounded-lg bg-zinc-950/60 px-3 py-1.5 text-right text-zinc-100 light:bg-zinc-100/70 light:text-zinc-900">{name}</span>
+  <span class="block max-w-full truncate rounded-lg bg-zinc-950/60 px-3 py-1.5 text-right text-legio-fg light:bg-zinc-100/70">{name}</span>
 {/snippet}
 
 {#snippet backdrop()}

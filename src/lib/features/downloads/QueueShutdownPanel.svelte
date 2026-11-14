@@ -45,11 +45,11 @@
         message={t("Il computer si spegnerà tra {0} secondi.", $language, [$queueShutdownCountdown ?? 0])}
       />
     {:else if phase === "waiting"}
-      <p class="text-sm text-zinc-300 light:text-zinc-700" role="status">
+      <p class="text-sm text-legio-fg" role="status">
         {t("Il computer si spegnerà 30 secondi dopo il completamento di tutta la coda.", $language)}
       </p>
     {:else}
-      <p class="text-xs text-zinc-500">
+      <p class="text-xs text-legio-fg-subtle">
         {t("Spegne il computer 30 secondi dopo che tutti i download sono stati estratti e installati. I download falliti restano in coda.", $language)}
       </p>
     {/if}

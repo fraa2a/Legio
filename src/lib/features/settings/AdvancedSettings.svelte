@@ -48,19 +48,19 @@
   {#if error !== null}<ErrorBanner message={error} onRetry={() => void refresh()} />{/if}
   <SettingsGroup icon="info" title={t("Log e diagnostica", $language)}>
     <ToggleSetting label={t("Salva log applicativi", $language)} defaultValue={defaultSettings.applicationLoggingEnabled} checked={$settings.data.applicationLoggingEnabled} disabled={saving} onChange={(enabled) => void setLogging("application", enabled)} />
-    <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Registra avvio, navigazione, errori e panic in app.txt. Per diagnosticare un crash, attiva i log e riavvia Legio prima di riprodurlo.", $language)}</p>
+    <p class="text-xs text-legio-fg-muted">{t("Registra avvio, navigazione, errori e panic in app.txt. Per diagnosticare un crash, attiva i log e riavvia Legio prima di riprodurlo.", $language)}</p>
     <ToggleSetting label={t("Salva log di rete", $language)} defaultValue={defaultSettings.diagnosticsEnabled} checked={$settings.data.diagnosticsEnabled} disabled={saving} onChange={(enabled) => void setLogging("network", enabled)} />
-    <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Entrambi i log sono disattivati di default. I file vengono ruotati per limitare lo spazio occupato; disattivarli interrompe la registrazione di nuovi eventi.", $language)}</p>
+    <p class="text-xs text-legio-fg-muted">{t("Entrambi i log sono disattivati di default. I file vengono ruotati per limitare lo spazio occupato; disattivarli interrompe la registrazione di nuovi eventi.", $language)}</p>
     {#if applicationStatus?.directory ?? status?.directory}
       <div class="pt-3">
-        <p class="text-xs text-zinc-500 light:text-zinc-600">{t("Cartella dei log", $language)}</p>
-        <p class="mt-1 break-all font-mono text-xs text-zinc-300 light:text-zinc-700">{applicationStatus?.directory ?? status?.directory}</p>
-        <p class="mt-2 text-xs text-zinc-400 light:text-zinc-600">{t("Registro degli avvii: game-launches.jsonl. Include fasi, errori e codici di uscita senza argomenti o valori delle variabili d'ambiente.", $language)}</p>
+        <p class="text-xs text-legio-fg-muted">{t("Cartella dei log", $language)}</p>
+        <p class="mt-1 break-all font-mono text-xs text-legio-fg">{applicationStatus?.directory ?? status?.directory}</p>
+        <p class="mt-2 text-xs text-legio-fg-muted">{t("Registro degli avvii: game-launches.jsonl. Include fasi, errori e codici di uscita senza argomenti o valori delle variabili d'ambiente.", $language)}</p>
       </div>
     {/if}
     {#if launchDirectory}
-      <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Ogni gioco manuale salva launch.json, launch.log, stdout.log, stderr.log e runner-exit-code.txt nella propria cartella. Il debug aggiunge i dettagli di Proton o Wine.", $language)}</p>
-      <p class="break-all font-mono text-xs text-zinc-300 light:text-zinc-700">{launchDirectory}</p>
+      <p class="text-xs text-legio-fg-muted">{t("Ogni gioco manuale salva launch.json, launch.log, stdout.log, stderr.log e runner-exit-code.txt nella propria cartella. Il debug aggiunge i dettagli di Proton o Wine.", $language)}</p>
+      <p class="break-all font-mono text-xs text-legio-fg">{launchDirectory}</p>
     {/if}
     {#if status?.lastError}<Callout tone="warning" message={status.lastError} />{/if}
     {#if applicationStatus?.lastError}<Callout tone="warning" message={applicationStatus.lastError} />{/if}

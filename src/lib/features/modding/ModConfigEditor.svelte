@@ -243,13 +243,13 @@
     <TextField id="mod-config-filter" label={t("Filtra file", $language)} type="search" placeholder={t("Filtra file...", $language)} bind:value={query} />
     <SelectField id="mod-config-sort" label={t("Ordina file", $language)} labelHidden value={sort} options={configSortOptions($language)} onChange={(value) => (sort = value as ConfigSort)} />
     {#if listLoading && files.length === 0}
-      <div class="flex items-center gap-3 p-3 text-sm text-zinc-300 light:text-zinc-700" role="status"><Spinner />{t("Caricamento...", $language)}</div>
+      <div class="flex items-center gap-3 p-3 text-sm text-legio-fg" role="status"><Spinner />{t("Caricamento...", $language)}</div>
     {:else if listError !== null}
       <ErrorBanner message={listError} onRetry={() => void loadFiles(selectedPath === null)} />
     {:else if files.length === 0}
-      <p class="p-3 text-sm text-zinc-400 light:text-zinc-600">{t("Nessun file di configurazione.", $language)}</p>
+      <p class="p-3 text-sm text-legio-fg-muted">{t("Nessun file di configurazione.", $language)}</p>
     {:else if filtered.length === 0}
-      <p class="p-3 text-sm text-zinc-400 light:text-zinc-600">{t("Nessun file corrisponde al filtro.", $language)}</p>
+      <p class="p-3 text-sm text-legio-fg-muted">{t("Nessun file corrisponde al filtro.", $language)}</p>
     {:else}
       <ul class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
         {#each shown as item (item.file.relativePath)}
@@ -258,11 +258,11 @@
               type="button"
               aria-current={item.file.relativePath === selectedPath ? "true" : undefined}
               onclick={() => selectFile(item.file.relativePath)}
-              class="flex w-full flex-col gap-0.5 rounded-lg px-3 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-white/10 aria-[current=true]:bg-white/15 aria-[current=true]:text-white light:text-zinc-700 light:hover:bg-zinc-900/10 light:aria-[current=true]:bg-zinc-900/10 light:aria-[current=true]:text-zinc-900"
+              class="flex w-full flex-col gap-0.5 rounded-lg px-3 py-2 text-left text-sm text-legio-fg transition-colors hover:bg-legio-fill-hover aria-[current=true]:bg-legio-fill-active aria-[current=true]:text-legio-fg"
             >
               <span class="truncate font-medium">{item.name}</span>
-              {#if item.directory}<span class="truncate text-xs text-zinc-500">{item.directory}</span>{/if}
-              <span class="truncate text-xs text-zinc-500">{formatBytes(item.file.size, $language)} &middot; {formatDateTime(item.file.modified, $language)}</span>
+              {#if item.directory}<span class="truncate text-xs text-legio-fg-subtle">{item.directory}</span>{/if}
+              <span class="truncate text-xs text-legio-fg-subtle">{formatBytes(item.file.size, $language)} &middot; {formatDateTime(item.file.modified, $language)}</span>
             </button>
           </li>
         {/each}
@@ -277,7 +277,7 @@
 
   <section class="flex min-h-80 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl legio-glass lg:min-h-0" aria-label={t("Editor di configurazione", $language)}>
     {#if listLoading && files.length === 0}
-      <div class="flex flex-1 items-center justify-center gap-3 text-sm text-zinc-300 light:text-zinc-700" role="status"><Spinner />{t("Caricamento...", $language)}</div>
+      <div class="flex flex-1 items-center justify-center gap-3 text-sm text-legio-fg" role="status"><Spinner />{t("Caricamento...", $language)}</div>
     {:else if !listLoading && listError === null && files.length === 0}
       <div class="flex flex-1 items-center justify-center p-6">
         <EmptyState
@@ -287,15 +287,15 @@
         />
       </div>
     {:else if selectedPath === null || pathParts === null}
-      <div class="flex flex-1 items-center justify-center p-6 text-sm text-zinc-400 light:text-zinc-600">{t("Seleziona un file da modificare.", $language)}</div>
+      <div class="flex flex-1 items-center justify-center p-6 text-sm text-legio-fg-muted">{t("Seleziona un file da modificare.", $language)}</div>
     {:else}
-      <header class="flex shrink-0 flex-wrap items-center gap-3 border-b border-white/10 px-4 py-3 light:border-zinc-900/10">
+      <header class="flex shrink-0 flex-wrap items-center gap-3 border-b border-legio-line-subtle px-4 py-3">
         <div class="min-w-0 flex-1">
-          <p class="flex items-center gap-2 truncate text-sm font-semibold text-zinc-100 light:text-zinc-900">
+          <p class="flex items-center gap-2 truncate text-sm font-semibold text-legio-fg">
             <span class="truncate">{pathParts.name}</span>
             {#if dirty}<Badge tone="info" title={t("Modifiche non salvate", $language)} />{/if}
           </p>
-          {#if pathParts.directory}<p class="truncate text-xs text-zinc-500">{pathParts.directory}</p>{/if}
+          {#if pathParts.directory}<p class="truncate text-xs text-legio-fg-subtle">{pathParts.directory}</p>{/if}
         </div>
         {#if config !== null}
           <SegmentedControl name="mod-config-mode" label={t("Modalità di modifica", $language)} labelHidden class="w-48" options={modeOptions} value={effectiveMode} disabled={saving} onChange={selectMode} />
@@ -319,7 +319,7 @@
       {#if fileError !== null}
         <div class="p-4"><ErrorBanner message={fileError} onRetry={() => void openFile(selectedPath ?? "")} /></div>
       {:else if file === null || fileLoading}
-        <div class="flex flex-1 items-center justify-center gap-3 text-sm text-zinc-300 light:text-zinc-700" role="status"><Spinner />{t("Caricamento...", $language)}</div>
+        <div class="flex flex-1 items-center justify-center gap-3 text-sm text-legio-fg" role="status"><Spinner />{t("Caricamento...", $language)}</div>
       {:else}
         {#if saveError !== null}<div class="px-4 pt-4"><ErrorBanner message={saveError} /></div>{/if}
         {#if sizeError !== null}<div class="px-4 pt-4"><ErrorBanner message={sizeError} tone="warning" /></div>{/if}
@@ -347,11 +347,11 @@
                     type="button"
                     aria-expanded={expanded}
                     onclick={() => toggleSection(section.id)}
-                    class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm font-semibold text-zinc-100 transition-colors hover:bg-white/10 light:text-zinc-900 light:hover:bg-zinc-900/10"
+                    class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm font-semibold text-legio-fg transition-colors hover:bg-legio-fill-hover"
                   >
-                    <span class="shrink-0 text-zinc-400 transition-transform motion-reduce:transition-none {expanded ? '' : '-rotate-90'}"><Icon name="chevron-down" size="size-4" /></span>
+                    <span class="shrink-0 text-legio-fg-muted transition-transform motion-reduce:transition-none {expanded ? '' : '-rotate-90'}"><Icon name="chevron-down" size="size-4" /></span>
                     <span class="min-w-0 truncate">{section.name}</span>
-                    <span class="text-xs font-normal text-zinc-500">{section.entries.length}</span>
+                    <span class="text-xs font-normal text-legio-fg-subtle">{section.entries.length}</span>
                     {#if changedCount > 0}<Badge tone="info" title={t("{0} modificate", $language, [changedCount])} />{/if}
                   </button>
                   {#if expanded}
@@ -368,7 +368,7 @@
                   {/if}
                 </div>
               {:else}
-                <p class="p-3 text-sm text-zinc-400 light:text-zinc-600">{config.sections.length === 0 ? t("Il file non contiene impostazioni.", $language) : t("Nessuna impostazione corrisponde alla ricerca.", $language)}</p>
+                <p class="p-3 text-sm text-legio-fg-muted">{config.sections.length === 0 ? t("Il file non contiene impostazioni.", $language) : t("Nessuna impostazione corrisponde alla ricerca.", $language)}</p>
               {/each}
             </div>
           </div>

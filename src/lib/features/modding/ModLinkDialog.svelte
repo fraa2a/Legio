@@ -140,16 +140,16 @@
       <div class="flex items-start gap-3">
         <ModIcon source={resolution?.package?.icon ?? null} class="size-14 rounded-xl" />
         <div class="min-w-0 flex-1">
-          <p class="truncate text-base font-semibold text-zinc-100 light:text-zinc-900">{packageTitle(target.name)}</p>
-          <p class="text-sm text-zinc-400 light:text-zinc-600">{t("di {0} · versione {1}", $language, [target.owner, target.version])}</p>
+          <p class="truncate text-base font-semibold text-legio-fg">{packageTitle(target.name)}</p>
+          <p class="text-sm text-legio-fg-muted">{t("di {0} · versione {1}", $language, [target.owner, target.version])}</p>
           {#if resolution?.package?.description}
-            <p class="mt-1 line-clamp-2 text-xs text-zinc-500">{resolution.package.description}</p>
+            <p class="mt-1 line-clamp-2 text-xs text-legio-fg-subtle">{resolution.package.description}</p>
           {/if}
         </div>
       </div>
 
       {#if resolving}
-        <p class="flex items-center gap-2 text-sm text-zinc-400 light:text-zinc-600" role="status"><Spinner />{t("Ricerca nei giochi della libreria...", $language)}</p>
+        <p class="flex items-center gap-2 text-sm text-legio-fg-muted" role="status"><Spinner />{t("Ricerca nei giochi della libreria...", $language)}</p>
       {:else if loadError !== null}
         <ErrorBanner message={loadError} onRetry={() => void begin(target)} retryLabel={t("Riprova", $language)} />
         <div class="flex justify-end"><Button label={t("Chiudi", $language)} variant="secondary" onClick={close} /></div>
@@ -189,7 +189,7 @@
         {#if resolution !== null && resolution.candidates.length > 1}
           <SelectField id="mod-link-game" label={t("Gioco", $language)} value={candidate.gameId} options={linkGameOptions(resolution.candidates)} disabled={installing} onChange={selectGame} />
         {:else}
-          <p class="text-sm text-zinc-300 light:text-zinc-700">{t("Gioco: {0}", $language, [candidate.name])}</p>
+          <p class="text-sm text-legio-fg">{t("Gioco: {0}", $language, [candidate.name])}</p>
         {/if}
         {#if candidate.profiles.length === 0}
           <Callout variant="inline" message={t("Questo gioco non ha ancora profili mod. Aprilo dalla pagina Mod per crearne uno.", $language)} />

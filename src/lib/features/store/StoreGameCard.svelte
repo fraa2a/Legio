@@ -42,9 +42,9 @@
 </script>
 
 <ArtworkScope active={visible}>
-  <li bind:this={row} class="tile group relative overflow-hidden rounded-xl bg-zinc-900 light:bg-white">
+  <li bind:this={row} class="tile legio-glass group relative overflow-hidden rounded-xl">
     <div
-      class="legio-artwork-zoom absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-950 light:from-zinc-200 light:to-zinc-100"
+      class="legio-artwork-zoom absolute inset-0"
       aria-hidden="true"
     >
       {#if visible}
@@ -65,7 +65,7 @@
     ></div>
     <button
       type="button"
-      class="relative flex min-h-28 w-full items-stretch text-left transition-colors hover:bg-white/5 focus-visible:-outline-offset-2 sm:min-h-32 light:hover:bg-zinc-900/5"
+      class="relative flex min-h-28 w-full items-stretch text-left transition-colors hover:bg-legio-fill focus-visible:-outline-offset-2 sm:min-h-32"
       aria-label={t("Dettagli di {0} nello Store", $language, [name])}
       onclick={onOpen}
     >
@@ -79,22 +79,22 @@
             class="absolute inset-0 size-full object-cover"
           >
             {#snippet placeholder()}
-              <span class="absolute inset-0 flex size-full items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-900 text-3xl font-semibold text-zinc-400 light:from-zinc-300 light:to-zinc-100 light:text-zinc-500">{name.slice(0, 1)}</span>
+              <span class="absolute inset-0 flex size-full items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-900 text-3xl font-semibold text-legio-fg-muted light:from-zinc-300 light:to-zinc-100">{name.slice(0, 1)}</span>
             {/snippet}
           </SteamArtwork>
         {:else}
-          <span class="absolute inset-0 flex size-full items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-900 text-3xl font-semibold text-zinc-400 light:from-zinc-300 light:to-zinc-100 light:text-zinc-500">{name.slice(0, 1)}</span>
+          <span class="absolute inset-0 flex size-full items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-900 text-3xl font-semibold text-legio-fg-muted light:from-zinc-300 light:to-zinc-100">{name.slice(0, 1)}</span>
         {/if}
       </div>
       <div class="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-4 gap-y-1 py-3 pr-3 pl-4 sm:pr-4">
         <div class="flex min-w-0 flex-1 flex-col justify-center gap-1">
-          <span class="truncate text-base font-semibold text-zinc-100 light:text-zinc-900">{name}</span>
-          <span class="h-4 truncate text-xs leading-4 text-zinc-400 light:text-zinc-500">{summary ?? ""}</span>
+          <span class="truncate text-base font-semibold text-legio-fg">{name}</span>
+          <span class="h-4 truncate text-xs leading-4 text-legio-fg-muted">{summary ?? ""}</span>
         </div>
         <div class="flex shrink-0 flex-col items-end gap-1.5">
           {#if entry !== null}
             <span
-              class="whitespace-nowrap text-xs tabular-nums text-zinc-400 light:text-zinc-500"
+              class="whitespace-nowrap text-xs tabular-nums text-legio-fg-muted"
               title="{t("Versione {0}", $language, [entry.release.version])} · {entry.download.sizeBytes == null ? t("Dimensione sconosciuta", $language) : formatBytes(entry.download.sizeBytes, $language)}"
             >
               {entry.release.version} · {entry.download.sizeBytes == null ? t("Dimensione sconosciuta", $language) : formatBytes(entry.download.sizeBytes, $language)}

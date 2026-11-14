@@ -87,12 +87,12 @@
     onRetry={() => void moddableGames.reload()}
   />
   {#if modding === null && ($moddableGames.status === "ready" || $moddableGames.status === "empty")}
-    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Questo gioco non è disponibile per le mod.", $language)}</p>
+    <p class="text-sm text-legio-fg-muted">{t("Questo gioco non è disponibile per le mod.", $language)}</p>
   {/if}
   {#if modding !== null}
     <Panel title={t("Gioco Thunderstore", $language)} description={t("Il catalogo e i profili delle mod dipendono da questo collegamento.", $language)}>
       <div class="flex flex-col gap-3">
-        <p class="text-sm text-zinc-200 light:text-zinc-800">{bindingText}</p>
+        <p class="text-sm text-legio-fg">{bindingText}</p>
         {#if modState === "unsupported"}
           <Callout tone="warning" variant="inline" message={t("Il loader di questo gioco non è ancora supportato: Legio installa le mod dei giochi con BepInEx.", $language)} />
         {/if}
@@ -106,7 +106,7 @@
             {/if}
           </div>
         {/if}
-        {#if canChoose && running}<p class="text-xs text-zinc-500">{t("Chiudi il gioco per cambiare il collegamento.", $language)}</p>{/if}
+        {#if canChoose && running}<p class="text-xs text-legio-fg-subtle">{t("Chiudi il gioco per cambiare il collegamento.", $language)}</p>{/if}
       </div>
     </Panel>
     {#if modding.binding !== null}

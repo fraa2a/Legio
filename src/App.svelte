@@ -17,6 +17,7 @@
   import ToastNotice from "./lib/components/ui/ToastNotice.svelte";
   import Button from "./lib/components/ui/Button.svelte";
   import CloseButton from "./lib/components/ui/CloseButton.svelte";
+  import Icon from "./lib/components/ui/Icon.svelte";
   import AccountSwitchDialog from "./lib/features/library/AccountSwitchDialog.svelte";
   import ModLinkDialog from "./lib/features/modding/ModLinkDialog.svelte";
   import SourceLinkDialog from "./lib/features/settings/SourceLinkDialog.svelte";
@@ -133,7 +134,8 @@
 <ToastNotice />
 
 {#if $updateState.version && !updateDismissed && ($appInfo.data.platform !== "linux" || !$updateState.nativeNotified)}
-  <div class="fixed right-5 bottom-5 z-50 flex max-w-sm items-center gap-3 rounded-xl border border-white/15 bg-zinc-900/95 p-4 text-sm text-white shadow-xl light:border-zinc-900/15 light:bg-white light:text-zinc-900" role="status">
+  <div class="legio-popover fixed right-5 bottom-5 z-50 flex max-w-sm items-center gap-3 rounded-xl p-4 text-sm text-legio-fg shadow-xl shadow-black/30 inset-ring inset-ring-legio-info/25 light:shadow-zinc-900/15" role="status">
+    <span class="shrink-0 text-legio-info"><Icon name="info" size="size-4" /></span>
     <span>{t("Legio {0} disponibile.", $language, [$updateState.version])}{#if $updateState.aur} {t("Aggiorna tramite AUR.", $language)}{/if}</span>
     {#if $appInfo.data.platform !== "linux" && !$updateState.aur}
       <Button label={$updateState.installing ? t("Installazione...", $language) : t("Aggiorna", $language)} size="sm" disabled={$updateState.installing} onClick={() => void installAppUpdate()} />

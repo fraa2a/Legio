@@ -58,19 +58,19 @@
       <div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-2.5">
-            <h2 class="min-w-0 truncate text-xl font-semibold text-zinc-50 light:text-zinc-900">
+            <h2 class="min-w-0 truncate text-xl font-semibold text-legio-fg">
               {job.name}
             </h2>
             <Badge tone={statusTone(job.status)} title={statusBadge(job.status, $language)} />
           </div>
-          <p class="mt-1 flex items-center gap-2 text-sm text-zinc-400 light:text-zinc-600">
+          <p class="mt-1 flex items-center gap-2 text-sm text-legio-fg-muted">
             {#if busyPhase}
               <span class="size-1.5 shrink-0 rounded-full bg-legio-download animate-pulse" aria-hidden="true"></span>
             {/if}
             <span class="truncate">{phase !== null ? `${phase} · ` : ""}{t("Versione {0}", $language, [job.releaseVersion])}</span>
           </p>
         </div>
-        <p class="text-3xl font-semibold tabular-nums text-zinc-50 light:text-zinc-900">
+        <p class="text-3xl font-semibold tabular-nums text-legio-fg">
           {Math.round(progress)}%
         </p>
       </div>
@@ -82,7 +82,7 @@
           label={t("Avanzamento di {0}", $language, [job.name])}
           class="h-2.5"
         />
-        <div class="mt-2.5 flex flex-wrap gap-x-5 gap-y-1 text-xs text-zinc-400 light:text-zinc-600">
+        <div class="mt-2.5 flex flex-wrap gap-x-5 gap-y-1 text-xs text-legio-fg-muted">
           <span class="tabular-nums">{formatBytes(job.downloadedBytes, $language)} / {formatBytes(job.sizeBytes, $language)}</span>
           {#if downloading}
             <span class="tabular-nums">{formatBytes(job.speedBps, $language)}/s</span>
@@ -111,7 +111,7 @@
           <Button label={t("Annulla", $language)} variant="danger-soft" disabled={busy} onClick={onCancel} />
         {/if}
         {#if canRemoveDownload(job.status, job.error)}
-          <Button label={t("Rimuovi", $language)} variant="secondary" disabled={busy} onClick={onRemove} />
+          <Button label={t("Rimuovi", $language)} variant="danger-soft" disabled={busy} onClick={onRemove} />
         {/if}
       </div>
     </div>
