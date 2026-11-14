@@ -37,13 +37,18 @@ fn find_log(profile_dir: &Path) -> Result<PathBuf, String> {
 
 /// The last `MAX_LOG_BYTES` of the file, starting at a line boundary.
 fn read_tail(path: &Path) -> Result<String, String> {
+    read_tail_limited(path, MAX_LOG_BYTES)
+}
+
+/// The last `limit` bytes of the file, starting at a line boundary.
+pub(crate) fn read_tail_limited(path: &Path, limit: u64) -> Result<String, String> {
     let read_error = |error: std::io::Error| format!("Could not read the log: {error}");
     let mut file = File::open(path).map_err(read_error)?;
     let length = file.metadata().map_err(read_error)?.len();
-    let start = length.saturating_sub(MAX_LOG_BYTES);
+    let start = length.saturating_sub(limit);
     file.seek(SeekFrom::Start(start)).map_err(read_error)?;
     let mut bytes = Vec::new();
-    file.take(MAX_LOG_BYTES)
+    file.take(limit)
         .read_to_end(&mut bytes)
         .map_err(read_error)?;
     let text = String::from_utf8_lossy(&bytes);
@@ -56,7 +61,7 @@ fn read_tail(path: &Path) -> Result<String, String> {
 }
 
 /// Replaces `home` (in either slash style, ignoring ASCII case) with `~`.
-fn redact_home(text: &str, home: &Path) -> String {
+pub(crate) fn redact_home(text: &str, home: &Path) -> String {
     let home = home.to_string_lossy();
     if home.is_empty() {
         return text.to_owned();

@@ -36,4 +36,4 @@ body:
     id: context
     attributes:
       label: Additional context
-      description: Add logs, screenshots, or other useful details.
+      description: Attach the support bundle (Settings, Advanced, Create support bundle), screenshots, or other useful details. Check the bundle first; README.txt lists its contents.

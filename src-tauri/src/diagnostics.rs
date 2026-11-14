@@ -50,8 +50,8 @@ struct Record {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogStatus {
-    enabled: bool,
-    directory: Option<PathBuf>,
+    pub(crate) enabled: bool,
+    pub(crate) directory: Option<PathBuf>,
     last_error: Option<String>,
     dropped_records: u64,
     pub(crate) pending_records: usize,

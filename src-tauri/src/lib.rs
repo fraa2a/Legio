@@ -82,6 +82,7 @@ mod source_matching;
 mod source_search;
 mod startup;
 mod startup_recovery;
+mod support_bundle;
 #[cfg(target_os = "linux")]
 mod webkit_features;
 mod window_scale;
@@ -511,6 +512,7 @@ fn run_application(
             commands::get_network_status,
             commands::get_network_log_status,
             commands::get_application_log_status,
+            support_bundle::create_support_bundle,
             commands::report_application_event,
             commands::get_legio_source,
             commands::check_game_links,

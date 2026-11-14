@@ -7,11 +7,17 @@
 3. Open a [bug report](https://github.com/fraa2a/Legio/issues/new?template=bug.yml) with:
    - Legio version, OS and package type.
    - Steps, expected result and actual result.
-   - Relevant logs from the directory shown in Settings.
+   - The support bundle (see below), or relevant logs from the directory shown in Settings.
 
 For graphics issues, also include GPU/driver, display scaling, Wayland/X11 and WebView2 or WebKitGTK version. See [Linux rendering diagnostics](LINUX-RENDERING.md) for backend comparisons.
 
 **Before sharing:** remove credentials, private URLs and personal data. Report vulnerabilities privately through [SECURITY.md](../../SECURITY.md).
+
+## Support bundle
+
+In Settings, Advanced, choose **Crea pacchetto di supporto** (Create support bundle) and pick where to save the zip. It works with logging disabled, but then it contains no logs: enable them first and reproduce the problem to get useful ones.
+
+The zip holds the app version and build, OS, architecture and desktop session, a fixed list of non-sensitive settings, the database schema version with row counts per table, and the newest 256 KiB of each application and network log with the home folder and user name replaced. It never includes game names, library content, download sources, account names, Steam ids, file paths or database rows. `README.txt` inside lists exactly what is in it. Nothing is uploaded: open the zip, check it, then attach it to the issue.
 
 ## Logs
 

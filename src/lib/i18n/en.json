@@ -1077,5 +1077,9 @@
   "Impossibile attivare lo schermo intero.": "Could not enter fullscreen.",
   "Caricamento del trailer...": "Loading trailer...",
   "Indietro di 10 secondi": "Back 10 seconds",
-  "Avanti di 10 secondi": "Forward 10 seconds"
+  "Avanti di 10 secondi": "Forward 10 seconds",
+  "Crea pacchetto di supporto": "Create support bundle",
+  "Crea pacchetto": "Create bundle",
+  "Salva uno zip con versione, sistema, impostazioni non sensibili e log redatti da allegare a una segnalazione. Il contenuto è elencato in README.txt.": "Saves a zip with version, system, non-sensitive settings and redacted logs to attach to a report. The contents are listed in README.txt.",
+  "Pacchetto di supporto salvato.": "Support bundle saved."
 }
