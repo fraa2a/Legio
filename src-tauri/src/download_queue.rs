@@ -1859,44 +1859,130 @@ pub async fn queue_download(
     Ok(job)
 }
 
+fn pause_job(app: &AppHandle, id: &str) -> Result<(), String> {
+    change_status(
+        app.state::<DatabaseState>().database()?,
+        id,
+        &[
+            DownloadStatus::Queued,
+            DownloadStatus::Downloading,
+            DownloadStatus::Waiting,
+        ],
+        DownloadStatus::Paused,
+    )?;
+    app.state::<DatabaseState>().database()?.with_connection(|connection| { connection.execute("UPDATE downloads SET pause_reason = NULL, interrupted_by_game = 0 WHERE id = ?1", [id]).map_err(db_error)?; Ok(()) })?;
+    app.state::<DownloadQueueState>().interrupt(id)
+}
+
+fn resume_job(app: &AppHandle, id: &str) -> Result<(), String> {
+    let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
+    let _operation = manager.operation()?;
+    let database_state = app.state::<DatabaseState>();
+    let database = database_state.database()?;
+    crate::download_policy::require_resumable(database, &manager, id)?;
+    change_status(
+        database,
+        id,
+        &[DownloadStatus::Paused, DownloadStatus::Waiting],
+        DownloadStatus::Queued,
+    )?;
+    database.with_connection(|connection| { connection.execute("UPDATE downloads SET manual_override = 1, automatic_update = 0, pause_reason = NULL WHERE id = ?1", [id]).map_err(db_error)?; Ok(()) })
+}
+
 #[tauri::command]
 pub async fn pause_download(app: AppHandle, id: String) -> Result<(), String> {
     crate::startup_recovery::wait(&app).await?;
-    tauri::async_runtime::spawn_blocking(move || {
-        change_status(
-            app.state::<DatabaseState>().database()?,
-            &id,
-            &[
-                DownloadStatus::Queued,
-                DownloadStatus::Downloading,
-                DownloadStatus::Waiting,
-            ],
-            DownloadStatus::Paused,
-        )?;
-        app.state::<DatabaseState>().database()?.with_connection(|connection| { connection.execute("UPDATE downloads SET pause_reason = NULL, interrupted_by_game = 0 WHERE id = ?1", [&id]).map_err(db_error)?; Ok(()) })?;
-        app.state::<DownloadQueueState>().interrupt(&id)
-    })
-    .await
-    .map_err(|error| format!("Pause task failed: {error}"))?
+    tauri::async_runtime::spawn_blocking(move || pause_job(&app, &id))
+        .await
+        .map_err(|error| format!("Pause task failed: {error}"))?
 }
 
 #[tauri::command]
 pub async fn resume_download(app: AppHandle, id: String) -> Result<(), String> {
     crate::startup_recovery::wait(&app).await?;
     let worker_app = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
-        let _operation = manager.operation()?;
-        let database_state = app.state::<DatabaseState>();
-        let database = database_state.database()?;
-        crate::download_policy::require_resumable(database, &manager, &id)?;
-        change_status(database, &id, &[DownloadStatus::Paused, DownloadStatus::Waiting], DownloadStatus::Queued)?;
-        database.with_connection(|connection| { connection.execute("UPDATE downloads SET manual_override = 1, automatic_update = 0, pause_reason = NULL WHERE id = ?1", [&id]).map_err(db_error)?; Ok(()) })
-    })
-    .await
-    .map_err(|error| format!("Resume task failed: {error}"))??;
+    tauri::async_runtime::spawn_blocking(move || resume_job(&app, &id))
+        .await
+        .map_err(|error| format!("Resume task failed: {error}"))??;
     kick(worker_app);
     Ok(())
+}
+
+/// Whether any download can be paused, and whether any was paused by the user.
+pub(crate) fn pause_overview(database: &Database) -> Result<(bool, bool), String> {
+    database.with_connection(|connection| {
+        connection
+            .query_row(
+                "SELECT COALESCE(MAX(status IN ('queued','downloading','waiting')), 0),
+                    COALESCE(MAX(status = 'paused' AND pause_reason IS NULL), 0)
+                 FROM downloads",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(db_error)
+    })
+}
+
+fn ids_where(database: &Database, condition: &str) -> Result<Vec<String>, String> {
+    database.with_connection(|connection| {
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT id FROM downloads WHERE {condition} ORDER BY queue_position, created_at, id"
+            ))
+            .map_err(db_error)?;
+        statement
+            .query_map([], |row| row.get(0))
+            .map_err(db_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(db_error)
+    })
+}
+
+/// Applies `change` to every job and reports the first failure after trying all of them.
+fn change_each(
+    app: &AppHandle,
+    ids: Vec<String>,
+    change: fn(&AppHandle, &str) -> Result<(), String>,
+) -> Result<(), String> {
+    let mut first_error = None;
+    for id in ids {
+        if let Err(error) = change(app, &id) {
+            crate::application_log::failure("change_download_batch", &error);
+            first_error.get_or_insert(error);
+        }
+    }
+    first_error.map_or(Ok(()), Err)
+}
+
+pub(crate) async fn pause_all(app: AppHandle) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let ids = ids_where(
+            app.state::<DatabaseState>().database()?,
+            "status IN ('queued','downloading','waiting')",
+        )?;
+        change_each(&app, ids, pause_job)
+    })
+    .await
+    .map_err(|error| format!("Pause task failed: {error}"))?
+}
+
+/// Resumes only downloads the user paused, not those held by the game policy.
+pub(crate) async fn resume_all(app: AppHandle) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
+    let worker_app = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let ids = ids_where(
+            app.state::<DatabaseState>().database()?,
+            "status = 'paused' AND pause_reason IS NULL",
+        )?;
+        change_each(&app, ids, resume_job)
+    })
+    .await
+    .map_err(|error| format!("Resume task failed: {error}"))?;
+    // Jobs resumed before a failure still need the queue woken.
+    kick(worker_app);
+    result
 }
 
 #[tauri::command]
