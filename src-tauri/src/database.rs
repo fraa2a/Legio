@@ -268,6 +268,10 @@ pub struct Settings {
     pub defer_extraction_while_playing: bool,
     #[serde(default)]
     pub thunderstore_links_enabled: bool,
+    #[serde(default = "default_true")]
+    pub news_enabled: bool,
+    #[serde(default = "default_true")]
+    pub automatic_update_check: bool,
 }
 
 fn default_true() -> bool {
@@ -324,6 +328,8 @@ impl Default for Settings {
             application_logging_enabled: false,
             defer_extraction_while_playing: false,
             thunderstore_links_enabled: false,
+            news_enabled: true,
+            automatic_update_check: true,
         }
     }
 }
@@ -1535,6 +1541,17 @@ mod tests {
             let settings = serde_json::to_value(settings).unwrap();
             assert_eq!(settings["diagnosticsEnabled"], false);
             assert_eq!(settings["applicationLoggingEnabled"], false);
+        }
+    }
+
+    #[test]
+    fn network_features_stay_enabled_for_legacy_settings() {
+        for settings in [
+            Settings::default(),
+            serde_json::from_str(r#"{"theme":"system"}"#).unwrap(),
+        ] {
+            assert!(settings.news_enabled);
+            assert!(settings.automatic_update_check);
         }
     }
 

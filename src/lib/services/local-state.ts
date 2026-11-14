@@ -30,6 +30,8 @@ export interface Settings {
   applicationLoggingEnabled: boolean;
   deferExtractionWhilePlaying: boolean;
   thunderstoreLinksEnabled: boolean;
+  newsEnabled: boolean;
+  automaticUpdateCheck: boolean;
 }
 
 export interface Game {

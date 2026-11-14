@@ -17,6 +17,7 @@ import { activeSection, openGame } from "./navigation";
 import { showToast } from "./toast";
 import { t } from "../i18n";
 import { loadNews } from "./news";
+import { checkForAppUpdate } from "../services/app-updater";
 
 let steamScanTimer: ReturnType<typeof setInterval> | null = null;
 let startupWarningsShown = false;
@@ -43,6 +44,11 @@ function startAppEvents(): Promise<void> {
     throw error;
   });
   return appEvents;
+}
+
+export async function checkForAppUpdateWhenEnabled(): Promise<void> {
+  if (get(settings).status !== "ready") await settings.load();
+  if (get(settings).data.automaticUpdateCheck) await checkForAppUpdate();
 }
 
 export async function hydrateApp(): Promise<void> {

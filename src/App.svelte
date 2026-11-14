@@ -20,11 +20,11 @@
   import AccountSwitchDialog from "./lib/features/library/AccountSwitchDialog.svelte";
   import ModLinkDialog from "./lib/features/modding/ModLinkDialog.svelte";
   import SourceLinkDialog from "./lib/features/settings/SourceLinkDialog.svelte";
-  import { hydrateApp } from "./lib/stores/bootstrap";
+  import { checkForAppUpdateWhenEnabled, hydrateApp } from "./lib/stores/bootstrap";
   import { paletteOpen } from "./lib/stores/command-palette";
   import { closeSettings, settingsOpen } from "./lib/stores/navigation";
   import { settings } from "./lib/stores/settings";
-  import { checkForAppUpdate, installAppUpdate, updateState } from "./lib/services/app-updater";
+  import { installAppUpdate, updateState } from "./lib/services/app-updater";
   import { windowVisible } from "./lib/stores/window-activity";
   import { hasRunningGame } from "./lib/stores/launch";
   import { observeMediaPlayback } from "./lib/services/media-playback";
@@ -56,7 +56,7 @@
       logApplicationEvent("error", "bootstrap_error", describeApplicationError(reason), applicationErrorStack(reason));
       console.error("Application resource initialization failed", reason);
     });
-    if (import.meta.env.PROD) void checkForAppUpdate();
+    if (import.meta.env.PROD) void checkForAppUpdateWhenEnabled();
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const updateSystemTheme = () => {

@@ -61,6 +61,7 @@ for checks and the pull request workflow.
 
 - [Documentation index](_meta/docs/README.md)
 - [Development setup](_meta/docs/DEVELOPMENT.md) and [contributing](CONTRIBUTING.md)
+- [Privacy and network](_meta/docs/PRIVACY.md)
 - [Known issues and limitations](_meta/docs/KNOWN-ISSUES.md)
 - [Source schemas and download flow](_meta/docs/SCHEMA.md)
 - [Releases and updates](_meta/docs/UPDATING.md)
