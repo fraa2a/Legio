@@ -8,8 +8,11 @@ Run from the repository root. [package.json](../package.json) defines `test:*` c
 | --- | --- |
 | `test_*.mjs` | Regression suites; use package commands for the required Node flags |
 | `test_documentation.mjs` | Local Markdown links and image paths (`test:docs`) |
+| `test_app_smoke.mjs` | Performance budget comparison and process sampling of the [application smoke test](../tools/app-smoke/README.md) (`test:smoke-tools`) |
 | `test_module_loader.mjs` | Svelte/TypeScript loading with mocks; not a standalone suite |
 | `fixtures/gofile-wt.js` | Protocol fixture shared with Rust via `include_str!` |
+
+The application smoke test itself lives in [tools/app-smoke](../tools/app-smoke/README.md) because it needs a built binary and WebDriver; run it with `corepack pnpm smoke:app`.
 
 Reuse the runner and name tests by behavior. Moving files requires updating package commands, fixture references and CI.
 
