@@ -752,11 +752,24 @@ pub async fn remove_game(app: AppHandle, id: String) -> Result<(), String> {
     .map_err(|error| format!("Game removal task failed: {error}"))?
 }
 
+/// Remembers the profile of a launch that started. A failure is logged and does
+/// not affect the running game.
+fn record_launch_profile(app: &AppHandle, game_id: &str, profile_id: Option<&str>) {
+    let outcome = app
+        .state::<DatabaseState>()
+        .database()
+        .and_then(|database| database.set_last_launch_profile(game_id, profile_id));
+    if let Err(error) = outcome {
+        crate::application_log::failure("launch_profile_last_used", error);
+    }
+}
+
 #[tauri::command]
 pub async fn launch_steam_game(
     app: AppHandle,
     game_id: String,
     confirm_account_switch: bool,
+    profile_id: Option<String>,
 ) -> Result<crate::steam_switch::SteamLaunchResult, String> {
     let manager = app
         .state::<crate::game_lifecycle::GameLaunchManager>()
@@ -764,9 +777,15 @@ pub async fn launch_steam_game(
         .clone();
     tauri::async_runtime::spawn_blocking(move || {
         manager.record_launch_request(&game_id, false);
-        let result = manager.launch(app, game_id.clone(), confirm_account_switch);
-        if result.is_err() {
-            manager.record_launch_request(&game_id, true);
+        let result = manager.launch(
+            app.clone(),
+            game_id.clone(),
+            confirm_account_switch,
+            profile_id.clone(),
+        );
+        match &result {
+            Ok(_) => record_launch_profile(&app, &game_id, profile_id.as_deref()),
+            Err(_) => manager.record_launch_request(&game_id, true),
         }
         result
     })
@@ -778,6 +797,7 @@ pub async fn launch_steam_game(
 pub async fn launch_configured_game_with_runner(
     app: AppHandle,
     game_id: String,
+    profile_id: Option<String>,
 ) -> Result<(), String> {
     let manager = app
         .state::<crate::game_lifecycle::GameLaunchManager>()
@@ -785,9 +805,10 @@ pub async fn launch_configured_game_with_runner(
         .clone();
     tauri::async_runtime::spawn_blocking(move || {
         manager.record_launch_request(&game_id, false);
-        let result = manager.launch_configured(app, game_id.clone());
-        if result.is_err() {
-            manager.record_launch_request(&game_id, true);
+        let result = manager.launch_configured(app.clone(), game_id.clone(), profile_id.clone());
+        match &result {
+            Ok(()) => record_launch_profile(&app, &game_id, profile_id.as_deref()),
+            Err(_) => manager.record_launch_request(&game_id, true),
         }
         result
     })
@@ -796,21 +817,102 @@ pub async fn launch_configured_game_with_runner(
 }
 
 #[tauri::command]
-pub async fn launch_native_game(app: AppHandle, game_id: String) -> Result<(), String> {
+pub async fn launch_native_game(
+    app: AppHandle,
+    game_id: String,
+    profile_id: Option<String>,
+) -> Result<(), String> {
     let manager = app
         .state::<crate::game_lifecycle::GameLaunchManager>()
         .inner()
         .clone();
     tauri::async_runtime::spawn_blocking(move || {
         manager.record_launch_request(&game_id, false);
-        let result = manager.launch_native(app, game_id.clone());
-        if result.is_err() {
-            manager.record_launch_request(&game_id, true);
+        let result = manager.launch_native(app.clone(), game_id.clone(), profile_id.clone());
+        match &result {
+            Ok(()) => record_launch_profile(&app, &game_id, profile_id.as_deref()),
+            Err(_) => manager.record_launch_request(&game_id, true),
         }
         result
     })
     .await
     .map_err(|error| format!("Native game launch task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn get_launch_profiles(
+    state: State<'_, DatabaseState>,
+) -> Result<database::LaunchProfiles, String> {
+    launch_profile_task(state, "launch_profiles_load", |database| {
+        database.launch_profiles()
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn create_launch_profile(
+    state: State<'_, DatabaseState>,
+    game_id: String,
+    name: String,
+    overrides: database::LaunchOverrides,
+) -> Result<database::LaunchProfiles, String> {
+    launch_profile_task(state, "launch_profile_create", move |database| {
+        database.create_launch_profile(&game_id, &name, overrides)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn update_launch_profile(
+    state: State<'_, DatabaseState>,
+    id: String,
+    name: String,
+    overrides: database::LaunchOverrides,
+) -> Result<database::LaunchProfiles, String> {
+    launch_profile_task(state, "launch_profile_update", move |database| {
+        database.update_launch_profile(&id, &name, overrides)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn duplicate_launch_profile(
+    state: State<'_, DatabaseState>,
+    id: String,
+    name: String,
+) -> Result<database::LaunchProfiles, String> {
+    launch_profile_task(state, "launch_profile_duplicate", move |database| {
+        database.duplicate_launch_profile(&id, &name)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn delete_launch_profile(
+    state: State<'_, DatabaseState>,
+    id: String,
+) -> Result<database::LaunchProfiles, String> {
+    launch_profile_task(state, "launch_profile_delete", move |database| {
+        database.delete_launch_profile(&id)
+    })
+    .await
+}
+
+async fn launch_profile_task(
+    state: State<'_, DatabaseState>,
+    context: &'static str,
+    operation: impl FnOnce(&database::Database) -> Result<database::LaunchProfiles, String>
+    + Send
+    + 'static,
+) -> Result<database::LaunchProfiles, String> {
+    let database = state.shared_database()?;
+    let result = tauri::async_runtime::spawn_blocking(move || operation(&database))
+        .await
+        .unwrap_or_else(|error| Err(format!("Launch profile task failed: {error}")));
+    if let Err(error) = &result {
+        crate::application_log::failure(context, error);
+    }
+    result
 }
 
 #[tauri::command]

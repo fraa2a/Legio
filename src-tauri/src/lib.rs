@@ -541,6 +541,11 @@ fn run_application(
             commands::launch_steam_game,
             commands::launch_configured_game_with_runner,
             commands::launch_native_game,
+            commands::get_launch_profiles,
+            commands::create_launch_profile,
+            commands::update_launch_profile,
+            commands::duplicate_launch_profile,
+            commands::delete_launch_profile,
             commands::list_game_launch_states,
             commands::get_compatibility_logs_directory,
             commands::cancel_game_launch,
@@ -730,16 +735,16 @@ fn prepare_shortcut(app: &tauri::AppHandle, game_id: &str) -> Result<(), String>
     let manager = app.state::<game_lifecycle::GameLaunchManager>();
     if game.steam_install_path.is_some() {
         manager
-            .launch(app.clone(), game_id.to_owned(), false)
+            .launch(app.clone(), game_id.to_owned(), false, None)
             .map(|_| ())
     } else {
         #[cfg(target_os = "linux")]
         {
-            manager.launch_configured(app.clone(), game_id.to_owned())
+            manager.launch_configured(app.clone(), game_id.to_owned(), None)
         }
         #[cfg(windows)]
         {
-            manager.launch_native(app.clone(), game_id.to_owned())
+            manager.launch_native(app.clone(), game_id.to_owned(), None)
         }
     }
 }

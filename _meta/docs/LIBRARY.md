@@ -133,6 +133,43 @@ deleted collection shows every game. Sorting, filtering and resizing glide the
 grid cards near the viewport to their new places, without motion when reduced
 motion is preferred. Disk usage is not part of the list yet.
 
+## Launch profiles
+
+A game can have up to 12 named launch profiles, such as "with mods", "vanilla" or
+"windowed". A profile is a set of overrides of the game's launch settings; every
+field it leaves out inherits the base settings, which stay the implicit
+"Predefinito" profile. A game without profiles launches exactly as before and its
+Play button is unchanged. Storage and validation are described in
+[SCHEMA.md](SCHEMA.md#launch-profiles-in-the-local-database).
+
+| Override | Applies to | Replaces |
+| --- | --- | --- |
+| Arguments | every game | Steam launch arguments, native launch arguments, or the arguments after the executable of a compatibility launch |
+| Environment variables | manual games | The whole environment of the base settings (an empty map clears it) |
+| Runner | Linux games run through a compatibility runner | The runner of the game or of the global default |
+| GameMode and Gamescope | Linux games run through a compatibility runner | The whole Linux performance block |
+
+Resolution happens in the Rust launch paths, once, before the mod loader arguments
+are appended and before the final validation of arguments, environment and DLL
+overrides. Overrides are checked with the same validators as the base settings when
+saved and again at launch. A launch that names an unknown profile, or a profile of
+another game, fails instead of falling back to the base settings. The backend
+remembers the profile of the last launch that started; deleting that profile makes
+the game return to the base settings, and removing a game removes its profiles.
+
+Mod profiles are not part of a launch profile. A launch always uses the game's
+active mod profile, because deploying another profile rewrites files in the game
+folder and changes the active profile. Several executables per game do not exist
+either, so there is no executable override.
+
+Profiles are managed in the "Profili di avvio" section of the game settings, with
+the same fields as the base settings and a switch per field that returns it to
+inheriting. When a game has profiles, the Play button becomes a split control: the
+main part launches the last used profile and the arrow opens a menu, expanding from
+the button into one surface, to pick another one. Picking an entry launches it and
+makes it the last used. Desktop shortcuts and `--launch-game=` always launch the
+base settings, and library manifests do not carry profiles.
+
 ## Advanced playtime editing
 
 The per-game danger section can set Legio's local playtime total in hours and

@@ -1,8 +1,10 @@
 pub(crate) mod backup;
+mod launch_profiles;
 mod library_organization;
 mod migrations;
 mod modding;
 mod sessions;
+pub(crate) use launch_profiles::{LaunchOverrides, LaunchProfiles};
 pub(crate) use library_organization::{LibraryOrganization, PlayStatus};
 use migrations::migrate;
 pub(crate) use modding::{GameModding, MAX_PROFILE_NAME_CHARS, ModProfile, ProfileMod};
@@ -26,7 +28,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-pub(crate) const SCHEMA_VERSION: i64 = 40;
+pub(crate) const SCHEMA_VERSION: i64 = 41;
 pub(crate) const DATABASE_FILE_NAME: &str = "legio.sqlite3";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

@@ -318,10 +318,16 @@ impl GameLaunchManager {
         app: AppHandle,
         game_id: String,
         confirm_account_switch: bool,
+        profile_id: Option<String>,
     ) -> Result<steam_switch::SteamLaunchResult, String> {
         crate::startup_recovery::require_ready(&app)?;
         let _operation = self.operation()?;
-        let game = app.state::<DatabaseState>().database()?.game(&game_id)?;
+        let state = app.state::<DatabaseState>();
+        let database = state.database()?;
+        let game = database.game(&game_id)?;
+        let overrides = database
+            .launch_profile(&game_id, profile_id.as_deref())?
+            .map(|profile| profile.overrides);
         let app_id = game
             .steam_app_id
             .ok_or_else(|| "This game has no valid Steam App ID".to_owned())?;
@@ -359,8 +365,14 @@ impl GameLaunchManager {
                         compatibility_log: None,
                     },
                     move |cancel| {
-                        steam_switch::launch(&app, &launch_game_id, confirm_account_switch, cancel)
-                            .map(|_| None)
+                        steam_switch::launch(
+                            &app,
+                            &launch_game_id,
+                            confirm_account_switch,
+                            overrides.as_ref(),
+                            cancel,
+                        )
+                        .map(|_| None)
                     },
                 );
             })
@@ -378,6 +390,7 @@ impl GameLaunchManager {
         &self,
         app: AppHandle<R>,
         game_id: String,
+        profile_id: Option<String>,
     ) -> Result<(), String> {
         crate::startup_recovery::require_ready(&app)?;
         let _operation = self.operation()?;
@@ -385,6 +398,7 @@ impl GameLaunchManager {
         self.require_idle(&game_id)?;
         crate::game_transfer::ensure_launchable(&database, &game_id)?;
         let game = database.game(&game_id)?;
+        let profile = database.launch_profile(&game_id, profile_id.as_deref())?;
         if game.steam_install_path.is_some() {
             return Err("Steam-managed games must launch through Steam".to_owned());
         }
@@ -425,6 +439,9 @@ impl GameLaunchManager {
             return Err("Executable is outside the installation root".to_owned());
         }
         let mut config = database.native_launch_config(&game_id)?;
+        if let Some(profile) = &profile {
+            config = profile.overrides.resolve_native(config);
+        }
         if let Some(plan) = crate::modding::launch::prepare_launch(&app, &game)? {
             config.arguments.extend(plan.arguments);
         }
@@ -489,19 +506,26 @@ impl GameLaunchManager {
     }
 
     #[cfg(target_os = "linux")]
-    pub(crate) fn launch_configured(&self, app: AppHandle, game_id: String) -> Result<(), String> {
-        let game = app.state::<DatabaseState>().database()?.game(&game_id)?;
+    pub(crate) fn launch_configured(
+        &self,
+        app: AppHandle,
+        game_id: String,
+        profile_id: Option<String>,
+    ) -> Result<(), String> {
+        let state = app.state::<DatabaseState>();
+        let database = state.database()?;
+        let game = database.game(&game_id)?;
         if game.executable_path.as_deref().is_some_and(|path| {
             !Path::new(path)
                 .extension()
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
         }) {
-            return self.launch_native(app, game_id);
+            return self.launch_native(app, game_id, profile_id);
         }
-        let config = app
-            .state::<DatabaseState>()
-            .database()?
-            .effective_compatibility_config(&game_id)?;
+        let mut config = database.effective_compatibility_config(&game_id)?;
+        if let Some(profile) = database.launch_profile(&game_id, profile_id.as_deref())? {
+            config = profile.overrides.resolve_compatibility(config);
+        }
         if config
             .runner_path
             .as_deref()
@@ -745,6 +769,7 @@ impl GameLaunchManager {
         &self,
         _app: AppHandle,
         _game_id: String,
+        _profile_id: Option<String>,
     ) -> Result<(), String> {
         Err("Compatibility runner launches are supported on Linux only".to_owned())
     }
@@ -1512,7 +1537,7 @@ fn game_working_directory(path: Option<&str>, game_directory: &Path) -> Result<P
     Ok(path)
 }
 
-fn validate_launch_arguments(arguments: &[String]) -> Result<(), String> {
+pub(crate) fn validate_launch_arguments(arguments: &[String]) -> Result<(), String> {
     if arguments.iter().any(|argument| argument.contains('\0')) {
         return Err("Launch arguments cannot contain null characters".to_owned());
     }
@@ -1520,7 +1545,7 @@ fn validate_launch_arguments(arguments: &[String]) -> Result<(), String> {
 }
 
 #[cfg(target_os = "linux")]
-fn validate_launch_environment(
+pub(crate) fn validate_launch_environment(
     environment: &std::collections::BTreeMap<String, String>,
 ) -> Result<(), String> {
     game_process::validate_environment_variables(environment, "Compatibility environment")?;
@@ -2445,7 +2470,7 @@ mod tests {
 
         let manager = app.state::<GameLaunchManager>().inner().clone();
         manager
-            .launch_native(app.handle().clone(), game.id.clone())
+            .launch_native(app.handle().clone(), game.id.clone(), None)
             .unwrap();
         let state = wait_for_native_status(&manager, &game.id, GameStatus::Running);
         assert_eq!(state.error, None);
@@ -2518,10 +2543,69 @@ mod tests {
                 })
                 .unwrap();
             let error = manager
-                .launch_native(app.handle().clone(), game.id.clone())
+                .launch_native(app.handle().clone(), game.id.clone(), None)
                 .unwrap_err();
             assert!(error.starts_with("Launch environment"), "{error}");
         }
+    }
+
+    #[test]
+    fn launch_with_an_unknown_profile_fails_without_starting() {
+        let base = test_dir("native-launch-unknown-profile");
+        let app = native_test_app(&base.join("database"));
+        let state = app.state::<DatabaseState>();
+        let game = state
+            .shared_database()
+            .unwrap()
+            .create_game(crate::database::CreateGameInput {
+                name: "Game".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        crate::manual_import::set_executable(
+            &state,
+            &game.id,
+            std::env::current_exe().unwrap().to_str().unwrap(),
+        )
+        .unwrap();
+        let other = state
+            .shared_database()
+            .unwrap()
+            .create_game(crate::database::CreateGameInput {
+                name: "Other".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        let foreign = state
+            .shared_database()
+            .unwrap()
+            .create_launch_profile(
+                &other.id,
+                "Window",
+                crate::database::LaunchOverrides::default(),
+            )
+            .unwrap()
+            .profiles[0]
+            .id
+            .clone();
+        let manager = app.state::<GameLaunchManager>().inner().clone();
+        for profile_id in [
+            uuid::Uuid::new_v4().to_string(),
+            foreign,
+            "invalid".to_owned(),
+        ] {
+            let error = manager
+                .launch_native(app.handle().clone(), game.id.clone(), Some(profile_id))
+                .unwrap_err();
+            assert!(error.contains("launch profile"), "{error}");
+        }
+        assert!(
+            manager
+                .list()
+                .unwrap()
+                .iter()
+                .all(|launch| launch.status == GameStatus::Idle)
+        );
     }
 
     #[cfg(target_os = "linux")]
