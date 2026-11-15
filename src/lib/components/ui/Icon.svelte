@@ -28,7 +28,12 @@
   import Image from "@lucide/svelte/icons/image";
   import Info from "@lucide/svelte/icons/info";
   import Languages from "@lucide/svelte/icons/languages";
+  import LayoutGrid from "@lucide/svelte/icons/layout-grid";
   import LibraryBig from "@lucide/svelte/icons/library-big";
+  import List from "@lucide/svelte/icons/list";
+  import ArrowDownWideNarrow from "@lucide/svelte/icons/arrow-down-wide-narrow";
+  import ArrowUpNarrowWide from "@lucide/svelte/icons/arrow-up-narrow-wide";
+  import FolderHeart from "@lucide/svelte/icons/folder-heart";
   import Link from "@lucide/svelte/icons/link";
   import Maximize2 from "@lucide/svelte/icons/maximize-2";
   import Minimize2 from "@lucide/svelte/icons/minimize-2";
@@ -53,6 +58,7 @@
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
   import Square from "@lucide/svelte/icons/square";
+  import Star from "@lucide/svelte/icons/star";
   import Store from "@lucide/svelte/icons/store";
   import Terminal from "@lucide/svelte/icons/terminal";
   import ThumbsUp from "@lucide/svelte/icons/thumbs-up";
@@ -131,6 +137,12 @@
     "panels": PanelsTopLeft,
     "window": AppWindow,
     "update": CircleArrowUp,
+    "star": Star,
+    "collection": FolderHeart,
+    "grid": LayoutGrid,
+    "list": List,
+    "sort-ascending": ArrowUpNarrowWide,
+    "sort-descending": ArrowDownWideNarrow,
   };
 
   export type IconName = keyof typeof icons;

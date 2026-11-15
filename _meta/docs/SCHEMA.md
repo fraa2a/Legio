@@ -306,6 +306,29 @@ This contract covers the Legio application rather than game archives. The pipeli
 
 The version comes from `src-tauri/Cargo.toml`. The generator requires exactly one bundle for each format and its corresponding `.sig` file. Tauri verifies the signature against the configured public key before installation. Prereleases do not replace the stable channel. For releases, AUR packages, and update management, see [UPDATING.md](UPDATING.md).
 
+## Library organization in the local database
+
+Schema version 40 adds per-game organization to SQLite. It stays local: library
+manifests (`library.ldf`) do not carry it.
+
+| Storage | Column or rule |
+| --- | --- |
+| `games.favorite` | `0` or `1`, default `0` |
+| `games.play_status` | `none`, `backlog`, `playing`, `completed`, `on_hold` or `dropped`, default `none`; the frontend contract uses `onHold` |
+| `games.added_at` | Milliseconds since the Unix epoch, set by the `games_added_at` trigger on insert; `NULL` for games that existed before version 40 |
+| `collections` | `id` (UUID), `name` (1 to 64 characters, unique ignoring case), `position` (display order) |
+| `collection_games` | `(collection_id, game_id)` primary key and `position` (order of addition); both foreign keys cascade on delete |
+
+Commands validate names after trimming, reject control characters and duplicates
+(compared case-insensitively), accept at most 256 collections and 256 game IDs per
+call, and require a reorder to list every collection exactly once.
+`get_library_organization` and every organization command return the whole
+snapshot `{ games: [{ gameId, favorite, playStatus, addedAt }], collections: [{ id, name, gameIds }] }`.
+
+Removing a game removes its memberships. Steam re-sync updates rows in place, and
+its cleanup of reclassified non-game rows skips favorites, rows with a status and
+collection members, as it already skips renamed rows and selected Steam accounts.
+
 ## Code references
 
 - [Store manifest parser](../../src-tauri/src/legio_source.rs) and [source cache](../../src-tauri/src/legio_source_cache.rs).

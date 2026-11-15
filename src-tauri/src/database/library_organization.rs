@@ -548,7 +548,10 @@ mod tests {
             organization.collections[0].game_ids,
             [second.clone(), first.clone()]
         );
-        assert_eq!(organization.collections[1].game_ids, [second.clone()]);
+        assert_eq!(
+            organization.collections[1].game_ids,
+            std::slice::from_ref(&second)
+        );
 
         // Keeping a membership keeps its position.
         let organization = database
@@ -567,7 +570,10 @@ mod tests {
 
         database.remove_game(&second).unwrap();
         let organization = database.library_organization().unwrap();
-        assert_eq!(organization.collections[0].game_ids, [first.clone()]);
+        assert_eq!(
+            organization.collections[0].game_ids,
+            std::slice::from_ref(&first)
+        );
         assert!(organization.games.iter().all(|game| game.game_id != second));
 
         let organization = database.delete_collection(&a).unwrap();
