@@ -38,7 +38,7 @@
 <Panel title={t("Sistema", $language)}>
   <div class="flex flex-col gap-4">
     {#if status === "idle" || status === "loading"}
-      <div class="flex items-center gap-2.5 text-sm text-zinc-400 light:text-zinc-600" role="status">
+      <div class="flex items-center gap-2.5 text-sm text-legio-fg-muted" role="status">
         <Spinner size="sm" />{t("Lettura dello spazio su disco...", $language)}</div>
     {:else if status === "error" && error !== null}
       <ErrorBanner message={error} onRetry={onRetry} />
@@ -46,10 +46,10 @@
 
     {#if folder !== null}
       <div class="flex flex-col gap-1.5">
-        <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Spazio disponibile", $language)}</p>
-        <p class="text-sm font-medium tabular-nums text-zinc-50 light:text-zinc-900">
+        <p class="text-xs text-legio-fg-muted">{t("Spazio disponibile", $language)}</p>
+        <p class="text-sm font-medium tabular-nums text-legio-fg">
           {formatBytes(folder.freeBytes, $language)}
-          <span class="font-normal text-zinc-500">{t("su {0}", $language, [formatBytes(folder.totalBytes, $language)])}</span>
+          <span class="font-normal text-legio-fg-subtle">{t("su {0}", $language, [formatBytes(folder.totalBytes, $language)])}</span>
         </p>
         <ProgressBar
           value={usedPercent}
@@ -61,9 +61,9 @@
     {/if}
 
     <div class="flex flex-col gap-1.5">
-      <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Dimensione download", $language)}</p>
+      <p class="text-xs text-legio-fg-muted">{t("Dimensione download", $language)}</p>
       <p
-        class="text-sm font-medium tabular-nums {insufficient ? 'text-legio-error' : 'text-zinc-50 light:text-zinc-900'}"
+        class="text-sm font-medium tabular-nums {insufficient ? 'text-legio-error' : 'text-legio-fg'}"
       >
         {formatBytes(downloadBytes, $language)}
         {#if insufficient}
@@ -72,21 +72,21 @@
       </p>
     </div>
 
-    <p class="text-xs text-zinc-500">{t("Lo spazio di installazione è ancora sconosciuto e include estrazione e file temporanei.", $language)}</p>
+    <p class="text-xs text-legio-fg-subtle">{t("Lo spazio di installazione è ancora sconosciuto e include estrazione e file temporanei.", $language)}</p>
     {#if folder !== null}
       <div class="flex flex-col gap-1.5">
-        <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Directory di installazione", $language)}</p>
-        <p class="break-all text-xs text-zinc-300 light:text-zinc-700">{folder.directory}</p>
+        <p class="text-xs text-legio-fg-muted">{t("Directory di installazione", $language)}</p>
+        <p class="break-all text-xs text-legio-fg">{folder.directory}</p>
         <Button label={t("Apri la cartella", $language)} variant="secondary" class="mt-1 self-start" onClick={onOpenFolder} />
       </div>
     {/if}
 
-    <div class="flex flex-col gap-1.5 border-t border-white/10 pt-4 light:border-zinc-900/10">
-      <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Utilizzo della rete", $language)}</p>
-      <p class="text-sm font-medium tabular-nums text-zinc-50 light:text-zinc-900">
+    <div class="flex flex-col gap-1.5 border-t border-legio-line-subtle pt-4">
+      <p class="text-xs text-legio-fg-muted">{t("Utilizzo della rete", $language)}</p>
+      <p class="text-sm font-medium tabular-nums text-legio-fg">
         {formatBytes(speedBps, $language)}/s
       </p>
-      <p class="text-xs text-zinc-500 light:text-zinc-500">
+      <p class="text-xs text-legio-fg-subtle">
         {bandwidthLimit > 0 ? t("Limite impostato a {0}/s", $language, [formatBytes(bandwidthLimit, $language)]) : t("Nessun limite di banda", $language)}
       </p>
     </div>

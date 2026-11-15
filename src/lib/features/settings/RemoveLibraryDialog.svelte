@@ -49,12 +49,12 @@
 
 <Dialog open title={t("Rimuovi libreria", $language)} dismissible={!pending} {onClose}>
   {#snippet children(close)}
-    <p class="break-all rounded-lg bg-white/5 p-3 font-mono text-xs text-zinc-200 light:bg-zinc-900/5 light:text-zinc-800">{shown.root}</p>
+    <p class="break-all rounded-lg bg-legio-fill p-3 font-mono text-xs text-legio-fg">{shown.root}</p>
     {#if total === 0}
-      <p class="text-sm text-zinc-300 light:text-zinc-700">{t("La libreria verrà tolta dall'elenco. La cartella e il suo catalogo restano sul disco: potrai aggiungerla di nuovo in seguito.", $language)}</p>
+      <p class="text-sm text-legio-fg">{t("La libreria verrà tolta dall'elenco. La cartella e il suo catalogo restano sul disco: potrai aggiungerla di nuovo in seguito.", $language)}</p>
     {:else}
-      <p class="text-sm text-zinc-300 light:text-zinc-700">{total === 1 ? t("Questa libreria contiene 1 gioco. Scegli cosa farne prima di rimuoverla.", $language) : t("Questa libreria contiene {0} giochi. Scegli cosa farne prima di rimuoverla.", $language, [String(total)])}</p>
-      <ul class="flex max-h-40 flex-col gap-1 overflow-y-auto rounded-lg bg-white/5 p-3 text-sm text-zinc-200 light:bg-zinc-900/5 light:text-zinc-800">
+      <p class="text-sm text-legio-fg">{total === 1 ? t("Questa libreria contiene 1 gioco. Scegli cosa farne prima di rimuoverla.", $language) : t("Questa libreria contiene {0} giochi. Scegli cosa farne prima di rimuoverla.", $language, [String(total)])}</p>
+      <ul class="flex max-h-40 flex-col gap-1 overflow-y-auto rounded-lg bg-legio-fill p-3 text-sm text-legio-fg">
         {#each shown.games as game (game.id)}<li class="truncate">{game.name}</li>{/each}
       </ul>
       <SegmentedControl name="library-removal" label={t("Giochi installati", $language)} value={mode} disabled={pending}
@@ -66,7 +66,7 @@
     {/if}
     {#if pending && current !== null}
       <div class="flex flex-col gap-1.5">
-        <p class="truncate text-sm text-zinc-300 light:text-zinc-700">{mode === "move" ? t("Spostamento di {0} ({1}/{2})...", $language, [current, String(done + 1), String(total)]) : t("Disinstallazione di {0} ({1}/{2})...", $language, [current, String(done + 1), String(total)])}</p>
+        <p class="truncate text-sm text-legio-fg">{mode === "move" ? t("Spostamento di {0} ({1}/{2})...", $language, [current, String(done + 1), String(total)]) : t("Disinstallazione di {0} ({1}/{2})...", $language, [current, String(done + 1), String(total)])}</p>
         <ProgressBar value={(done / total) * 100} label={t("Avanzamento rimozione libreria", $language)} tone="accent" />
       </div>
     {/if}

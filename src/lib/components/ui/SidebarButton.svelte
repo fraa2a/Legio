@@ -25,8 +25,8 @@
 
   const pillClass = $derived(
     active
-      ? "w-full bg-white/10 light:bg-zinc-900/10"
-      : "w-full hover:bg-white/10 light:hover:bg-zinc-900/5",
+      ? "w-full bg-legio-fill-hover"
+      : "w-full hover:bg-legio-fill-hover",
   );
 </script>
 
@@ -36,8 +36,8 @@
   aria-current={active ? "page" : undefined}
   aria-expanded={togglesSidebar ? expanded : undefined}
   class="flex w-full items-center {active
-    ? "text-white light:text-zinc-900"
-    : "text-zinc-400 hover:text-white light:text-zinc-500 light:hover:text-zinc-900"}"
+    ? "text-legio-fg"
+    : "text-legio-fg-muted hover:text-legio-fg"}"
   onclick={() => onClick?.()}
 >
   <span
@@ -53,7 +53,7 @@
     {/if}
     {#if count !== undefined && count > 0 && expanded}
       <span
-        class="ml-auto mr-2 rounded-full bg-white/15 px-1.5 py-0.5 text-xs leading-4 font-semibold text-white light:bg-zinc-900/15 light:text-zinc-900"
+        class="ml-auto mr-2 rounded-full bg-legio-fill-active px-1.5 py-0.5 text-xs leading-4 font-semibold text-legio-fg"
         aria-hidden="true"
       >
         {count}
