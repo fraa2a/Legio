@@ -5,6 +5,7 @@
 - [Project overview and downloads](../../README.md)
 - [Linux runners and optional performance controls](LINUX.md)
 - [Libraries, transfers and playtime](LIBRARY.md)
+- [Command line](COMMAND-LINE.md)
 - [Download source formats and update manifests](SCHEMA.md)
 - [Hydra source compatibility](HYDRA.md)
 - [Troubleshooting and diagnostic collection](TROUBLESHOOTING.md)
