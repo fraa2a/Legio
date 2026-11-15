@@ -51,6 +51,7 @@ mod installed_folder;
 #[cfg(target_os = "linux")]
 mod launch_environment;
 mod launch_journal;
+mod launcher_import;
 pub mod legio_source;
 mod legio_source_cache;
 mod library_manifest;
@@ -527,6 +528,8 @@ fn run_application(
             commands::list_saved_steam_accounts,
             commands::set_game_steam_account_preference,
             commands::import_steam_installations,
+            commands::scan_launcher_games,
+            commands::import_launcher_games,
             commands::scan_game_executables,
             commands::import_manual_game,
             commands::identify_manual_game_steam_app_id,

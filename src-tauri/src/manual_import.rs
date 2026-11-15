@@ -275,7 +275,7 @@ pub fn set_executable(state: &DatabaseState, game_id: &str, value: &str) -> Resu
     })
 }
 
-fn import_into(database: &Database, input: ManualImportInput) -> Result<Game, String> {
+pub(crate) fn import_into(database: &Database, input: ManualImportInput) -> Result<Game, String> {
     let path = validate_executable(&input.executable_path)?;
     let root = crate::game_library::game_root(&path)?;
     let stem = path
