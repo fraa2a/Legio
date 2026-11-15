@@ -9,6 +9,12 @@ rust-version = "1.98.1"
 name = "legio_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[[bin]]
+name = "legio"
+path = "src/main.rs"
+# main.rs has no tests; its test target would embed the Tauri manifest twice on Windows.
+test = false
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
