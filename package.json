@@ -32,7 +32,7 @@
     "test:launcher": "node --conditions=browser --test scripts/test_settings_frontend.mjs scripts/test_app_updater.mjs scripts/test_preferences.mjs scripts/test_settings_loading.mjs scripts/test_database_recovery.mjs scripts/test_data_transfer.mjs",
     "test:select": "node --conditions=browser --test scripts/test_select.mjs",
     "test:artwork-cache": "node --conditions=browser --test scripts/test_steam_image_cache.mjs",
-    "test:visual": "node --conditions=browser --test scripts/test_visual_rendering.mjs scripts/test_dither_renderer.mjs",
+    "test:visual": "node --conditions=browser --test scripts/test_visual_rendering.mjs scripts/test_dither_renderer.mjs scripts/test_backgrounds.mjs",
     "test:artwork-work": "node --conditions=browser --test scripts/test_artwork_work.mjs",
     "test:details-cache": "node --conditions=browser --test scripts/test_steam_details_cache.mjs",
     "test:modding": "node --conditions=browser --test scripts/test_modding.mjs",

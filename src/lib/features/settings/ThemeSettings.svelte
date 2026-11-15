@@ -20,6 +20,7 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import SegmentedControl from "../../components/ui/SegmentedControl.svelte";
+  import SelectField from "../../components/ui/SelectField.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
   import AppearanceSlider from "./AppearanceSlider.svelte";
@@ -79,7 +80,21 @@
     { id: "none", label: t("Nessuno", $language) },
     { id: "particles", label: t("Punti connessi", $language) },
     { id: "dither", label: "Dither" },
+    { id: "scanlines", label: t("Linee di scansione", $language) },
     { id: "aurora", label: "Aurora" },
+    { id: "ambient", label: t("Ambientale", $language) },
+    { id: "starfield", label: t("Campo stellare", $language) },
+    { id: "seasonal", label: t("Stagionale", $language) },
+  ]);
+  const seasonOptions = $derived([
+    { value: "snow", label: t("Neve", $language) },
+    { value: "rain", label: t("Pioggia", $language) },
+    { value: "leaves", label: t("Foglie", $language) },
+  ]);
+  const starDensityOptions = $derived([
+    { value: "low", label: t("Bassa", $language) },
+    { value: "medium", label: t("Media", $language) },
+    { value: "high", label: t("Alta", $language) },
   ]);
   const panelStyleOptions: { value: PanelStyle | "custom"; label: string }[] = $derived([
     { value: "flat", label: t("Piatto", $language) },
@@ -306,12 +321,20 @@
         {/each}
       </div>
     {/if}
-    <SegmentedControl name="animated-background" label={t("Effetto di sfondo animato", $language)} options={animatedOptions.map((option) => ({ value: option.id, label: option.label }))} value={draft.animatedBackground} disabled={busy} onChange={(value) => { draft.animatedBackground = value as Appearance["animatedBackground"]; }} />
+    <SelectField id="theme-animated-background" label={t("Effetto di sfondo animato", $language)} options={animatedOptions.map((option) => ({ value: option.id, label: option.label }))} value={draft.animatedBackground} disabled={busy} onChange={(value) => { draft.animatedBackground = value as Appearance["animatedBackground"]; }} />
     {#if draft.animatedBackground !== "none"}
       <ResetSetting label={t("Ripristina sfondo animato", $language)} disabled={busy} onClick={() => { draft.animatedBackground = "none"; }} />
       <AppearanceSlider id="theme-animatedOpacity" label={t("Opacità dello sfondo animato", $language)} value={draft.animatedOpacity} min={0} max={100} unit="%" resetValue={defaultAppearance().animatedOpacity} disabled={busy} onChange={(value) => { draft.animatedOpacity = value; }} />
     {/if}
-    {#if draft.animatedBackground === "dither"}
+    {#if draft.animatedBackground === "ambient"}
+      <p class="text-xs text-legio-fg-subtle">{t("Prende i colori dalla copertina del gioco aperto o, nella Home, dell'ultimo giocato.", $language)}</p>
+    {:else if draft.animatedBackground === "starfield"}
+      <SegmentedControl name="star-density" label={t("Densità delle stelle", $language)} options={starDensityOptions} value={draft.starDensity} disabled={busy} onChange={(value) => { draft.starDensity = value as Appearance["starDensity"]; }} />
+    {:else if draft.animatedBackground === "seasonal"}
+      <SegmentedControl name="season" label={t("Stagione", $language)} options={seasonOptions} value={draft.season} disabled={busy} onChange={(value) => { draft.season = value as Appearance["season"]; }} />
+    {/if}
+    <AppearanceSlider id="theme-grain" label={t("Grana", $language)} value={draft.grain} min={0} max={100} unit="%" resetValue={defaultAppearance().grain} disabled={busy} onChange={(value) => { draft.grain = value; }} />
+    {#if draft.animatedBackground === "dither" || draft.animatedBackground === "scanlines"}
       <fieldset disabled={busy} class="grid gap-3 sm:grid-cols-2">
         <legend class="mb-2 text-sm font-medium text-legio-fg">{t("Impostazioni dither", $language)}</legend>
         {#each ditherEffects as effect (effect.key)}

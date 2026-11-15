@@ -26,7 +26,11 @@ pub enum AnimatedBackground {
     None,
     Particles,
     Dither,
+    Scanlines,
     Aurora,
+    Ambient,
+    Starfield,
+    Seasonal,
 }
 
 impl<'de> Deserialize<'de> for AnimatedBackground {
@@ -38,7 +42,11 @@ impl<'de> Deserialize<'de> for AnimatedBackground {
         Ok(match value.as_str() {
             "particles" => Self::Particles,
             "dither" => Self::Dither,
+            "scanlines" => Self::Scanlines,
             "aurora" => Self::Aurora,
+            "ambient" => Self::Ambient,
+            "starfield" => Self::Starfield,
+            "seasonal" => Self::Seasonal,
             _ => Self::None,
         })
     }
@@ -67,6 +75,26 @@ pub enum Corners {
     #[default]
     #[serde(other)]
     Soft,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Season {
+    Rain,
+    Leaves,
+    #[default]
+    #[serde(other)]
+    Snow,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StarDensity {
+    Low,
+    High,
+    #[default]
+    #[serde(other)]
+    Medium,
 }
 
 const MIN_TEXT_SCALE: u8 = 90;
@@ -118,6 +146,10 @@ pub struct Appearance {
     pub animated_background: AnimatedBackground,
     pub animated_opacity: u8,
     pub dither: DitherSettings,
+    pub season: Season,
+    pub star_density: StarDensity,
+    // Noise overlay over any background, 0 is off.
+    pub grain: u8,
     pub surface_opacity: u8,
     pub surface_blur: u8,
     pub dialog_opacity: u8,
@@ -139,6 +171,9 @@ impl Default for Appearance {
             animated_background: AnimatedBackground::None,
             animated_opacity: default_animated_opacity(),
             dither: DitherSettings::default(),
+            season: Season::Snow,
+            star_density: StarDensity::Medium,
+            grain: 0,
             surface_opacity: 45,
             surface_blur: 24,
             dialog_opacity: 45,
@@ -160,8 +195,11 @@ pub(crate) fn validate(appearance: &Appearance) -> Result<(), String> {
         || appearance.animated_opacity > 100
         || appearance.surface_opacity > 100
         || appearance.dialog_opacity > 100
+        || appearance.grain > 100
     {
-        return Err("Blur values must be 0-40 and opacity values must be 0-100".to_owned());
+        return Err(
+            "Blur values must be 0-40 and opacity and grain values must be 0-100".to_owned(),
+        );
     }
     if !(MIN_TEXT_SCALE..=MAX_TEXT_SCALE).contains(&appearance.text_scale) {
         return Err("Text scale must be between 90 and 120 percent".to_owned());
@@ -590,7 +628,11 @@ mod tests {
             AnimatedBackground::None,
             AnimatedBackground::Particles,
             AnimatedBackground::Dither,
+            AnimatedBackground::Scanlines,
             AnimatedBackground::Aurora,
+            AnimatedBackground::Ambient,
+            AnimatedBackground::Starfield,
+            AnimatedBackground::Seasonal,
         ] {
             let encoded = serde_json::to_string(&background).unwrap();
             assert_eq!(
@@ -598,6 +640,58 @@ mod tests {
                 background
             );
         }
+    }
+
+    #[test]
+    fn background_options_round_trip_and_default_for_older_appearances() {
+        let legacy: Appearance = serde_json::from_str(
+            r#"{"animatedBackground": "aurora", "animatedOpacity": 40, "dither": {}}"#,
+        )
+        .unwrap();
+        assert_eq!(legacy.animated_background, AnimatedBackground::Aurora);
+        assert_eq!(legacy.season, Season::Snow);
+        assert_eq!(legacy.star_density, StarDensity::Medium);
+        assert_eq!(legacy.grain, 0);
+        assert!(validate(&legacy).is_ok());
+        let chosen = Appearance {
+            animated_background: AnimatedBackground::Seasonal,
+            season: Season::Leaves,
+            star_density: StarDensity::High,
+            grain: 30,
+            ..Appearance::default()
+        };
+        let json = serde_json::to_string(&chosen).unwrap();
+        assert!(json.contains(r#""animatedBackground":"seasonal""#));
+        assert!(json.contains(r#""season":"leaves""#));
+        assert!(json.contains(r#""starDensity":"high""#));
+        assert_eq!(serde_json::from_str::<Appearance>(&json).unwrap(), chosen);
+        let unknown: Appearance =
+            serde_json::from_str(r#"{"season": "monsoon", "starDensity": "galaxy"}"#).unwrap();
+        assert_eq!(unknown.season, Season::Snow);
+        assert_eq!(unknown.star_density, StarDensity::Medium);
+        let loud = Appearance {
+            grain: 101,
+            ..Appearance::default()
+        };
+        assert!(validate(&loud).is_err());
+    }
+
+    #[test]
+    fn share_code_carries_the_background_options() {
+        let mut profile = shared_profile();
+        profile.appearance.animated_background = AnimatedBackground::Starfield;
+        profile.appearance.star_density = StarDensity::Low;
+        profile.appearance.season = Season::Rain;
+        profile.appearance.grain = 25;
+        let decoded = AppearanceProfile::from_share_code(&profile.share_code().unwrap()).unwrap();
+        assert_eq!(
+            decoded.appearance.animated_background,
+            AnimatedBackground::Starfield
+        );
+        assert_eq!(decoded.appearance.star_density, StarDensity::Low);
+        assert_eq!(decoded.appearance.season, Season::Rain);
+        assert_eq!(decoded.appearance.grain, 25);
+        assert_eq!(decoded.appearance.background, None);
     }
 
     #[test]

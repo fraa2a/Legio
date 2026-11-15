@@ -122,7 +122,7 @@
   }}
 />
 
-<AppBackground id={appearance.background} animation={appearance.animatedBackground} animationOpacity={appearance.animatedOpacity} {accent} dither={appearance.dither} active={$mediaActive} />
+<AppBackground id={appearance.background} animation={appearance.animatedBackground} animationOpacity={appearance.animatedOpacity} {accent} dither={appearance.dither} {palette} season={appearance.season} starDensity={appearance.starDensity} grain={appearance.grain} active={$mediaActive} />
 <div class="legio-shell relative flex h-full w-full min-h-0 min-w-0 select-none">
   {#if $settings.status === "ready" && $settings.data.onboardingCompleted}<Sidebar />{/if}
   <div class="flex min-h-0 min-w-0 flex-1 flex-col pl-2.5 pr-2.5 pb-1.5">

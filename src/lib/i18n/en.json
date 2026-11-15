@@ -1327,5 +1327,19 @@
   "{0} installato.": "{0} installed.",
   "Download di {0} non riuscito.": "Download of {0} failed.",
   "Download di {0} non riuscito: {1}": "Download of {0} failed: {1}",
-  "Aggiornamento delle sorgenti non riuscito: {0}": "Source refresh failed: {0}"
+  "Aggiornamento delle sorgenti non riuscito: {0}": "Source refresh failed: {0}",
+  "Linee di scansione": "Scanlines",
+  "Ambientale": "Ambient",
+  "Campo stellare": "Starfield",
+  "Stagionale": "Seasonal",
+  "Neve": "Snow",
+  "Pioggia": "Rain",
+  "Foglie": "Leaves",
+  "Bassa": "Low",
+  "Media": "Medium",
+  "Alta": "High",
+  "Densità delle stelle": "Star density",
+  "Stagione": "Season",
+  "Grana": "Grain",
+  "Prende i colori dalla copertina del gioco aperto o, nella Home, dell'ultimo giocato.": "Takes its colors from the artwork of the open game or, on Home, of the last one played."
 }

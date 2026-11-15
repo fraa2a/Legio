@@ -67,6 +67,39 @@ them. Every default is 1, so the default look is the table above.
   versions. `legio://theme?code=<code>` opens `ThemeLinkDialog`, which previews the theme live and
   applies it only after confirmation, like source links.
 
+## Backgrounds
+
+`AppBackground` stacks the wallpaper image, one animated background (`animatedBackground`) and the
+optional grain overlay inside the fixed `.legio-backdrop`. Every animated background stops all work
+while `active` is false (hidden window or running game, see `media-playback.ts`), draws one static
+frame under reduced motion and releases its listeners, frames and canvas or GL resources on teardown.
+
+| Kind | Renderer | Notes |
+| --- | --- | --- |
+| `particles` | `AnimatedBackground` (2D) | Uses `particle-engine.ts` |
+| `dither`, `scanlines` | `DitherBackground`, `dither-renderer.ts` (WebGL2) | Scanlines is a shader mode of the dither pass and shares its settings |
+| `aurora` | `AuroraBackground` (CSS) | Paused through `data-motion-paused` |
+| `ambient` | `AmbientBackground`, `ambient-renderer.ts` (2D) | 1/8 resolution canvas, 30 fps |
+| `starfield` | `CanvasBackground`, `starfield.ts` (2D) | Option `starDensity`, 30 fps |
+| `seasonal` | `CanvasBackground`, `seasonal.ts` (2D) | Option `season`: snow, rain or leaves; never chosen by date |
+
+- New 2D backgrounds implement `CanvasRenderer` and run through `startBackgroundLoop`
+  (`background-loop.ts`), which caps the device ratio at 2, honors a frame-rate cap, handles
+  `contextlost` and lowers `quality` one step after 30 long frames (never back up while mounted).
+  Renderers use `quality` to draw fewer stars or particles. `DitherBackground` applies the same guard
+  to its resolution. No blend modes, filters or extra GL features, for WebKitGTK.
+- Ambient takes up to three hues from the cached `hero_blur` of the ambient game
+  (`stores/ambient-game.ts`: the open game page, the last played game on the home, otherwise none)
+  with `dominantPalette` in `game-accent.ts`, falling back to the accent. `ambientColors` keeps them
+  in OKLCH within a small lightness offset and chroma cap of the palette background, so text and
+  muted text keep at least 4.5:1 or their contrast on the background (`test:visual`). Changes
+  cross-fade through OKLab over 1.4 s. Custom banners are not sampled.
+- Grain (`grain`, 0 to 100) is a 128 px seeded noise tile built once per session and tiled with one
+  texel per device pixel; its opacity is the intensity. It applies over every background, including
+  none.
+- `season`, `starDensity` and `grain` live in the appearance JSON, are validated in `appearance.rs`,
+  default for older settings and travel with export, import and share codes; the wallpaper does not.
+
 ## Radius
 
 - Control: buttons, fields, menu items and icon buttons of every size.

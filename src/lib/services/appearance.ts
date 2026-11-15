@@ -40,9 +40,13 @@ export interface Appearance {
   background: string | null;
   backgroundBlur: number;
   backgroundOpacity: number;
-  animatedBackground: "none" | "particles" | "dither" | "aurora";
+  animatedBackground: AnimatedBackground;
   animatedOpacity: number;
   dither: DitherSettings;
+  season: Season;
+  starDensity: StarDensity;
+  // Noise overlay over any background, 0 to 100, 0 is off.
+  grain: number;
   surfaceOpacity: number;
   surfaceBlur: number;
   dialogOpacity: number;
@@ -54,6 +58,9 @@ export interface Appearance {
   gameAccent: boolean;
 }
 
+export type AnimatedBackground = "none" | "particles" | "dither" | "scanlines" | "aurora" | "ambient" | "starfield" | "seasonal";
+export type Season = "snow" | "rain" | "leaves";
+export type StarDensity = "low" | "medium" | "high";
 export type Density = "compact" | "normal" | "wide";
 export type Corners = "sharp" | "soft" | "round";
 
@@ -98,6 +105,7 @@ export function defaultAppearance(): Appearance {
   return {
     accent: null, background: null, backgroundBlur: 0, backgroundOpacity: 60,
     animatedBackground: "none", animatedOpacity: 65, dither: defaultDither(),
+    season: "snow", starDensity: "medium", grain: 0,
     ...panelStyles.glass, transparent: false,
     density: "normal", corners: "soft", textScale: 100, gameAccent: false,
   };

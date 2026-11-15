@@ -1,7 +1,7 @@
 import type { DitherSettings } from "../../services/appearance";
 import { ditherFragmentShader, waveFragmentShader, waveVertexShader } from "./dither-gl";
 
-export interface DitherFrame { time: number; settings: DitherSettings; accent: string; mouse: [number, number]; ratio: number }
+export interface DitherFrame { time: number; settings: DitherSettings; accent: string; mouse: [number, number]; ratio: number; scanlines?: boolean }
 export interface DitherDiagnostic { event: "context_lost" | "context_restored" | "framebuffer_incomplete" | "render_failed"; detail: string }
 export interface DitherRenderer { resize(width: number, height: number): void; draw(frame: DitherFrame): boolean; dispose(): void }
 function toRgb(color: string): [number, number, number] {
@@ -73,7 +73,7 @@ export function createDitherRenderer(surface: HTMLCanvasElement, onDiagnostic: (
       "resolution", "time", "waveSpeed", "waveFrequency", "waveAmplitude",
       "waveColor", "backgroundColor", "mousePos", "enableMouseInteraction", "mouseRadius",
     ]);
-    const dither = locate(ditherProgram, ["inputBuffer", "resolution", "colorNum", "pixelSize"]);
+    const dither = locate(ditherProgram, ["inputBuffer", "resolution", "colorNum", "pixelSize", "scanlines"]);
 
     const quad = gl.createBuffer();
     const texture = gl.createTexture();
@@ -168,6 +168,7 @@ export function createDitherRenderer(surface: HTMLCanvasElement, onDiagnostic: (
       gl.uniform2f(dither.resolution, width, height);
       gl.uniform1f(dither.colorNum, frame.settings.colorNum);
       gl.uniform1f(dither.pixelSize, frame.settings.pixelSize * frame.ratio);
+      gl.uniform1i(dither.scanlines, frame.scanlines ? 1 : 0);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
       return !gl.isContextLost();
     },

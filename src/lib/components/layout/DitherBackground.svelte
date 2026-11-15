@@ -3,11 +3,14 @@
   import type { DitherSettings } from "../../services/appearance";
   import { createDitherRenderer } from "./dither-renderer";
   import { logApplicationEvent } from "../../services/application-log";
+  import { initialQuality, qualityLevels, stepQuality } from "./background-loop";
 
-  let { opacity, settings, accent, active = true }: {
+  let { opacity, settings, accent, scanlines = false, active = true }: {
     opacity: number;
     settings: DitherSettings;
     accent: string;
+    // Draws horizontal glowing rows instead of the Bayer pattern.
+    scanlines?: boolean;
     active?: boolean;
   } = $props();
 
@@ -41,6 +44,7 @@
     let previousTime: number | null = null;
     let mouseX = -1e6;
     let mouseY = -1e6;
+    let quality = initialQuality();
 
     function schedule(): void {
       if (active && frame === 0) frame = requestAnimationFrame(render);
@@ -48,7 +52,7 @@
 
     function resize(): void {
       const bounds = container.getBoundingClientRect();
-      ratio = Math.min(window.devicePixelRatio || 1, 2);
+      ratio = Math.min(window.devicePixelRatio || 1, 2) * qualityLevels[quality.level];
       const nextWidth = Math.max(1, Math.round(bounds.width * ratio));
       const nextHeight = Math.max(1, Math.round(bounds.height * ratio));
       if (nextWidth === width && nextHeight === height) return;
@@ -64,11 +68,16 @@
       frame = 0;
       if (!active) return;
       const frozen = settings.disableAnimation || motion.matches;
-      if (!frozen && previousTime !== null) time += Math.min(now - previousTime, 100) / 1000;
+      if (!frozen && previousTime !== null) {
+        time += Math.min(now - previousTime, 100) / 1000;
+        const level = quality.level;
+        quality = stepQuality(quality, now - previousTime, 1000 / 60);
+        if (quality.level !== level) resize();
+      }
       previousTime = frozen ? null : now;
       if (!frozen || stale) {
         stale = false;
-        rendered = renderer.draw({ time, settings, accent, mouse: [mouseX, mouseY], ratio });
+        rendered = renderer.draw({ time, settings, accent, mouse: [mouseX, mouseY], ratio, scanlines });
         if (!rendered) return;
       }
       if (!frozen) schedule();

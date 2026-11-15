@@ -107,3 +107,19 @@ test('loss_between_passes_never_presents_invalid_frame', async () => {
   try { assert.equal(f.draw(), false); assert.equal(gl.draws, 1); }
   finally { f.renderer.dispose(); }
 });
+
+test('scanlines_mode_is_a_dither_uniform', async () => {
+  const gl = fakeGl(); const uniforms = [];
+  gl.getUniformLocation = (_program, name) => ({ name });
+  gl.uniform1i = (location, value) => uniforms.push([location?.name, value]);
+  const f = await fixture(gl);
+  try {
+    const frame = { time: 0, settings: configuration, accent: '#ff0000', mouse: [0, 0], ratio: 1 };
+    assert.equal(f.renderer.draw(frame), true);
+    assert.deepEqual(uniforms.filter(([name]) => name === 'scanlines').at(-1), ['scanlines', 0]);
+    assert.equal(f.renderer.draw({ ...frame, scanlines: true }), true);
+    assert.deepEqual(uniforms.filter(([name]) => name === 'scanlines').at(-1), ['scanlines', 1]);
+    const { ditherFragmentShader } = await import(await load('src/lib/components/layout/dither-gl.ts'));
+    assert.match(ditherFragmentShader, /uniform int scanlines;/);
+  } finally { f.renderer.dispose(); }
+});
