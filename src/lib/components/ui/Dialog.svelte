@@ -98,7 +98,7 @@
   aria-labelledby={titleId}
   tabindex="-1"
   data-visible="false"
-  class="legio-dialog m-auto {widthClass} max-w-[calc(100vw-2rem)] rounded-2xl border border-white/15 bg-zinc-900 text-zinc-100 shadow-2xl shadow-black/40 backdrop:bg-black/70 light:border-zinc-900/15 light:bg-zinc-50 light:text-zinc-900 {flush
+  class="legio-dialog m-auto {widthClass} max-w-[calc(100vw-2rem)] rounded-2xl bg-zinc-900 text-legio-fg shadow-2xl shadow-black/40 backdrop:bg-black/70 light:bg-zinc-50 {flush
     ? size === 'large' ? 'h-[min(48rem,calc(100dvh-3rem))] overflow-hidden' : 'h-[min(40rem,calc(100dvh-3rem))] overflow-hidden'
     : 'max-h-[calc(100dvh-3rem)] overflow-y-auto'}"
   oncancel={(event) => {
@@ -121,7 +121,7 @@
   >
     <div
       class="flex items-center justify-between gap-4 {flush
-        ? 'shrink-0 border-b border-white/15 px-6 py-4 light:border-zinc-900/15'
+        ? 'shrink-0 border-b border-legio-line px-6 py-4'
         : ''}"
     >
       <h2 id={titleId} class="text-lg font-semibold">{title}</h2>

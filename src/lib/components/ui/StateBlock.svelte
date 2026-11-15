@@ -37,7 +37,7 @@
   </div>
 {:else if status === "loading" && !hasData}
   <div
-    class="flex items-center gap-3 rounded-xl bg-white/5 p-6 text-zinc-300 light:bg-zinc-100"
+    class="flex items-center gap-3 rounded-xl bg-legio-fill p-6 text-legio-fg"
     role="status"
   >
     <Spinner />
