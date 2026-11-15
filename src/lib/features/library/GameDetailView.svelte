@@ -18,7 +18,8 @@
   import { downloads, queueJob } from "../../stores/downloads";
   import { onlyUsableLibrary } from "../../stores/game-libraries";
   import { checkGameLinks, type SourceEntry } from "../../services/legio-source";
-  import { describeDownloadStatus, downloadProgressPercent } from "../../services/downloads";
+  import { describeDownloadStatus, downloadProgressPercent, forecastDownloadSpace } from "../../services/downloads";
+  import { spaceWarning, type SpaceWarning } from "../downloads/space-forecast";
   import { playtime } from "../../stores/playtime";
   import { refreshSource, source, sourceRefreshError } from "../../stores/source";
   import { refreshSteamDetailsOnOpen, steamDetails } from "../../stores/steam-details";
@@ -113,6 +114,7 @@
   let libraryPickerOpen = $state(false);
   let choosingLibrary = $state(false);
   let downloadLibraryId = $state<string | null>(null);
+  let spaceCheck = $state<SpaceWarning | null>(null);
   const downloadSize = $derived(versionOptions.find((option) => option.id === selectedVersionId)?.sizeBytes ?? null);
   let queueError = $state<string | null>(null);
 
@@ -197,15 +199,34 @@
     try {
       const library = await onlyUsableLibrary(downloadSize);
       if (library === null) libraryPickerOpen = true;
-      else downloadTo(library.id);
+      else void downloadTo(library.id);
     } finally {
       choosingLibrary = false;
     }
   }
 
-  function downloadTo(libraryId: string): void {
+  async function downloadTo(libraryId: string): Promise<void> {
     libraryPickerOpen = false;
     downloadLibraryId = libraryId;
+    if (entry === null) return;
+    queueing = true;
+    let warning: SpaceWarning | null;
+    try {
+      warning = spaceWarning(await forecastDownloadSpace(downloadSize, libraryId), $language);
+    } catch (error) {
+      warning = spaceWarning({ verdict: "unknown", sizeBytes: downloadSize, volumes: [] }, $language);
+      warning?.details.push(toMessage(error));
+    } finally {
+      queueing = false;
+    }
+    if (warning !== null) {
+      spaceCheck = warning;
+      return;
+    }
+    confirmTrust();
+  }
+
+  function confirmTrust(): void {
     if (entry === null) return;
     if (status?.availability === "unverified") {
       confirmEntry = entry;
@@ -315,7 +336,7 @@
             onAdd={game !== null && libraryVersions.length === 1 && steamAppId !== null ? () => { addVersionOpen = true; } : undefined}
             links={storeGame !== null && entry !== null ? mirrorUris : []}
             bind:link={selectedMirror}
-            linksDisabled={queueing || confirmOpen}
+            linksDisabled={queueing || confirmOpen || spaceCheck !== null}
           />
         {/if}
         {#if organization !== null}
@@ -458,9 +479,25 @@
     title={t("Installa {0}", $language, [name])}
     confirmLabel={t("Scarica", $language)}
     requiredBytes={downloadSize}
-    onSelect={(library) => downloadTo(library.id)}
+    onSelect={(library) => void downloadTo(library.id)}
     onClose={() => (libraryPickerOpen = false)}
   />
+  <ConfirmDialog
+    open={spaceCheck !== null}
+    title={spaceCheck?.title ?? ""}
+    message={spaceCheck?.message}
+    confirmLabel={spaceCheck?.confirmLabel ?? ""}
+    tone={spaceCheck?.tone}
+    confirmDisabled={queueing}
+    onConfirm={() => { spaceCheck = null; confirmTrust(); }}
+    onClose={() => (spaceCheck = null)}
+  >
+    {#if spaceCheck !== null && spaceCheck.details.length > 0}
+      <ul class="flex flex-col gap-1 text-xs text-legio-fg-muted">
+        {#each spaceCheck.details as line (line)}<li class="break-words">{line}</li>{/each}
+      </ul>
+    {/if}
+  </ConfirmDialog>
   <ConfirmDialog
     open={confirmOpen}
     title={t("Rilascio non verificato", $language)}

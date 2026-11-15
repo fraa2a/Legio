@@ -20,10 +20,20 @@ use uuid::Uuid;
 
 use crate::{
     archive_install,
+    archive_parts::PartScheme,
     database::{Database, DatabaseState},
-    download_resolver::{PlainHttp, ResolveError},
+    download_resolver::{PlainHttp, ResolveError, ResolvedDownload, ResolvedFile},
+    download_selection::{Layout, MirrorPlan, PartLayout},
     finalize_install,
 };
+
+/// Position of a multipart download: the part being written and how many there are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PartProgress {
+    current: usize,
+    total: usize,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -46,6 +56,7 @@ pub struct DownloadJob {
     automatic_update: bool,
     source_id: Option<String>,
     source_entry_id: Option<String>,
+    parts: Option<PartProgress>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -136,6 +147,9 @@ pub struct DownloadQueueState {
     defer_extraction: AtomicBool,
     staging_changed: tokio::sync::Notify,
     processing: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    /// Folder links that tests resolve to (name, URL) files on a local server.
+    #[cfg(test)]
+    folders: std::sync::Mutex<std::collections::HashMap<String, Vec<(String, String)>>>,
 }
 
 impl DownloadQueueState {
@@ -167,7 +181,35 @@ impl DownloadQueueState {
             defer_extraction: AtomicBool::new(false),
             staging_changed: tokio::sync::Notify::new(),
             processing: std::sync::Arc::default(),
+            #[cfg(test)]
+            folders: std::sync::Mutex::default(),
         })
+    }
+
+    async fn resolve(
+        &self,
+        uri: &str,
+        plain_http: PlainHttp,
+    ) -> Result<ResolvedDownload, ResolveError> {
+        #[cfg(test)]
+        if let Some(files) = self
+            .folders
+            .lock()
+            .ok()
+            .and_then(|folders| folders.get(uri).cloned())
+        {
+            return Ok(ResolvedDownload {
+                files: files
+                    .into_iter()
+                    .map(|(name, url)| ResolvedFile {
+                        url,
+                        name: Some(name),
+                        headers: HeaderMap::new(),
+                    })
+                    .collect(),
+            });
+        }
+        crate::download_resolver::resolve(&self.client, uri, plain_http).await
     }
 
     pub(crate) fn set_defer_extraction(&self, enabled: bool) {
@@ -202,7 +244,7 @@ impl DownloadQueueState {
         }
     }
 
-    fn directory(&self) -> Result<PathBuf, String> {
+    pub(crate) fn directory(&self) -> Result<PathBuf, String> {
         let path = self
             .directory
             .lock()
@@ -250,6 +292,109 @@ impl DownloadQueueState {
         let id = Uuid::parse_str(id).map_err(|_| "Download ID is invalid".to_owned())?;
         Ok(self.directory()?.join(format!("{id}.{extension}")))
     }
+
+    /// `<id>.<n>.archive` once part `n` (from 1) is complete, `<id>.<n>.part` before.
+    fn part_path(&self, id: &str, index: usize, finished: bool) -> Result<PathBuf, String> {
+        let kind = if finished { "archive" } else { "part" };
+        self.path(id, &format!("{}.{kind}", index + 1))
+    }
+
+    fn part_paths(&self, id: &str, layout: &PartLayout) -> Result<Vec<PathBuf>, String> {
+        (0..layout.parts.len())
+            .map(|index| self.part_path(id, index, true))
+            .collect()
+    }
+}
+
+/// Which part files of a job to remove.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PartFiles {
+    All,
+    /// Only unfinished parts; completed ones may still be reused.
+    Unfinished,
+}
+
+/// Part files of job `id` in `directory`, finished or not.
+pub(crate) fn part_files(directory: &Path, id: &str) -> std::io::Result<Vec<PathBuf>> {
+    let id = Uuid::parse_str(id).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "Download ID is invalid")
+    })?;
+    let prefix = format!("{id}.");
+    let mut found = Vec::new();
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(found),
+        Err(error) => return Err(error),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name();
+        let Some(rest) = name.to_str().and_then(|name| name.strip_prefix(&prefix)) else {
+            continue;
+        };
+        let is_part = rest.split_once('.').is_some_and(|(number, kind)| {
+            !number.is_empty()
+                && number.bytes().all(|byte| byte.is_ascii_digit())
+                && matches!(kind, "archive" | "part")
+        });
+        if is_part {
+            found.push(entry.path());
+        }
+    }
+    Ok(found)
+}
+
+/// A part still open by an active transfer may refuse removal when `in_use`; the
+/// transfer removes it itself when it stops.
+fn remove_part_files(
+    directory: &Path,
+    id: &str,
+    which: PartFiles,
+    in_use: bool,
+) -> Result<(), String> {
+    let files = part_files(directory, id)
+        .map_err(|error| format!("Could not list download parts: {error}"))?;
+    for path in files {
+        if which == PartFiles::Unfinished && path.extension().is_some_and(|kind| kind == "archive")
+        {
+            continue;
+        }
+        if let Err(error) = remove_partial(&path)
+            && (error.kind() != std::io::ErrorKind::PermissionDenied || !in_use)
+        {
+            return Err(format!("Could not remove download parts: {error}"));
+        }
+    }
+    Ok(())
+}
+
+async fn remove_parts_async(
+    queue: &DownloadQueueState,
+    id: &str,
+    which: PartFiles,
+) -> Result<(), TransferError> {
+    let directory = queue.directory()?;
+    let id = id.to_owned();
+    tauri::async_runtime::spawn_blocking(move || remove_part_files(&directory, &id, which, false))
+        .await
+        .map_err(|error| TransferError::Local(error.to_string()))?
+        .map_err(TransferError::Local)
+}
+
+fn stored_layout(database: &Database, id: &str) -> Result<Option<PartLayout>, String> {
+    let stored: Option<String> = database.with_connection(|connection| {
+        connection
+            .query_row(
+                "SELECT mirror_plan FROM downloads WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .map_err(db_error)
+    })?;
+    stored
+        .map(|stored| MirrorPlan::load(&stored).map(|plan| plan.parts))
+        .transpose()
+        .map(Option::flatten)
 }
 
 fn now() -> Result<i64, String> {
@@ -272,6 +417,17 @@ fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DownloadJob> {
     let downloaded: i64 = row.get(5)?;
     let speed: i64 = row.get(6)?;
     let eta: Option<i64> = row.get(7)?;
+    let plan: Option<String> = row.get(18)?;
+    let downloaded_bytes = u64::try_from(downloaded)
+        .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(5, downloaded))?;
+    // An unreadable plan fails the transfer with its own error; the list still shows the job.
+    let parts = plan
+        .and_then(|plan| MirrorPlan::load(&plan).ok())
+        .and_then(|plan| plan.parts)
+        .map(|layout| PartProgress {
+            current: layout.current(downloaded_bytes),
+            total: layout.parts.len(),
+        });
     Ok(DownloadJob {
         id: row.get(0)?,
         steam_app_id: u32::try_from(app_id)
@@ -282,8 +438,7 @@ fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DownloadJob> {
         url: row.get(11)?,
         size_bytes: u64::try_from(size)
             .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(4, size))?,
-        downloaded_bytes: u64::try_from(downloaded)
-            .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(5, downloaded))?,
+        downloaded_bytes,
         speed_bps: u64::try_from(speed)
             .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(6, speed))?,
         eta_seconds: eta
@@ -299,6 +454,7 @@ fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DownloadJob> {
         automatic_update: row.get(15)?,
         source_id: row.get(16)?,
         source_entry_id: row.get(17)?,
+        parts,
     })
 }
 
@@ -307,7 +463,7 @@ fn list(database: &Database) -> Result<Vec<DownloadJob>, String> {
         let mut statement = connection
             .prepare(
                 "SELECT id, steam_app_id, name, release_version, size_bytes, downloaded_bytes,
-                    speed_bps, eta_seconds, status, error, sha256, url, updated_at, target_game_id, pause_reason, automatic_update, source_id, source_entry_id
+                    speed_bps, eta_seconds, status, error, sha256, url, updated_at, target_game_id, pause_reason, automatic_update, source_id, source_entry_id, mirror_plan
                  FROM downloads ORDER BY queue_position, created_at, id",
             )
             .map_err(db_error)?;
@@ -498,7 +654,7 @@ pub(crate) fn enqueue_prepared(
             }
         }
     }
-    .map(|plan| serde_json::to_string(&plan).map_err(|error| error.to_string()))
+    .map(|plan| plan.save())
     .transpose()?;
     database.with_connection(|connection| {
         // Checked under the same lock as the insert so a concurrent library removal cannot slip in.
@@ -553,6 +709,7 @@ pub(crate) fn enqueue_prepared(
         automatic_update: update.is_some_and(|value| value.1),
         source_id: Some(source_id),
         source_entry_id: entry.id.clone(),
+        parts: None,
     })
 }
 
@@ -648,6 +805,29 @@ fn remove_stage(path: &Path) -> Result<(), String> {
     }
 }
 
+/// Fails before extraction when the staged copy and the library copy cannot fit.
+/// An unavailable library is reported by finalization, so only its space is skipped.
+fn check_install_space(
+    queue: &DownloadQueueState,
+    database: &Database,
+    id: &str,
+    files: &[PathBuf],
+) -> Result<(), String> {
+    let extracted = archive_install::minimum_extracted_size(files)?;
+    let downloads = queue.directory()?;
+    let storage_root = downloads
+        .parent()
+        .ok_or("Download directory has no storage root")?;
+    let library = finalize_install::download_root(database, storage_root, id)
+        .ok()
+        .map(|root| crate::download_space::volume(&root));
+    crate::download_space::check_install_space(
+        extracted,
+        &crate::download_space::volume(&downloads),
+        library.as_ref(),
+    )
+}
+
 fn stage_one(queue: &DownloadQueueState, database: &Database, id: &str) -> Result<PathBuf, String> {
     let id = Uuid::parse_str(id)
         .map_err(|_| "Download ID is invalid".to_owned())?
@@ -683,10 +863,21 @@ fn stage_one(queue: &DownloadQueueState, database: &Database, id: &str) -> Resul
         } else {
             !hash.is_empty()
         };
-        let archive = queue.path(&id, "archive")?;
         let stage = queue.path(&id, "stage")?;
         remove_stage(&stage)?;
-        archive_install::verify_and_stage(&archive, verify.then_some(hash.as_str()), &stage)?;
+        let layout = stored_layout(database, &id)?;
+        let files = match &layout {
+            Some(layout) => queue.part_paths(&id, layout)?,
+            None => vec![queue.path(&id, "archive")?],
+        };
+        check_install_space(queue, database, &id, &files)?;
+        let hash = verify.then_some(hash.as_str());
+        match &layout {
+            Some(layout) => {
+                archive_install::verify_and_stage_parts(&files, layout.scheme, hash, &stage)?;
+            }
+            None => archive_install::verify_and_stage(&files[0], hash, &stage)?,
+        }
         Ok(stage)
     })();
     match outcome {
@@ -900,9 +1091,12 @@ fn recover_staging(queue: &DownloadQueueState, database: &Database) -> Result<()
     for id in ids {
         let recovered = (|| {
             let stage = queue.path(&id, "stage")?;
-            let archive = queue.path(&id, "archive")?;
             remove_stage(&stage)?;
-            Ok::<_, String>(if archive.is_file() {
+            let files = match stored_layout(database, &id)? {
+                Some(layout) => queue.part_paths(&id, &layout)?,
+                None => vec![queue.path(&id, "archive")?],
+            };
+            Ok::<_, String>(if files.iter().all(|file| file.is_file()) {
                 "downloaded"
             } else {
                 "queued"
@@ -955,6 +1149,7 @@ fn remove_cancelled_files(
     }
     remove_partial(&queue.path(id, "archive")?)
         .map_err(|error| format!("Could not remove download files: {error}"))?;
+    remove_part_files(&queue.directory()?, id, PartFiles::All, was_downloading)?;
     finalize_install::remove_stage_directory(&queue.path(id, "stage")?)
 }
 
@@ -1154,9 +1349,15 @@ async fn run_queue<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
                 }
             }
             if status(&database, &job.id)? == "cancelled" {
-                let path = app.state::<DownloadQueueState>().path(&job.id, "part")?;
-                if let Err(error) = remove_partial(&path) {
-                    let message = format!("Could not remove partial download: {error}");
+                let queue = app.state::<DownloadQueueState>();
+                let path = queue.path(&job.id, "part")?;
+                // A part may have finished between the cancel and the transfer stopping.
+                let removed = remove_partial(&path)
+                    .map_err(|error| format!("Could not remove partial download: {error}"))
+                    .and_then(|()| {
+                        remove_part_files(&queue.directory()?, &job.id, PartFiles::All, false)
+                    });
+                if let Err(message) = removed {
                     cancellation_error(&database, &job.id, &message)?;
                 }
             }
@@ -1193,16 +1394,14 @@ fn strong_etag(headers: &HeaderMap) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn resume_matches(response: &Response, job: &Transfer, offset: u64) -> bool {
+fn resume_matches(response: &Response, size: u64, etag: Option<&str>, offset: u64) -> bool {
     response.status() == StatusCode::PARTIAL_CONTENT
         && response
             .headers()
             .get(CONTENT_RANGE)
             .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| content_range_matches(value, offset, job.size))
-        && job
-            .etag
-            .as_deref()
+            .is_some_and(|value| content_range_matches(value, offset, size))
+        && etag
             .zip(strong_etag(response.headers()).as_deref())
             .is_none_or(|(stored, served)| stored == served)
 }
@@ -1362,10 +1561,9 @@ async fn transfer<F: std::future::Future<Output = bool>>(
     .await
     .map_err(|error| error.to_string())??;
     let Some(stored) = stored else {
-        return transfer_once(queue, database, job, &mut stopped).await;
+        return transfer_once(queue, database, job, &mut stopped, None).await;
     };
-    let mut plan: crate::download_selection::MirrorPlan = serde_json::from_str(&stored)
-        .map_err(|error| format!("Invalid saved download links: {error}"))?;
+    let mut plan = MirrorPlan::load(&stored)?;
     let mut current = job.clone();
     let mut failure = "No supported download links are available".to_owned();
     while let Some(uri) = plan.current().map(str::to_owned) {
@@ -1392,17 +1590,33 @@ async fn transfer<F: std::future::Future<Output = bool>>(
                             }
                         }
                     }
+                    // Finished parts stay until the new link shows whether it serves the same files.
+                    remove_parts_async(queue, &job.id, PartFiles::Unfinished).await?;
                     current.url = uri;
                     current.size = size;
                     current.etag = None;
                     save_mirror_state(database.clone(), &current, &plan, true).await?;
-                    transfer_once(queue, database.clone(), &current, &mut stopped).await
+                    transfer_once(
+                        queue,
+                        database.clone(),
+                        &current,
+                        &mut stopped,
+                        Some(&mut plan),
+                    )
+                    .await
                 }
                 Ok(_) => Err("Download does not match the size published by the source".into()),
                 Err(error) => Err(error.into()),
             }
         } else {
-            transfer_once(queue, database.clone(), &current, &mut stopped).await
+            transfer_once(
+                queue,
+                database.clone(),
+                &current,
+                &mut stopped,
+                Some(&mut plan),
+            )
+            .await
         };
         match result {
             Ok(()) => return Ok(()),
@@ -1441,11 +1655,11 @@ async fn transfer<F: std::future::Future<Output = bool>>(
 async fn save_mirror_state(
     database: std::sync::Arc<Database>,
     job: &Transfer,
-    plan: &crate::download_selection::MirrorPlan,
+    plan: &MirrorPlan,
     reset: bool,
 ) -> Result<(), TransferError> {
     let job = job.clone();
-    let plan = serde_json::to_string(plan).map_err(|error| error.to_string())?;
+    let plan = plan.save()?;
     let changed = tauri::async_runtime::spawn_blocking(move || {
         database.with_connection(|connection| {
             let changed = if reset {
@@ -1462,24 +1676,207 @@ async fn save_mirror_state(
     Ok(())
 }
 
+async fn is_complete(path: &Path, size: u64) -> bool {
+    tokio::fs::symlink_metadata(path)
+        .await
+        .is_ok_and(|metadata| metadata.is_file() && metadata.len() == size)
+}
+
+/// Where one file of a job is written.
+struct FileTarget {
+    partial: PathBuf,
+    finished: PathBuf,
+    /// Probed size of one part; `None` for a whole archive, checked against the source.
+    part_size: Option<u64>,
+    /// Bytes of the parts before this one, so progress covers the whole job.
+    before: u64,
+}
+
 async fn transfer_once(
     queue: &DownloadQueueState,
     database: std::sync::Arc<Database>,
     job: &Transfer,
     stopped: &mut tokio::sync::watch::Receiver<bool>,
+    mut plan: Option<&mut MirrorPlan>,
 ) -> Result<(), TransferError> {
-    use tokio::io::AsyncWriteExt;
     let mut current = job.clone();
     let job = &mut current;
-    let partial = queue.path(&job.id, "part")?;
-    let archive = queue.path(&job.id, "archive")?;
-    if tokio::fs::symlink_metadata(&archive)
-        .await
-        .is_ok_and(|metadata| metadata.is_file() && metadata.len() == job.size)
-    {
+    let known = plan
+        .as_deref()
+        .and_then(|plan| plan.parts.as_ref())
+        .filter(|layout| layout.uri == job.url);
+    if let Some(layout) = known {
+        let mut complete = true;
+        for (index, part) in layout.parts.iter().enumerate() {
+            complete &= is_complete(&queue.part_path(&job.id, index, true)?, part.size).await;
+        }
+        if complete {
+            return Ok(());
+        }
+    } else if is_complete(&queue.path(&job.id, "archive")?, job.size).await {
         return Ok(());
     }
-    let mut offset = match tokio::fs::symlink_metadata(&partial).await {
+    let resolved = tokio::select! {
+        biased;
+        _ = stopped.changed() => return Err(TransferError::Stopped),
+        result = queue.resolve(&job.url, job.plain_http) => result?,
+    };
+    match crate::download_selection::layout(resolved.files)? {
+        Layout::Single(file) => {
+            if let Some(plan) = plan.as_deref_mut()
+                && plan.parts.take().is_some()
+            {
+                remove_parts_async(queue, &job.id, PartFiles::All).await?;
+                save_mirror_state(database.clone(), job, plan, false).await?;
+            }
+            let target = FileTarget {
+                partial: queue.path(&job.id, "part")?,
+                finished: queue.path(&job.id, "archive")?,
+                part_size: None,
+                before: 0,
+            };
+            download_file(queue, database, job, &file, &target, stopped).await
+        }
+        Layout::Parts(scheme, files) => {
+            let plan = plan.ok_or("Multipart downloads need saved download links")?;
+            download_parts(queue, database, job, stopped, plan, scheme, files).await
+        }
+    }
+}
+
+/// Size the host reports for the whole archive, checked against the source like the
+/// first link check. A size within the tolerance replaces the stored one.
+async fn accept_archive_size(
+    database: std::sync::Arc<Database>,
+    job: &mut Transfer,
+    actual: u64,
+) -> Result<(), TransferError> {
+    let reader = database.clone();
+    let id = job.id.clone();
+    let published: Option<i64> = tauri::async_runtime::spawn_blocking(move || {
+        reader.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT published_size_bytes FROM downloads WHERE id=?1",
+                    [&id],
+                    |row| row.get(0),
+                )
+                .map_err(db_error)
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    let published = published
+        .map(u64::try_from)
+        .transpose()
+        .map_err(|_| "Invalid published download size")?;
+    if !crate::download_selection::size_matches(published, actual)
+        || (published.is_none() && actual != job.size)
+    {
+        return Err("Download does not match the size published by the source".into());
+    }
+    if actual != job.size {
+        let writer = database.clone();
+        let id = job.id.clone();
+        let size = i64::try_from(actual).map_err(|_| "Download exceeds local storage limits")?;
+        tauri::async_runtime::spawn_blocking(move || {
+            writer.with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET size_bytes=?2 WHERE id=?1",
+                        params![id, size],
+                    )
+                    .map_err(db_error)?;
+                Ok(())
+            })
+        })
+        .await
+        .map_err(|error| error.to_string())??;
+        job.size = actual;
+    }
+    Ok(())
+}
+
+/// Downloads every part of one set in order. Finished parts are skipped, so a retry
+/// or a restart continues with the first incomplete part.
+async fn download_parts(
+    queue: &DownloadQueueState,
+    database: std::sync::Arc<Database>,
+    job: &mut Transfer,
+    stopped: &mut tokio::sync::watch::Receiver<bool>,
+    plan: &mut MirrorPlan,
+    scheme: PartScheme,
+    files: Vec<ResolvedFile>,
+) -> Result<(), TransferError> {
+    let names: Vec<String> = files
+        .iter()
+        .map(crate::download_selection::file_name)
+        .collect();
+    let known = plan.parts.clone().filter(|layout| {
+        layout.uri == job.url
+            && layout.scheme == scheme
+            && layout.parts.iter().map(|part| &part.name).eq(names.iter())
+    });
+    let layout = match known {
+        Some(layout) => layout,
+        None => {
+            let parts = tokio::select! {
+                biased;
+                _ = stopped.changed() => return Err(TransferError::Stopped),
+                result = crate::download_selection::probe_parts(&queue.client, scheme, &files, job.plain_http) => result?,
+            };
+            let layout = PartLayout {
+                uri: job.url.clone(),
+                scheme,
+                parts,
+            };
+            accept_archive_size(database.clone(), job, layout.total()).await?;
+            if !plan
+                .parts
+                .as_ref()
+                .is_some_and(|previous| previous.same_files(&layout))
+            {
+                remove_parts_async(queue, &job.id, PartFiles::All).await?;
+            }
+            plan.parts = Some(layout.clone());
+            save_mirror_state(database.clone(), job, plan, false).await?;
+            layout
+        }
+    };
+    let mut before = 0u64;
+    for (index, (file, part)) in files.iter().zip(&layout.parts).enumerate() {
+        let target = FileTarget {
+            partial: queue.part_path(&job.id, index, false)?,
+            finished: queue.part_path(&job.id, index, true)?,
+            part_size: Some(part.size),
+            before,
+        };
+        if !is_complete(&target.finished, part.size).await {
+            download_file(queue, database.clone(), job, file, &target, stopped).await?;
+            // The saved validator belongs to the finished part.
+            job.etag = None;
+            // Each part gets its own three retries before the link is given up.
+            plan.failures = 0;
+        }
+        before = before.saturating_add(part.size);
+    }
+    Ok(())
+}
+
+/// Streams one file to `target.partial`, resuming it when the host allows, and moves
+/// it to `target.finished` once complete.
+async fn download_file(
+    queue: &DownloadQueueState,
+    database: std::sync::Arc<Database>,
+    job: &mut Transfer,
+    resolved: &ResolvedFile,
+    target: &FileTarget,
+    stopped: &mut tokio::sync::watch::Receiver<bool>,
+) -> Result<(), TransferError> {
+    use tokio::io::AsyncWriteExt;
+    let partial = &target.partial;
+    let mut size = target.part_size.unwrap_or(job.size);
+    let mut offset = match tokio::fs::symlink_metadata(partial).await {
         Ok(metadata) if metadata.is_file() => metadata.len(),
         Ok(_) => {
             return Err(TransferError::Local(
@@ -1493,21 +1890,9 @@ async fn transfer_once(
             )));
         }
     };
-    if offset >= job.size {
+    if offset >= size {
         offset = 0;
     }
-    let mut resolved = tokio::select! {
-        biased;
-        _ = stopped.changed() => return Err(TransferError::Stopped),
-        result = crate::download_resolver::resolve(&queue.client, &job.url, job.plain_http) => result?,
-    };
-    if resolved.files.len() != 1 {
-        return Err("Grouped downloads are not supported by this transfer yet".into());
-    }
-    let resolved = resolved
-        .files
-        .pop()
-        .ok_or("Resolved download contains no files")?;
     let mut headers = resolved.headers.clone();
     if offset > 0 {
         headers.insert(
@@ -1528,7 +1913,7 @@ async fn transfer_once(
         _ = stopped.changed() => return Err(TransferError::Stopped),
         result = crate::download_resolver::get(&queue.client, &resolved.url, headers, job.plain_http) => result?,
     };
-    if offset > 0 && !resume_matches(&response, job, offset) {
+    if offset > 0 && !resume_matches(&response, size, job.etag.as_deref(), offset) {
         offset = 0;
         response = tokio::select! {
             biased;
@@ -1558,51 +1943,18 @@ async fn transfer_once(
             .content_length()
             .filter(|size| *size > 0)
             .ok_or("The download host did not provide an exact archive size")?;
-        let reader = database.clone();
-        let id = job.id.clone();
-        let published: Option<i64> = tauri::async_runtime::spawn_blocking(move || {
-            reader.with_connection(|connection| {
-                connection
-                    .query_row(
-                        "SELECT published_size_bytes FROM downloads WHERE id=?1",
-                        [&id],
-                        |row| row.get(0),
-                    )
-                    .map_err(db_error)
-            })
-        })
-        .await
-        .map_err(|error| error.to_string())??;
-        let published = published
-            .map(u64::try_from)
-            .transpose()
-            .map_err(|_| "Invalid published download size")?;
-        if !crate::download_selection::size_matches(published, actual)
-            || (published.is_none() && actual != job.size)
-        {
-            return Err("Download does not match the size published by the source".into());
-        }
-        if actual != job.size {
-            let writer = database.clone();
-            let id = job.id.clone();
-            let size =
-                i64::try_from(actual).map_err(|_| "Download exceeds local storage limits")?;
-            tauri::async_runtime::spawn_blocking(move || {
-                writer.with_connection(|connection| {
-                    connection
-                        .execute(
-                            "UPDATE downloads SET size_bytes=?2 WHERE id=?1",
-                            params![id, size],
-                        )
-                        .map_err(db_error)?;
-                    Ok(())
-                })
-            })
-            .await
-            .map_err(|error| error.to_string())??;
-            job.size = actual;
+        match target.part_size {
+            Some(part) if actual != part => {
+                return Err("An archive part changed size on the host".into());
+            }
+            Some(_) => {}
+            None => {
+                accept_archive_size(database.clone(), job, actual).await?;
+                size = job.size;
+            }
         }
     }
+    let before = target.before;
     let etag = strong_etag(response.headers())
         .or_else(|| if offset > 0 { job.etag.clone() } else { None });
     let mut file = tokio::fs::OpenOptions::new()
@@ -1610,12 +1962,20 @@ async fn transfer_once(
         .write(true)
         .truncate(offset == 0)
         .append(offset > 0)
-        .open(&partial)
+        .open(partial)
         .await
         .map_err(|error| {
             TransferError::Local(format!("Could not open partial download: {error}"))
         })?;
-    persist_progress(database.clone(), &job.id, offset, 0, None, etag.as_deref()).await?;
+    persist_progress(
+        database.clone(),
+        &job.id,
+        before + offset,
+        0,
+        None,
+        etag.as_deref(),
+    )
+    .await?;
     let started = Instant::now();
     let initial = offset;
     let mut persisted = Instant::now();
@@ -1627,7 +1987,7 @@ async fn transfer_once(
         let next = offset
             .checked_add(chunk.len() as u64)
             .ok_or_else(|| "Download size overflow".to_owned())?;
-        if next > job.size {
+        if next > size {
             return Err("Download exceeds the expected size".into());
         }
         file.write_all(&chunk).await.map_err(|error| {
@@ -1636,8 +1996,15 @@ async fn transfer_once(
         offset = next;
         loop {
             if *stopped.borrow() {
-                persist_progress(database.clone(), &job.id, offset, 0, None, etag.as_deref())
-                    .await?;
+                persist_progress(
+                    database.clone(),
+                    &job.id,
+                    before.saturating_add(offset),
+                    0,
+                    None,
+                    etag.as_deref(),
+                )
+                .await?;
                 return Err(TransferError::Stopped);
             }
             let delay = limiter.delay(offset, queue.bandwidth_limit.load(Ordering::Relaxed));
@@ -1658,7 +2025,11 @@ async fn transfer_once(
             0
         };
         let eta = if speed > 0 {
-            Some((job.size - offset).div_ceil(speed))
+            Some(
+                job.size
+                    .saturating_sub(before.saturating_add(offset))
+                    .div_ceil(speed),
+            )
         } else {
             None
         };
@@ -1666,7 +2037,7 @@ async fn transfer_once(
             persist_progress(
                 database.clone(),
                 &job.id,
-                offset,
+                before.saturating_add(offset),
                 speed,
                 eta,
                 etag.as_deref(),
@@ -1675,13 +2046,20 @@ async fn transfer_once(
             persisted = Instant::now();
         }
     }
-    if offset != job.size {
+    if offset != size {
         return Err(TransferError::Network(format!(
-            "Download ended at {offset} of {} bytes",
-            job.size
+            "Download ended at {offset} of {size} bytes"
         )));
     }
-    persist_progress(database.clone(), &job.id, offset, 0, None, etag.as_deref()).await?;
+    persist_progress(
+        database.clone(),
+        &job.id,
+        before.saturating_add(offset),
+        0,
+        None,
+        etag.as_deref(),
+    )
+    .await?;
     file.sync_all()
         .await
         .map_err(|error| TransferError::Local(format!("Could not sync download: {error}")))?;
@@ -1689,7 +2067,7 @@ async fn transfer_once(
     if *stopped.borrow() {
         return Err(TransferError::Stopped);
     }
-    tokio::fs::rename(&partial, &archive)
+    tokio::fs::rename(partial, &target.finished)
         .await
         .map_err(|error| {
             TransferError::Local(format!("Could not finalize downloaded archive: {error}"))
@@ -2047,16 +2425,12 @@ pub async fn retry_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result
                 )
                 .map_err(db_error)?;
             if let Some(stored) = stored {
-                let mut plan: crate::download_selection::MirrorPlan =
-                    serde_json::from_str(&stored).map_err(|error| error.to_string())?;
+                let mut plan = MirrorPlan::load(&stored)?;
                 plan.restart();
                 connection
                     .execute(
                         "UPDATE downloads SET mirror_plan=?2 WHERE id=?1",
-                        params![
-                            id,
-                            serde_json::to_string(&plan).map_err(|error| error.to_string())?
-                        ],
+                        params![id, plan.save()?],
                     )
                     .map_err(db_error)?;
             }
@@ -2170,6 +2544,7 @@ fn remove_entry(queue: &DownloadQueueState, database: &Database, id: &str) -> Re
         remove_partial(&queue.path(&id, extension)?)
             .map_err(|error| format!("Could not remove download files: {error}"))?;
     }
+    remove_part_files(&queue.directory()?, &id, PartFiles::All, false)?;
     finalize_install::remove_stage_directory(&queue.path(&id, "stage")?)?;
     database.with_connection(|connection| {
         let transaction = connection.unchecked_transaction().map_err(db_error)?;
@@ -4553,6 +4928,420 @@ mod tests {
 
         assert_eq!(fs::read(outside.join("keep.bin")).unwrap(), b"keep");
         assert_eq!(status_of(&database, &job.id).as_deref(), Some("cancelled"));
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    /// A local host for the parts of one folder link. It answers range requests and
+    /// cuts the first full answer for each path in `faults` after that many bytes.
+    struct PartHost {
+        base: String,
+        requests: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+        stop: std::sync::Arc<AtomicBool>,
+        thread: Option<thread::JoinHandle<()>>,
+    }
+
+    impl PartHost {
+        fn start(files: Vec<(String, Vec<u8>)>, faults: Vec<(String, usize)>) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let base = format!("http://{}", listener.local_addr().unwrap());
+            let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let stop = std::sync::Arc::new(AtomicBool::new(false));
+            let (log, halt) = (requests.clone(), stop.clone());
+            let thread = thread::spawn(move || {
+                let mut faults = faults;
+                while !halt.load(Ordering::Acquire) {
+                    let Ok((mut socket, _)) = listener.accept() else {
+                        thread::sleep(Duration::from_millis(5));
+                        continue;
+                    };
+                    socket.set_nonblocking(false).unwrap();
+                    socket
+                        .set_read_timeout(Some(Duration::from_secs(3)))
+                        .unwrap();
+                    let mut request = Vec::new();
+                    let mut byte = [0];
+                    while !request.ends_with(b"\r\n\r\n") {
+                        if socket.read_exact(&mut byte).is_err() {
+                            break;
+                        }
+                        request.push(byte[0]);
+                    }
+                    let request = String::from_utf8(request).unwrap().to_lowercase();
+                    let path = request.split(' ').nth(1).unwrap_or("").to_owned();
+                    let name = path.trim_start_matches("/p/").to_owned();
+                    let start = request
+                        .split("range: bytes=")
+                        .nth(1)
+                        .and_then(|value| value.split('-').next())
+                        .and_then(|value| value.parse::<usize>().ok());
+                    let probe = request.contains("range: bytes=0-7");
+                    log.lock().unwrap().push(match (probe, start) {
+                        (true, _) => format!("probe {name}"),
+                        (false, Some(start)) => format!("get {name} from {start}"),
+                        (false, None) => format!("get {name}"),
+                    });
+                    let Some((_, body)) =
+                        files.iter().find(|(file, _)| file.to_lowercase() == name)
+                    else {
+                        let _ = socket.write_all(
+                            b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                        );
+                        continue;
+                    };
+                    let total = body.len();
+                    let (status, first, last) = match (probe, start) {
+                        (true, _) => ("206 Partial Content", 0, total.min(8)),
+                        (false, Some(start)) => ("206 Partial Content", start, total),
+                        (false, None) => ("200 OK", 0, total),
+                    };
+                    let range = if status.starts_with("206") {
+                        format!("Content-Range: bytes {first}-{}/{total}\r\n", last - 1)
+                    } else {
+                        String::new()
+                    };
+                    let _ = socket.write_all(format!("HTTP/1.1 {status}\r\n{range}Content-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", last - first).as_bytes());
+                    let mut end = last;
+                    if !probe
+                        && start.is_none()
+                        && let Some(position) = faults
+                            .iter()
+                            .position(|(file, _)| file.to_lowercase() == name)
+                    {
+                        end = first + faults.remove(position).1;
+                    }
+                    let _ = socket.write_all(&body[first..end]);
+                }
+            });
+            Self {
+                base,
+                requests,
+                stop,
+                thread: Some(thread),
+            }
+        }
+
+        fn url(&self, name: &str) -> String {
+            format!("{}/p/{name}", self.base)
+        }
+
+        fn finish(mut self) -> Vec<String> {
+            self.stop.store(true, Ordering::Release);
+            if let Some(thread) = self.thread.take() {
+                thread.join().unwrap();
+            }
+            self.requests.lock().unwrap().clone()
+        }
+    }
+
+    fn rar5_parts() -> Vec<(String, Vec<u8>)> {
+        vec![
+            (
+                "Game.part1.rar".into(),
+                include_bytes!("../test-fixtures/archive/rar5-vols.part1.rar").to_vec(),
+            ),
+            (
+                "Game.part2.rar".into(),
+                include_bytes!("../test-fixtures/archive/rar5-vols.part2.rar").to_vec(),
+            ),
+            (
+                "Game.part3.rar".into(),
+                include_bytes!("../test-fixtures/archive/rar5-vols.part3.rar").to_vec(),
+            ),
+        ]
+    }
+
+    type MultipartFixture = (
+        std::sync::Arc<Database>,
+        DownloadQueueState,
+        DownloadJob,
+        PathBuf,
+        String,
+    );
+
+    /// A queued job whose only link is a folder holding `parts` on `host`, listed in
+    /// reverse so the order has to come from the names.
+    fn multipart_job(host: &PartHost, parts: &[(String, Vec<u8>)]) -> MultipartFixture {
+        let (database, directory) = database_with_source();
+        let job = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
+        let folder = format!("{}/folder", host.base);
+        let total: usize = parts.iter().map(|(_, bytes)| bytes.len()).sum();
+        let joined: Vec<u8> = parts.iter().flat_map(|(_, bytes)| bytes.clone()).collect();
+        let hash = format!("{:x}", Sha256::digest(&joined));
+        let plan = MirrorPlan::new(vec![folder.clone()], None);
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET url=?2, size_bytes=?3, sha256=?4, mirror_plan=?5, published_size_bytes=NULL WHERE id=?1",
+                        params![job.id, folder, total as i64, hash, plan.save().unwrap()],
+                    )
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+        let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
+        queue.folders.lock().unwrap().insert(
+            folder.clone(),
+            parts
+                .iter()
+                .rev()
+                .map(|(name, _)| (name.clone(), host.url(name)))
+                .collect(),
+        );
+        (std::sync::Arc::new(database), queue, job, directory, folder)
+    }
+
+    #[test]
+    fn multipart_job_downloads_every_part_and_extracts_them_together() {
+        let parts = rar5_parts();
+        let host = PartHost::start(parts.clone(), Vec::new());
+        let (database, queue, job, directory, _) = multipart_job(&host, &parts);
+        let transfer_job = claim(&database).unwrap().unwrap();
+        tauri::async_runtime::block_on(transfer(&queue, database.clone(), &transfer_job, online))
+            .unwrap();
+        assert_eq!(
+            host.finish(),
+            vec![
+                "probe game.part1.rar",
+                "probe game.part2.rar",
+                "probe game.part3.rar",
+                "get game.part1.rar",
+                "get game.part2.rar",
+                "get game.part3.rar",
+            ]
+        );
+        for (index, (_, bytes)) in parts.iter().enumerate() {
+            assert_eq!(
+                &fs::read(queue.part_path(&job.id, index, true).unwrap()).unwrap(),
+                bytes
+            );
+        }
+        let saved = list(&database).unwrap().remove(0);
+        assert_eq!(saved.downloaded_bytes, saved.size_bytes);
+        assert_eq!(
+            saved.parts,
+            Some(PartProgress {
+                current: 3,
+                total: 3
+            })
+        );
+        finish(&database, &job.id, DownloadStatus::Downloaded, None).unwrap();
+        let stage = stage_one(&queue, &database, &job.id).unwrap();
+        assert_eq!(
+            fs::read(stage.join("vols/smallfile.txt")).unwrap().len(),
+            2050
+        );
+        assert_eq!(
+            fs::read(stage.join("vols/bigfile.txt")).unwrap().len(),
+            205_000
+        );
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_failed_part_is_retried_without_downloading_finished_parts_again() {
+        let parts = rar5_parts();
+        let host = PartHost::start(parts.clone(), vec![("Game.part2.rar".into(), 1000)]);
+        let (database, queue, job, directory, _) = multipart_job(&host, &parts);
+        let transfer_job = claim(&database).unwrap().unwrap();
+        tauri::async_runtime::block_on(transfer(&queue, database.clone(), &transfer_job, online))
+            .unwrap();
+        let requests = host.finish();
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|request| *request == "get game.part1.rar")
+                .count(),
+            1
+        );
+        assert!(
+            requests.contains(&"get game.part2.rar from 1000".to_owned()),
+            "{requests:?}"
+        );
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|request| request.starts_with("probe"))
+                .count(),
+            3
+        );
+        for (index, (_, bytes)) in parts.iter().enumerate() {
+            assert_eq!(
+                &fs::read(queue.part_path(&job.id, index, true).unwrap()).unwrap(),
+                bytes
+            );
+        }
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn restart_continues_from_the_first_incomplete_part() {
+        let parts = rar5_parts();
+        let host = PartHost::start(parts.clone(), Vec::new());
+        let (database, queue, job, directory, folder) = multipart_job(&host, &parts);
+        let mut plan = MirrorPlan::new(vec![folder.clone()], None);
+        plan.parts = Some(PartLayout {
+            uri: folder,
+            scheme: PartScheme::RarVolumes,
+            parts: parts
+                .iter()
+                .map(|(name, bytes)| crate::download_selection::StoredPart {
+                    name: name.clone(),
+                    size: bytes.len() as u64,
+                })
+                .collect(),
+        });
+        // The previous run finished part 1 and wrote 500 bytes of part 2 before it stopped.
+        let done = parts[0].1.len() + 500;
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET status='downloading', mirror_plan=?2, downloaded_bytes=?3 WHERE id=?1",
+                        params![job.id, plan.save().unwrap(), done as i64],
+                    )
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+        fs::write(queue.part_path(&job.id, 0, true).unwrap(), &parts[0].1).unwrap();
+        fs::write(
+            queue.part_path(&job.id, 1, false).unwrap(),
+            &parts[1].1[..500],
+        )
+        .unwrap();
+        assert_eq!(
+            list(&database).unwrap()[0].parts,
+            Some(PartProgress {
+                current: 2,
+                total: 3
+            })
+        );
+        recover(&database).unwrap();
+        let transfer_job = claim(&database).unwrap().unwrap();
+        tauri::async_runtime::block_on(transfer(&queue, database.clone(), &transfer_job, online))
+            .unwrap();
+        assert_eq!(
+            host.finish(),
+            vec!["get game.part2.rar from 500", "get game.part3.rar"]
+        );
+        assert_eq!(
+            &fs::read(queue.part_path(&job.id, 1, true).unwrap()).unwrap(),
+            &parts[1].1
+        );
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn an_incomplete_set_fails_with_the_missing_part() {
+        let mut parts = rar5_parts();
+        parts.remove(1);
+        let host = PartHost::start(parts.clone(), Vec::new());
+        let (database, queue, _, directory, _) = multipart_job(&host, &parts);
+        let transfer_job = claim(&database).unwrap().unwrap();
+        let error = tauri::async_runtime::block_on(transfer(
+            &queue,
+            database.clone(),
+            &transfer_job,
+            online,
+        ))
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("Game.part2.rar is missing"),
+            "{error}"
+        );
+        assert!(host.finish().is_empty());
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn cancelling_removes_every_part_file() {
+        let (database, queue, job, directory) = downloaded_fixture();
+        let files = [
+            queue.part_path(&job.id, 0, true).unwrap(),
+            queue.part_path(&job.id, 1, true).unwrap(),
+            queue.part_path(&job.id, 2, false).unwrap(),
+        ];
+        for file in &files {
+            fs::write(file, b"part").unwrap();
+        }
+        let unrelated = queue
+            .part_path(&Uuid::new_v4().to_string(), 0, true)
+            .unwrap();
+        fs::write(&unrelated, b"other").unwrap();
+        set_status(&database, &job.id, "cancelled");
+        clean_cancelled(&queue, &database).unwrap();
+        assert!(files.iter().all(|file| !file.exists()));
+        assert!(!queue.path(&job.id, "archive").unwrap().exists());
+        assert!(unrelated.exists());
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_plan_saved_by_the_previous_version_still_downloads() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/archive", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") {
+                socket.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nPK\x03\x04abcdef",
+                )
+                .unwrap();
+        });
+        let (database, directory) = database_with_source();
+        let job = enqueue(
+            &database,
+            400,
+            "https://example.invalid/portal.zip",
+            "1",
+            false,
+        )
+        .unwrap();
+        // The previous format: no `format` field and no parts.
+        let stored = format!(r#"{{"uris":["{url}"],"index":0,"failures":1,"expected_size":null}}"#);
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "UPDATE downloads SET url=?2, mirror_plan=?3, published_size_bytes=NULL WHERE id=?1",
+                        params![job.id, url, stored],
+                    )
+                    .map_err(db_error)?;
+                Ok(())
+            })
+            .unwrap();
+        let database = std::sync::Arc::new(database);
+        let queue = DownloadQueueState::new(Ok(directory.clone()), "test").unwrap();
+        assert_eq!(list(&database).unwrap()[0].parts, None);
+        let transfer_job = claim(&database).unwrap().unwrap();
+        tauri::async_runtime::block_on(transfer(&queue, database.clone(), &transfer_job, online))
+            .unwrap();
+        server.join().unwrap();
+        assert_eq!(
+            fs::read(queue.path(&job.id, "archive").unwrap()).unwrap(),
+            b"PK\x03\x04abcdef"
+        );
         drop(database);
         fs::remove_dir_all(directory).unwrap();
     }

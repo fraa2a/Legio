@@ -11,6 +11,7 @@ mod app_update;
 mod appearance;
 mod application_log;
 pub mod archive_install;
+mod archive_parts;
 mod artwork_display;
 mod artwork_publication;
 mod artwork_scheduler;
@@ -35,6 +36,7 @@ mod download_policy;
 mod download_queue;
 mod download_resolver;
 mod download_selection;
+mod download_space;
 mod filesystem_copy;
 mod finalize_install;
 mod folder_size;
@@ -588,6 +590,7 @@ fn run_application(
             download_queue::remove_download,
             download_queue::remove_finished_downloads,
             download_queue::reorder_downloads,
+            download_space::forecast_download_space,
             queue_shutdown::get_queue_shutdown,
             queue_shutdown::set_queue_shutdown,
             installed_folder::open_installed_folder,

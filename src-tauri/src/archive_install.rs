@@ -7,6 +7,8 @@ use std::{
 
 use compress_tools::{ArchiveContents, ArchiveIteratorBuilder};
 use sha2::{Digest, Sha256};
+
+use crate::archive_parts::PartScheme;
 #[cfg(test)]
 use uuid::Uuid;
 
@@ -16,7 +18,7 @@ use std::os::unix::fs::PermissionsExt;
 const MAX_ENTRIES: usize = 100_000;
 const MAX_EXPANSION_RATIO: u64 = 200;
 // Kept free on the staging filesystem for filesystem overhead and the rest of the system.
-const FREE_SPACE_MARGIN: u64 = 512 * 1024 * 1024;
+pub(crate) const FREE_SPACE_MARGIN: u64 = 512 * 1024 * 1024;
 
 /// Extraction behavior that callers opt into. The default keeps every entry name strict.
 #[derive(Debug, Clone, Copy, Default)]
@@ -48,6 +50,62 @@ pub fn verify_and_stage_with(
     })
 }
 
+/// Checks an optional SHA-256 hash of the parts joined in order and extracts them as one
+/// archive, like [`verify_and_stage`]. A mismatch removes every part.
+pub(crate) fn verify_and_stage_parts(
+    parts: &[PathBuf],
+    scheme: PartScheme,
+    expected_sha256: Option<&str>,
+    stage: &Path,
+) -> Result<(), String> {
+    stage_parts_with_free_space(parts, scheme, expected_sha256, stage, |path| {
+        crate::installed_folder::disk_space(path).map(|(free, _)| free)
+    })
+}
+
+fn open_regular(path: &Path) -> Result<(File, u64), String> {
+    let metadata =
+        fs::symlink_metadata(path).map_err(|error| format!("Cannot inspect download: {error}"))?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err("Download is not a regular file".into());
+    }
+    let source = File::open(path).map_err(|error| format!("Cannot open download: {error}"))?;
+    let bytes = source
+        .metadata()
+        .map_err(|error| format!("Cannot inspect download: {error}"))?
+        .len();
+    Ok((source, bytes))
+}
+
+fn hash_matches(source: &mut impl Read, expected_sha256: &str) -> Result<bool, String> {
+    let mut hasher = Sha256::new();
+    io::copy(source, &mut hasher).map_err(|error| format!("Cannot verify download: {error}"))?;
+    Ok(format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(expected_sha256))
+}
+
+fn read_magic(source: &mut (impl Read + Seek)) -> Result<[u8; 8], String> {
+    source
+        .seek(SeekFrom::Start(0))
+        .map_err(|error| error.to_string())?;
+    let mut magic = [0u8; 8];
+    source
+        .read_exact(&mut magic)
+        .map_err(|error| format!("Cannot inspect archive format: {error}"))?;
+    Ok(magic)
+}
+
+fn is_zip(magic: &[u8; 8]) -> bool {
+    magic.starts_with(b"PK\x03\x04") || magic.starts_with(b"PK\x05\x06")
+}
+
+fn is_7z(magic: &[u8; 8]) -> bool {
+    magic.starts_with(b"7z\xbc\xaf\x27\x1c")
+}
+
+fn is_rar(magic: &[u8; 8]) -> bool {
+    magic.starts_with(b"Rar!\x1a\x07\x00") || magic.starts_with(b"Rar!\x1a\x07\x01\x00")
+}
+
 /// Reads free space through `free_space` so tests can inject it.
 fn stage_with_free_space(
     archive: &Path,
@@ -56,47 +114,23 @@ fn stage_with_free_space(
     options: StageOptions,
     free_space: impl FnOnce(&Path) -> Result<u64, String>,
 ) -> Result<(), String> {
-    let metadata = fs::symlink_metadata(archive)
-        .map_err(|error| format!("Cannot inspect download: {error}"))?;
-    if !metadata.is_file() || metadata.file_type().is_symlink() {
-        return Err("Download is not a regular file".into());
-    }
-    let mut source =
-        File::open(archive).map_err(|error| format!("Cannot open download: {error}"))?;
-    let archive_bytes = source
-        .metadata()
-        .map_err(|error| format!("Cannot inspect download: {error}"))?
-        .len();
-    if let Some(expected_sha256) = expected_sha256 {
-        let mut hasher = Sha256::new();
-        io::copy(&mut source, &mut hasher)
-            .map_err(|error| format!("Cannot verify download: {error}"))?;
-        let digest = format!("{:x}", hasher.finalize());
-        if !digest.eq_ignore_ascii_case(expected_sha256) {
-            drop(source);
-            fs::remove_file(archive).map_err(|error| {
-                format!("Download hash differs and corrupt file could not be removed: {error}")
-            })?;
-            return Err(
-                "Download hash differs. The corrupt download was removed; retry the download"
-                    .into(),
-            );
-        }
+    let (mut source, archive_bytes) = open_regular(archive)?;
+    if let Some(expected_sha256) = expected_sha256
+        && !hash_matches(&mut source, expected_sha256)?
+    {
+        drop(source);
+        fs::remove_file(archive).map_err(|error| {
+            format!("Download hash differs and corrupt file could not be removed: {error}")
+        })?;
+        return Err(
+            "Download hash differs. The corrupt download was removed; retry the download".into(),
+        );
     }
 
-    source
-        .seek(SeekFrom::Start(0))
-        .map_err(|error| error.to_string())?;
-    let mut magic = [0u8; 8];
-    source
-        .read_exact(&mut magic)
-        .map_err(|error| format!("Cannot inspect archive format: {error}"))?;
-    let supported = magic.starts_with(b"PK\x03\x04")
-        || magic.starts_with(b"PK\x05\x06")
-        || magic.starts_with(b"7z\xbc\xaf\x27\x1c")
-        || magic.starts_with(b"Rar!\x1a\x07\x00")
-        || magic.starts_with(b"Rar!\x1a\x07\x01\x00");
-    if !supported || is_multipart_name(archive) {
+    let magic = read_magic(&mut source)?;
+    let supported = is_zip(&magic) || is_7z(&magic) || is_rar(&magic);
+    let name = archive.file_name().unwrap_or_default().to_string_lossy();
+    if !supported || crate::archive_parts::looks_like_part(&name) {
         return Err("Only single-file ZIP, 7z and RAR archives are supported".into());
     }
     if magic.starts_with(b"PK") {
@@ -104,10 +138,93 @@ fn stage_with_free_space(
     } else if magic.starts_with(b"Rar!") {
         reject_split_rar(&mut source, &magic)?;
     }
+    stage_source(source, &magic, archive_bytes, stage, options, free_space)
+}
 
-    source
-        .seek(SeekFrom::Start(0))
-        .map_err(|error| error.to_string())?;
+fn stage_parts_with_free_space(
+    parts: &[PathBuf],
+    scheme: PartScheme,
+    expected_sha256: Option<&str>,
+    stage: &Path,
+    free_space: impl FnOnce(&Path) -> Result<u64, String>,
+) -> Result<(), String> {
+    let mut source = JoinedParts::open(parts)?;
+    let archive_bytes = source.len();
+    if let Some(expected_sha256) = expected_sha256
+        && !hash_matches(&mut source, expected_sha256)?
+    {
+        drop(source);
+        for part in parts {
+            fs::remove_file(part).map_err(|error| {
+                format!("Download hash differs and corrupt part could not be removed: {error}")
+            })?;
+        }
+        return Err(
+            "Download hash differs. The corrupt parts were removed; retry the download".into(),
+        );
+    }
+    let magic = read_magic(&mut source)?;
+    // RAR volumes carry the volume flag that single archives must not have, so only the
+    // byte splits go through the single-archive split checks.
+    let matches = match scheme {
+        PartScheme::RarVolumes | PartScheme::RarLegacyVolumes => is_rar(&magic),
+        PartScheme::SevenZipSplit => is_7z(&magic),
+        PartScheme::ZipSplit => is_zip(&magic),
+    };
+    if !matches {
+        return Err("The archive parts do not contain the format their names announce".into());
+    }
+    if scheme == PartScheme::ZipSplit {
+        reject_split_zip(&mut source, archive_bytes)?;
+    }
+    stage_source(
+        source,
+        &magic,
+        archive_bytes,
+        stage,
+        StageOptions::default(),
+        free_space,
+    )
+}
+
+/// Total size the ZIP central directory declares, read without extracting anything.
+/// Only a plain end record without a comment is read, which caps the directory at
+/// 65,534 entries. Other formats have no cheap equivalent.
+fn declared_size(source: &mut (impl Read + Seek), magic: &[u8; 8]) -> Option<u64> {
+    if !is_zip(magic) {
+        return None;
+    }
+    let mut end = [0u8; 22];
+    source.seek(SeekFrom::End(-22)).ok()?;
+    source.read_exact(&mut end).ok()?;
+    if !end.starts_with(b"PK\x05\x06") || end[10..12] == [0xff, 0xff] || end[20..22] != [0, 0] {
+        return None;
+    }
+    let archive = zip::ZipArchive::new(source).ok()?;
+    archive
+        .decompressed_size()
+        .and_then(|size| u64::try_from(size).ok())
+}
+
+/// Lower bound of what extracting `files` (one archive or the parts of one) writes:
+/// the size a ZIP declares, otherwise the archive size.
+pub(crate) fn minimum_extracted_size(files: &[PathBuf]) -> Result<u64, String> {
+    let mut source = JoinedParts::open(files)?;
+    // A damaged header is reported by extraction, which reads it again.
+    let declared = read_magic(&mut source)
+        .ok()
+        .and_then(|magic| declared_size(&mut source, &magic));
+    Ok(declared.unwrap_or_else(|| source.len()))
+}
+
+fn stage_source<R: Read + Seek>(
+    mut source: R,
+    magic: &[u8; 8],
+    archive_bytes: u64,
+    stage: &Path,
+    options: StageOptions,
+    free_space: impl FnOnce(&Path) -> Result<u64, String>,
+) -> Result<(), String> {
     let staging_parent = stage.parent().ok_or("Staging path has no parent")?;
     fs::create_dir_all(staging_parent)
         .map_err(|error| format!("Cannot create staging parent: {error}"))?;
@@ -115,6 +232,18 @@ fn stage_with_free_space(
     let free_bytes = free_space(staging_parent)
         .inspect_err(|error| crate::application_log::failure("extraction_disk_space", error))
         .ok();
+    // A declared size that cannot fit fails before anything is written.
+    if let (Some(declared), Some(free)) = (declared_size(&mut source, magic), free_bytes)
+        && declared > free.saturating_sub(FREE_SPACE_MARGIN)
+    {
+        return Err(crate::download_space::extraction_shortfall(
+            declared,
+            free.saturating_sub(FREE_SPACE_MARGIN),
+        ));
+    }
+    source
+        .seek(SeekFrom::Start(0))
+        .map_err(|error| error.to_string())?;
     let limit = ExtractionLimit::new(archive_bytes, free_bytes);
     fs::create_dir(stage).map_err(|error| format!("Cannot create staging directory: {error}"))?;
     let result = extract(source, stage, limit, options);
@@ -161,8 +290,8 @@ impl ExtractionLimit {
     }
 }
 
-fn extract(
-    source: File,
+fn extract<R: Read + Seek>(
+    source: R,
     stage: &Path,
     limit: ExtractionLimit,
     options: StageOptions,
@@ -347,26 +476,85 @@ pub(crate) fn safe_relative_path(name: &str) -> Result<PathBuf, String> {
     Ok(path.to_path_buf())
 }
 
-pub(crate) fn is_multipart_name(path: &Path) -> bool {
-    let name = path
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_lowercase();
-    name.ends_with(".001")
-        || name.rsplit_once(".part").is_some_and(|(_, tail)| {
-            tail.strip_suffix(".rar").is_some_and(|number| {
-                !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())
-            })
-        })
-        || name.rsplit_once('.').is_some_and(|(_, ext)| {
-            ext.len() == 3
-                && ext.starts_with('r')
-                && ext[1..].bytes().all(|byte| byte.is_ascii_digit())
-        })
+/// The volumes of a multipart archive read as one seekable stream. libarchive reads
+/// RAR volumes and byte splits this way exactly as it reads their concatenation.
+struct JoinedParts {
+    files: Vec<File>,
+    /// Offset in the joined stream where each part ends.
+    ends: Vec<u64>,
+    position: u64,
 }
 
-fn reject_split_zip(source: &mut File, size: u64) -> Result<(), String> {
+impl JoinedParts {
+    fn open(parts: &[PathBuf]) -> Result<Self, String> {
+        if parts.is_empty() {
+            return Err("The multipart archive has no parts".into());
+        }
+        let mut files = Vec::with_capacity(parts.len());
+        let mut ends = Vec::with_capacity(parts.len());
+        let mut end = 0u64;
+        for part in parts {
+            let (file, bytes) = open_regular(part)?;
+            end = end
+                .checked_add(bytes)
+                .ok_or("The multipart archive is too large")?;
+            files.push(file);
+            ends.push(end);
+        }
+        Ok(Self {
+            files,
+            ends,
+            position: 0,
+        })
+    }
+
+    fn len(&self) -> u64 {
+        self.ends.last().copied().unwrap_or(0)
+    }
+}
+
+impl Read for JoinedParts {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let Some(index) = self.ends.iter().position(|end| self.position < *end) else {
+            return Ok(0);
+        };
+        let start = index
+            .checked_sub(1)
+            .map_or(0, |previous| self.ends[previous]);
+        let available = usize::try_from(self.ends[index] - self.position).unwrap_or(usize::MAX);
+        let length = buffer.len().min(available);
+        let file = &mut self.files[index];
+        file.seek(SeekFrom::Start(self.position - start))?;
+        let read = file.read(&mut buffer[..length])?;
+        if read == 0 && length > 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "An archive part changed while it was read",
+            ));
+        }
+        self.position += read as u64;
+        Ok(read)
+    }
+}
+
+impl Seek for JoinedParts {
+    fn seek(&mut self, target: SeekFrom) -> io::Result<u64> {
+        let (base, offset) = match target {
+            SeekFrom::Start(position) => {
+                self.position = position;
+                return Ok(position);
+            }
+            SeekFrom::End(offset) => (self.len(), offset),
+            SeekFrom::Current(offset) => (self.position, offset),
+        };
+        self.position = base.checked_add_signed(offset).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "Invalid seek in archive parts")
+        })?;
+        Ok(self.position)
+    }
+}
+
+fn reject_split_zip(source: &mut (impl Read + Seek), size: u64) -> Result<(), String> {
     let tail_len = size.min(65_557) as usize;
     source
         .seek(SeekFrom::End(-(tail_len as i64)))
@@ -410,7 +598,7 @@ fn reject_split_zip(source: &mut File, size: u64) -> Result<(), String> {
     Ok(())
 }
 
-fn reject_split_rar(source: &mut File, magic: &[u8; 8]) -> Result<(), String> {
+fn reject_split_rar(source: &mut (impl Read + Seek), magic: &[u8; 8]) -> Result<(), String> {
     source
         .seek(SeekFrom::Start(0))
         .map_err(|error| error.to_string())?;
@@ -839,5 +1027,251 @@ mod tests {
             assert!(!root.join("staging").exists(), "{name}");
             fs::remove_dir_all(root).unwrap();
         }
+    }
+
+    /// Writes each part beside the others, as the download queue does.
+    fn parts_fixture(parts: &[(&str, &[u8])]) -> (PathBuf, Vec<PathBuf>) {
+        let root = std::env::temp_dir().join(format!("legio-parts-test-{}", Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let paths = parts
+            .iter()
+            .map(|(name, bytes)| {
+                let path = root.join(name);
+                fs::write(&path, bytes).unwrap();
+                path
+            })
+            .collect();
+        (root, paths)
+    }
+
+    fn split(bytes: &[u8], pieces: usize) -> Vec<Vec<u8>> {
+        bytes
+            .chunks(bytes.len().div_ceil(pieces))
+            .map(<[u8]>::to_vec)
+            .collect()
+    }
+
+    fn crc(path: &Path) -> u32 {
+        let mut crc = flate2::Crc::new();
+        crc.update(&fs::read(path).unwrap());
+        crc.sum()
+    }
+
+    fn assert_volume_fixture(stage: &Path) {
+        assert_eq!(crc(&stage.join("vols/bigfile.txt")), 0x509a_d74c);
+        assert_eq!(crc(&stage.join("vols/smallfile.txt")), 0xd08a_1f86);
+    }
+
+    #[test]
+    fn joined_parts_read_and_seek_across_boundaries() {
+        let (root, paths) = parts_fixture(&[("a", b"abc"), ("b", b""), ("c", b"defg")]);
+        let mut joined = JoinedParts::open(&paths).unwrap();
+        assert_eq!(joined.len(), 7);
+        let mut all = Vec::new();
+        joined.read_to_end(&mut all).unwrap();
+        assert_eq!(all, b"abcdefg");
+        let mut two = [0u8; 2];
+        joined.seek(SeekFrom::Start(2)).unwrap();
+        joined.read_exact(&mut two).unwrap();
+        assert_eq!(&two, b"cd");
+        assert_eq!(joined.seek(SeekFrom::End(-1)).unwrap(), 6);
+        joined.read_exact(&mut two[..1]).unwrap();
+        assert_eq!(&two[..1], b"g");
+        assert_eq!(joined.seek(SeekFrom::Current(-4)).unwrap(), 3);
+        joined.read_exact(&mut two).unwrap();
+        assert_eq!(&two, b"de");
+        assert!(joined.seek(SeekFrom::Current(-10)).is_err());
+        joined.seek(SeekFrom::Start(20)).unwrap();
+        assert_eq!(joined.read(&mut two).unwrap(), 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn legacy_rar4_volumes_are_staged() {
+        let (root, parts) = parts_fixture(&[
+            (
+                "1.archive",
+                include_bytes!("../test-fixtures/archive/rar3-old.rar"),
+            ),
+            (
+                "2.archive",
+                include_bytes!("../test-fixtures/archive/rar3-old.r00"),
+            ),
+            (
+                "3.archive",
+                include_bytes!("../test-fixtures/archive/rar3-old.r01"),
+            ),
+        ]);
+        let stage = root.join("staging");
+        verify_and_stage_parts(&parts, PartScheme::RarLegacyVolumes, None, &stage).unwrap();
+        assert_volume_fixture(&stage);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn rar5_volumes() -> [(&'static str, &'static [u8]); 3] {
+        [
+            (
+                "1.archive",
+                include_bytes!("../test-fixtures/archive/rar5-vols.part1.rar"),
+            ),
+            (
+                "2.archive",
+                include_bytes!("../test-fixtures/archive/rar5-vols.part2.rar"),
+            ),
+            (
+                "3.archive",
+                include_bytes!("../test-fixtures/archive/rar5-vols.part3.rar"),
+            ),
+        ]
+    }
+
+    #[test]
+    fn rar5_volumes_are_staged_and_hashed_as_one_stream() {
+        let volumes = rar5_volumes();
+        let joined: Vec<u8> = volumes
+            .iter()
+            .flat_map(|(_, bytes)| bytes.to_vec())
+            .collect();
+        let (root, parts) = parts_fixture(&volumes);
+        let stage = root.join("staging");
+        let hash = format!("{:x}", Sha256::digest(&joined));
+        verify_and_stage_parts(&parts, PartScheme::RarVolumes, Some(&hash), &stage).unwrap();
+        assert_volume_fixture(&stage);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_missing_last_volume_fails_without_staging() {
+        let (root, parts) = parts_fixture(&rar5_volumes()[..2]);
+        let stage = root.join("staging");
+        let error =
+            verify_and_stage_parts(&parts, PartScheme::RarVolumes, None, &stage).unwrap_err();
+        assert!(error.contains("complete"), "{error}");
+        assert!(!stage.exists());
+        assert!(parts.iter().all(|part| part.is_file()));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn volumes_in_the_wrong_order_fail_without_staging() {
+        let volumes = rar5_volumes();
+        let (root, parts) = parts_fixture(&[volumes[0], volumes[2], volumes[1]]);
+        let stage = root.join("staging");
+        assert!(verify_and_stage_parts(&parts, PartScheme::RarVolumes, None, &stage).is_err());
+        assert!(!stage.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn hash_mismatch_removes_every_part() {
+        let (root, parts) = parts_fixture(&rar5_volumes());
+        let stage = root.join("staging");
+        let error = verify_and_stage_parts(
+            &parts,
+            PartScheme::RarVolumes,
+            Some(&"0".repeat(64)),
+            &stage,
+        )
+        .unwrap_err();
+        assert!(error.contains("corrupt parts were removed"));
+        assert!(parts.iter().all(|part| !part.exists()));
+        assert!(!stage.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn byte_splits_of_7z_and_zip_are_staged() {
+        for (scheme, bytes, file, expected) in [
+            (
+                PartScheme::SevenZipSplit,
+                include_bytes!("../test-fixtures/archive/safe.7z").as_slice(),
+                "src-tauri/test-fixtures/archive/safe.zip",
+                include_bytes!("../test-fixtures/archive/safe.zip").as_slice(),
+            ),
+            (
+                PartScheme::ZipSplit,
+                include_bytes!("../test-fixtures/archive/safe.zip").as_slice(),
+                "Game/data.bin",
+                b"hello".as_slice(),
+            ),
+        ] {
+            let pieces = split(bytes, 3);
+            let named: Vec<(String, &[u8])> = pieces
+                .iter()
+                .enumerate()
+                .map(|(index, piece)| (format!("{}.archive", index + 1), piece.as_slice()))
+                .collect();
+            let named: Vec<(&str, &[u8])> = named
+                .iter()
+                .map(|(name, piece)| (name.as_str(), *piece))
+                .collect();
+            let (root, parts) = parts_fixture(&named);
+            let stage = root.join("staging");
+            verify_and_stage_parts(&parts, scheme, None, &stage).unwrap();
+            assert_eq!(fs::read(stage.join(file)).unwrap(), expected, "{scheme:?}");
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn parts_must_contain_the_announced_format() {
+        let pieces = split(include_bytes!("../test-fixtures/archive/safe.zip"), 2);
+        let (root, parts) = parts_fixture(&[("1.archive", &pieces[0]), ("2.archive", &pieces[1])]);
+        for scheme in [PartScheme::SevenZipSplit, PartScheme::RarVolumes] {
+            let stage = root.join("staging");
+            let error = verify_and_stage_parts(&parts, scheme, None, &stage).unwrap_err();
+            assert!(error.contains("format"), "{scheme:?}: {error}");
+            assert!(!stage.exists());
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn split_archives_keep_every_extraction_safety_check() {
+        for (bytes, message) in [
+            (
+                include_bytes!("../test-fixtures/archive/traversal.zip").as_slice(),
+                "unsafe path",
+            ),
+            (
+                include_bytes!("../test-fixtures/archive/symlink.zip").as_slice(),
+                "unsupported link",
+            ),
+            (
+                include_bytes!("../test-fixtures/archive/bomb.zip").as_slice(),
+                "size limit",
+            ),
+        ] {
+            let pieces = split(bytes, 2);
+            let (root, parts) =
+                parts_fixture(&[("1.archive", &pieces[0]), ("2.archive", &pieces[1])]);
+            let stage = root.join("staging");
+            let error =
+                stage_parts_with_free_space(&parts, PartScheme::ZipSplit, None, &stage, |_| {
+                    Err("unsupported filesystem".into())
+                })
+                .unwrap_err();
+            assert!(error.contains(message), "{message}: {error}");
+            assert!(!stage.exists(), "{message}");
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn declared_zip_size_beyond_free_space_fails_before_staging() {
+        let (root, archive) = fixture(
+            include_bytes!("../test-fixtures/archive/bomb.zip"),
+            "bomb.zip",
+        );
+        let stage = root.join("staging");
+        // The bomb declares 1 MiB, more than the free space, so nothing is extracted.
+        let error = stage_with_free_space(&archive, None, &stage, StageOptions::default(), |_| {
+            Ok(FREE_SPACE_MARGIN + 1024)
+        })
+        .unwrap_err();
+        assert!(error.contains("Not enough free disk space"), "{error}");
+        assert!(error.contains("needs"), "{error}");
+        assert!(!stage.exists());
+        fs::remove_dir_all(root).unwrap();
     }
 }
