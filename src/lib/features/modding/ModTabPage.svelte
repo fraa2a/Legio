@@ -137,20 +137,20 @@
     <div class="flex items-start gap-3">
       <ModIcon source={null} class="size-16 rounded-xl" />
       <div class="min-w-0 flex-1">
-        <h2 class="truncate text-base font-semibold text-zinc-50 light:text-zinc-900">{packageTitle(name.name)}</h2>
-        {#if name.owner !== ""}<p class="text-sm text-zinc-400 light:text-zinc-600">{t("di {0}", $language, [name.owner])}</p>{/if}
+        <h2 class="truncate text-base font-semibold text-legio-fg">{packageTitle(name.name)}</h2>
+        {#if name.owner !== ""}<p class="text-sm text-legio-fg-muted">{t("di {0}", $language, [name.owner])}</p>{/if}
         <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
-          <span class="text-xs tabular-nums text-zinc-400 light:text-zinc-600">{installedMod.version}</span>
+          <span class="text-xs tabular-nums text-legio-fg-muted">{installedMod.version}</span>
           {#if installedMod.isLoader}<Badge tone="info" title={t("Loader", $language)} />{/if}
           {#if isLocal}<Badge title={t("Locale", $language)} />{/if}
         </div>
       </div>
     </div>
-    <p class="text-sm text-zinc-200 light:text-zinc-800">{isLocal ? t("Mod importata da un archivio locale: non è su Thunderstore.", $language) : t("Il pacchetto non è più nel catalogo. Aggiorna il catalogo e riprova.", $language)}</p>
+    <p class="text-sm text-legio-fg">{isLocal ? t("Mod importata da un archivio locale: non è su Thunderstore.", $language) : t("Il pacchetto non è più nel catalogo. Aggiorna il catalogo e riprova.", $language)}</p>
     <section aria-label={t("Dipendenze", $language)}>
-      <h3 class="text-sm text-zinc-400 light:text-zinc-600">{t("Dipendenze", $language)}</h3>
+      <h3 class="text-sm text-legio-fg-muted">{t("Dipendenze", $language)}</h3>
       {#if installedMod.dependencies.length === 0}
-        <p class="mt-1.5 text-sm text-zinc-300 light:text-zinc-700">{t("Nessuna dipendenza.", $language)}</p>
+        <p class="mt-1.5 text-sm text-legio-fg">{t("Nessuna dipendenza.", $language)}</p>
       {:else}
         <ul class="mt-1.5 flex flex-col gap-0.5">
           {#each installedMod.dependencies as dependency (dependency)}
@@ -158,7 +158,7 @@
             <li>
               <button
                 type="button"
-                class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-zinc-200 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-(--legio-focus) light:text-zinc-800 light:hover:bg-zinc-900/10"
+                class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-legio-fg transition-colors hover:bg-legio-fill-hover focus-visible:outline-2 focus-visible:outline-(--legio-focus)"
                 aria-label={t("Apri {0}", $language, [title])}
                 onclick={() => onOpen(dependency)}
               >
@@ -186,17 +186,17 @@
       <ModIcon source={info.icon} class="size-16 rounded-xl" />
       <div class="min-w-0 flex-1">
         <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <h2 class="max-w-full truncate text-base font-semibold text-zinc-50 light:text-zinc-900">{packageTitle(info.name)}</h2>
+          <h2 class="max-w-full truncate text-base font-semibold text-legio-fg">{packageTitle(info.name)}</h2>
           {#if info.isDeprecated}<Badge tone="warning" title={t("Deprecata", $language)} />{/if}
           {#if info.hasNsfwContent}<Badge tone="danger" title="NSFW" />{/if}
           {#each tags.shown as category (category)}<Badge title={category} />{/each}
           {#if tags.hidden.length > 0}<Badge title="+{tags.hidden.length}" />{/if}
         </div>
-        <p class="text-sm text-zinc-400 light:text-zinc-600">{t("di {0}", $language, [info.owner])}</p>
-        <ul class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums text-zinc-300 light:text-zinc-700">
+        <p class="text-sm text-legio-fg-muted">{t("di {0}", $language, [info.owner])}</p>
+        <ul class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums text-legio-fg">
           {#each stats as stat (stat.icon)}
             <li class="inline-flex items-center gap-1" title="{stat.label}: {stat.value}">
-              <Icon name={stat.icon} size="size-3.5 shrink-0 text-zinc-400 light:text-zinc-600" />
+              <Icon name={stat.icon} size="size-3.5 shrink-0 text-legio-fg-muted" />
               <span class="sr-only">{stat.label}</span>
               {stat.value}
             </li>
@@ -204,7 +204,7 @@
         </ul>
       </div>
     </div>
-    <p class="text-sm text-zinc-200 light:text-zinc-800">{version?.description ?? info.description}</p>
+    <p class="text-sm text-legio-fg">{version?.description ?? info.description}</p>
 
     <div class="flex flex-wrap gap-2">
       {#if websiteUrl !== null}
@@ -259,7 +259,7 @@
       />
       {#if view === "dependencies"}
         {#if version === null || version.dependencies.length === 0}
-          <p class="text-sm text-zinc-300 light:text-zinc-700">{t("Nessuna dipendenza.", $language)}</p>
+          <p class="text-sm text-legio-fg">{t("Nessuna dipendenza.", $language)}</p>
         {:else}
           <ul class="flex flex-col gap-0.5">
             {#each version.dependencies as dependency (dependency)}
@@ -267,7 +267,7 @@
               <li>
                 <button
                   type="button"
-                  class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-zinc-200 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-(--legio-focus) light:text-zinc-800 light:hover:bg-zinc-900/10"
+                  class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-legio-fg transition-colors hover:bg-legio-fill-hover focus-visible:outline-2 focus-visible:outline-(--legio-focus)"
                   aria-label={t("Apri {0}", $language, [displayPackageId(dependency)])}
                   onclick={() => onOpen(dependencyName)}
                 >
@@ -298,7 +298,7 @@
       {/if}
     </div>
   {:else if !loading && error === null && !minimal}
-    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Il pacchetto non è più nel catalogo. Aggiorna il catalogo e riprova.", $language)}</p>
+    <p class="text-sm text-legio-fg-muted">{t("Il pacchetto non è più nel catalogo. Aggiorna il catalogo e riprova.", $language)}</p>
   {/if}
 
   {#if error !== null}<ErrorBanner message={error} />{/if}

@@ -56,7 +56,7 @@
 
 <div class="flex flex-col gap-5">
   <SettingsGroup title={t("Sorgenti dei giochi", $language)} icon="globe">
-    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Aggiungi un catalogo HTTPS o un file JSON locale in formato Legio o Hydra.", $language)}</p>
+    <p class="text-sm text-legio-fg-muted">{t("Aggiungi un catalogo HTTPS o un file JSON locale in formato Legio o Hydra.", $language)}</p>
     <form class="flex flex-col gap-3" onsubmit={submit}>
       <TextField id="source-url" label={t("URL della sorgente", $language)} bind:value={url} placeholder="https://catalogo.example/games.json" disabled={$sourceBusy} />
       <div class="flex flex-wrap justify-end gap-3">
@@ -64,10 +64,10 @@
         <Button type="submit" label={t("Aggiungi sorgente", $language)} disabled={$sourceBusy || !url.trim()} />
       </div>
     </form>
-    <p class="text-xs text-zinc-500">{t("I file locali vengono riletti con Aggiorna sorgenti. Se il file non è disponibile, resta utilizzabile la cache.", $language)}</p>
+    <p class="text-xs text-legio-fg-subtle">{t("I file locali vengono riletti con Aggiorna sorgenti. Se il file non è disponibile, resta utilizzabile la cache.", $language)}</p>
     {#if $sourceBusy && progress}
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <p role="status" class="text-sm text-zinc-400">{t("Identificazione giochi", $language)}: {progress.processed}/{progress.total}</p>
+        <p role="status" class="text-sm text-legio-fg-muted">{t("Identificazione giochi", $language)}: {progress.processed}/{progress.total}</p>
         <Button label={t("Interrompi", $language)} variant="secondary" size="sm" disabled={stopping} onClick={() => { void stopIdentification(); }} />
       </div>
     {/if}
@@ -77,12 +77,12 @@
 
   <SettingsGroup title={t("Sorgenti installate", $language)} icon="library">
     {#if $source.data.sources.length === 0}
-      <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Nessuna sorgente installata.", $language)}</p>
+      <p class="text-sm text-legio-fg-muted">{t("Nessuna sorgente installata.", $language)}</p>
     {:else}
       <ul class="flex flex-col gap-3">
         {#each $source.data.sources as installed (installed.id)}
-          <li class="flex flex-col gap-3 rounded-lg bg-white/5 p-3 light:bg-zinc-900/5">
-            <p class="text-sm font-medium text-zinc-100 light:text-zinc-900">{installed.name ?? installed.url} {installed.format === "hydra" ? "(Hydra)" : ""} {installed.isLocal ? t("(file locale)", $language) : ""}</p>
+          <li class="flex flex-col gap-3 rounded-lg bg-legio-fill p-3">
+            <p class="text-sm font-medium text-legio-fg">{installed.name ?? installed.url} {installed.format === "hydra" ? "(Hydra)" : ""} {installed.isLocal ? t("(file locale)", $language) : ""}</p>
             {#if installed.diagnostics}
               {@const problems = [
                 ...(installed.diagnostics.unresolved > 0 ? [`${installed.diagnostics.unresolved} ${t("titoli non identificati", $language)}`] : []),
@@ -91,10 +91,10 @@
               {#if problems.length > 0}<Callout tone="warning" variant="inline" items={problems} />{/if}
               {#if installed.diagnostics.unsupported > 0}<Callout tone="info" variant="inline" message="{installed.diagnostics.unsupported} {t("link non supportati", $language)}" />{/if}
             {/if}
-            <p class="break-all text-sm text-zinc-100 light:text-zinc-900">{installed.url}</p>
+            <p class="break-all text-sm text-legio-fg">{installed.url}</p>
             <div class="flex flex-wrap items-center justify-between gap-3">
-              <p class="text-xs text-zinc-400 light:text-zinc-600">{installed.gameCount} {t("giochi", $language)} · {t(installed.stale ? "Cache da aggiornare" : "Aggiornata", $language)}</p>
-              <Button label={t("Rimuovi", $language)} variant="secondary" disabled={$sourceBusy} onClick={() => { void removeSource(installed.id); }} />
+              <p class="text-xs text-legio-fg-muted">{installed.gameCount} {t("giochi", $language)} · {t(installed.stale ? "Cache da aggiornare" : "Aggiornata", $language)}</p>
+              <Button label={t("Rimuovi", $language)} variant="danger-soft" disabled={$sourceBusy} onClick={() => { void removeSource(installed.id); }} />
             </div>
             {#if installed.warning}<ErrorBanner message={installed.warning} tone="warning" />{/if}
           </li>
@@ -107,6 +107,6 @@
     {#if $sourceRefreshError}<ErrorBanner message={$sourceRefreshError} />{/if}
     {#if $source.data.warning}<ErrorBanner message={$source.data.warning} tone="warning" />{/if}
   </SettingsGroup>
-  <p class="text-xs text-zinc-500">{t("Puoi aggiungere una sorgente anche aprendo un collegamento legio://add-source?url=... dopo il primo avvio di Legio.", $language)}</p>
+  <p class="text-xs text-legio-fg-subtle">{t("Puoi aggiungere una sorgente anche aprendo un collegamento legio://add-source?url=... dopo il primo avvio di Legio.", $language)}</p>
   {#if $sourceLinkRegistrationError}<ErrorBanner message={$sourceLinkRegistrationError} />{/if}
 </div>

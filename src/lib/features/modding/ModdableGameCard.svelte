@@ -61,7 +61,7 @@
         <Badge title={t("Da collegare", $language)} />
       {:else if profileCount > 0}
         <span
-          class="flex items-center gap-1 rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-100 light:bg-zinc-100/70 light:text-zinc-900"
+          class="flex items-center gap-1 rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium tabular-nums text-legio-fg light:bg-zinc-100/70"
           title={profileCount === 1 ? t("1 profilo mod", $language) : t("{0} profili mod", $language, [profileCount])}
         >
           <Icon name="mods" size="h-3.5 w-3.5" />
@@ -70,9 +70,9 @@
       {/if}
     </div>
     <div class="mt-auto bg-gradient-to-t from-zinc-950/85 via-zinc-950/55 to-transparent px-3 pt-10 pb-3 light:from-zinc-50/95 light:via-zinc-50/70">
-      <p class="truncate font-semibold text-zinc-50 light:text-zinc-900">{game.name}</p>
-      {#if location !== null}<p class="truncate text-xs text-zinc-400 light:text-zinc-600" title={location}>{location}</p>{/if}
-      <p class="truncate text-xs text-zinc-300 light:text-zinc-700">{summary}</p>
+      <p class="truncate font-semibold text-legio-fg">{game.name}</p>
+      {#if location !== null}<p class="truncate text-xs text-legio-fg-muted" title={location}>{location}</p>{/if}
+      <p class="truncate text-xs text-legio-fg">{summary}</p>
     </div>
   </button>
 </ArtworkTile>

@@ -45,18 +45,18 @@
 </script>
 
 <SettingsGroup icon="folder" title={t("Librerie dei giochi", $language)}>
-  <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Le librerie sono le cartelle in cui Legio installa i giochi; a ogni download scegli quella da usare. Aggiungendo una cartella, Legio crea al suo interno la sottocartella Legio. Se la cartella contiene già un catalogo library.ldf, i suoi giochi vengono importati.", $language)}</p>
+  <p class="text-sm text-legio-fg-muted">{t("Le librerie sono le cartelle in cui Legio installa i giochi; a ogni download scegli quella da usare. Aggiungendo una cartella, Legio crea al suo interno la sottocartella Legio. Se la cartella contiene già un catalogo library.ldf, i suoi giochi vengono importati.", $language)}</p>
   {#if $gameLibraries.error !== null}<ErrorBanner message={$gameLibraries.error} onRetry={() => void gameLibraries.reload()} />{/if}
   {#each $gameLibraries.data as library (library.id)}
-    <div class="flex flex-col gap-2 rounded-lg bg-white/5 p-3 light:bg-zinc-900/5">
+    <div class="flex flex-col gap-2 rounded-lg bg-legio-fill p-3">
       <div class="flex flex-wrap items-center gap-3">
-        <span class="shrink-0 text-zinc-400 light:text-zinc-600"><Icon name="folder" /></span>
+        <span class="shrink-0 text-legio-fg-muted"><Icon name="folder" /></span>
         <div class="flex min-w-0 flex-1 flex-col gap-0.5">
           <div class="flex min-w-0 items-center gap-2">
-            <p class="break-all text-sm text-zinc-200 light:text-zinc-800">{library.root}</p>
+            <p class="break-all text-sm text-legio-fg">{library.root}</p>
             {#if library.isDefault}<Badge title={t("Predefinita", $language)} />{/if}
           </div>
-          <p class="text-xs text-zinc-400 light:text-zinc-600">{formatLibraryDetails(library, $language)}</p>
+          <p class="text-xs text-legio-fg-muted">{formatLibraryDetails(library, $language)}</p>
         </div>
         {#if !library.isDefault}
           <Button label={t("Rimuovi...", $language)} variant="danger-soft" size="sm" disabled={pending} onClick={() => (removing = library)} />
@@ -64,7 +64,7 @@
       </div>
       {#if library.warning}
         <ErrorBanner message={library.warning} tone="warning" />
-        <p class="text-xs text-zinc-400 light:text-zinc-600">{t("La riparazione conserva una copia del catalogo e lo ricostruisce dai dati locali.", $language)}</p>
+        <p class="text-xs text-legio-fg-muted">{t("La riparazione conserva una copia del catalogo e lo ricostruisce dai dati locali.", $language)}</p>
         <div><Button label={t("Ripara catalogo", $language)} variant="secondary" disabled={pending} onClick={() => void repair(library)} /></div>
       {/if}
     </div>
@@ -86,11 +86,11 @@
     <ErrorBanner message={$hiddenSteamGames.error} onRetry={() => void hiddenSteamGames.reload()} />
   {/if}
   {#if $hiddenSteamGames.data.length === 0}
-    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Nessun gioco Steam nascosto.", $language)}</p>
+    <p class="text-sm text-legio-fg-muted">{t("Nessun gioco Steam nascosto.", $language)}</p>
   {:else}
     {#each $hiddenSteamGames.data as game (game.id)}
-      <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white/5 p-3 light:bg-zinc-900/5">
-        <span class="min-w-0 text-sm text-zinc-200 light:text-zinc-800">{game.name}</span>
+      <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-legio-fill p-3">
+        <span class="min-w-0 text-sm text-legio-fg">{game.name}</span>
         <Button label={t("Mostra nella libreria", $language)} variant="secondary" disabled={restoringId !== null} onClick={() => void restore(game.id)} />
       </div>
     {/each}

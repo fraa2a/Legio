@@ -36,7 +36,7 @@
   function chipClass(state: CategoryState): string {
     if (state === "included") return "bg-legio-accent text-legio-accent-text";
     if (state === "excluded") return "bg-legio-error/15 text-legio-error line-through";
-    return "bg-white/10 text-zinc-300 hover:bg-white/15 light:bg-zinc-900/10 light:text-zinc-700 light:hover:bg-zinc-900/15";
+    return "bg-legio-fill-hover text-legio-fg hover:bg-legio-fill-active";
   }
 </script>
 
@@ -49,8 +49,8 @@
       </div>
 
       <div class="flex flex-col gap-2">
-        <h3 class="text-sm font-medium text-zinc-100 light:text-zinc-900">{t("Categorie", $language)}</h3>
-        <p class="text-xs text-zinc-500">{t("Tocca una categoria per includerla, ancora per escluderla, una terza volta per rimuoverla.", $language)}</p>
+        <h3 class="text-sm font-medium text-legio-fg">{t("Categorie", $language)}</h3>
+        <p class="text-xs text-legio-fg-subtle">{t("Tocca una categoria per includerla, ancora per escluderla, una terza volta per rimuoverla.", $language)}</p>
         {#if filters.categories.length > 1}
           <SegmentedControl
             name="mod-category-mode"
@@ -61,7 +61,7 @@
           />
         {/if}
         {#if categories.length === 0}
-          <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Nessuna categoria disponibile.", $language)}</p>
+          <p class="text-sm text-legio-fg-muted">{t("Nessuna categoria disponibile.", $language)}</p>
         {:else}
           <ul class="flex max-h-72 flex-wrap gap-2 overflow-y-auto">
             {#each categories as category (category)}

@@ -28,5 +28,5 @@
 {/if}
 
 {#snippet namePill()}
-  <span class="w-fit min-w-0 max-w-full truncate rounded-lg bg-zinc-950/60 px-3 py-1.5 font-medium text-zinc-50 light:bg-zinc-100/70 light:text-zinc-900">{game.name}</span>
+  <span class="w-fit min-w-0 max-w-full truncate rounded-lg bg-zinc-950/60 px-3 py-1.5 font-medium text-legio-fg light:bg-zinc-100/70">{game.name}</span>
 {/snippet}

@@ -63,7 +63,7 @@
   {:else}
     {#each rows as row (row.kind)}
       <SettingsRow label="{row.title} · {formatBytes(row.bytes, $language)}" description={row.description}>
-        <Button label={t("Elimina", $language)} variant="secondary" size="sm" disabled={row.bytes === 0} onClick={() => ask(row)} />
+        <Button label={t("Elimina", $language)} variant="danger-soft" size="sm" disabled={row.bytes === 0} onClick={() => ask(row)} />
       </SettingsRow>
     {:else}
       {#each [0, 1, 2] as placeholder (placeholder)}<Skeleton class="h-10" />{/each}

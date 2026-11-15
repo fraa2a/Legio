@@ -113,7 +113,7 @@
       }}
     >
       {#if positions}
-        <span class="w-5 shrink-0 text-center text-xs font-medium tabular-nums text-zinc-500 light:text-zinc-400">
+        <span class="w-5 shrink-0 text-center text-xs font-medium tabular-nums text-legio-fg-subtle">
           {positionOffset + index + 1}
         </span>
       {/if}
@@ -122,10 +122,10 @@
 
       <div class="min-w-0 flex-1 basis-44">
         <div class="flex flex-wrap items-center gap-2">
-          <p class="min-w-0 truncate font-medium text-zinc-50 light:text-zinc-900">{job.name}</p>
+          <p class="min-w-0 truncate font-medium text-legio-fg">{job.name}</p>
           <Badge tone={statusTone(job.status)} title={statusBadge(job.status, $language)} />
         </div>
-        <p class="mt-0.5 truncate text-xs text-zinc-400 light:text-zinc-600">
+        <p class="mt-0.5 truncate text-xs text-legio-fg-muted">
           {t("Versione {0}", $language, [job.releaseVersion])} · {formatBytes(job.sizeBytes, $language)}{#if phase !== null} · {phase}{/if}
         </p>
         {#if job.downloadedBytes > 0}
