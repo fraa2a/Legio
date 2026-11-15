@@ -140,6 +140,7 @@ pub struct GameCompatibilityOverrides {
 /// Prefixes use the global root unless `prefix_path` names a game-specific path.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub struct EffectiveCompatibilityConfig {
     pub runner_path: Option<String>,
     pub prefix_root: Option<String>,
@@ -691,6 +692,7 @@ impl Database {
     }
 
     /// Resolves global defaults and per-game overrides in one database read.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn effective_compatibility_config(
         &self,
         game_id: &str,
@@ -1320,6 +1322,7 @@ fn load_game_compatibility_overrides(
     })
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn merge_compatibility_config(
     defaults: CompatibilityDefaults,
     overrides: GameCompatibilityOverrides,

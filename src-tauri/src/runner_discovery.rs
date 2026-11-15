@@ -16,6 +16,7 @@ use serde::Serialize;
 #[cfg(target_os = "linux")]
 use crate::steam_local;
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RunnerKind {
