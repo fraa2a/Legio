@@ -1,3 +1,4 @@
+pub(crate) mod backup;
 mod migrations;
 mod modding;
 mod sessions;
@@ -24,6 +25,7 @@ const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
 const SCHEMA_VERSION: i64 = 39;
+pub(crate) const DATABASE_FILE_NAME: &str = "legio.sqlite3";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -544,7 +546,7 @@ impl Database {
     pub(crate) fn open(data_dir: &Path) -> Result<Self, String> {
         fs::create_dir_all(data_dir)
             .map_err(|error| format!("could not create application data directory: {error}"))?;
-        let connection = Connection::open(data_dir.join("legio.sqlite3"))
+        let connection = Connection::open(data_dir.join(DATABASE_FILE_NAME))
             .map_err(|error| format!("could not open the local database: {error}"))?;
 
         connection
@@ -555,6 +557,7 @@ impl Database {
                  PRAGMA busy_timeout = 5000;",
             )
             .map_err(|error| format!("could not configure the local database: {error}"))?;
+        backup::backup_before_migration(&connection, data_dir)?;
         migrate(&connection)?;
         initialize_preferences(&connection)?;
         let downloads_changed = tokio::sync::watch::channel(()).0;
@@ -1620,6 +1623,31 @@ mod tests {
             .unwrap();
         assert!(stored);
         drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn failed_backup_blocks_the_pending_migration() {
+        let directory = temporary_directory();
+        let connection = Connection::open(directory.join(DATABASE_FILE_NAME)).unwrap();
+        migrate(&connection).unwrap();
+        connection
+            .execute_batch(
+                "ALTER TABLE downloads DROP COLUMN library_id;
+                 PRAGMA user_version = 34;",
+            )
+            .unwrap();
+        drop(connection);
+        // A file where the backup folder belongs makes the backup fail.
+        fs::write(backup::backup_directory(&directory), b"blocked").unwrap();
+        let error = Database::open(&directory).err().unwrap();
+        assert!(error.contains("backup"), "{error}");
+        let connection = Connection::open(directory.join(DATABASE_FILE_NAME)).unwrap();
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 34);
+        drop(connection);
         fs::remove_dir_all(directory).unwrap();
     }
 

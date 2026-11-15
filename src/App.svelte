@@ -9,6 +9,7 @@
   import { derived } from "svelte/store";
   import Sidebar from "./lib/components/layout/Sidebar.svelte";
   import OnboardingView from "./lib/features/onboarding/OnboardingView.svelte";
+  import DatabaseRecoveryView from "./lib/features/recovery/DatabaseRecoveryView.svelte";
   import ErrorBanner from "./lib/components/ui/ErrorBanner.svelte";
   import MainContainer from "./lib/components/layout/MainContainer.svelte";
   import TitleBar from "./lib/components/layout/TitleBar.svelte";
@@ -24,6 +25,7 @@
   import { paletteOpen } from "./lib/stores/command-palette";
   import { closeSettings, settingsOpen } from "./lib/stores/navigation";
   import { settings } from "./lib/stores/settings";
+  import { databaseFailure } from "./lib/stores/database-recovery";
   import { checkForAppUpdate, installAppUpdate, updateState } from "./lib/services/app-updater";
   import { windowVisible } from "./lib/stores/window-activity";
   import { hasRunningGame } from "./lib/stores/launch";
@@ -105,7 +107,9 @@
   {#if $settings.status === "ready" && $settings.data.onboardingCompleted}<Sidebar />{/if}
   <div class="flex min-h-0 min-w-0 flex-1 flex-col pl-2.5 pr-2.5 pb-1.5">
     <TitleBar />
-    {#if $settings.status === "error" || $appInfo.status === "error"}
+    {#if $databaseFailure.data !== null}
+      <DatabaseRecoveryView failure={$databaseFailure.data} />
+    {:else if $settings.status === "error" || $appInfo.status === "error"}
       <ErrorBanner message={$settings.error ?? $appInfo.error ?? t("Impossibile caricare la configurazione.", $language)} onRetry={() => void hydrateApp()} />
     {:else if $settings.status !== "ready" || $appInfo.status !== "ready"}
       <p class="p-6" role="status">{t("Caricamento...", $language)}</p>
