@@ -163,3 +163,33 @@ Transitions use `--legio-motion` and `--legio-ease` by default; zoom and layout 
 use `--legio-motion-slow`. Dialogs, toasts and menus take 200 ms. Reduced motion
 removes transitions. Visually hidden inputs, such as segmented options and theme
 tiles, draw the same focus outline on their visible control.
+
+## Accessibility
+
+Contrast targets, measured by `test:appearance` for every palette from the token values in
+`app.css` (color-mix tokens are resolved numerically):
+
+| Pair | Minimum |
+| --- | --- |
+| `fg`, `fg-muted` on background and surface | 4.5:1 (7:1 for high contrast) |
+| `fg-subtle` on background and surface | 4.5:1 |
+| `info`, `success`, `warning`, `error` on background, surface and their 10% tint (`Callout`, toasts) | 4.5:1 |
+| `accent-text` on `accent` | 4.5:1 |
+| White label on `download`, `play`, `launching`, `danger` and their hover colors | 4.5:1 |
+| Focus ring (`--legio-focus`) on background and surface | 3:1 |
+| `line-control` (border of `TextField` and `SelectField`) on background and surface | 3:1 |
+
+- `fg-subtle` is muted text dimmed 10% toward the ground it sits on, so it stays readable on
+  light palettes. It is real text (hints, placeholders), never decoration.
+- Lines and fills are decorative and have no target. A control whose only boundary is a line uses
+  `border-legio-line-control`.
+- Focus: every interactive element shows the global 2 px `--legio-focus` outline on keyboard
+  focus. Hide an input and draw the outline on its visible control (`peer-focus-visible`,
+  `has-focus-visible`); never remove it. The outline is suppressed only after a pointer press.
+- Semantics: icon-only buttons need `label`; toggles are `role="switch"`; segmented controls and
+  radio cards are native radio groups; no positive `tabindex`; decorative artwork has `alt=""`;
+  `<html lang>` follows the app language.
+- Automatic checks: `test:a11y` mounts the primitives in JSDOM (accessible names, dialog modal,
+  label, Escape and focus return, native radio and range semantics) and scans sources for positive
+  `tabindex` and images without `alt`. JSDOM cannot check real focus order, the top layer or
+  screen reader output; use the pass in [TESTING.md](TESTING.md).

@@ -175,7 +175,7 @@
       ? 'h-control-md rounded-control bg-transparent'
       : variant === 'toolbar'
         ? `h-control-md ${boxShape} ${open ? openSurface : 'legio-glass'}`
-        : `h-control-md ${boxShape} ${borderless ? '' : 'border border-legio-line-subtle hover:border-legio-line-strong'} ${open ? openSurface : 'bg-white/5 hover:bg-white/10 light:bg-white'}`}"
+        : `h-control-md ${boxShape} ${borderless ? '' : 'border border-legio-line-control hover:border-legio-fg-muted'} ${open ? openSurface : 'bg-white/5 hover:bg-white/10 light:bg-white'}`}"
   >
     <span class="truncate">{selectedLabel}</span>
     <span class="shrink-0 text-legio-fg-muted transition-transform motion-reduce:transition-none {expanded ? 'rotate-180' : ''}"><Icon name="chevron-down" /></span>
@@ -204,7 +204,7 @@
           aria-selected={option.value === value}
           tabindex={option.value === value ? 0 : -1}
           onclick={() => choose(option.value)}
-          class="flex w-full items-center justify-between gap-2 rounded-control px-3 py-2 text-left text-sm text-legio-fg outline-none hover:bg-legio-fill-hover focus-visible:bg-legio-fill-hover aria-selected:bg-legio-fill-hover aria-selected:text-legio-fg"
+          class="flex w-full items-center justify-between gap-2 rounded-control px-3 py-2 text-left text-sm text-legio-fg hover:bg-legio-fill-hover focus-visible:-outline-offset-2 focus-visible:bg-legio-fill-hover aria-selected:bg-legio-fill-hover aria-selected:text-legio-fg"
         >
           <span class="min-w-0 break-words">{option.label}</span>
           {#if option.value === value}<Icon name="check" class="shrink-0 text-legio-success" />{/if}

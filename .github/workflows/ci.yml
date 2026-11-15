@@ -138,7 +138,7 @@ jobs:
         run: corepack pnpm test:window
 
       - name: Test dialogs and notifications
-        run: corepack pnpm test:dialog && corepack pnpm test:feedback
+        run: corepack pnpm test:dialog && corepack pnpm test:a11y && corepack pnpm test:feedback
 
       - name: Test onboarding and persistent news
         run: corepack pnpm test:onboarding

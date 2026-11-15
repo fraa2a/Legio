@@ -19,6 +19,7 @@
     "test:artwork": "node --conditions=browser --test scripts/test_library_artwork.mjs",
     "test:appearance": "node --conditions=browser --test scripts/test_appearance.mjs scripts/test_game_accent.mjs",
     "test:window": "node --conditions=browser --test scripts/test_window_activity.mjs scripts/test_library_ui.mjs scripts/test_title_bar.mjs",
+    "test:a11y": "node --conditions=browser --test scripts/test_accessibility.mjs",
     "test:dialog": "node --conditions=browser --test scripts/test_dialog.mjs",
     "test:feedback": "node --conditions=browser --test scripts/test_feedback.mjs scripts/test_error_feedback.mjs scripts/test_game_identity.mjs scripts/test_game_library.mjs scripts/test_steam_video_loop.mjs scripts/test_gallery.mjs scripts/test_steam_trailer.mjs",
     "test:onboarding": "node --test scripts/test_onboarding_news.mjs",
