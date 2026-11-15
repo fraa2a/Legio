@@ -170,6 +170,21 @@ pub(crate) fn shortcut_ico(bytes: &[u8]) -> Result<Vec<u8>, String> {
     bounded_output(output.into_inner())
 }
 
+// Steam reads grid artwork for non-Steam shortcuts from PNG files.
+pub(crate) fn png_asset(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let format = format(bytes)?;
+    if format == ImageFormat::Png {
+        validate_image(bytes)?;
+        return bounded_output(bytes.to_vec());
+    }
+    let image = decode_image(bytes, format)?;
+    let mut output = Cursor::new(Vec::new());
+    image
+        .write_to(&mut output, ImageFormat::Png)
+        .map_err(|error| error.to_string())?;
+    bounded_output(output.into_inner())
+}
+
 pub(crate) fn hero_webp(bytes: &[u8], max_width: u32, blurred: bool) -> Result<Vec<u8>, String> {
     if max_width == 0 || max_width > 3840 {
         return Err("Invalid artwork display width".to_owned());

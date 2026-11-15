@@ -6,12 +6,19 @@
   import ToggleSetting from "../../components/ui/ToggleSetting.svelte";
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
   import Callout from "../../components/ui/Callout.svelte";
+  import Button from "../../components/ui/Button.svelte";
+  import SettingsRow from "../../components/ui/SettingsRow.svelte";
+  import SteamExportDialog from "../library/SteamExportDialog.svelte";
+  import { isSteamExportable } from "../library/steam-export";
+  import { games } from "../../stores/games";
   import { configureSteamScanInterval } from "../../stores/bootstrap";
   import { importSteamLibrary } from "../../stores/steam-library";
   import { defaultSettings, settings, settingsError, updateSettings } from "../../stores/settings";
   import { toMessage } from "../../utils/errors";
   let saving = $state(false);
   let saved = $state(false);
+  let exportOpen = $state(false);
+  const exportable = $derived($games.data.filter(isSteamExportable));
   const intervals = [5, 10, 15, 30, 60, 120];
   const options = $derived(intervals.map((minutes) => ({ value: String(minutes), label: t("{0} minuti", $language, [minutes]) })));
   async function selectInterval(value: string): Promise<void> {
@@ -69,4 +76,10 @@
       />
     </div><ResetSetting label={t("Ripristina intervallo di controllo", $language)} disabled={saving || $settings.data.steamLibraryPollMinutes === defaultSettings.steamLibraryPollMinutes} onClick={() => void selectInterval(String(defaultSettings.steamLibraryPollMinutes))} /></div>
   </SettingsGroup>
+  <SettingsGroup icon="gamepad" title={t("Collegamenti Steam", $language)}>
+    <SettingsRow label={t("Esporta in Steam", $language)} description={t("Aggiunge i giochi di Legio a Steam come giochi non Steam, per Steam Deck e Big Picture. Steam deve essere chiuso.", $language)}>
+      <Button label={t("Esporta in Steam", $language)} variant="secondary" disabled={exportable.length === 0} onClick={() => { exportOpen = true; }} />
+    </SettingsRow>
+  </SettingsGroup>
+{#if exportOpen}<SteamExportDialog games={exportable} onClose={() => { exportOpen = false; }} />{/if}
 {#if saved}<Callout tone="success" variant="inline" message={t("Impostazioni salvate.", $language)} />{/if}
