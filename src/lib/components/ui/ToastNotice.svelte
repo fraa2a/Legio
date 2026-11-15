@@ -5,19 +5,12 @@
   import { fly } from "svelte/transition";
   import { reducedMotion } from "../../utils/motion";
   import { t, language } from "../../i18n";
-  import type { ToastTone } from "../../stores/toast";
   import Button from "./Button.svelte";
-  import Icon, { type IconName } from "./Icon.svelte";
+  import Icon from "./Icon.svelte";
   import IconButton from "./IconButton.svelte";
   import CopyButton from "./CopyButton.svelte";
   import { failureReport, technicalDetail } from "../../utils/error-message";
-
-  const tones: Record<ToastTone, { icon: IconName; text: string; line: string }> = {
-    info: { icon: "info", text: "text-legio-info", line: "inset-ring-legio-info/25" },
-    success: { icon: "success", text: "text-legio-success", line: "inset-ring-legio-success/25" },
-    warning: { icon: "warning", text: "text-legio-warning", line: "inset-ring-legio-warning/25" },
-    error: { icon: "danger", text: "text-legio-error", line: "inset-ring-legio-error/25" },
-  };
+  import { noticeTones as tones } from "./notice-tones";
 
   let notice: HTMLDivElement | undefined = $state();
   let hideTimer: ReturnType<typeof setTimeout> | undefined;

@@ -1,11 +1,12 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import { get } from "svelte/store";
   import { t, language } from "../../i18n";
   import Dialog from "../../components/ui/Dialog.svelte";
   import Icon, { type IconName } from "../../components/ui/Icon.svelte";
   import TextField from "../../components/ui/TextField.svelte";
   import { appInfo } from "../../stores/app-info";
-  import { paletteOpen } from "../../stores/command-palette";
+  import { paletteOpen, paletteSeed } from "../../stores/command-palette";
   import { diskUsageDialogOpen } from "../../stores/disk-usage";
   import { shortcutsOpen } from "../../stores/shortcuts";
   import { games } from "../../stores/games";
@@ -19,7 +20,8 @@
   const listId = $props.id();
   const sectionIcons: Record<Section, IconName> = { home: "home", library: "library", store: "store", mods: "mods", downloads: "downloads" };
 
-  let query = $state("");
+  let query = $state(get(paletteSeed));
+  paletteSeed.set("");
   let active = $state(0);
   let input = $state<HTMLInputElement | HTMLTextAreaElement>();
 

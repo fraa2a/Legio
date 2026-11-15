@@ -30,6 +30,7 @@
   import { paletteOpen } from "./lib/stores/command-palette";
   import { diskUsageDialogOpen } from "./lib/stores/disk-usage";
   import { shortcutsOpen } from "./lib/stores/shortcuts";
+  import { startNotificationEvents } from "./lib/stores/notification-events";
   import { handleShortcutKey } from "./lib/features/shortcuts/shortcut-actions";
   import ShortcutsDialog from "./lib/features/shortcuts/ShortcutsDialog.svelte";
   import { closeSettings, settingsOpen } from "./lib/stores/navigation";
@@ -67,6 +68,7 @@
     const stopArtworkSelection = startArtworkSelectionTracking();
     const stopArtworkDisplays = startArtworkDisplayTracking();
     const stopMedia = observeMediaPlayback(mediaActive.subscribe);
+    const stopNotificationEvents = startNotificationEvents();
     void hydrateApp().then(() => {
       logApplicationEvent("info", "renderer_ready", "Application resources loaded");
     }).catch(reason => {
@@ -91,6 +93,7 @@
       stopArtworkDisplays();
       stopMedia();
       stopUpdateChecks();
+      stopNotificationEvents();
       media.removeEventListener("change", updateSystemTheme);
     };
   });

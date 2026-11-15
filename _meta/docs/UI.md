@@ -96,6 +96,31 @@ A nested radius is the outer radius minus the padding, as in `SegmentedControl`
   `type="textarea"` for code), `SelectField`, `SegmentedControl`, `RadioCard`, `Slider`
   and `Toggle` instead of raw inputs. Clickable tiles and the video player surface stay raw.
 
+## Title bar
+
+`TitleBar.svelte` is a context bar of `md` glass groups, left to right:
+
+- **Path**: the current page, after a back crumb when there is one (`Libreria / Game`,
+  `Store / Game`, `Mod / Game`, `Game / Mod`). `titleBarPath` in `title-bar-model.ts` derives it
+  from the navigation stores. The back crumb and Escape run the same back navigation. Names
+  truncate with a `title`. Page controls from `showTitleBarContent` follow the path (`start`).
+- **Search**: in the library and store lists, the `#title-bar-search` field filters the list.
+  Elsewhere a search-styled button opens the command palette; a key typed on it starts the
+  palette query. Ctrl+F focuses the filter or opens the palette.
+- **Status**: page `end` controls, the download status (count, progress and speed while
+  downloads run; it opens Downloads), the notification bell, then the window controls.
+
+Every non-interactive wrapper carries `data-tauri-drag-region`, since only those elements drag
+the window. When space runs out the search narrows first and keeps only its icon under 12rem,
+then the path truncates; the right side never shrinks. Below a 72rem bar the download status
+shows only its icon and count.
+
+The bell box turns into the tab of its panel, which grows from it as one surface like a
+`SelectField` list. The panel lists the session history of `stores/notifications.ts`: every
+toast plus background outcomes (download finished or failed, update available, source refresh
+failure), at most 100 entries in memory. Opening it marks them read; a retry runs once and is
+dropped when it no longer applies.
+
 ## Typography
 
 | Style | Classes | Use |
