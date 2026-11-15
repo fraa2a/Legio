@@ -36,3 +36,13 @@ New-Item -ItemType Directory -Force "$env:USERPROFILE\Desktop\LegioDumps"
 Start Legio and reproduce. **Share dumps privately:** they contain process memory. Debug symbols must match the exact executable build.
 
 </details>
+
+## Database does not open
+
+If the local database cannot be opened or updated, Legio shows a recovery screen instead of the library. It shows the error (select it or use **Copy** to include it in a report) and offers:
+
+- **Open data folder** to inspect `legio.sqlite3` and the `database-backups` folder.
+- **Restore backup** to replace the database with one of the copies Legio makes before each schema update.
+- **Use a new database** to start with an empty library.
+
+Restoring and resetting never delete the current database: it is renamed to `legio-broken-<timestamp>.sqlite3` in the data folder, together with its `-wal` and `-shm` files. Legio then restarts.

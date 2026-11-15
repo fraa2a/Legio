@@ -56,7 +56,7 @@
   >
     <ToggleSetting label={t("Sync Steam games", $language)} checked={$settings.data.syncSteamGames}
       defaultValue={defaultSettings.syncSteamGames} disabled={saving} onChange={(checked) => void updateSync(checked)} />
-    <p class="text-xs text-zinc-400 light:text-zinc-600">{t("Quando è disattivato, Legio non controlla i giochi Steam all'avvio o periodicamente. I giochi già importati restano nella libreria.", $language)}</p>
+    <p class="text-xs text-legio-fg-muted">{t("Quando è disattivato, Legio non controlla i giochi Steam all'avvio o periodicamente. I giochi già importati restano nella libreria.", $language)}</p>
     <div class="flex max-w-64 items-end gap-2"><div class="min-w-0 flex-1">
       <SelectField
         id="steam-library-poll-interval"

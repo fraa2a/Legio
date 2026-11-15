@@ -1077,5 +1077,20 @@
   "Impossibile attivare lo schermo intero.": "Could not enter fullscreen.",
   "Caricamento del trailer...": "Loading trailer...",
   "Indietro di 10 secondi": "Back 10 seconds",
-  "Avanti di 10 secondi": "Forward 10 seconds"
+  "Avanti di 10 secondi": "Forward 10 seconds",
+  "Impossibile aprire il database locale": "Could not open the local database",
+  "Legio non riesce ad aprire o aggiornare il database della libreria. Nessun file è stato eliminato.": "Legio cannot open or update the library database. No files were deleted.",
+  "Apri cartella dati": "Open data folder",
+  "Ripristina un backup": "Restore a backup",
+  "Legio salva una copia del database prima di ogni aggiornamento. Il database attuale viene conservato con un nuovo nome e Legio si riavvia.": "Legio saves a copy of the database before every update. The current database is kept under a new name and Legio restarts.",
+  "Nessun backup disponibile.": "No backups available.",
+  "Backup": "Backup",
+  "{0} - schema {1}": "{0} - schema {1}",
+  "Ripristina backup": "Restore backup",
+  "Ricomincia con un database nuovo": "Start with a new database",
+  "La libreria riparte vuota. Il database attuale viene conservato con un nuovo nome nella cartella dati.": "The library starts empty. The current database is kept under a new name in the data folder.",
+  "Riavvio...": "Restarting...",
+  "Usa un database nuovo": "Use a new database",
+  "Ricominciare con un database nuovo?": "Start with a new database?",
+  "Legio si riavvierà con una libreria vuota. Il database attuale non viene eliminato e potrai recuperarlo dalla cartella dati.": "Legio will restart with an empty library. The current database is not deleted and you can recover it from the data folder."
 }
