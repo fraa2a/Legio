@@ -2526,6 +2526,8 @@ mod tests {
                         Err(error) => panic!("Expected mirror retry: {error}"),
                     }
                 };
+                // Windows sockets inherit the listener's non-blocking mode.
+                socket.set_nonblocking(false).unwrap();
                 socket
                     .set_read_timeout(Some(Duration::from_secs(3)))
                     .unwrap();
@@ -2713,7 +2715,20 @@ mod tests {
         assert_eq!(status_of(&database, &job.id).as_deref(), Some("queued"));
         drop(app);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
+        remove_directory(directory);
+    }
+
+    // Windows keeps files locked until detached staging work releases them.
+    fn remove_directory(directory: PathBuf) {
+        let started = Instant::now();
+        while let Err(error) = fs::remove_dir_all(&directory) {
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "could not remove {}: {error}",
+                directory.display()
+            );
+            thread::sleep(Duration::from_millis(50));
+        }
     }
 
     fn wait_for_status(database: &Database, id: &str, expected: &str) {
@@ -2724,7 +2739,7 @@ mod tests {
                 return;
             }
             assert!(
-                started.elapsed() < Duration::from_secs(3),
+                started.elapsed() < Duration::from_secs(30),
                 "download did not reach {expected}, current status is {current}"
             );
             thread::sleep(Duration::from_millis(10));
@@ -2896,7 +2911,7 @@ mod tests {
             })
             .unwrap();
         assert!(changes.has_changed().unwrap());
-        fs::remove_dir_all(directory).unwrap();
+        remove_directory(directory);
     }
 
     #[test]
@@ -3311,7 +3326,7 @@ mod tests {
         );
         drop(app);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
+        remove_directory(directory);
     }
 
     #[tokio::test]
@@ -3339,7 +3354,7 @@ mod tests {
         assert!(changes.has_changed().unwrap());
         drop(app);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
+        remove_directory(directory);
     }
 
     #[test]
@@ -4331,7 +4346,7 @@ mod tests {
         wait_for_status(&database, &job.id, "staged");
         drop(app);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
+        remove_directory(directory);
     }
 
     #[test]

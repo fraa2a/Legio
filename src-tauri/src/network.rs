@@ -676,6 +676,11 @@ mod tests {
         );
         release.send(()).unwrap();
         server.join().unwrap();
+        // Windows retries a refused loopback connection for about two seconds.
+        state.client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .unwrap();
         assert!(matches!(
             tauri::async_runtime::block_on(state.post_catalog(&url, b"{}".to_vec())),
             Err(NetworkError::Transport { .. })
