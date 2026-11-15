@@ -89,6 +89,13 @@ using numeric suffixes for collisions. A legacy UUID folder uses the readable
 game name instead. An active launcher session or externally detected game blocks
 transfer preparation, publication and source cleanup.
 
+A same-volume transfer renames the folder. A copy transfer keeps symbolic links
+as links with the same target and never copies or walks through them. On Unix it
+accepts only relative links whose target, resolved through the folder's own links
+without following them outside it, stays inside the game folder; dangling links
+that meet this rule are kept. Absolute or escaping links stop the copy before any
+file is written, and other platforms refuse every link.
+
 `archiveLayout` records `legacy` or `direct` explicitly. Transferring or renaming a
 legacy installation does not change how future update archives are overlaid.
 Filesystem/database journals remain necessary because copying games and updating
