@@ -823,6 +823,7 @@ fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
                     None
                 };
             let game_id = finalize_install::automatic(database, &root, &job_id)?;
+            crate::disk_usage::invalidate(&worker, &game_id);
             crate::game_library::sync_storage(database, &root)?;
             finalize_install::create_install_shortcut(&worker, database, &game_id)?;
             match completion_notification(database, &job_id) {
@@ -2026,11 +2027,10 @@ pub async fn retry_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result
                 .path()
                 .app_data_dir()
                 .map_err(|error| format!("Could not locate app data: {error}"))?;
-            return crate::finalize_install::retry(
-                database,
-                &database.storage_root(&data_dir)?,
-                &id,
-            );
+            let result =
+                crate::finalize_install::retry(database, &database.storage_root(&data_dir)?, &id);
+            crate::disk_usage::invalidate(&app, &id);
+            return result;
         }
         change_status(
             database,

@@ -28,12 +28,14 @@ mod database_recovery;
 mod desktop_shortcuts;
 mod diagnostics;
 mod discord_presence;
+mod disk_usage;
 mod download_policy;
 mod download_queue;
 mod download_resolver;
 mod download_selection;
 mod filesystem_copy;
 mod finalize_install;
+mod folder_size;
 mod game_artwork;
 mod game_library;
 mod game_lifecycle;
@@ -345,6 +347,7 @@ fn run_application(
             });
             app.manage(assets.scheduler.clone());
             app.manage(assets);
+            app.manage(disk_usage::DiskUsageState::new(app.path().app_cache_dir()));
             app.manage(steam_details::DetailsFetchState::default());
             app.manage(game_artwork::GameArtworkStore::new(
                 app.path().app_data_dir().map_err(|error| error.to_string()),
@@ -565,6 +568,11 @@ fn run_application(
             database_recovery::open_data_folder,
             database_recovery::restore_database_backup,
             database_recovery::reset_local_database,
+            installed_folder::open_game_folder,
+            disk_usage::get_disk_usage,
+            disk_usage::refresh_disk_usage,
+            disk_usage::cancel_disk_usage,
+            disk_usage::get_library_usage,
             installed_folder::get_installed_folder_info,
             commands::refresh_legio_source,
             commands::check_steam_connectivity,

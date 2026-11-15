@@ -19,11 +19,13 @@
   import Button from "./lib/components/ui/Button.svelte";
   import CloseButton from "./lib/components/ui/CloseButton.svelte";
   import Icon from "./lib/components/ui/Icon.svelte";
+  import DiskUsageDialog from "./lib/features/settings/DiskUsageDialog.svelte";
   import AccountSwitchDialog from "./lib/features/library/AccountSwitchDialog.svelte";
   import ModLinkDialog from "./lib/features/modding/ModLinkDialog.svelte";
   import SourceLinkDialog from "./lib/features/settings/SourceLinkDialog.svelte";
   import { checkForAppUpdateWhenEnabled, hydrateApp } from "./lib/stores/bootstrap";
   import { paletteOpen } from "./lib/stores/command-palette";
+  import { diskUsageDialogOpen } from "./lib/stores/disk-usage";
   import { closeSettings, settingsOpen } from "./lib/stores/navigation";
   import { settings } from "./lib/stores/settings";
   import { databaseFailure } from "./lib/stores/database-recovery";
@@ -128,6 +130,10 @@
 
 {#if $paletteOpen}
   <CommandPalette />
+{/if}
+
+{#if $diskUsageDialogOpen}
+  <DiskUsageDialog onClose={() => diskUsageDialogOpen.set(false)} />
 {/if}
 
 <AccountSwitchDialog />

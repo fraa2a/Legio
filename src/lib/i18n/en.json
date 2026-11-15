@@ -1141,5 +1141,21 @@
   "Riavvio...": "Restarting...",
   "Usa un database nuovo": "Use a new database",
   "Ricominciare con un database nuovo?": "Start with a new database?",
-  "Legio si riavvierà con una libreria vuota. Il database attuale non viene eliminato e potrai recuperarlo dalla cartella dati.": "Legio will restart with an empty library. The current database is not deleted and you can recover it from the data folder."
+  "Legio si riavvierà con una libreria vuota. Il database attuale non viene eliminato e potrai recuperarlo dalla cartella dati.": "Legio will restart with an empty library. The current database is not deleted and you can recover it from the data folder.",
+  "Cosa occupa spazio": "What is using space",
+  "Calcolo delle dimensioni in corso...": "Calculating sizes...",
+  "Spazio occupato dai giochi installati: {0}.": "Space used by installed games: {0}.",
+  "Nessun gioco installato": "No games installed",
+  "Quando installi un gioco, qui vedrai quanto spazio occupa.": "When you install a game, you will see how much space it takes here.",
+  "Giochi per dimensione": "Games by size",
+  "Parziale": "Partial",
+  "Non calcolata": "Not calculated",
+  "Esterna": "External",
+  "Giochi Legio {0}, altro {1}, liberi {2}": "Legio games {0}, other {1}, free {2}",
+  "Giochi Legio: {0}": "Legio games: {0}",
+  "stima": "estimate",
+  "Altro: {0}": "Other: {0}",
+  "Liberi: {0}": "Free: {0}",
+  "Spazio su disco: {0}": "Disk space: {0}",
+  "parziale": "partial"
 }

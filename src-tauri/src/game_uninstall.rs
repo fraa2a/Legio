@@ -366,6 +366,7 @@ pub async fn uninstall_game(
         if let Err(error) = crate::game_library::sync_default(&app) {
             warnings.push(error);
         }
+        crate::disk_usage::invalidate(&app, &id);
         Ok(UninstallResult { warnings })
     })
     .await
