@@ -440,6 +440,46 @@ pub async fn get_playtime_activity(
 }
 
 #[tauri::command]
+pub async fn get_playtime_recap(
+    app: AppHandle,
+    year: i32,
+    month: Option<u32>,
+    day_boundaries: Vec<i64>,
+) -> Result<crate::playtime_recap::PlaytimeRecap, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatabaseState>();
+        crate::playtime_recap::playtime_recap(
+            state.database()?,
+            year,
+            month,
+            &day_boundaries,
+            database::now_milliseconds()?,
+        )
+    })
+    .await
+    .map_err(|error| format!("could not load the playtime recap: {error}"))?
+}
+
+#[tauri::command]
+pub async fn get_playtime_recap_years(app: AppHandle) -> Result<Vec<i32>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatabaseState>();
+        crate::playtime_recap::playtime_years(state.database()?, database::now_milliseconds()?)
+    })
+    .await
+    .map_err(|error| format!("could not load the playtime years: {error}"))?
+}
+
+#[tauri::command]
+pub async fn save_playtime_recap_image(path: String, png_base64: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::playtime_recap::write_recap_image(std::path::Path::new(&path), &png_base64)
+    })
+    .await
+    .map_err(|error| format!("could not save the recap image: {error}"))?
+}
+
+#[tauri::command]
 pub async fn create_game(
     state: State<'_, DatabaseState>,
     input: CreateGameInput,

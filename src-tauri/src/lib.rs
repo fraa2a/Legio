@@ -69,6 +69,7 @@ mod one_fichier;
 mod online_fix;
 mod overlay_update;
 mod playtime_activity;
+mod playtime_recap;
 #[cfg(target_os = "linux")]
 mod process_output;
 #[cfg(target_os = "linux")]
@@ -503,6 +504,9 @@ fn run_application(
             commands::remove_game_library,
             commands::repair_game_library,
             commands::get_playtime_activity,
+            commands::get_playtime_recap,
+            commands::get_playtime_recap_years,
+            commands::save_playtime_recap_image,
             commands::create_game,
             commands::create_game_shortcut,
             game_transfer::transfer_game,

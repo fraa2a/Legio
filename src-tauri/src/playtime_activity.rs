@@ -1,11 +1,11 @@
 use crate::database::Database;
 
-pub(crate) fn daily_playtime(
-    database: &Database,
+/// Checks that `day_boundaries` are ordered local midnights of at most `max_days` days.
+pub(crate) fn validate_day_boundaries(
     day_boundaries: &[i64],
-    now: i64,
-) -> Result<Vec<i64>, String> {
-    if !(2..=32).contains(&day_boundaries.len())
+    max_days: usize,
+) -> Result<(), String> {
+    if !(2..=max_days + 1).contains(&day_boundaries.len())
         || day_boundaries
             .iter()
             .any(|boundary| !(0..=253_402_300_799_999).contains(boundary))
@@ -13,8 +13,37 @@ pub(crate) fn daily_playtime(
             .windows(2)
             .any(|day| !(20 * 3_600_000..=28 * 3_600_000).contains(&(day[1] - day[0])))
     {
-        return Err("expected up to 31 ordered local-day intervals".to_owned());
+        return Err(format!(
+            "expected up to {max_days} ordered local-day intervals"
+        ));
     }
+    Ok(())
+}
+
+/// Splits `start..end` at the day boundaries into `(day index, milliseconds)` parts.
+pub(crate) fn day_overlaps(
+    day_boundaries: &[i64],
+    start: i64,
+    end: i64,
+) -> impl Iterator<Item = (usize, i64)> + '_ {
+    let first = day_boundaries
+        .partition_point(|boundary| *boundary <= start)
+        .saturating_sub(1);
+    (first..day_boundaries.len() - 1)
+        .take_while(move |index| day_boundaries[*index] < end)
+        .map(move |index| {
+            let overlap =
+                (end.min(day_boundaries[index + 1]) - start.max(day_boundaries[index])).max(0);
+            (index, overlap)
+        })
+}
+
+pub(crate) fn daily_playtime(
+    database: &Database,
+    day_boundaries: &[i64],
+    now: i64,
+) -> Result<Vec<i64>, String> {
+    validate_day_boundaries(day_boundaries, 31)?;
 
     database.with_connection(|connection| {
         let mut statement = connection
@@ -38,15 +67,7 @@ pub(crate) fn daily_playtime(
         for row in rows {
             let (start, end) =
                 row.map_err(|error| format!("could not read playtime activity: {error}"))?;
-            let first = day_boundaries
-                .partition_point(|boundary| *boundary <= start)
-                .saturating_sub(1);
-            for index in first..totals.len() {
-                if day_boundaries[index] >= end {
-                    break;
-                }
-                let overlap =
-                    (end.min(day_boundaries[index + 1]) - start.max(day_boundaries[index])).max(0);
+            for (index, overlap) in day_overlaps(day_boundaries, start, end) {
                 totals[index] = totals[index]
                     .checked_add(overlap)
                     .ok_or("Playtime activity exceeded the supported range")?;

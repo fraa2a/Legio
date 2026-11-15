@@ -18,6 +18,7 @@ Legio is a desktop game launcher for Windows and Linux. Import games from Steam 
 - **Quick navigation.** Press Ctrl+K to jump to a game, a page or a settings category.
 - **Hyprland transparency.** Enable a transparent Legio window on Hyprland and adjust the surface opacity. Background blur is controlled by your Hyprland rules.
 - **Playtime at a glance.** See recently played games, tracked playtime, and a calendar of your activity.
+- **Play recap.** Look back on a year or a month with total time, top games, longest day and streak, and charts by weekday and month, then save it as an image card to share.
 
 ## Online Fix
 
