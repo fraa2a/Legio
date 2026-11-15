@@ -3,7 +3,10 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_notification::NotificationExt;
 
 use crate::{
-    database::{self, CreateGameInput, DatabaseState, Game, Settings, UpdateGameInput},
+    database::{
+        self, CreateGameInput, DatabaseState, Game, LibraryOrganization, PlayStatus, Settings,
+        UpdateGameInput,
+    },
     diagnostics::{Diagnostics, LogStatus},
     legio_source_cache, link_check, manual_import,
     network::{ConnectivityCheck, NetworkState, NetworkStatus},
@@ -275,6 +278,112 @@ pub async fn set_game_hidden(
     tauri::async_runtime::spawn_blocking(move || database.set_game_hidden(&id, hidden))
         .await
         .map_err(|error| format!("Game visibility task failed: {error}"))?
+}
+
+async fn organize_library(
+    state: State<'_, DatabaseState>,
+    context: &'static str,
+    operation: impl FnOnce(&database::Database) -> Result<LibraryOrganization, String> + Send + 'static,
+) -> Result<LibraryOrganization, String> {
+    let database = state.shared_database()?;
+    let result = tauri::async_runtime::spawn_blocking(move || operation(&database))
+        .await
+        .unwrap_or_else(|error| Err(format!("Library organization task failed: {error}")));
+    if let Err(error) = &result {
+        crate::application_log::failure(context, error);
+    }
+    result
+}
+
+#[tauri::command]
+pub async fn get_library_organization(
+    state: State<'_, DatabaseState>,
+) -> Result<LibraryOrganization, String> {
+    organize_library(state, "library_organization_load", |database| {
+        database.library_organization()
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn set_games_favorite(
+    state: State<'_, DatabaseState>,
+    game_ids: Vec<String>,
+    favorite: bool,
+) -> Result<LibraryOrganization, String> {
+    organize_library(state, "library_favorite", move |database| {
+        database.set_games_favorite(&game_ids, favorite)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn set_games_play_status(
+    state: State<'_, DatabaseState>,
+    game_ids: Vec<String>,
+    status: PlayStatus,
+) -> Result<LibraryOrganization, String> {
+    organize_library(state, "library_play_status", move |database| {
+        database.set_games_play_status(&game_ids, status)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn set_games_collections(
+    state: State<'_, DatabaseState>,
+    game_ids: Vec<String>,
+    collection_ids: Vec<String>,
+) -> Result<LibraryOrganization, String> {
+    organize_library(state, "library_collection_membership", move |database| {
+        database.set_games_collections(&game_ids, &collection_ids)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn create_collection(
+    state: State<'_, DatabaseState>,
+    name: String,
+) -> Result<LibraryOrganization, String> {
+    organize_library(state, "library_collection_create", move |database| {
+        database.create_collection(&name)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn rename_collection(
+    state: State<'_, DatabaseState>,
+    id: String,
+    name: String,
+) -> Result<LibraryOrganization, String> {
+    organize_library(state, "library_collection_rename", move |database| {
+        database.rename_collection(&id, &name)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn delete_collection(
+    state: State<'_, DatabaseState>,
+    id: String,
+) -> Result<LibraryOrganization, String> {
+    organize_library(state, "library_collection_delete", move |database| {
+        database.delete_collection(&id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn reorder_collections(
+    state: State<'_, DatabaseState>,
+    ids: Vec<String>,
+) -> Result<LibraryOrganization, String> {
+    organize_library(state, "library_collection_reorder", move |database| {
+        database.reorder_collections(&ids)
+    })
+    .await
 }
 
 #[tauri::command]
