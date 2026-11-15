@@ -2,6 +2,8 @@
 
 Increasing the version in `src-tauri/Cargo.toml` on `main` triggers a release after CI passes. CI calls the release workflow once; no second full CI run or redundant smoke build is started. The pipeline builds and signs Ubuntu (`.deb`), Fedora (`.rpm`), Linux (`.AppImage`), and Windows (`.exe`) packages, then publishes their `.sig` files, `SHA256SUMS.txt`, and `latest.json` in the GitHub Release. Preliminary versions are published as prereleases and do not replace the stable `releases/latest` channel.
 
+Only the latest released version receives fixes; see the [supported versions](../../SECURITY.md#supported-versions) policy.
+
 Legio checks for updates at startup and from Settings. The manifest distinguishes the installed package format. Tauri verifies the signature before installation. On Ubuntu and Fedora, package installation may require administrator authorization. On Windows, the NSIS installer is launched. Legio restarts after installation.
 
 The Arch package `legio-launcher-bin` uses the AppImage published on GitHub. The pipeline updates the PKGBUILD and `.SRCINFO` on AUR for every stable release. AUR users update through their package manager; Legio displays the new version without overwriting files managed by pacman.
