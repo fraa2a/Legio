@@ -14,7 +14,7 @@
     "scheme": "light",
     "palette": {
       "background": "#e4e4e7", "surface": "#fafafa", "raised": "#ffffff",
-      "text": "#18181b", "muted": "#71717a", "accent": "#18181b"
+      "text": "#18181b", "muted": "#52525b", "accent": "#18181b"
     }
   },
   {
@@ -63,7 +63,7 @@
     "scheme": "light",
     "palette": {
       "background": "#ede8df", "surface": "#f7f3ec", "raised": "#fffdf8",
-      "text": "#1d1a16", "muted": "#6b6257", "accent": "#8a4f0f"
+      "text": "#1d1a16", "muted": "#57524c", "accent": "#8a4f0f"
     },
     "tint": { "hue": 80, "chroma": 0.012 }
   }

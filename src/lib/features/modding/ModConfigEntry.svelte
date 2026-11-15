@@ -23,13 +23,13 @@
   const range = $derived(rangeHint(entry, $language));
 </script>
 
-<div class="flex flex-col gap-2 rounded-lg bg-white/5 p-3 [contain-intrinsic-size:auto_6rem] [content-visibility:auto] light:bg-zinc-900/5">
+<div class="flex flex-col gap-2 rounded-lg bg-legio-fill p-3 [contain-intrinsic-size:auto_6rem] [content-visibility:auto]">
   <div class="flex items-center justify-between gap-3">
     <div class="min-w-0 flex-1">
       {#if control === "boolean"}
         <Toggle label={entry.key} checked={value.trim().toLowerCase() === "true"} onChange={(checked) => onChange(formatBoolean(checked))} />
       {:else}
-        <p class="flex items-center gap-2 text-sm font-medium break-words text-zinc-100 light:text-zinc-900">
+        <p class="flex items-center gap-2 text-sm font-medium break-words text-legio-fg">
           {entry.key}
           {#if changed}<span class="size-1.5 shrink-0 rounded-full bg-legio-info" title={t("Modificato", $language)}></span>{/if}
         </p>
@@ -47,7 +47,7 @@
     </div>
   </div>
   {#if entry.description}
-    <p class="text-xs whitespace-pre-line text-zinc-400 light:text-zinc-600">{entry.description}</p>
+    <p class="text-xs whitespace-pre-line text-legio-fg-muted">{entry.description}</p>
   {/if}
   {#if control === "choice"}
     <SelectField {id} label={entry.key} labelHidden value={value} options={choiceOptions(entry, value)} onChange={onChange} />
@@ -57,7 +57,7 @@
     <TextField {id} label={entry.key} labelHidden {value} {error} oninput={onChange} />
   {/if}
   {#if entry.defaultValue !== null || range}
-    <p class="text-xs text-zinc-500">
+    <p class="text-xs text-legio-fg-subtle">
       {#if entry.defaultValue !== null}{t("Predefinito: {0}", $language, [entry.defaultValue === "" ? t("(vuoto)", $language) : entry.defaultValue])}{/if}
       {#if entry.defaultValue !== null && range}&middot;{/if}
       {#if range}{range}{/if}

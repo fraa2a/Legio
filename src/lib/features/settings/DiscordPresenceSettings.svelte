@@ -27,6 +27,6 @@
     checked={$settings.data.discordPresence.enabled}
     disabled={saving || $settings.status !== "ready"}
     onChange={(enabled) => void save(enabled)} />
-  <p class="text-xs text-zinc-500">{t("Condivide il nome del gioco e il tempo della sessione. Richiede Discord desktop aperto e la condivisione dell'attività abilitata su Discord.", $language)}</p>
+  <p class="text-xs text-legio-fg-subtle">{t("Condivide il nome del gioco e il tempo della sessione. Richiede Discord desktop aperto e la condivisione dell'attività abilitata su Discord.", $language)}</p>
   {#if error}<ErrorBanner message={error} />{/if}
 </SettingsGroup>

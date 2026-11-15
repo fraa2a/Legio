@@ -18,6 +18,7 @@ import { showToast } from "./toast";
 import { t } from "../i18n";
 import { loadNews } from "./news";
 import { checkForAppUpdate } from "../services/app-updater";
+import { databaseFailure } from "./database-recovery";
 
 let steamScanTimer: ReturnType<typeof setInterval> | null = null;
 let startupWarningsShown = false;
@@ -52,6 +53,12 @@ export async function checkForAppUpdateWhenEnabled(): Promise<void> {
 }
 
 export async function hydrateApp(): Promise<void> {
+  await databaseFailure.load();
+  // Without a database nothing else can load; the recovery screen takes over.
+  if (get(databaseFailure).data !== null) {
+    await appInfo.load();
+    return;
+  }
   await startLaunchEvents();
   if (get(settings).status !== "ready") await settings.load();
   await appInfo.load();

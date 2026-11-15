@@ -110,7 +110,7 @@
             onChange={(value) => void change(value)}
           />
         {/key}
-        <p class="text-sm text-zinc-400 light:text-zinc-600">
+        <p class="text-sm text-legio-fg-muted">
           {#if profile === null}
             {t("Il gioco si avvia senza mod.", $language)}
           {:else if modCount === 1}
@@ -120,7 +120,7 @@
           {/if}
         </p>
       {:else}
-        <p class="text-sm text-zinc-400 light:text-zinc-600">
+        <p class="text-sm text-legio-fg-muted">
           {t("Mod disponibili su Thunderstore per {0}. Apri il gestore per creare il primo profilo.", $language, [game.displayName ?? game.name])}
         </p>
       {/if}
@@ -134,7 +134,7 @@
           retryLabel={t("Installa BepInEx", $language)}
         />
       {/if}
-      {#if running && bound}<p class="text-xs text-zinc-500">{t("Chiudi il gioco per cambiare profilo.", $language)}</p>{/if}
+      {#if running && bound}<p class="text-xs text-legio-fg-subtle">{t("Chiudi il gioco per cambiare profilo.", $language)}</p>{/if}
       {#if error !== null}<ErrorBanner message={error} />{/if}
     </div>
   </Panel>

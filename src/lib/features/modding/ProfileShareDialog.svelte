@@ -102,15 +102,15 @@
 
 <Dialog {open} title={t("Condividi profilo", $language)} dismissible={!busy} {onClose}>
   {#snippet children(close)}
-    <p class="text-sm text-zinc-300 light:text-zinc-700">
+    <p class="text-sm text-legio-fg">
       {t("Profilo \"{0}\". Altri giocatori possono importarlo da un file o da un codice.", $language, [profile.name])}
     </p>
     <Callout variant="inline" message={t("Le mod locali non sono incluse: chi importa il profilo riceve solo le mod di Thunderstore e i file di configurazione.", $language)} />
 
-    <section class="flex flex-col gap-3 rounded-lg bg-white/5 p-3 light:bg-zinc-900/5" aria-label={t("Esporta in un file", $language)}>
+    <section class="flex flex-col gap-3 rounded-lg bg-legio-fill p-3" aria-label={t("Esporta in un file", $language)}>
       <div>
-        <h3 class="text-sm font-semibold text-zinc-100 light:text-zinc-900">{t("Esporta in un file", $language)}</h3>
-        <p class="mt-0.5 text-xs text-zinc-400 light:text-zinc-600">{t("Crea un file .r2z compatibile con r2modman.", $language)}</p>
+        <h3 class="text-sm font-semibold text-legio-fg">{t("Esporta in un file", $language)}</h3>
+        <p class="mt-0.5 text-xs text-legio-fg-muted">{t("Crea un file .r2z compatibile con r2modman.", $language)}</p>
       </div>
       {#if exportError !== null}<ErrorBanner message={exportError} />{/if}
       {#if exportedPath !== null}
@@ -123,10 +123,10 @@
       </div>
     </section>
 
-    <section class="flex flex-col gap-3 rounded-lg bg-white/5 p-3 light:bg-zinc-900/5" aria-label={t("Codice di condivisione", $language)}>
+    <section class="flex flex-col gap-3 rounded-lg bg-legio-fill p-3" aria-label={t("Codice di condivisione", $language)}>
       <div>
-        <h3 class="text-sm font-semibold text-zinc-100 light:text-zinc-900">{t("Codice di condivisione", $language)}</h3>
-        <p class="mt-0.5 text-xs text-zinc-400 light:text-zinc-600">{t("Carica il profilo su Thunderstore e genera un codice da incollare. Il codice scade dopo un po' di tempo.", $language)}</p>
+        <h3 class="text-sm font-semibold text-legio-fg">{t("Codice di condivisione", $language)}</h3>
+        <p class="mt-0.5 text-xs text-legio-fg-muted">{t("Carica il profilo su Thunderstore e genera un codice da incollare. Il codice scade dopo un po' di tempo.", $language)}</p>
       </div>
       <Callout tone="warning" variant="inline" message={t("Il profilo e tutti i suoi file di configurazione vengono caricati su Thunderstore in modo pubblico: chiunque abbia il codice può scaricarli. Non condividere configurazioni con dati personali.", $language)} />
       {#if codeError !== null}<ErrorBanner message={codeError} />{/if}

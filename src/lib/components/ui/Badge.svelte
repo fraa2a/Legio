@@ -16,7 +16,7 @@
     if (tone === "warning") return "bg-legio-warning/15 text-legio-warning";
     if (tone === "danger") return "bg-legio-error/15 text-legio-error";
     if (tone === "info") return "bg-legio-info/15 text-legio-info";
-    return "bg-white/10 text-zinc-300 light:bg-zinc-900/10 light:text-zinc-700";
+    return "bg-legio-fill-hover text-legio-fg";
   });
 </script>
 

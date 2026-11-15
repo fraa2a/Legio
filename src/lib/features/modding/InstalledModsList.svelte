@@ -333,7 +333,7 @@
               {@const update = updateIndex.get(modKey(mod.fullName))}
               {@const issue = issues.get(modKey(mod.fullName))}
               {@const opened = tabs.active === modKey(mod.fullName)}
-            <li class="flex flex-wrap items-center gap-3 rounded-xl legio-glass p-3 transition-colors hover:bg-white/5 light:hover:bg-zinc-900/5 {opened ? 'ring-1 ring-legio-accent ring-inset' : ''}">
+            <li class="flex flex-wrap items-center gap-3 rounded-xl legio-glass p-3 transition-colors hover:bg-legio-fill {opened ? 'ring-1 ring-legio-accent ring-inset' : ''}">
               <div class="min-w-0 flex-1 basis-48">
                 <button
                   type="button"
@@ -345,14 +345,14 @@
                   <ModIcon source={detail?.icon ?? null} class="size-12 shrink-0 rounded-lg {mod.enabled ? '' : 'opacity-50 grayscale'}" />
                   <span class="min-w-0 flex-1">
                     <span class="flex flex-wrap items-center gap-2">
-                      <span class="min-w-0 truncate font-medium {mod.enabled ? 'text-zinc-50 light:text-zinc-900' : 'text-zinc-400 light:text-zinc-500'}">{title}</span>
-                      <span class="text-xs tabular-nums text-zinc-500">{mod.version}</span>
+                      <span class="min-w-0 truncate font-medium {mod.enabled ? 'text-legio-fg' : 'text-legio-fg-muted'}">{title}</span>
+                      <span class="text-xs tabular-nums text-legio-fg-subtle">{mod.version}</span>
                       {#if mod.isLoader}<Badge tone="info" title={t("Loader", $language)} />{/if}
                       {#if !mod.onlineSource}<Badge title={t("Locale", $language)} />{/if}
                       {#if !mod.enabled}<Badge title={t("Disattivata", $language)} />{/if}
                       {#if update !== undefined}<Badge tone="success" title={t("Aggiornamento {0}", $language, [update.latestVersion])} />{/if}
                     </span>
-                    <span class="mt-0.5 block truncate text-xs text-zinc-400 light:text-zinc-600">
+                    <span class="mt-0.5 block truncate text-xs text-legio-fg-muted">
                       {name.owner}{#if detail !== null && detail.description !== ""} · {detail.description}{/if}
                     </span>
                   </span>

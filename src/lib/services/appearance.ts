@@ -119,7 +119,7 @@ export function paletteVariables(preset: ThemePreset, accent: string = preset.pa
   const ramp = preset.tint === undefined ? zincRamp : zincRamp.map((color) => tintColor(color, preset.tint as Tint));
   const variables: Record<string, string> = {
     "--legio-background": p.background, "--legio-surface": p.surface,
-    "--legio-raised": p.raised, "--legio-text": p.text, "--legio-muted": p.muted,
+    "--legio-text": p.text, "--legio-muted": p.muted,
     "--legio-accent": accent, "--legio-accent-text": accentText(accent),
     "--legio-focus": accent,
     "--color-white": dark ? p.text : "#ffffff",

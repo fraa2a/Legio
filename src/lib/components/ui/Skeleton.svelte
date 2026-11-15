@@ -2,4 +2,4 @@
   let { class: className = "" }: { class?: string } = $props();
 </script>
 
-<span class="block animate-pulse rounded-xl bg-white/10 motion-reduce:animate-none light:bg-zinc-900/10 {className}" aria-hidden="true"></span>
+<span class="block animate-pulse rounded-xl bg-legio-fill-hover motion-reduce:animate-none {className}" aria-hidden="true"></span>
