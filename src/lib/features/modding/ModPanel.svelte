@@ -95,12 +95,12 @@
       inert={tabs.collapsed}
       transition:fade={{ duration: reducedMotion ? 0 : 200 }}
     >
-      <div class="flex shrink-0 items-center gap-1 border-b border-white/10 p-1.5 light:border-zinc-900/10">
+      <div class="flex shrink-0 items-center gap-1 border-b border-legio-line-subtle p-1.5">
         <div bind:this={strip} role="tablist" aria-label={t("Mod aperte", $language)} class="flex min-w-0 flex-1 gap-1 overflow-x-auto" onwheel={onWheel}>
           {#each tabs.tabs as tab (tab.key)}
             {@const selected = tab.key === tabs.active}
             {@const title = modTabTitle(tab)}
-            <div class="flex w-44 shrink-0 items-center gap-0.5 rounded-lg pr-1 transition-colors {selected ? 'bg-white/15 text-zinc-50 light:bg-white light:text-zinc-900 light:shadow-sm' : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-100 light:text-zinc-600 light:hover:bg-zinc-900/5 light:hover:text-zinc-900'}">
+            <div class="flex w-44 shrink-0 items-center gap-0.5 rounded-lg pr-1 transition-colors {selected ? 'bg-white/15 text-legio-fg light:bg-white light:shadow-sm' : 'text-legio-fg-muted hover:bg-legio-fill hover:text-legio-fg'}">
               <button
                 type="button"
                 role="tab"
@@ -159,7 +159,7 @@
       <IconButton size="sm" label={t("Mostra le mod aperte", $language)} title={t("Mostra le mod aperte", $language)} onClick={() => onChange(setModPanelCollapsed(tabs, false))}>
         <Icon name="previous" size="size-4" />
       </IconButton>
-      <span class="text-xs tabular-nums text-zinc-400 light:text-zinc-600" aria-hidden="true">{tabs.tabs.length}</span>
+      <span class="text-xs tabular-nums text-legio-fg-muted" aria-hidden="true">{tabs.tabs.length}</span>
     </div>
   {/if}
 </div>

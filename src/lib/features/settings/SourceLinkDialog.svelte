@@ -29,6 +29,6 @@
     onConfirm={() => void confirm(url)}
     onClose={dismissSourceLink}
   >
-    <p class="break-all rounded-lg bg-zinc-900 p-3 font-mono text-xs text-zinc-200 light:bg-zinc-100 light:text-zinc-800">{url}</p>
+    <p class="break-all rounded-lg bg-zinc-900 p-3 font-mono text-xs text-legio-fg light:bg-zinc-100">{url}</p>
   </ConfirmDialog>
 {/if}

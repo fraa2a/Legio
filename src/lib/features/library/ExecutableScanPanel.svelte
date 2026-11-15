@@ -48,7 +48,7 @@
 </script>
 
 <section class="flex flex-col gap-3">
-  <p class="text-sm text-zinc-400 light:text-zinc-600">{hint}</p>
+  <p class="text-sm text-legio-fg-muted">{hint}</p>
 
   <TextField
     id="{group}-game-name"
@@ -83,7 +83,7 @@
   </div>
 
   {#if $manualImport.directory !== null}
-    <p class="break-all text-xs text-zinc-500">{$manualImport.directory}</p>
+    <p class="break-all text-xs text-legio-fg-subtle">{$manualImport.directory}</p>
   {/if}
 
   {#if pickedPath !== null}
@@ -101,7 +101,7 @@
   {/if}
 
   {#if $manualImport.status === "loading"}
-    <p class="flex items-center gap-3 text-sm text-zinc-300 light:text-zinc-700" role="status">
+    <p class="flex items-center gap-3 text-sm text-legio-fg" role="status">
       <Spinner />{t("Scansione degli eseguibili in corso...", $language)}</p>
   {/if}
 
@@ -110,7 +110,7 @@
   {/if}
 
   {#if $manualImport.status === "empty"}
-    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Nessun eseguibile trovato in questa cartella.", $language)}</p>
+    <p class="text-sm text-legio-fg-muted">{t("Nessun eseguibile trovato in questa cartella.", $language)}</p>
   {/if}
 
   {#if $manualImport.candidates.length > 0}
@@ -121,7 +121,7 @@
       <legend class="sr-only">{t("Candidati trovati", $language)}</legend>
       {#each $manualImport.candidates as candidate (candidate.path)}
         <label
-          class="flex cursor-pointer items-start gap-3 rounded-lg bg-white/5 p-3 has-checked:bg-white/10 light:bg-zinc-100"
+          class="flex cursor-pointer items-start gap-3 rounded-lg bg-legio-fill p-3 has-checked:bg-legio-fill-hover"
         >
           <input
             type="radio"
@@ -131,10 +131,10 @@
             onchange={() => chooseCandidate(candidate.path)}
           />
           <span class="min-w-0 flex-1">
-            <span class="block break-all text-sm text-zinc-100 light:text-zinc-900">
+            <span class="block break-all text-sm text-legio-fg">
               {candidate.path}
             </span>
-            <span class="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+            <span class="mt-1 flex flex-wrap items-center gap-2 text-xs text-legio-fg-subtle">
               <Badge tone="neutral" title={t("Punteggio {0}", $language, [candidate.score])} />
               {#if candidate.signals.length > 0}
                 <span>{describeSignals(candidate.signals)}</span>

@@ -24,6 +24,7 @@ mod compatibility_logs;
 #[cfg(target_os = "linux")]
 mod compatibility_options;
 mod database;
+mod database_recovery;
 mod desktop_shortcuts;
 mod diagnostics;
 mod discord_presence;
@@ -197,14 +198,24 @@ fn run_application(
             app.manage(mod_links);
             gofile::initialize(app.path().app_data_dir()?);
             let database = database::DatabaseState::new(app.path().app_data_dir());
-            let initial_settings = database
-                .database()?
-                .settings()
-                .map_err(std::io::Error::other)?;
+            // A database that cannot open or migrate starts the recovery screen instead of failing.
+            let open_database = match database.database() {
+                Ok(open) => Some(open),
+                Err(error) => {
+                    application_log::failure("open_database", &error);
+                    None
+                }
+            };
+            let initial_settings = open_database
+                .map(database::Database::settings)
+                .transpose()
+                .map_err(std::io::Error::other)?
+                .unwrap_or_default();
             app.state::<application_log::ApplicationLog>()
                 .set_enabled(initial_settings.application_logging_enabled);
             // Reclaims the scheme after an update or reinstall moved the executable.
-            if initial_settings.thunderstore_links_enabled
+            if open_database.is_some()
+                && initial_settings.thunderstore_links_enabled
                 && let Err(error) = link_registration::set_registered(app.handle(), true)
             {
                 application_log::failure("register_mod_links", error);
@@ -231,10 +242,22 @@ fn run_application(
                         .clone(),
                 );
             }
-            let bandwidth_limit = database
-                .database()
-                .and_then(database::Database::download_bandwidth_limit)
+            let bandwidth_limit = open_database
+                .map(database::Database::download_bandwidth_limit)
+                .transpose()
                 .map_err(std::io::Error::other)?;
+            let storage_root = open_database
+                .map(|database| {
+                    database.storage_root(
+                        &app.path()
+                            .app_data_dir()
+                            .map_err(|error| error.to_string())?,
+                    )
+                })
+                .transpose()
+                .map_err(std::io::Error::other)?;
+            let download_changes =
+                open_database.map(database::Database::subscribe_downloads_changes);
             app.manage(startup_recovery::StartupRecovery::new());
             app.manage(database);
             let download_queue = download_queue::DownloadQueueState::new(
@@ -242,21 +265,14 @@ fn run_application(
                 &app.package_info().version.to_string(),
             )
             .map_err(std::io::Error::other)?;
-            download_queue.set_bandwidth_limit(bandwidth_limit);
-            let storage_root = app
-                .state::<database::DatabaseState>()
-                .database()
-                .and_then(|database| {
-                    database.storage_root(
-                        &app.path()
-                            .app_data_dir()
-                            .map_err(|error| error.to_string())?,
-                    )
-                })
-                .map_err(std::io::Error::other)?;
-            download_queue
-                .set_storage_root(&storage_root)
-                .map_err(std::io::Error::other)?;
+            if let Some(limit) = bandwidth_limit {
+                download_queue.set_bandwidth_limit(limit);
+            }
+            if let Some(storage_root) = storage_root {
+                download_queue
+                    .set_storage_root(&storage_root)
+                    .map_err(std::io::Error::other)?;
+            }
             app.manage(download_queue);
             app.manage(game_lifecycle::GameLaunchManager::with_log_directory(
                 app.path().app_log_dir().map_err(|error| error.to_string()),
@@ -280,13 +296,11 @@ fn run_application(
                     }
                 }
             })));
-            let mut download_changes = app
-                .state::<database::DatabaseState>()
-                .database()
-                .map_err(std::io::Error::other)?
-                .subscribe_downloads_changes();
             let download_events_app = app.handle().clone();
             app.manage(DownloadEvents(tauri::async_runtime::spawn(async move {
+                let Some(mut download_changes) = download_changes else {
+                    return;
+                };
                 while download_changes.changed().await.is_ok() {
                     if let Err(error) = download_events_app.emit("legio:downloads-changed", ()) {
                         application_log::failure("publish_download_changes", error);
@@ -348,7 +362,9 @@ fn run_application(
             app.manage(modding::profiles::ProfileLocks::default());
             app.manage(modding::install_commands::InstallCancellations::default());
             queue_shutdown::start(app.handle().clone());
-            app.manage(discord_presence::PresenceService::start(app.handle())?);
+            if app.state::<database::DatabaseState>().database().is_ok() {
+                app.manage(discord_presence::PresenceService::start(app.handle())?);
+            }
             let language = initial_settings.language;
             let open = MenuItem::with_id(
                 app,
@@ -535,6 +551,11 @@ fn run_application(
             queue_shutdown::get_queue_shutdown,
             queue_shutdown::set_queue_shutdown,
             installed_folder::open_installed_folder,
+            database_recovery::get_database_failure,
+            database_recovery::list_database_backups,
+            database_recovery::open_data_folder,
+            database_recovery::restore_database_backup,
+            database_recovery::reset_local_database,
             installed_folder::get_installed_folder_info,
             commands::refresh_legio_source,
             commands::check_steam_connectivity,
@@ -602,7 +623,9 @@ fn run_application(
             if matches!(event, tauri::RunEvent::Exit) {
                 app.state::<application_log::ApplicationLog>()
                     .record("info", "shutdown", None, None, true);
-                app.state::<discord_presence::PresenceService>().shutdown();
+                if let Some(presence) = app.try_state::<discord_presence::PresenceService>() {
+                    presence.shutdown();
+                }
                 app.state::<LaunchEvents>().0.abort();
                 app.state::<DownloadEvents>().0.abort();
             }

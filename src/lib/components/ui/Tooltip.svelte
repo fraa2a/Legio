@@ -59,7 +59,7 @@
       style:inset="auto"
       style:top="{position.top}px"
       style:left="{position.left}px"
-      class="pointer-events-none fixed m-0 max-w-64 rounded-lg border border-white/15 bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-zinc-100 shadow-lg shadow-black/30 light:border-zinc-900/15 light:bg-zinc-50 light:text-zinc-900"
+      class="pointer-events-none fixed m-0 max-w-64 rounded-lg border border-legio-line bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-legio-fg shadow-lg shadow-black/30 light:bg-zinc-50"
     >{text}</span>
   {/if}
 </span>

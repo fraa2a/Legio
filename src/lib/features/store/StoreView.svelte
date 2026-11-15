@@ -156,7 +156,7 @@
     </div>
 
     {#if trimmed.length > 0 && $catalog.results.length > 0}
-      <div class="flex flex-wrap items-center gap-3 text-xs text-zinc-500">
+      <div class="flex flex-wrap items-center gap-3 text-xs text-legio-fg-subtle">
         {#if $catalog.refreshing}
           <span role="status">{t("Aggiornamento in corso...", $language)}</span>
         {/if}

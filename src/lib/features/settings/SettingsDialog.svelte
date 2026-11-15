@@ -35,8 +35,8 @@
         <div class="flex items-center gap-2 px-3 py-2">
           <img src={logo} alt="" class="size-8 shrink-0 rounded-lg" />
           <div class="flex min-w-0 flex-col leading-tight">
-            <span class="truncate text-sm font-semibold text-zinc-100 light:text-zinc-900">Legio</span>
-            {#if $appInfo.data.version !== ""}<span class="truncate text-xs text-zinc-400 light:text-zinc-600">v.{$appInfo.data.version}</span>{/if}
+            <span class="truncate text-sm font-semibold text-legio-fg">Legio</span>
+            {#if $appInfo.data.version !== ""}<span class="truncate text-xs text-legio-fg-muted">v.{$appInfo.data.version}</span>{/if}
           </div>
         </div>
       {/snippet}
