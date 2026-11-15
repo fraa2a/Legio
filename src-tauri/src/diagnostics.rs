@@ -23,6 +23,7 @@ pub enum Operation {
     SteamDetails,
     SteamAsset,
     SteamConnectivity,
+    SteamGridDb,
     Thunderstore,
 }
 

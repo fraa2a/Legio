@@ -32,7 +32,7 @@
     labelHidden?: boolean;
     value?: string;
     element?: HTMLInputElement | HTMLTextAreaElement;
-    type?: "text" | "search" | "number" | "textarea";
+    type?: "text" | "search" | "number" | "password" | "textarea";
     // Toolbar fields sit in the title bar on the glass surface.
     variant?: "default" | "toolbar";
     rows?: number;

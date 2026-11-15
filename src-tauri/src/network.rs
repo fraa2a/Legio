@@ -67,6 +67,7 @@ pub struct ConnectivityCheck {
 pub struct NetworkState {
     client: reqwest::Client,
     source_client: reqwest::Client,
+    steamgriddb_client: reqwest::Client,
     status: Arc<Mutex<NetworkStatus>>,
     diagnostics: Diagnostics,
     source_lookup_slots: Arc<tokio::sync::Semaphore>,
@@ -103,9 +104,20 @@ impl NetworkState {
             .user_agent(format!("Legio/{version}"))
             .build()
             .map_err(|error| format!("Could not initialize source client: {error}"))?;
+        // The API key is sent only to hosts the caller validated, so redirects are never followed.
+        let steamgriddb_client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(CONNECT_TIMEOUT_SECONDS))
+            .read_timeout(std::time::Duration::from_secs(READ_TIMEOUT_SECONDS))
+            .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
+            .redirect(reqwest::redirect::Policy::none())
+            .https_only(true)
+            .user_agent(format!("Legio/{version}"))
+            .build()
+            .map_err(|error| format!("Could not initialize SteamGridDB client: {error}"))?;
         Ok(Self {
             client,
             source_client,
+            steamgriddb_client,
             status: Arc::new(Mutex::new(NetworkStatus::Unknown)),
             diagnostics,
             source_lookup_slots: Arc::new(tokio::sync::Semaphore::new(SOURCE_LOOKUP_CONCURRENCY)),
@@ -179,6 +191,43 @@ impl NetworkState {
         let result = async {
             let response = self.source_client.get(url).send().await?;
             Self::read_bounded_to(response, crate::hydra_source::MAX_BYTES, &mut log).await
+        }
+        .await;
+        log.finish(&result);
+        result
+    }
+
+    /// Authenticated SteamGridDB API call. `url` must come from `steamgriddb::api_url`.
+    pub(crate) async fn steamgriddb_api(
+        &self,
+        url: &reqwest::Url,
+        key: &str,
+    ) -> Result<Vec<u8>, NetworkError> {
+        let mut log = self.diagnostics.request(Operation::SteamGridDb);
+        let result = async {
+            let response = self
+                .steamgriddb_client
+                .get(url.clone())
+                .bearer_auth(key)
+                .send()
+                .await?;
+            Self::read_bounded_to(response, crate::steamgriddb::MAX_API_BYTES, &mut log).await
+        }
+        .await;
+        log.finish(&result);
+        result
+    }
+
+    /// Downloads an image from an already validated SteamGridDB CDN URL. The key is not sent.
+    pub(crate) async fn steamgriddb_image(
+        &self,
+        url: &reqwest::Url,
+        limit: usize,
+    ) -> Result<Vec<u8>, NetworkError> {
+        let mut log = self.diagnostics.request(Operation::SteamGridDb);
+        let result = async {
+            let response = self.steamgriddb_client.get(url.clone()).send().await?;
+            Self::read_bounded_to(response, limit, &mut log).await
         }
         .await;
         log.finish(&result);

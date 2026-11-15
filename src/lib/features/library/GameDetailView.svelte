@@ -40,6 +40,7 @@
   import GameInstalledSize from "./GameInstalledSize.svelte";
   import GameLinks from "./GameLinks.svelte";
   import ProtonDbPanel from "./ProtonDbPanel.svelte";
+  import LocalScreenshots from "./LocalScreenshots.svelte";
   import { gameLinks } from "./game-links";
   import { badgeTier } from "./protondb";
   import Icon from "../../components/ui/Icon.svelte";
@@ -411,8 +412,9 @@
     <GameLinks links={usefulLinks} rating={badgeTier(protonState?.summary ?? null)} />
 
     <div class="grid flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
-      <div class="min-w-0">
+      <div class="flex min-w-0 flex-col gap-4">
         {#if steamAppId !== null}<SteamMetadata {steamAppId} />{/if}
+        {#if game !== null}<LocalScreenshots {game} />{/if}
       </div>
       <div class="flex min-w-0 flex-col gap-4">
         {#if protonUrl !== null && (protonState?.status === "loading" || protonState?.status === "ready" || protonState?.status === "empty")}

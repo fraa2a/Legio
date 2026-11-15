@@ -35,6 +35,7 @@
     "test:visual": "node --conditions=browser --test scripts/test_visual_rendering.mjs scripts/test_dither_renderer.mjs scripts/test_backgrounds.mjs",
     "test:artwork-work": "node --conditions=browser --test scripts/test_artwork_work.mjs",
     "test:protondb": "node --conditions=browser --test scripts/test_protondb.mjs",
+    "test:game-media": "node --conditions=browser --test scripts/test_game_media.mjs",
     "test:details-cache":"node --conditions=browser --test scripts/test_steam_details_cache.mjs",
     "test:modding": "node --conditions=browser --test scripts/test_modding.mjs",
     "test:modding-extra": "node --conditions=browser --test scripts/test_modding_extra.mjs",

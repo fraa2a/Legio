@@ -228,3 +228,37 @@ involved. `legio:disk-usage-changed` tells the UI to read the cache again.
 bytes of its measured games and the remaining used space as "other". The figure is
 flagged as an estimate while any game is unmeasured or partial. Uninstalling from
 the usage dialog reuses the regular uninstall dialog and its backend path.
+
+## SteamGridDB artwork
+
+The artwork panel of a game can search SteamGridDB by name and, when known, by Steam
+App ID. The API key is entered in the general settings and stored only in the system
+keychain (Secret Service on Linux, Credential Manager on Windows). It is never written
+to the database or settings JSON, never logged and never returned to the frontend: the
+commands only set it, clear it and report whether one is set. Without a reachable
+keychain the user gets an explicit error and nothing is stored.
+
+Responses are untrusted. API replies are capped at 512 KiB and images are accepted only
+over `https` from `cdn.steamgriddb.com` and `cdn2.steamgriddb.com`, with no redirects
+and no key sent to the CDN. The chosen image is downloaded by Rust and stored with the
+same 2 MiB limit, format sniffing and dimension checks as an image picked from disk.
+Heroes and landscape covers fill the custom banner; icons fill the custom icon.
+Thumbnails load directly from the CDN, which the existing `img-src https:` allows.
+
+## Local screenshots
+
+The game page lists screenshots newest first, 12 per page and at most 500 per game, from
+two places: the Steam folder `userdata/<account>/760/remote/<appid>/screenshots` of every
+local Steam account, and one folder per game. That folder defaults to
+`game-screenshots/<game id>` in the Legio data directory; an override chosen in the UI is
+stored in the key/value `settings` table as `game_screenshot_folder.<game id>` (no schema
+migration) and removed with the game.
+
+Only regular files with a `png`, `jpg`, `jpeg` or `webp` extension whose first bytes match
+one of those formats are listed. Symbolic links are skipped and never opened, files over
+32 MiB are ignored, and the frontend only uses opaque ids resolved by the backend inside
+the known folders. Images reach the WebView through the artwork IPC response as object
+URLs; the strip uses 480 px JPEG thumbnails made on demand and the full image loads for
+the screenshot on display. "Open folder" opens the folder of the selected screenshot.
+"Set as wallpaper" imports the file through the appearance background pipeline
+(normalized PNG, up to 2560 px) and selects it as the app wallpaper.
