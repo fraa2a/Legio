@@ -133,6 +133,16 @@ html, body, #app { width: 100%; height: 100%; min-width: 0; min-height: 0; }
   --legio-motion-slow: 320ms;
   --legio-ease: cubic-bezier(0.2, 0, 0, 1);
 }
+/* Registered so a per-game accent can fade; the transition applies only when that option is on. */
+@property --legio-accent { syntax: "<color>"; inherits: true; initial-value: #fafafa; }
+@property --legio-accent-text { syntax: "<color>"; inherits: true; initial-value: #000000; }
+@property --legio-focus { syntax: "<color>"; inherits: true; initial-value: #fafafa; }
+:root[data-accent-fade="true"] {
+  transition:
+    --legio-accent var(--legio-motion-slow) var(--legio-ease),
+    --legio-accent-text var(--legio-motion-slow) var(--legio-ease),
+    --legio-focus var(--legio-motion-slow) var(--legio-ease);
+}
 :root[data-theme="light"] {
   --legio-info: #0369a1;
   --legio-success: #047857;

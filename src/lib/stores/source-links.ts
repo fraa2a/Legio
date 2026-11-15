@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { derived, writable } from "svelte/store";
+import type { AppearanceProfile } from "../services/appearance";
 import { takeSourceLinks } from "../services/legio-source";
 import { toMessage } from "../utils/errors";
 import { openSettings } from "./navigation";
@@ -15,6 +16,15 @@ export const currentSourceLink = derived(queue, (urls) => urls[0] ?? null);
 export function dismissSourceLink(): void {
   queue.update((urls) => urls.slice(1));
 }
+
+const themeQueue = writable<readonly AppearanceProfile[]>([]);
+
+// A theme link only proposes a look: it is applied after the user confirms.
+export const currentThemeLink = derived(themeQueue, (profiles) => profiles[0] ?? null);
+
+export function dismissThemeLink(): void {
+  themeQueue.update((profiles) => profiles.slice(1));
+}
 let starting: Promise<void> | null = null;
 let draining = false;
 let requested = false;
@@ -29,6 +39,11 @@ async function drain(): Promise<void> {
       const pending = await takeSourceLinks();
       sourceLinkRegistrationError.set(pending.registrationError);
       for (const request of pending.requests) {
+        if (request.theme) {
+          const theme = request.theme;
+          themeQueue.update((profiles) => [...profiles, theme]);
+          continue;
+        }
         openSettings("sources");
         if (request.error !== null) sourceActionError.set(request.error);
         else if (request.url !== null) {

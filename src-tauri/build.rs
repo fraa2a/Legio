@@ -12,6 +12,8 @@ fn main() {
             "get_settings",
             "save_settings",
             "import_theme_background",
+            "create_theme_code",
+            "read_theme_code",
             "export_appearance",
             "create_support_bundle",
             "import_appearance",

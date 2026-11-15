@@ -93,6 +93,21 @@ test("source links wait for confirmation and are queued once", async () => {
   assert.deepEqual(globalThis.sourceLinks.sections, ["sources", "sources", "sources"]);
 });
 
+test("theme links queue a profile for confirmation and never open the sources page", async () => {
+  const profile = { version: 1, theme: "violet", appearance: {} };
+  const { load } = fixture("themeLinks", async () => ({
+    requests: [{ url: null, theme: profile, error: null }, { url: "https://example.invalid/one.json", theme: null, error: null }],
+    registrationError: null,
+  }));
+  const links = await import(await load("src/lib/stores/source-links.ts"));
+  await links.startSourceLinks();
+  assert.deepEqual(get(links.currentThemeLink), profile);
+  assert.equal(get(links.currentSourceLink), "https://example.invalid/one.json");
+  assert.deepEqual(globalThis.themeLinks.sections, ["sources"]);
+  links.dismissThemeLink();
+  assert.equal(get(links.currentThemeLink), null);
+});
+
 test("invalid external links display an error without adding a source", async () => {
   const calls = [];
   const { load } = fixture("sourceInvalidLink", async (command) => {

@@ -2,6 +2,8 @@
   import { t, language } from "./lib/i18n";
   import { activePalette, applyAppearance, resolvedAccent } from "./lib/services/appearance";
   import { appearancePreview } from "./lib/stores/appearance";
+  import { gameArtColor } from "./lib/stores/game-accent";
+  import { adjustAccent } from "./lib/services/game-accent";
   import { appInfo } from "./lib/stores/app-info";
   import AppBackground from "./lib/components/layout/AppBackground.svelte";
   import { startArtworkSelectionTracking } from "./lib/services/artwork-work";
@@ -23,6 +25,7 @@
   import AccountSwitchDialog from "./lib/features/library/AccountSwitchDialog.svelte";
   import ModLinkDialog from "./lib/features/modding/ModLinkDialog.svelte";
   import SourceLinkDialog from "./lib/features/settings/SourceLinkDialog.svelte";
+  import ThemeLinkDialog from "./lib/features/settings/ThemeLinkDialog.svelte";
   import { checkForAppUpdateWhenEnabled, hydrateApp } from "./lib/stores/bootstrap";
   import { paletteOpen } from "./lib/stores/command-palette";
   import { diskUsageDialogOpen } from "./lib/stores/disk-usage";
@@ -47,7 +50,9 @@
   const appearance = $derived($appearancePreview?.appearance ?? $settings.data.appearance);
   const theme = $derived($appearancePreview?.theme ?? $settings.data.theme);
   let prefersDark = $state(window.matchMedia("(prefers-color-scheme: dark)").matches);
-  const accent = $derived(resolvedAccent(activePalette(theme, prefersDark), appearance));
+  const palette = $derived(activePalette(theme, prefersDark));
+  const gameAccent = $derived(appearance.gameAccent && $gameArtColor !== null ? adjustAccent($gameArtColor.color, palette.palette, palette.scheme) : null);
+  const accent = $derived(gameAccent ?? resolvedAccent(palette, appearance));
 
   let updateDismissed = $state(false);
 
@@ -92,7 +97,7 @@
 
   $effect(() => {
     applyAppearance(document.documentElement, theme, appearance, prefersDark,
-      $appInfo.data.platform === "linux" && $appInfo.data.desktopEnvironment === "hyprland");
+      $appInfo.data.platform === "linux" && $appInfo.data.desktopEnvironment === "hyprland", gameAccent);
   });
 
   function blockContextMenu(event: MouseEvent) {
@@ -154,6 +159,7 @@
 {/if}
 <SourceLinkDialog />
 <ReleaseNotesDialog />
+<ThemeLinkDialog />
 <ToastNotice />
 
 {#if $updateState.version && !updateDismissed && ($appInfo.data.platform !== "linux" || !$updateState.nativeNotified)}
