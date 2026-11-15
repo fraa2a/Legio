@@ -12,12 +12,17 @@
   import { appInfo } from "../../stores/app-info";
   import { getCompatibilityLogsDirectory } from "../../services/game-settings";
   import DataTransferSettings from "./DataTransferSettings.svelte";
+  import { createSupportBundle } from "../../services/support-bundle";
+  import { showToast } from "../../stores/toast";
+  import SettingsRow from "../../components/ui/SettingsRow.svelte";
+  import Button from "../../components/ui/Button.svelte";
 
   let status = $state<NetworkLogStatus | null>(null);
   let applicationStatus = $state<ApplicationLogStatus | null>(null);
   let error = $state<string | null>(null);
   let saving = $state(false);
   let launchDirectory = $state<string | null>(null);
+  let creatingBundle = $state(false);
 
   onMount(() => { void refresh(); });
 
@@ -43,6 +48,17 @@
       saving = false;
     }
   }
+
+  async function createBundle(): Promise<void> {
+    creatingBundle = true;
+    try {
+      if (await createSupportBundle()) showToast(t("Pacchetto di supporto salvato.", $language), "success");
+    } catch (cause) {
+      showToast(toMessage(cause), "error");
+    } finally {
+      creatingBundle = false;
+    }
+  }
 </script>
 
 <section class="flex flex-col gap-4">
@@ -63,6 +79,9 @@
       <p class="text-xs text-legio-fg-muted">{t("Ogni gioco manuale salva launch.json, launch.log, stdout.log, stderr.log e runner-exit-code.txt nella propria cartella. Il debug aggiunge i dettagli di Proton o Wine.", $language)}</p>
       <p class="break-all font-mono text-xs text-legio-fg">{launchDirectory}</p>
     {/if}
+    <SettingsRow label={t("Crea pacchetto di supporto", $language)} description={t("Salva uno zip con versione, sistema, impostazioni non sensibili e log redatti da allegare a una segnalazione. Il contenuto è elencato in README.txt.", $language)}>
+      <Button label={t("Crea pacchetto", $language)} variant="secondary" disabled={creatingBundle} onClick={() => void createBundle()} />
+    </SettingsRow>
     {#if status?.lastError}<Callout tone="warning" message={status.lastError} />{/if}
     {#if applicationStatus?.lastError}<Callout tone="warning" message={applicationStatus.lastError} />{/if}
   </SettingsGroup>

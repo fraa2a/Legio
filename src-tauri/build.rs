@@ -12,6 +12,7 @@ fn main() {
             "save_settings",
             "import_theme_background",
             "export_appearance",
+            "create_support_bundle",
             "import_appearance",
             "get_theme_background",
             "cleanup_theme_backgrounds",
