@@ -38,6 +38,7 @@ pub struct InstalledRunner {
 pub struct RunnerDiscovery {
     pub ntsync_available: bool,
     pub game_mode_available: bool,
+    pub mangohud_available: bool,
     pub gamescope_available: bool,
     pub runners: Vec<InstalledRunner>,
     pub diagnostics: Vec<String>,
@@ -129,6 +130,7 @@ pub fn discover() -> RunnerDiscovery {
         RunnerDiscovery {
             ntsync_available: false,
             game_mode_available: false,
+            mangohud_available: false,
             gamescope_available: false,
             runners: Vec::new(),
             diagnostics: vec!["Runner discovery is currently supported on Linux only".to_owned()],
@@ -154,6 +156,7 @@ fn discover_linux() -> RunnerDiscovery {
     RunnerDiscovery {
         ntsync_available: fs::File::open("/dev/ntsync").is_ok(),
         game_mode_available: executable_path("gamemoderun").is_some(),
+        mangohud_available: executable_path("mangohud").is_some(),
         gamescope_available: executable_path("gamescope").is_some(),
         runners,
         diagnostics,
