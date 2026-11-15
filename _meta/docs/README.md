@@ -9,6 +9,7 @@
 - [Download source formats and update manifests](SCHEMA.md)
 - [Hydra source compatibility](HYDRA.md)
 - [Troubleshooting and diagnostic collection](TROUBLESHOOTING.md)
+- [Privacy and network: what Legio contacts](PRIVACY.md)
 - [Known issues and limitations](KNOWN-ISSUES.md)
 
 ## Contributing and maintaining
