@@ -19,9 +19,11 @@ pub enum Operation {
     HydraSearch,
     LegioSource,
     News,
+    ProtonDb,
     SteamDetails,
     SteamAsset,
     SteamConnectivity,
+    SteamGridDb,
     Thunderstore,
 }
 
@@ -50,8 +52,8 @@ struct Record {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogStatus {
-    enabled: bool,
-    directory: Option<PathBuf>,
+    pub(crate) enabled: bool,
+    pub(crate) directory: Option<PathBuf>,
     last_error: Option<String>,
     dropped_records: u64,
     pub(crate) pending_records: usize,
@@ -86,7 +88,7 @@ impl Diagnostics {
             let spawn = std::thread::Builder::new().name("local-diagnostics".to_owned()).spawn(move || {
                 if enabled && let Err(error) = prepare(&directory) {
                     let mut status = worker_status.lock().unwrap_or_else(|error| error.into_inner());
-                    status.last_error = Some(format!("Could not initialize local logs ({:?}). Check directory permissions and free disk space.", error.kind()));
+                    status.last_error = Some(format!("Could not initialize local logs ({}). Check directory permissions and free disk space.", error.kind()));
                 }
                 for record in receiver {
                     write_pending_record(&worker_status, || append(&directory, &record));

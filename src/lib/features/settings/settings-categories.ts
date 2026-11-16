@@ -12,8 +12,9 @@ export function settingsCategories(platform: string): SettingsCategory[] {
     { id: "general", label: "Generali", icon: "settings" },
     { id: "appearance", label: "Aspetto", icon: "palette" },
     { id: "downloads", label: "Download", icon: "downloads" },
-    { id: "libraries", label: "Librerie e sorgenti", icon: "folder" },
+    { id: "libraries", label: "Librerie e sorgenti", icon: "library" },
     ...(platform === "linux" ? [{ id: "compatibility", label: "Compatibilità", icon: "wrench" } as const] : []),
-    { id: "advanced", label: "Avanzate", icon: "info" },
+    { id: "privacy", label: "Privacy e rete", icon: "globe" },
+    { id: "advanced", label: "Avanzate", icon: "sliders" },
   ];
 }

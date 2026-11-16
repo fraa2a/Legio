@@ -31,13 +31,13 @@
 </script>
 
 {#if status === "loading" && !hasData && skeletonRows > 0}
-  <div class="flex flex-col gap-2" role="status">
+  <div class="flex flex-col gap-2" role="status" aria-busy="true">
     <span class="sr-only">{loadingMessage}</span>
     {#each Array.from({ length: skeletonRows }, (_, row) => row) as row (row)}<Skeleton class={skeletonClass} />{/each}
   </div>
 {:else if status === "loading" && !hasData}
   <div
-    class="flex items-center gap-3 rounded-xl bg-white/5 p-6 text-zinc-300 light:bg-zinc-100"
+    class="flex items-center gap-3 rounded-card bg-legio-fill p-inset-compact text-legio-fg"
     role="status"
   >
     <Spinner />

@@ -73,17 +73,17 @@
 </script>
 
 <aside
-  class="legio-panel my-1.5 ml-1.5 flex shrink-0 flex-col overflow-hidden rounded-xl {expanded
+  class="legio-panel my-1.5 ml-1.5 flex shrink-0 flex-col overflow-hidden rounded-card {expanded
     ? "w-54"
-    : "w-16"} transition-[width] duration-300 ease-out"
+    : "w-16"} transition-[width] duration-(--legio-motion-slow)"
 >
   <nav class="mt-2 flex min-h-0 flex-1 flex-col gap-1 p-2" aria-label={t("Navigazione principale", $language)}>
-    <div class="flex w-full items-center text-white light:text-zinc-900">
-      <span class="flex h-12 w-full items-center gap-2 overflow-hidden rounded-lg">
+    <div class="flex w-full items-center text-legio-fg">
+      <span class="flex h-control-lg w-full items-center gap-2 overflow-hidden rounded-control">
         <span class="ml-2 flex size-8 shrink-0 items-center justify-center">
           <Logo />
         </span>
-        <span class="overflow-hidden whitespace-nowrap font-mono text-[1.8rem] font-bold tracking-[0.12em]">
+        <span class="overflow-hidden whitespace-nowrap font-mono text-3xl font-bold tracking-[0.12em]">
           LEGIO
         </span>
       </span>
@@ -99,7 +99,7 @@
           : undefined}
         onClick={() => selectSection(section)}
       >
-        <Icon name={icons[section]} />
+        <Icon name={icons[section]} size="lg" />
       </SidebarButton>
     {/each}
     {#if gamesList.length > 0}
@@ -136,13 +136,13 @@
         onClick={toggleSidebar}
       >
         {#if expanded}
-          <Icon name="previous" />
+          <Icon name="previous" size="lg" />
         {:else}
-          <Icon name="next" />
+          <Icon name="next" size="lg" />
         {/if}
       </SidebarButton>
       <SidebarButton label={t("Impostazioni", $language)} {expanded} onClick={openSettings}>
-        <Icon name="settings" />
+        <Icon name="settings" size="lg" />
       </SidebarButton>
     </div>
   </nav>

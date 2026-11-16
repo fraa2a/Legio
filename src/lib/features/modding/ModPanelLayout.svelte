@@ -36,7 +36,7 @@
 </script>
 
 <!-- The list scrolls on its own so the mod panel beside it keeps its place. The column widths animate so the list resizes with the panel. -->
-<div class="relative grid min-h-0 flex-1 transition-[grid-template-columns,column-gap] duration-200 ease-out motion-reduce:transition-none {columns[panelState]}">
+<div class="relative grid min-h-0 flex-1 transition-[grid-template-columns,column-gap]  motion-reduce:transition-none {columns[panelState]}">
   <div class="flex min-h-0 min-w-0 flex-col gap-4 overflow-y-auto">
     {@render children()}
   </div>

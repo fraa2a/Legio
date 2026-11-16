@@ -97,6 +97,7 @@ uniform sampler2D inputBuffer;
 uniform vec2 resolution;
 uniform float colorNum;
 uniform float pixelSize;
+uniform int scanlines;
 in vec2 vUv;
 out vec4 fragColor;
 
@@ -124,7 +125,25 @@ vec3 dither(vec2 uv, vec3 color) {
   return floor(color * (colorNum - 1.0) + 0.5) / (colorNum - 1.0);
 }
 
+// Rows of quantized color with dark gaps and a faint glow bleeding from the rows around them.
+vec3 scanline() {
+  float lineHeight = max(3.0, pixelSize * 2.0);
+  float row = floor(gl_FragCoord.y / lineHeight);
+  float rowStep = lineHeight / resolution.y;
+  vec2 center = vec2(vUv.x, (row + 0.5) * rowStep);
+  float levels = max(1.0, colorNum - 1.0);
+  vec3 color = floor(texture(inputBuffer, center).rgb * levels + 0.5) / levels;
+  vec3 around = 0.5 * (texture(inputBuffer, center + vec2(0.0, rowStep)).rgb + texture(inputBuffer, center - vec2(0.0, rowStep)).rgb);
+  float position = fract(gl_FragCoord.y / lineHeight);
+  float beam = smoothstep(0.0, 0.35, position) * smoothstep(1.0, 0.65, position);
+  return clamp(color * mix(0.3, 1.0, beam) + around * 0.15 * (1.0 - beam), 0.0, 1.0);
+}
+
 void main() {
+  if (scanlines == 1) {
+    fragColor = vec4(scanline(), 1.0);
+    return;
+  }
   vec2 normalizedPixelSize = pixelSize / resolution;
   vec2 uvPixel = normalizedPixelSize * floor(vUv / normalizedPixelSize);
   vec4 color = texture(inputBuffer, uvPixel);

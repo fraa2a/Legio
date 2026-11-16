@@ -1,13 +1,17 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import { get } from "svelte/store";
   import { t, language } from "../../i18n";
   import Dialog from "../../components/ui/Dialog.svelte";
   import Icon, { type IconName } from "../../components/ui/Icon.svelte";
+  import TextField from "../../components/ui/TextField.svelte";
   import { appInfo } from "../../stores/app-info";
-  import { paletteOpen } from "../../stores/command-palette";
+  import { paletteOpen, paletteSeed } from "../../stores/command-palette";
+  import { diskUsageDialogOpen } from "../../stores/disk-usage";
+  import { shortcutsOpen } from "../../stores/shortcuts";
   import { games } from "../../stores/games";
   import { addGameDialogOpen, storeQuery } from "../../stores/library-ui";
-  import { openGame, openSettings, sectionLabels, sections, selectSection, type Section } from "../../stores/navigation";
+  import { openGame, openPlaytimeRecap, openSettings, sectionLabels, sections, selectSection, type Section } from "../../stores/navigation";
   import { settingsCategories } from "../settings/settings-categories";
   import { rankPaletteItems, type PaletteItem } from "./palette-model";
 
@@ -16,14 +20,18 @@
   const listId = $props.id();
   const sectionIcons: Record<Section, IconName> = { home: "home", library: "library", store: "store", mods: "mods", downloads: "downloads" };
 
-  let query = $state("");
+  let query = $state(get(paletteSeed));
+  paletteSeed.set("");
   let active = $state(0);
-  let input = $state<HTMLInputElement>();
+  let input = $state<HTMLInputElement | HTMLTextAreaElement>();
 
   const entries: Entry[] = $derived([
     ...sections.map((section): Entry => ({ id: `section:${section}`, kind: "section", label: t(sectionLabels[section], $language), hint: t("Pagina", $language), icon: sectionIcons[section], run: () => selectSection(section) })),
     ...$games.data.map((game): Entry => ({ id: `game:${game.id}`, kind: "game", label: game.name, hint: t("Libreria", $language), icon: "play", run: () => openGame(game.id) })),
     { id: "action:add-game", kind: "action", label: t("Aggiungi gioco", $language), hint: t("Libreria", $language), icon: "plus", run: () => { selectSection("library"); addGameDialogOpen.set(true); } },
+    { id: "action:disk-usage", kind: "action", label: t("Cosa occupa spazio", $language), hint: t("Libreria", $language), icon: "folder", keywords: "disco spazio dimensione pulizia disk space size cleanup", run: () => diskUsageDialogOpen.set(true) },
+    { id: "action:playtime-recap", kind: "action", label: t("Annata di gioco", $language), hint: t(sectionLabels.home, $language), icon: "calendar", keywords: "recap statistiche tempo di gioco", run: openPlaytimeRecap },
+    { id: "action:shortcuts", kind: "action", label: t("Scorciatoie", $language), hint: t("Aiuto", $language), icon: "keyboard", keywords: "tastiera shortcuts keyboard", run: () => shortcutsOpen.set(true) },
     ...settingsCategories($appInfo.data.platform).map((category): Entry => ({ id: `setting:${category.id}`, kind: "setting", label: t(category.label, $language), hint: t("Impostazioni", $language), icon: category.icon, run: () => openSettings(category.id) })),
   ]);
   const results: Entry[] = $derived([
@@ -60,25 +68,24 @@
 <Dialog open title={t("Cerca ovunque", $language)} onClose={() => paletteOpen.set(false)}>
   {#snippet children(close)}
     <div class="flex flex-col gap-3">
-      <div class="flex h-11 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 light:border-zinc-900/10 light:bg-white">
-        <Icon name="search" size="size-4 shrink-0 text-zinc-500" />
-        <input
-          bind:this={input}
-          bind:value={query}
-          type="text"
-          role="combobox"
-          aria-expanded="true"
-          aria-controls={listId}
-          aria-activedescendant={selected === undefined ? undefined : `${listId}-${selected.id}`}
-          aria-label={t("Cerca giochi, pagine e impostazioni", $language)}
-          placeholder={t("Cerca giochi, pagine e impostazioni", $language)}
-          autocomplete="off"
-          spellcheck="false"
-          oninput={() => { active = 0; }}
-          onkeydown={(event) => handleKeydown(event, close)}
-          class="h-full min-w-0 flex-1 bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-500 light:text-zinc-900"
-        />
-      </div>
+      <TextField
+        id="{listId}-query"
+        type="search"
+        label={t("Cerca giochi, pagine e impostazioni", $language)}
+        labelHidden
+        bind:element={input}
+        bind:value={query}
+        role="combobox"
+        aria-expanded="true"
+        aria-autocomplete="list"
+        aria-controls={listId}
+        aria-activedescendant={selected === undefined ? undefined : `${listId}-${selected.id}`}
+        placeholder={t("Cerca giochi, pagine e impostazioni", $language)}
+        autocomplete="off"
+        spellcheck="false"
+        oninput={() => { active = 0; }}
+        onkeydown={(event) => handleKeydown(event, close)}
+      />
       <div id={listId} role="listbox" aria-label={t("Risultati", $language)} class="flex max-h-80 flex-col gap-0.5 overflow-y-auto">
         {#each results as entry, index (entry.id)}
           <button
@@ -89,14 +96,14 @@
             aria-selected={index === Math.min(active, results.length - 1)}
             onpointermove={() => { active = index; }}
             onclick={() => choose(entry, close)}
-            class="flex h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm text-zinc-200 aria-selected:bg-white/10 aria-selected:text-white light:text-zinc-800 light:aria-selected:bg-zinc-900/10 light:aria-selected:text-zinc-950"
+            class="flex h-control-md w-full items-center gap-3 rounded-control px-3 text-left text-sm text-legio-fg aria-selected:bg-legio-fill-hover aria-selected:text-legio-fg"
           >
-            <span class="shrink-0 text-zinc-400 light:text-zinc-600"><Icon name={entry.icon} size="size-4" /></span>
+            <span class="shrink-0 text-legio-fg-muted"><Icon name={entry.icon} /></span>
             <span class="min-w-0 flex-1 truncate">{entry.label}</span>
-            {#if entry.hint}<span class="shrink-0 text-xs text-zinc-500">{entry.hint}</span>{/if}
+            {#if entry.hint}<span class="shrink-0 text-xs text-legio-fg-subtle">{entry.hint}</span>{/if}
           </button>
         {:else}
-          <p class="px-3 py-6 text-center text-sm text-zinc-500" role="status">{t("Nessun risultato", $language)}</p>
+          <p class="px-3 py-6 text-center text-sm text-legio-fg-subtle" role="status">{t("Nessun risultato", $language)}</p>
         {/each}
       </div>
     </div>

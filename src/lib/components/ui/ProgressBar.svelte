@@ -17,15 +17,15 @@
   const fillClass = $derived.by(() => {
     if (variant === "button") return "bg-white";
     if (tone === "accent") return "bg-legio-download";
-    if (tone === "warning") return "bg-amber-500";
-    if (tone === "danger") return "bg-red-500";
-    if (tone === "success") return "bg-emerald-500";
-    return "bg-zinc-100 light:bg-zinc-900";
+    if (tone === "warning") return "bg-legio-warning";
+    if (tone === "danger") return "bg-legio-error";
+    if (tone === "success") return "bg-legio-success";
+    return "bg-legio-fg";
   });
 </script>
 
 <span
-  class="block overflow-hidden {variant === 'button' ? 'absolute inset-x-0 bottom-0 h-2 bg-white/30' : 'h-1.5 w-full rounded-full bg-white/10 light:bg-zinc-900/10'} {className}"
+  class="block overflow-hidden {variant === 'button' ? 'absolute inset-x-0 bottom-0 h-2 bg-white/30' : 'h-1.5 w-full rounded-full bg-legio-fill-hover'} {className}"
   role="progressbar"
   aria-label={label}
   aria-valuemin="0"
@@ -33,7 +33,7 @@
   aria-valuenow={Math.round(percent)}
 >
   <span
-    class="block h-full transition-[width] duration-300 motion-reduce:transition-none {variant === 'default' ? 'rounded-full' : ''} {fillClass}"
+    class="block h-full transition-[width] duration-(--legio-motion-slow) motion-reduce:transition-none {variant === 'default' ? 'rounded-full' : ''} {fillClass}"
     style:width={`${percent}%`}
   ></span>
 </span>

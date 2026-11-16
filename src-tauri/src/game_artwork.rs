@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use crate::{database::Game, image_format::ImageFormat};
 
-const MAX_ARTWORK_BYTES: usize = 2 * 1024 * 1024;
+pub(crate) const MAX_ARTWORK_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ArtworkKind {
@@ -101,6 +101,24 @@ impl GameArtworkStore {
             crate::image_trim::validate_image(&bytes)?;
         }
         self.store(game_id, kind, bytes)
+    }
+
+    /// Stores downloaded bytes under the same size, format and dimension rules as `set`.
+    pub(crate) fn set_downloaded(
+        &self,
+        game_id: &str,
+        kind: ArtworkKind,
+        bytes: Vec<u8>,
+    ) -> Result<(), String> {
+        let game_id = canonical_game_id(game_id)?;
+        if ImageFormat::from_bytes(&bytes).is_none() {
+            return Err(format!(
+                "The {} is not a supported PNG, JPEG, or WebP image",
+                kind.label()
+            ));
+        }
+        crate::image_trim::validate_image(&bytes)?;
+        self.store(game_id, kind, bytes).map(|_| ())
     }
 
     pub(crate) fn shortcut_icon_path(&self, game: &Game) -> Result<Option<PathBuf>, String> {

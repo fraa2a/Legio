@@ -502,18 +502,69 @@ async fn create_token(client: &Client, secret: &str) -> Result<String, GofileErr
     Ok(token.to_owned())
 }
 
+/// Files that `first_file` could pick in one folder, in website order: the first one
+/// and its siblings, which together may form a multipart archive.
+fn folder_files(pages: &[Content]) -> Vec<(String, String)> {
+    pages
+        .iter()
+        .flat_map(|page| {
+            if page.kind == "file" {
+                std::slice::from_ref(page)
+            } else {
+                page.children.as_slice()
+            }
+        })
+        .filter(|item| {
+            item.kind == "file"
+                && item.can_access != Some(false)
+                && item.unavailable_message().is_none()
+                && item.link.is_some()
+        })
+        .map(|item| {
+            (
+                item.name.clone().unwrap_or_else(|| "download".into()),
+                item.link.clone().unwrap_or_default(),
+            )
+        })
+        .collect()
+}
+
+fn resolved_file(
+    name: String,
+    link: Option<String>,
+    token: &str,
+) -> Result<ResolvedFile, GofileError> {
+    let value = serde_json::json!({"name": name, "link": link});
+    let (name, url) = crate::download_resolver::gofile_files(&value)?.remove(0);
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "cookie",
+        HeaderValue::from_str(&format!("accountToken={token}"))
+            .map_err(|_| "Invalid GoFile cookie")?,
+    );
+    headers.insert("user-agent", HeaderValue::from_static(USER_AGENT));
+    Ok(ResolvedFile {
+        name: Some(name),
+        url,
+        headers,
+    })
+}
+
+/// The first downloadable file in website order, followed by the other files of its
+/// folder. A sibling with an invalid name or link is left out, as it was never chosen.
 async fn first_file(
     client: &Client,
     id: &str,
     token: &str,
     secret: &str,
     password: Option<&str>,
-) -> Result<ResolvedFile, GofileError> {
+) -> Result<Vec<ResolvedFile>, GofileError> {
     enum Work {
         Lookup(String),
-        Item(Content),
+        Item(Content, usize),
     }
     let mut work = vec![Work::Lookup(id.into())];
+    let mut folders: Vec<Vec<(String, String)>> = Vec::new();
     let mut visited = HashSet::new();
     let mut unavailable = None;
     let mut requests = 0;
@@ -547,9 +598,11 @@ async fn first_file(
                     }
                     page += 1;
                 }
-                work.extend(pages.into_iter().rev().map(Work::Item));
+                let folder = folders.len();
+                folders.push(folder_files(&pages));
+                work.extend(pages.into_iter().rev().map(|page| Work::Item(page, folder)));
             }
-            Work::Item(content) => {
+            Work::Item(content, folder) => {
                 if content.kind == "file" {
                     if let Some(message) = content.unavailable_message() {
                         unavailable.get_or_insert(message);
@@ -558,20 +611,22 @@ async fn first_file(
                     if content.link.is_none() {
                         continue;
                     }
-                    let value = serde_json::json!({"name": content.name.unwrap_or_else(|| "download".into()), "link": content.link, "canAccess": content.can_access});
-                    let (name, url) = crate::download_resolver::gofile_files(&value)?.remove(0);
-                    let mut headers = HeaderMap::new();
-                    headers.insert(
-                        "cookie",
-                        HeaderValue::from_str(&format!("accountToken={token}"))
-                            .map_err(|_| "Invalid GoFile cookie")?,
-                    );
-                    headers.insert("user-agent", HeaderValue::from_static(USER_AGENT));
-                    return Ok(ResolvedFile {
-                        name: Some(name),
-                        url,
-                        headers,
-                    });
+                    let first = resolved_file(
+                        content.name.unwrap_or_else(|| "download".into()),
+                        content.link,
+                        token,
+                    )?;
+                    let mut files = vec![first];
+                    let siblings = std::mem::take(&mut folders[folder]);
+                    for (name, link) in siblings {
+                        if files[0].name.as_deref() == Some(name.as_str()) && files[0].url == link {
+                            continue;
+                        }
+                        if let Ok(file) = resolved_file(name, Some(link), token) {
+                            files.push(file);
+                        }
+                    }
+                    return Ok(files);
                 }
                 if content.kind != "folder" {
                     return Err("GoFile returned an unsupported content type".into());
@@ -586,7 +641,7 @@ async fn first_file(
                     work.push(if child.kind == "folder" {
                         Work::Lookup(child.id)
                     } else {
-                        Work::Item(child)
+                        Work::Item(child, folder)
                     });
                 }
             }
@@ -600,7 +655,7 @@ async fn official(
     client: &Client,
     id: &str,
     password: Option<&str>,
-) -> Result<ResolvedFile, GofileError> {
+) -> Result<Vec<ResolvedFile>, GofileError> {
     let mut state = STATE
         .get_or_init(|| AsyncMutex::new(Session::default()))
         .lock()
@@ -634,7 +689,7 @@ async fn official(
         .token
         .as_deref()
         .ok_or("GoFile guest token is unavailable")?;
-    let file = match first_file(client, id, token, &current_secret, password).await {
+    let files = match first_file(client, id, token, &current_secret, password).await {
         Err(GofileError::Unauthorized) => {
             state.token = None;
             state.secret = None;
@@ -646,9 +701,17 @@ async fn official(
         }
         result => result,
     }?;
-    crate::download_resolver::head(client, &file.url, file.headers.clone(), PlainHttp::Refused)
-        .await?;
-    Ok(file)
+    let first = files
+        .first()
+        .ok_or("GoFile folder has no accessible file links")?;
+    crate::download_resolver::head(
+        client,
+        &first.url,
+        first.headers.clone(),
+        PlainHttp::Refused,
+    )
+    .await?;
+    Ok(files)
 }
 
 pub(crate) async fn resolve(
@@ -659,10 +722,10 @@ pub(crate) async fn resolve(
     if !valid_id(id) {
         return Err("Invalid GoFile content ID".into());
     }
-    let file = tokio::time::timeout(Duration::from_secs(120), official(client, id, password))
+    let files = tokio::time::timeout(Duration::from_secs(120), official(client, id, password))
         .await
         .map_err(|_| ResolveError::Network("GoFile resolution timed out".to_owned()))??;
-    Ok(ResolvedDownload { files: vec![file] })
+    Ok(ResolvedDownload { files })
 }
 
 #[cfg(test)]
@@ -737,6 +800,45 @@ mod tests {
             vec!["z", "a"]
         );
         assert_eq!(reply.metadata.total_pages, 2);
+    }
+
+    #[test]
+    fn folder_files_lists_downloadable_files_across_pages_in_order() {
+        let link = |name: &str| format!("https://store1.gofile.io/download/{name}");
+        let page = |children: &str| -> Content {
+            serde_json::from_str(&format!(
+                r#"{{"id":"root","type":"folder","children":{{{children}}}}}"#
+            ))
+            .unwrap()
+        };
+        let pages = [
+            page(&format!(
+                r#""b":{{"id":"b","type":"file","name":"g.part2.rar","link":"{}"}},"sub":{{"id":"sub","type":"folder"}},"x":{{"id":"x","type":"file","name":"cold.rar","link":"{}","isFrozen":true}}"#,
+                link("g.part2.rar"),
+                link("cold.rar")
+            )),
+            page(&format!(
+                r#""a":{{"id":"a","type":"file","name":"g.part1.rar","link":"{}"}},"n":{{"id":"n","type":"file","name":"nolink.txt"}},"p":{{"id":"p","type":"file","name":"private.rar","link":"{}","canAccess":false}}"#,
+                link("g.part1.rar"),
+                link("private.rar")
+            )),
+        ];
+        assert_eq!(
+            folder_files(&pages),
+            vec![
+                ("g.part2.rar".to_owned(), link("g.part2.rar")),
+                ("g.part1.rar".to_owned(), link("g.part1.rar")),
+            ]
+        );
+        let single: Content = serde_json::from_str(&format!(
+            r#"{{"id":"f","type":"file","name":"game.zip","link":"{}"}}"#,
+            link("game.zip")
+        ))
+        .unwrap();
+        assert_eq!(
+            folder_files(std::slice::from_ref(&single)),
+            vec![("game.zip".to_owned(), link("game.zip"))]
+        );
     }
 
     #[test]

@@ -8,10 +8,12 @@
   import Icon from "../../components/ui/Icon.svelte";
   import { fadeDuration } from "../../utils/motion";
   import SteamArtwork from "./SteamArtwork.svelte";
+  import type { LocalImage } from "./local-screenshots";
 
   let {
-    steamAppId,
-    asset,
+    steamAppId = 0,
+    asset = "screenshot",
+    local = undefined,
     fallbackAsset = null,
     index = null,
     count = 1,
@@ -20,8 +22,10 @@
     onSelect,
     onClose,
   }: {
-    steamAppId: number;
-    asset: SteamAssetKind;
+    steamAppId?: number;
+    asset?: SteamAssetKind;
+    // Local files shown instead of a Steam asset.
+    local?: readonly LocalImage[];
     fallbackAsset?: SteamAssetKind | null;
     index?: number | null;
     count?: number;
@@ -85,8 +89,8 @@
 >
   <div class="flex shrink-0 items-center justify-between gap-3 p-4">
     <span class="text-sm text-zinc-300 tabular-nums">{position ?? ""}</span>
-    <Button label={t("Chiudi", $language)} variant="secondary" circle onClick={onClose} class="size-10">
-      <Icon name="close" size="h-5 w-5" />
+    <Button label={t("Chiudi", $language)} variant="secondary" shape="circle" onClick={onClose}>
+      <Icon name="close" />
     </Button>
   </div>
 
@@ -105,6 +109,12 @@
           class="absolute inset-0 flex items-center justify-center p-4"
           transition:fade={{ duration: fadeDuration }}
         >
+          {#if local !== undefined}
+            {@const image = local[index ?? 0]}
+            {#if image?.fullUrl ?? image?.thumbUrl}
+              <img src={image.fullUrl ?? image.thumbUrl} {alt} draggable="false" class="h-full max-h-full w-auto max-w-full rounded-panel object-contain" />
+            {/if}
+          {:else}
           <SteamArtwork
             {steamAppId}
             {asset}
@@ -115,8 +125,9 @@
             full={asset === "screenshot"}
             {alt}
             caption={false}
-            class="h-full max-h-full w-auto max-w-full rounded-2xl object-contain"
+            class="h-full max-h-full w-auto max-w-full rounded-panel object-contain"
           />
+          {/if}
         </div>
       {/key}
     </div>
@@ -124,20 +135,20 @@
       <Button
         label={t("Immagine precedente", $language)}
         variant="secondary"
-        circle
+        shape="circle"
         onClick={previous}
-        class="absolute left-4 top-1/2 size-10 -translate-y-1/2"
+        class="absolute left-4 top-1/2 -translate-y-1/2"
       >
-        <Icon name="previous" size="h-6 w-6" />
+        <Icon name="previous" />
       </Button>
       <Button
         label={t("Immagine successiva", $language)}
         variant="secondary"
-        circle
+        shape="circle"
         onClick={next}
-        class="absolute right-4 top-1/2 size-10 -translate-y-1/2"
+        class="absolute right-4 top-1/2 -translate-y-1/2"
       >
-        <Icon name="next" size="h-6 w-6" />
+        <Icon name="next" />
       </Button>
     {/if}
   </div>
@@ -147,13 +158,16 @@
       {#each slots as slot (slot)}
         <button
           type="button"
-          class="h-16 w-28 shrink-0 overflow-hidden rounded-lg transition-opacity {slot === index
+          class="h-16 w-28 shrink-0 overflow-hidden rounded-control transition-opacity {slot === index
             ? 'opacity-100 ring-2 ring-white'
             : 'opacity-50 hover:opacity-100'}"
           aria-label={t("Vai all'immagine {0}", $language, [slot + 1])}
           aria-current={slot === index}
           onclick={() => onSelect?.(slot)}
         >
+          {#if local !== undefined}
+            {#if local[slot]?.thumbUrl}<img src={local[slot].thumbUrl} alt="" draggable="false" class="size-full object-cover" />{/if}
+          {:else}
           <SteamArtwork
             {steamAppId}
             {asset}
@@ -164,6 +178,7 @@
             caption={false}
             class="size-full object-cover"
           />
+          {/if}
         </button>
       {/each}
     </div>

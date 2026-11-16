@@ -3,7 +3,7 @@
   import { acquireModIcon } from "../../services/mod-icons";
   import { observeVisibility } from "../../utils/visibility";
 
-  let { source, class: className = "size-12 rounded-lg" }: { source: string | null; class?: string } = $props();
+  let { source, class: className = "size-12 rounded-control" }: { source: string | null; class?: string } = $props();
 
   let frame: HTMLSpanElement | undefined = $state();
   let visible = $state(false);
@@ -27,10 +27,10 @@
   });
 </script>
 
-<span bind:this={frame} class="relative flex shrink-0 items-center justify-center overflow-hidden bg-white/5 text-zinc-500 light:bg-zinc-900/5 light:text-zinc-400 {className}" aria-hidden="true">
+<span bind:this={frame} class="relative flex shrink-0 items-center justify-center overflow-hidden bg-legio-fill text-legio-fg-subtle {className}" aria-hidden="true">
   {#if url !== null}
     <img src={url} alt="" draggable="false" class="size-full object-cover" onerror={() => (url = null)} />
   {:else}
-    <Icon name="package" size="size-1/2" />
+    <Icon name="package" size="xl" class="max-h-[50%] max-w-[50%]" />
   {/if}
 </span>

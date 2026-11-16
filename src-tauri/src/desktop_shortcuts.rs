@@ -24,6 +24,19 @@ pub(crate) fn create(
     }
 }
 
+/// The executable that starts Legio from outside, as written into shortcuts.
+pub(crate) fn launcher_executable() -> Result<String, String> {
+    #[cfg(target_os = "linux")]
+    let launcher = linux::launcher_path()?;
+    #[cfg(windows)]
+    let launcher = std::env::current_exe()
+        .map_err(|error| format!("Could not find Legio executable: {error}"))?;
+    launcher
+        .into_os_string()
+        .into_string()
+        .map_err(|_| "Legio executable path is not UTF-8".to_owned())
+}
+
 pub(crate) fn remove(game_id: &str) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
@@ -852,7 +865,7 @@ mod linux {
         Ok(directory)
     }
 
-    fn launcher_path() -> Result<PathBuf, String> {
+    pub(super) fn launcher_path() -> Result<PathBuf, String> {
         if env::var_os("LEGIO_AUR_PACKAGE").as_deref() == Some(std::ffi::OsStr::new("1")) {
             return Ok(PathBuf::from("/usr/bin/legio-launcher"));
         }

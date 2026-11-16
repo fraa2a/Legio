@@ -10,5 +10,5 @@
 </script>
 
 <IconButton {label} title={label} {disabled} {onClick}>
-  <span class="transition-transform duration-200 group-hover:rotate-[-35deg] group-disabled:rotate-0"><Icon name="reload" size="size-4" /></span>
+  <span class="transition-transform group-hover:rotate-[-35deg] group-disabled:rotate-0"><Icon name="reload" /></span>
 </IconButton>

@@ -38,10 +38,12 @@ downloads.subscribe(state => {
   void Promise.all([games.reload(), gameUpdates.reload()]);
 });
 
-export const activeDownloadCount = derived(
+export const activeDownloads = derived(
   downloads,
-  (state) => state.data.filter((job) => (isActiveDownloadStatus(job.status) || job.pauseReason != null)).length,
+  (state) => state.data.filter((job) => (isActiveDownloadStatus(job.status) || job.pauseReason != null)),
 );
+
+export const activeDownloadCount = derived(activeDownloads, (jobs) => jobs.length);
 
 export const finishedDownloadCount = derived(
   downloads,

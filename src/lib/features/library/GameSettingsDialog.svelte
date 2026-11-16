@@ -7,6 +7,7 @@
   import { gameLibraries } from "../../stores/game-libraries";
   import LibraryPickerDialog from "./LibraryPickerDialog.svelte";
   import Button from "../../components/ui/Button.svelte";
+  import CopyButton from "../../components/ui/CopyButton.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import { toMessage } from "../../utils/errors";
   import SettingsNavigation from "../../components/ui/SettingsNavigation.svelte";
@@ -19,8 +20,11 @@
   import GameDetailsPanel from "./GameDetailsPanel.svelte";
   import ExecutablePanel from "./ExecutablePanel.svelte";
   import GameSettingsPanel from "./GameSettingsPanel.svelte";
+  import LaunchProfilesPanel from "./LaunchProfilesPanel.svelte";
   import SteamAccountPanel from "./SteamAccountPanel.svelte";
   import SteamLaunchSettings from "./SteamLaunchSettings.svelte";
+  import SteamExportDialog from "./SteamExportDialog.svelte";
+  import { isSteamExportable } from "./steam-export";
   import GameModSettings from "../modding/GameModSettings.svelte";
   import { launchStateByGame } from "../../stores/launch";
   import { appInfo } from "../../stores/app-info";
@@ -34,21 +38,24 @@
   const steamManaged = $derived(game.steamInstallPath !== null);
   const allCategories = $derived([
     { id: "general", label: t("Generali", $language), icon: "settings" },
+    { id: "profiles", label: t("Profili di avvio", $language), icon: "play" },
     { id: "locations", label: t("Posizioni", $language), icon: "folder" },
     { id: "customization", label: t("Personalizzazione", $language), icon: "image" },
     { id: "compatibility", label: t("Compatibilità", $language), icon: "wrench" },
     { id: "mods", label: t("Mod", $language), icon: "mods" },
     { id: "danger", label: t("Zona pericolosa", $language), icon: "warning" },
-  ] satisfies { id: string; label: string; icon: "settings" | "folder" | "image" | "wrench" | "mods" | "warning" }[]);
-  const categories = $derived((steamManaged || $appInfo.data.platform !== "linux" || (game.executablePath !== null && !/\.exe$/i.test(game.executablePath)))
-    ? allCategories.filter((category) => category.id !== "compatibility")
-    : allCategories);
+  ] satisfies { id: string; label: string; icon: "settings" | "play" | "folder" | "image" | "wrench" | "mods" | "warning" }[]);
+  const noCompatibility = $derived(steamManaged || $appInfo.data.platform !== "linux" || (game.executablePath !== null && !/\.exe$/i.test(game.executablePath)));
+  const launchable = $derived(steamManaged || game.executablePath !== null);
+  const categories = $derived(allCategories.filter((category) =>
+    (category.id !== "compatibility" || !noCompatibility) && (category.id !== "profiles" || launchable)));
   let active = $state("general");
   const selectedCategory = $derived(categories.some(category => category.id === active) ? active : "general");
   let shortcutWarning = $state<string | null>(null);
   let shortcutError = $state<string | null>(null);
   let shortcutPath = $state<string | null>(null);
   let shortcutPending = $state(false);
+  let steamExportOpen = $state(false);
   const running = $derived(($launchStateByGame.get(game.id)?.status ?? "idle") !== "idle");
   let transferPickerOpen = $state(false);
   let transferPending = $state(false);
@@ -101,8 +108,13 @@
         <div class="flex flex-col gap-4">
           <GameDetailsPanel {game} {onRemoved} />
           <Panel title={t("Collegamento", $language)}>
-            <Button label={shortcutPending ? t("Creazione...", $language) : t("Aggiungi collegamento desktop", $language)}
-              disabled={shortcutPending} onClick={() => void addDesktopShortcut()} />
+            <div class="flex flex-wrap gap-2">
+              <Button label={shortcutPending ? t("Creazione...", $language) : t("Aggiungi collegamento desktop", $language)}
+                disabled={shortcutPending} onClick={() => void addDesktopShortcut()} />
+              {#if isSteamExportable(game)}
+                <Button label={t("Aggiungi a Steam", $language)} variant="secondary" onClick={() => { steamExportOpen = true; }} />
+              {/if}
+            </div>
             {#if shortcutPath}<Callout tone="success" variant="inline" class="mt-2 break-all" message={t("Collegamento creato: {0}", $language, [shortcutPath])} />{/if}
             {#if shortcutWarning}<ErrorBanner message={shortcutWarning} tone="warning" />{/if}
             {#if shortcutError}<ErrorBanner message={shortcutError} />{/if}
@@ -114,16 +126,18 @@
             {#key game.id}<GameSettingsPanel {game} section="launch" />{/key}
           {:else}
             <Panel title={t("Opzioni di avvio", $language)}>
-              <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Seleziona prima un eseguibile nella sezione Posizioni.", $language)}</p>
+              <p class="text-sm text-legio-fg-muted">{t("Seleziona prima un eseguibile nella sezione Posizioni.", $language)}</p>
             </Panel>
           {/if}
         </div>
+      {:else if selectedCategory === "profiles"}
+        {#key game.id}<LaunchProfilesPanel {game} />{/key}
       {:else if selectedCategory === "locations"}
         <div class="flex flex-col gap-4">
           {#if !steamManaged}<ExecutablePanel {game} />{:else}
             <Panel title={t("Installazione Steam", $language)}>
-              <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Steam gestisce il percorso di installazione per questo gioco.", $language)}</p>
-              <p class="break-all text-sm text-zinc-200 light:text-zinc-800">{game.steamInstallPath}</p>
+              <p class="text-sm text-legio-fg-muted">{t("Steam gestisce il percorso di installazione per questo gioco.", $language)}</p>
+              <div class="flex items-start gap-2"><p class="min-w-0 flex-1 select-text break-all text-sm text-legio-fg" data-selectable>{game.steamInstallPath}</p><CopyButton text={game.steamInstallPath ?? ""} size="inline-sm" label={t("Copia il percorso", $language)} /></div>
             </Panel>
           {/if}
           {#if game.executablePath !== null}
@@ -132,10 +146,10 @@
           {#if !steamManaged && game.executablePath !== null}
             <Panel title={t("Trasferisci gioco", $language)}>
               <div class="flex flex-col gap-3">
-                <p class="break-all text-sm text-zinc-400 light:text-zinc-600">{currentLibrary === null ? t("Questo gioco non si trova in una libreria di Legio.", $language) : t("Libreria attuale: {0}", $language, [currentLibrary.root])}</p>
+                <p class="break-all text-sm text-legio-fg-muted">{currentLibrary === null ? t("Questo gioco non si trova in una libreria di Legio.", $language) : t("Libreria attuale: {0}", $language, [currentLibrary.root])}</p>
                 <div><Button label={transferPending ? t("Trasferimento...", $language) : t("Sposta in un'altra libreria...", $language)}
                   disabled={running || transferPending} onClick={() => (transferPickerOpen = true)} /></div>
-                {#if running}<p class="text-sm text-zinc-400">{t("Chiudi il gioco prima di trasferirlo.", $language)}</p>{/if}
+                {#if running}<p class="text-sm text-legio-fg-muted">{t("Chiudi il gioco prima di trasferirlo.", $language)}</p>{/if}
                 {#if transferDone}<Callout tone="success" variant="inline" message={t("Gioco trasferito.", $language)} />{/if}
                 {#if transferWarning}<ErrorBanner message={transferWarning} tone="warning" />{/if}
                 {#if transferError}<ErrorBanner message={transferError} />{/if}
@@ -150,7 +164,7 @@
           {#key game.id}<GameSettingsPanel {game} section="compatibility" />{/key}
         {:else}
           <Panel title={t("Compatibilità", $language)}>
-            <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Seleziona prima un eseguibile per configurare il runner e gli argomenti di avvio.", $language)}</p>
+            <p class="text-sm text-legio-fg-muted">{t("Seleziona prima un eseguibile per configurare il runner e gli argomenti di avvio.", $language)}</p>
           </Panel>
         {/if}
       {:else if selectedCategory === "mods"}
@@ -173,3 +187,5 @@
   onSelect={(library) => void moveGame(library)}
   onClose={() => (transferPickerOpen = false)}
 />
+
+{#if steamExportOpen}<SteamExportDialog games={[game]} onClose={() => (steamExportOpen = false)} />{/if}

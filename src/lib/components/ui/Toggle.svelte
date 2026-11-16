@@ -14,13 +14,14 @@
   } = $props();
 </script>
 
-<label class="flex items-center justify-between gap-6 {disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}">
-  <span class="{labelHidden ? 'sr-only' : 'min-w-0 text-sm text-zinc-100 light:text-zinc-900'}">{label}</span>
+<label class="flex items-center justify-between gap-6 {disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}">
+  <span class="{labelHidden ? 'sr-only' : 'min-w-0 text-sm font-medium text-legio-fg'}">{label}</span>
   <span
-    class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full bg-white/15 transition-colors duration-200 has-checked:bg-legio-accent has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-(--legio-focus) light:bg-zinc-300"
+    class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full bg-legio-fill-active transition-colors has-checked:bg-legio-accent has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-(--legio-focus)"
   >
     <input
       type="checkbox"
+      role="switch"
       class="peer sr-only"
       {disabled}
       {checked}
@@ -31,7 +32,7 @@
     />
     <span
       aria-hidden="true"
-      class="pointer-events-none absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow-sm transition-transform duration-200 peer-checked:translate-x-5 peer-checked:bg-legio-accent-text"
+      class="pointer-events-none absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5 peer-checked:bg-legio-accent-text"
     ></span>
   </span>
 </label>

@@ -1,7 +1,8 @@
-import { writable } from "svelte/store";
+import { get, writable } from "svelte/store";
+import { recordNotification, retryNotification, type NotificationTone } from "./notifications";
 
-export type ToastTone = "info" | "success" | "warning" | "error";
-export interface Toast { id: number; message: string; tone: ToastTone; onRetry?: () => void; retryLabel?: string }
+export type ToastTone = NotificationTone;
+export interface Toast { id: number; message: string; tone: ToastTone; detail?: string; onRetry?: () => void; retryLabel?: string }
 export const toast = writable<Toast[]>([]);
 
 let nextId = 0;
@@ -13,13 +14,15 @@ export function dismissToast(id: number): void {
   toast.update((notices) => notices.filter((notice) => notice.id !== id));
 }
 
-export function showToast(message: string, tone: ToastTone = "info", action?: { onRetry?: () => void; retryLabel?: string; persistent?: boolean }): void {
+// Every shown toast is also kept in the notification history, with its technical detail.
+export function showToast(message: string, tone: ToastTone = "info", action?: { onRetry?: () => void; retryLabel?: string; persistent?: boolean; detail?: string }): void {
+  if (get(toast).some((notice) => notice.message === message && notice.tone === tone)) return;
   const id = ++nextId;
-  let duplicate = false;
-  toast.update((notices) => {
-    duplicate = notices.some((notice) => notice.message === message && notice.tone === tone);
-    return duplicate ? notices : [...notices, { id, message, tone, onRetry: action?.onRetry, retryLabel: action?.retryLabel }];
-  });
-  if (duplicate || action?.persistent) return;
+  const retry = action?.onRetry;
+  const entryId = recordNotification(message, tone, retry === undefined ? undefined : { run: retry, label: action?.retryLabel }, Date.now(), action?.detail);
+  const onRetry = retry === undefined ? undefined : () => void retryNotification(entryId);
+  toast.update((notices) => [...notices, { id, message, tone, detail: action?.detail, onRetry, retryLabel: action?.retryLabel }]);
+  // A technical detail stays until dismissed so it can be read and copied.
+  if (action?.persistent || action?.detail !== undefined) return;
   timers.set(id, setTimeout(() => dismissToast(id), 5000));
 }

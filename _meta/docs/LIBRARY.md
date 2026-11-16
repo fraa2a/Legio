@@ -89,10 +89,86 @@ using numeric suffixes for collisions. A legacy UUID folder uses the readable
 game name instead. An active launcher session or externally detected game blocks
 transfer preparation, publication and source cleanup.
 
+A same-volume transfer renames the folder. A copy transfer keeps symbolic links
+as links with the same target and never copies or walks through them. On Unix it
+accepts only relative links whose target, resolved through the folder's own links
+without following them outside it, stays inside the game folder; dangling links
+that meet this rule are kept. Absolute or escaping links stop the copy before any
+file is written, and other platforms refuse every link.
+
 `archiveLayout` records `legacy` or `direct` explicitly. Transferring or renaming a
 legacy installation does not change how future update archives are overlaid.
 Filesystem/database journals remain necessary because copying games and updating
 multiple manifests cannot be one ordinary file replacement transaction.
+
+## Organization and views
+
+Games can be marked as favorites, given a play status (backlog, playing, completed,
+on hold, dropped) and added to any number of named collections. Versions of one
+game share a library card, so the card and the game page change all of them at once
+and read them together: a favorite or membership on any version counts, the status
+comes from the shown version or else the first version that has one. Storage and
+validation are described in [SCHEMA.md](SCHEMA.md#library-organization-in-the-local-database).
+
+The star on a card toggles the favorite. The collection button on a card, in the
+list and on the game page opens a dialog with the status and a switch per
+collection, plus a field to create one. The library toolbar manages collections
+(create, rename, reorder and delete with confirmation; games stay in the library).
+
+The toolbar switches between three views:
+
+- Grid: the cover grid, with a slider from 70% to 150% of the default tile width.
+- List: a table with sortable name, playtime, last played and source columns, plus
+  status. Clicking the current column flips the direction; a new column starts
+  descending for numbers and dates and ascending for text.
+- Shelves: one horizontal row per collection in collection order, then the games
+  without a collection.
+
+Every view applies the same sort (name, playtime, last played, recently added or
+source) and filters (favorites only, status, collection or games without one).
+Unknown dates sort last in both directions; games added before organization was
+stored have no known addition date. View, sort, direction, cover size and filters
+are saved in the application preferences under `libraryView`. A filter on a
+deleted collection shows every game. Sorting, filtering and resizing glide the
+grid cards near the viewport to their new places, without motion when reduced
+motion is preferred. Disk usage is not part of the list yet.
+
+## Launch profiles
+
+A game can have up to 12 named launch profiles, such as "with mods", "vanilla" or
+"windowed". A profile is a set of overrides of the game's launch settings; every
+field it leaves out inherits the base settings, which stay the implicit
+"Predefinito" profile. A game without profiles launches exactly as before and its
+Play button is unchanged. Storage and validation are described in
+[SCHEMA.md](SCHEMA.md#launch-profiles-in-the-local-database).
+
+| Override | Applies to | Replaces |
+| --- | --- | --- |
+| Arguments | every game | Steam launch arguments, native launch arguments, or the arguments after the executable of a compatibility launch |
+| Environment variables | manual games | The whole environment of the base settings (an empty map clears it) |
+| Runner | Linux games run through a compatibility runner | The runner of the game or of the global default |
+| GameMode and Gamescope | Linux games run through a compatibility runner | The whole Linux performance block |
+
+Resolution happens in the Rust launch paths, once, before the mod loader arguments
+are appended and before the final validation of arguments, environment and DLL
+overrides. Overrides are checked with the same validators as the base settings when
+saved and again at launch. A launch that names an unknown profile, or a profile of
+another game, fails instead of falling back to the base settings. The backend
+remembers the profile of the last launch that started; deleting that profile makes
+the game return to the base settings, and removing a game removes its profiles.
+
+Mod profiles are not part of a launch profile. A launch always uses the game's
+active mod profile, because deploying another profile rewrites files in the game
+folder and changes the active profile. Several executables per game do not exist
+either, so there is no executable override.
+
+Profiles are managed in the "Profili di avvio" section of the game settings, with
+the same fields as the base settings and a switch per field that returns it to
+inheriting. When a game has profiles, the Play button becomes a split control: the
+main part launches the last used profile and the arrow opens a menu, expanding from
+the button into one surface, to pick another one. Picking an entry launches it and
+makes it the last used. Desktop shortcuts and `--launch-game=` always launch the
+base settings, and library manifests do not carry profiles.
 
 ## Advanced playtime editing
 
@@ -101,3 +177,117 @@ minutes, with explicit confirmation. A persisted adjustment preserves real sessi
 history and calendar activity. Future sessions add time normally. Active sessions,
 invalid totals and externally detected running games are rejected by the backend.
 Steam account playtime is not modified.
+
+
+
+## Import from other launchers
+
+The initial setup (onboarding) offers games installed with Heroic, Lutris, itch and
+Bottles, only when at least one is found. Detection is read-only: Legio never writes
+to, locks or modifies another launcher's folders. Each launcher is read on its own, so
+one unreadable launcher does not hide the others.
+
+| Launcher | Platform | Read |
+| --- | --- | --- |
+| Heroic | Linux, Flatpak, Windows | In `~/.config/heroic`, the Flatpak config or `%APPDATA%/heroic`: `legendaryConfig/legendary/installed.json`, `gog_store/installed.json` (plus `goggame-<id>.info` in the game folder), `nile_config/nile/installed.json`, `sideload_apps/library.json`, `store_cache/*_library.json` for titles and `GamesConfig/<app>.json` for the Wine prefix and runner name |
+| Lutris | Linux, Flatpak | `pga.db` (table `games`, runners `wine` and `linux`) and `games/<configpath>.yml` for `game.exe`, `game.prefix` and `wine.version` |
+| itch | Linux, Flatpak, Windows | `db/butler.db` tables `caves`, `games` and `install_locations`; the executable comes from the `verdict` candidates only when unambiguous |
+| Bottles | Linux, Flatpak | `bottles/<bottle>/bottle.yml`: `Runner` and `External_Programs`; the bottle folder is the Wine prefix |
+
+SQLite databases are opened read-only and immutable. Files have size caps, entry
+counts are bounded, symbolic links leaving the launcher folder are not followed and
+every path is checked to exist before it is offered. The YAML files are read with a
+tolerant scalar extractor that skips any value it cannot read with certainty.
+
+Selected games go through the manual import path: the same executable validation and
+duplicate detection as adding a game by hand. Games whose executable is already in
+the library, or whose folder is already used by a library entry (including Steam
+installs), are skipped. A game without a known executable is listed as not
+importable, because the library cannot hold an entry without one. On Linux, the
+detected Wine prefix of a Windows game becomes its prefix in the compatibility
+settings; the runner name is shown but not applied. No database migration is needed.
+
+## Disk usage
+
+`folder_size.rs` walks an installation off the async executor. It never follows
+links, counts only regular files, and marks the result partial when an entry cannot
+be read. On Linux it sums allocated blocks (the stat call already reports them); on
+Windows it sums apparent length. The walk checks a cancel flag per entry and pauses
+briefly every 1024 entries and between games.
+
+`disk_usage.rs` measures only when a view asks (`refresh_disk_usage`): library
+settings, the "Cosa occupa spazio" dialog, or the game page for that single game.
+Games are Legio installations plus Steam games whose install folder is already
+recorded. Results are cached in `disk-usage.json` in the app cache folder, keyed by
+game ID with folder path, folder modification time and measurement time. An entry
+is dropped when the path or folder mtime differs or it is older than seven days,
+and explicitly after install, update, transfer and uninstall. No database schema is
+involved. `legio:disk-usage-changed` tells the UI to read the cache again.
+
+`get_library_usage` reports per library the total and free bytes of its disk, the
+bytes of its measured games and the remaining used space as "other". The figure is
+flagged as an estimate while any game is unmeasured or partial. Uninstalling from
+the usage dialog reuses the regular uninstall dialog and its backend path.
+
+## SteamGridDB artwork
+
+The artwork panel of a game can search SteamGridDB by name and, when known, by Steam
+App ID. The API key is entered in the general settings and stored only in the system
+keychain (Secret Service on Linux, Credential Manager on Windows). It is never written
+to the database or settings JSON, never logged and never returned to the frontend: the
+commands only set it, clear it and report whether one is set. Without a reachable
+keychain the user gets an explicit error and nothing is stored.
+
+Responses are untrusted. API replies are capped at 512 KiB and images are accepted only
+over `https` from `cdn.steamgriddb.com` and `cdn2.steamgriddb.com`, with no redirects
+and no key sent to the CDN. The chosen image is downloaded by Rust and stored with the
+same 2 MiB limit, format sniffing and dimension checks as an image picked from disk.
+Heroes and landscape covers fill the custom banner; icons fill the custom icon.
+Thumbnails load directly from the CDN, which the existing `img-src https:` allows.
+
+## Local screenshots
+
+The game page lists screenshots newest first, 12 per page and at most 500 per game, from
+two places: the Steam folder `userdata/<account>/760/remote/<appid>/screenshots` of every
+local Steam account, and one folder per game. That folder defaults to
+`game-screenshots/<game id>` in the Legio data directory; an override chosen in the UI is
+stored in the key/value `settings` table as `game_screenshot_folder.<game id>` (no schema
+migration) and removed with the game.
+
+Only regular files with a `png`, `jpg`, `jpeg` or `webp` extension whose first bytes match
+one of those formats are listed. Symbolic links are skipped and never opened, files over
+32 MiB are ignored, and the frontend only uses opaque ids resolved by the backend inside
+the known folders. Images reach the WebView through the artwork IPC response as object
+URLs; the strip uses 480 px JPEG thumbnails made on demand and the full image loads for
+the screenshot on display. "Open folder" opens the folder of the selected screenshot.
+"Set as wallpaper" imports the file through the appearance background pipeline
+(normalized PNG, up to 2560 px) and selects it as the app wallpaper.
+
+## Exporting games to Steam
+
+"Add to Steam" in a game's settings and "Export to Steam" in the Steam section of the
+library settings add Legio games to Steam as non-Steam shortcuts, so they appear on
+Steam Deck and in Big Picture. Each shortcut runs the Legio executable with
+`--launch-game=<id>`, the same command desktop shortcuts use, so playtime and launch
+settings still apply.
+
+This edits Steam's own files. Legio rewrites
+`<Steam>/userdata/<account>/config/shortcuts.vdf` (a binary VDF file) and refuses to
+do it while Steam is running, because Steam would overwrite the change on exit. Before
+every write Legio saves the previous file next to it as
+`shortcuts.vdf.legio-<timestamp>.bak` (the five newest are kept), writes the new file
+atomically and reads it back to verify it. Close Steam first, then restart it to see the
+games.
+
+- Legio marks its entries with the `Legio` tag and recognizes them by the
+  `--launch-game=<id>` launch option together with that tag or the Legio executable.
+  Re-exporting updates those entries; every other entry and every unknown key is kept
+  byte for byte. Removal only deletes entries Legio created.
+- The shortcut id is the CRC32 of the quoted executable path and the game name with the
+  top bit set. An existing entry keeps its id, so Steam artwork stays attached.
+- A custom game icon and banner are copied as PNG into `config/grid/`
+  (`<id>_icon.png`, `<id>_hero.png`, `<id>.png`). Existing files are never
+  overwritten, and artwork is left in place when shortcuts are removed.
+- A file that is too large, malformed, truncated or has value types Legio does not
+  know is never modified. Symlinks inside `userdata` are refused.
+- Steam's files are not versioned by Legio: the backup is the way back.

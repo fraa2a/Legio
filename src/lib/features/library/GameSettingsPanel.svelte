@@ -19,6 +19,7 @@
   } from "../../services/game-settings";
   import { appInfo } from "../../stores/app-info";
   import Button from "../../components/ui/Button.svelte";
+  import RadioCard from "../../components/ui/RadioCard.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
@@ -39,6 +40,8 @@
   let runnerDiagnostics = $state<string[]>([]);
   let gameModeAvailable = $state(false);
   let gamescopeAvailable = $state(false);
+  let mangohudAvailable = $state(false);
+  let wrapperText = $state("");
   let argumentsBefore = $state("");
   let argumentsAfter = $state("");
   let environmentText = $state("");
@@ -58,13 +61,13 @@
   let disposed = false;
 
   function compatibilityDraft() {
-    return { overrides: structuredClone($state.snapshot(overrides)), argumentsBefore, argumentsAfter, environmentText, dllOverridesText };
+    return { overrides: structuredClone($state.snapshot(overrides)), argumentsBefore, argumentsAfter, environmentText, dllOverridesText, wrapperText };
   }
 
   function nativeDraft() {
     return { nativeArguments, nativeWorkingDirectory, nativeEnvironmentText };
   }
-  const compatibilitySnapshot = $derived(JSON.stringify({ overrides, argumentsBefore, argumentsAfter, environmentText, dllOverridesText }));
+  const compatibilitySnapshot = $derived(JSON.stringify({ overrides, argumentsBefore, argumentsAfter, environmentText, dllOverridesText, wrapperText }));
   const nativeSnapshot = $derived(JSON.stringify({ nativeArguments, nativeWorkingDirectory, nativeEnvironmentText }));
   const compatibilityGame = $derived($appInfo.data.platform === "linux" && (game.executablePath === null || /\.exe$/i.test(game.executablePath)));
   const currentSnapshot = $derived(compatibilityGame ? compatibilitySnapshot : nativeSnapshot);
@@ -104,7 +107,7 @@
       const [overrideResult, defaultsResult, runnersResult, onlineFixResult] = await Promise.allSettled([
         getGameCompatibilityOverrides(game.id),
         getCompatibilityDefaults(),
-        section === "compatibility" ? listCompatibilityRunners() : Promise.resolve({ runners: [], diagnostics: [], gameModeAvailable: false, gamescopeAvailable: false }),
+        section === "compatibility" ? listCompatibilityRunners() : Promise.resolve({ runners: [], diagnostics: [], gameModeAvailable: false, mangohudAvailable: false, gamescopeAvailable: false }),
         section === "compatibility" ? getGameOnlineFixDetected(game.id) : Promise.resolve(false),
       ]);
       if (overrideResult.status === "fulfilled") {
@@ -113,6 +116,7 @@
         argumentsAfter = formatLaunchArguments(overrides.argumentsAfter ?? []);
         environmentText = mapToText(overrides.environment ?? {});
         dllOverridesText = mapToText(overrides.dllOverrides ?? {});
+        wrapperText = formatLaunchArguments(overrides.linuxPerformance.wrapper);
       } else {
         loadError = toMessage(overrideResult.reason);
       }
@@ -123,6 +127,7 @@
         runnerDiagnostics = runnersResult.value.diagnostics;
         gameModeAvailable = runnersResult.value.gameModeAvailable;
         gamescopeAvailable = runnersResult.value.gamescopeAvailable;
+        mangohudAvailable = runnersResult.value.mangohudAvailable;
       } else if (loadError === null) {
         loadError = toMessage(runnersResult.reason);
       }
@@ -200,28 +205,6 @@
     if (value === "inherit" || isWaylandMode(value)) setOverride("wayland", value === "inherit" ? null : value);
   }
 
-  function setPerformance(changes: Partial<GameCompatibilityOverrides["linuxPerformance"]>): void {
-    setOverride("linuxPerformance", { ...overrides.linuxPerformance, ...changes });
-  }
-
-  function setGamescopeResolution(value: string): void {
-    const config = overrides.linuxPerformance.gamescope;
-    if (config === null) return;
-    if (value === "native") {
-      setPerformance({ gamescope: { ...config, width: null, height: null } });
-    } else {
-      const [width, height] = value.split("x").map(Number);
-      if (Number.isInteger(width) && Number.isInteger(height)) setPerformance({ gamescope: { ...config, width, height } });
-    }
-  }
-
-  function setGamescopeFps(value: string): void {
-    const config = overrides.linuxPerformance.gamescope;
-    if (config === null) return;
-    const fps = value === "uncapped" ? null : Number(value);
-    if (fps === null || (Number.isInteger(fps) && fps >= 1 && fps <= 360)) setPerformance({ gamescope: { ...config, fps } });
-  }
-
   function setDebugLogging(value: string): void {
     setOverride("debugLogging", value === "inherit" ? null : value === "true");
   }
@@ -246,7 +229,7 @@
   async function saveCompatibility(captured?: string): Promise<void> {
     const values: ReturnType<typeof compatibilityDraft> = captured === undefined ? compatibilityDraft() : JSON.parse(captured);
     const snapshot = JSON.stringify(values);
-    const { overrides: draft, argumentsBefore: before, argumentsAfter: after, environmentText: environment, dllOverridesText: dll } = values;
+    const { overrides: draft, argumentsBefore: before, argumentsAfter: after, environmentText: environment, dllOverridesText: dll, wrapperText: wrapper } = values;
     saving = true;
     saveError = null;
     saved = false;
@@ -258,10 +241,11 @@
         ...draft,
         argumentsBefore: draft.argumentsBefore === null ? null : parseLaunchArguments(before),
         argumentsAfter: draft.argumentsAfter === null ? null : parseLaunchArguments(after),
+        linuxPerformance: { ...draft.linuxPerformance, wrapper: parseLaunchArguments(wrapper) },
         environment: draft.environment === null ? null : parseEnvironment(environment, draft.debugLogging ?? defaults?.debugLogging ?? false),
         dllOverrides: draft.dllOverrides === null ? null : parseMap(dll, t("Override DLL", $language)),
       });
-      baseline = JSON.stringify({ overrides: updated, argumentsBefore: before, argumentsAfter: after, environmentText: environment, dllOverridesText: dll });
+      baseline = JSON.stringify({ overrides: updated, argumentsBefore: before, argumentsAfter: after, environmentText: environment, dllOverridesText: dll, wrapperText: wrapper });
       if (!disposed && compatibilitySnapshot === snapshot) overrides = updated;
       failedSnapshot = null;
       saved = true;
@@ -281,6 +265,7 @@
     argumentsAfter = "";
     environmentText = "";
     dllOverridesText = "";
+    wrapperText = "";
   }
 
   async function saveNative(captured?: string): Promise<void> {
@@ -312,24 +297,46 @@
       saving = false;
     }
   }
+
+  function setPerformance(changes: Partial<GameCompatibilityOverrides["linuxPerformance"]>): void {
+    setOverride("linuxPerformance", { ...overrides.linuxPerformance, ...changes });
+  }
+
+  function setGamescopeResolution(value: string): void {
+    const config = overrides.linuxPerformance.gamescope;
+    if (config === null) return;
+    if (value === "native") {
+      setPerformance({ gamescope: { ...config, width: null, height: null } });
+    } else {
+      const [width, height] = value.split("x").map(Number);
+      if (Number.isInteger(width) && Number.isInteger(height)) setPerformance({ gamescope: { ...config, width, height } });
+    }
+  }
+
+  function setGamescopeFps(value: string): void {
+    const config = overrides.linuxPerformance.gamescope;
+    if (config === null) return;
+    const fps = value === "uncapped" ? null : Number(value);
+    if (fps === null || (Number.isInteger(fps) && fps >= 1 && fps <= 360)) setPerformance({ gamescope: { ...config, fps } });
+  }
 </script>
 
 <Panel title={section === "locations" ? t("Percorsi del gioco", $language) : section === "launch" ? t("Opzioni di avvio", $language) : t("Compatibilità", $language)}>
   {#if loading}
-    <p class="text-sm text-zinc-400" role="status">{t("Caricamento delle impostazioni di avvio...", $language)}</p>
+    <p class="text-sm text-legio-fg-muted" role="status">{t("Caricamento delle impostazioni di avvio...", $language)}</p>
   {:else if loadError !== null}
     <ErrorBanner message={loadError} onRetry={() => void load()} />
   {:else if compatibilityGame && section === "locations"}
-    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Il prefix predefinito è una cartella distinta per questo gioco sotto la radice globale. Avvio con Steam usa lo stesso percorso.", $language)}</p>
+    <p class="text-sm text-legio-fg-muted">{t("Il prefix predefinito è una cartella distinta per questo gioco sotto la radice globale. Avvio con Steam usa lo stesso percorso.", $language)}</p>
     <div class="grid gap-4">
-      <div class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
+      <div class="flex flex-col gap-1.5 text-sm text-legio-fg-muted">
         <Toggle label={t("Percorso del prefix personalizzato", $language)} checked={overrides.prefixPath !== null} onChange={togglePrefix} />
         <div class="flex gap-2">
           <div class="min-w-0 flex-1"><TextField id="game-compat-prefix" label={t("Cartella del prefix", $language)} value={overrides.prefixPath ?? ""} disabled={overrides.prefixPath === null} placeholder={t("Percorso assoluto", $language)} oninput={(value) => setOverride("prefixPath", value)} /></div>
           <Button label={t("Sfoglia...", $language)} variant="secondary" disabled={overrides.prefixPath === null} onClick={() => void browsePrefix()} />
         </div>
       </div>
-      <div class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
+      <div class="flex flex-col gap-1.5 text-sm text-legio-fg-muted">
         <Toggle label={t("Cartella di lavoro personalizzata", $language)} checked={overrides.workingDirectory !== null} onChange={toggleWorkingDirectory} />
         <TextField id="game-compat-working-directory" label={t("Cartella di lavoro", $language)} value={overrides.workingDirectory ?? ""} disabled={overrides.workingDirectory === null} placeholder={t("Predefinita: cartella dell'eseguibile", $language)} oninput={(value) => setOverride("workingDirectory", value)} />
       </div>
@@ -338,55 +345,60 @@
     {#if saved}<Callout tone="success" variant="inline" message={t("Percorsi salvati.", $language)} />{/if}
   {:else if compatibilityGame && section === "compatibility"}
     <Toggle label={t("Avvio con Steam", $language)} checked={overrides.launchViaSteam ?? (game.steamAppId !== null)} onChange={(checked) => setOverride("launchViaSteam", checked)} />
-    <p class="text-xs text-zinc-500">{t("Avvia Steam e il gioco con Proton usando il prefix della sezione Posizioni. Runtime e overlay vengono applicati automaticamente quando disponibili.", $language)}</p>
-    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Ogni campo eredita il default globale finché il relativo override resta disattivato. Una lista o una mappa vuota cancella il valore ereditato.", $language)}</p>
+    <p class="text-xs text-legio-fg-subtle">{t("Avvia Steam e il gioco con Proton usando il prefix della sezione Posizioni. Runtime e overlay vengono applicati automaticamente quando disponibili.", $language)}</p>
+    <p class="text-sm text-legio-fg-muted">{t("Ogni campo eredita il default globale finché il relativo override resta disattivato. Una lista o una mappa vuota cancella il valore ereditato.", $language)}</p>
     {#if runnerDiagnostics.length > 0}
       <Callout tone="warning" title={t("Rilevamento runner", $language)} items={runnerDiagnostics} />
     {/if}
     <div class="flex flex-col gap-2">
-      <h3 class="text-lg font-semibold text-zinc-100 light:text-zinc-900">{t("Versione Proton", $language)}</h3>
+      <h3 class="text-sm font-semibold text-legio-fg">{t("Versione Proton", $language)}</h3>
       {#if runnerChoices.length === 0}
-        <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Nessun runner compatibile installato.", $language)}</p>
+        <p class="text-sm text-legio-fg-muted">{t("Nessun runner compatibile installato.", $language)}</p>
       {:else}
         <fieldset class="flex flex-col gap-1">
           <legend class="sr-only">{t("Runner di compatibilità", $language)}</legend>
           {#each runnerChoices as runner (runner.path)}
-            <label class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-200 transition-colors hover:bg-white/5 has-checked:bg-white/10 light:text-zinc-800 light:hover:bg-zinc-900/5 light:has-checked:bg-zinc-900/10">
-              <input type="radio" name="game-compat-runner" value={runner.path} checked={selectedRunnerPath === runner.path} onchange={() => selectRunner(runner.path)} class="size-4 accent-white" />
+            <RadioCard name="game-compat-runner" value={runner.path} checked={selectedRunnerPath === runner.path} onSelect={() => selectRunner(runner.path)}>
               <span class="min-w-0 truncate">{runner.name}{runner.kind === "wine" && runner.version ? ` ${runner.version}` : ""}</span>
-              {#if runner.path === (defaults?.runnerPath ?? runners[0]?.path)}<span class="ml-auto shrink-0 text-xs text-zinc-500">{t("Predefinito", $language)}</span>{/if}
-            </label>
+              {#if runner.path === (defaults?.runnerPath ?? runners[0]?.path)}<span class="ml-auto shrink-0 text-xs text-legio-fg-subtle">{t("Predefinito", $language)}</span>{/if}
+            </RadioCard>
           {/each}
         </fieldset>
       {/if}
     </div>
     <div class="grid gap-4 md:grid-cols-2">
-      <div class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
+      <div class="flex flex-col gap-1.5 text-sm text-legio-fg-muted">
         <Toggle label={t("Personalizza le variabili", $language)} checked={overrides.environment !== null} onChange={toggleEnvironment} />
         <TextField id="game-environmentText" type="textarea" rows={5} label={t("Variabili ambiente", $language)} bind:value={environmentText} disabled={overrides.environment === null} />
-        <span class="text-xs text-zinc-500">{t("Una voce KEY=VALUE per riga. I controlli tipizzati gestiscono le variabili riservate.", $language)}</span>
+        <span class="text-xs text-legio-fg-subtle">{t("Una voce KEY=VALUE per riga. I controlli tipizzati gestiscono le variabili riservate.", $language)}</span>
       </div>
-      <div class="flex flex-col gap-1.5 text-sm text-zinc-400 light:text-zinc-600">
+      <div class="flex flex-col gap-1.5 text-sm text-legio-fg-muted">
         <Toggle label={t("Personalizza gli override", $language)} checked={overrides.dllOverrides !== null} onChange={toggleDllOverrides} />
         <TextField id="game-dllOverridesText" type="textarea" rows={5} label={t("Override DLL", $language)} bind:value={dllOverridesText} disabled={overrides.dllOverrides === null} />
-        <span class="text-xs text-zinc-500">{t("Una voce KEY=VALUE per riga, ad esempio d3d11=n,b.", $language)}</span>
+        <span class="text-xs text-legio-fg-subtle">{t("Una voce KEY=VALUE per riga, ad esempio d3d11=n,b.", $language)}</span>
       </div>
     </div>
 
     <Toggle label={t("Avvia con OnlineFix", $language)} checked={overrides.onlineFix ?? onlineFixDetected}
       onChange={(checked) => setOverride("onlineFix", checked ? (onlineFixDetected ? null : true) : false)} />
-    {#if onlineFixDetected}<p class="text-xs text-zinc-500">{t("OnlineFix64.dll rilevato nella cartella del gioco.", $language)}</p>{/if}
+    {#if onlineFixDetected}<p class="text-xs text-legio-fg-subtle">{t("OnlineFix64.dll rilevato nella cartella del gioco.", $language)}</p>{/if}
 
     <div class="flex flex-col gap-3">
-      <span class="text-sm text-zinc-400 light:text-zinc-600">{t("Prestazioni Linux", $language)}</span>
+      <span class="text-sm text-legio-fg-muted">{t("Prestazioni Linux", $language)}</span>
       <Toggle label="GameMode" checked={overrides.linuxPerformance.gameMode}
         disabled={!gameModeAvailable && !overrides.linuxPerformance.gameMode}
         onChange={(checked) => setPerformance({ gameMode: checked })} />
+      <Toggle label="MangoHud" checked={overrides.linuxPerformance.mangohud}
+        disabled={!mangohudAvailable && !overrides.linuxPerformance.mangohud}
+        onChange={(checked) => setPerformance({ mangohud: checked })} />
       <Toggle label="Gamescope" checked={overrides.linuxPerformance.gamescope !== null}
         disabled={!gamescopeAvailable && overrides.linuxPerformance.gamescope === null}
         onChange={(checked) => setPerformance({ gamescope: checked ? { width: null, height: null, fps: null } : null })} />
       {#if !gameModeAvailable || !gamescopeAvailable}
-        <p class="text-xs text-zinc-500">{t("Installa GameMode o gamescope e riapri queste impostazioni per abilitarli.", $language)}</p>
+        <p class="text-xs text-legio-fg-subtle">{t("Installa GameMode o gamescope e riapri queste impostazioni per abilitarli.", $language)}</p>
+      {/if}
+      {#if !mangohudAvailable}
+        <p class="text-xs text-zinc-500">{t("Installa MangoHud e riapri queste impostazioni per abilitarlo.", $language)}</p>
       {/if}
       {#if overrides.linuxPerformance.gamescope !== null}
         {@const config = overrides.linuxPerformance.gamescope}
@@ -399,9 +411,11 @@
             options={[{ value: "uncapped", label: t("Senza limite", $language) }, ...[...new Set([30, 40, 60, 90, 120, 144, 165, 240, 360, ...(config.fps === null ? [] : [config.fps])])].map((fps) => ({ value: String(fps), label: String(fps) }))]}
             onChange={setGamescopeFps} />
         </div>
-        <p class="text-xs text-zinc-500">{t("Una risoluzione inferiore riduce la qualità visiva. Il limite FPS può ridurre consumi e temperature.", $language)}</p>
+        <p class="text-xs text-legio-fg-subtle">{t("Una risoluzione inferiore riduce la qualità visiva. Il limite FPS può ridurre consumi e temperature.", $language)}</p>
       {/if}
-      <p class="text-xs text-zinc-500">{t("GameMode e Gamescope sono facoltativi. Confronta prestazioni e frametime sul gioco; Wayland resta una scelta separata.", $language)}</p>
+      <TextField id="linux-wrapper-command" label={t("Comando wrapper personalizzato", $language)} value={wrapperText} placeholder="prime-run" oninput={(value) => (wrapperText = value)} />
+      <p class="text-xs text-legio-fg-subtle">{t("Prefisso eseguito prima del gioco, ad esempio prime-run o taskset -c 0-7. Non passa da una shell.", $language)}</p>
+      <p class="text-xs text-legio-fg-subtle">{t("GameMode e Gamescope sono facoltativi. Confronta prestazioni e frametime sul gioco; Wayland resta una scelta separata.", $language)}</p>
     </div>
 
     <div class="grid gap-4 md:grid-cols-2">
@@ -416,7 +430,7 @@
       <Button label={t("Ripristina default globali", $language)} variant="secondary" disabled={saving} onClick={resetCompatibility} />
     </div>
   {:else if compatibilityGame}
-    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Aggiungi argomenti di avvio. Racchiudi tra virgolette i valori che contengono spazi.", $language)}</p>
+    <p class="text-sm text-legio-fg-muted">{t("Aggiungi argomenti di avvio. Racchiudi tra virgolette i valori che contengono spazi.", $language)}</p>
     <div class="grid gap-4 md:grid-cols-2">
       <div class="flex flex-col gap-2">
         <Toggle label={t("Prima dell'eseguibile", $language)} checked={overrides.argumentsBefore !== null} onChange={toggleArgumentsBefore} />
@@ -430,21 +444,21 @@
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
     {#if saved}<Callout tone="success" variant="inline" message={t("Argomenti salvati.", $language)} />{/if}
   {:else if !compatibilityGame && section === "launch"}
-    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Aggiungi argomenti di avvio. Racchiudi tra virgolette i valori che contengono spazi.", $language)}</p>
+    <p class="text-sm text-legio-fg-muted">{t("Aggiungi argomenti di avvio. Racchiudi tra virgolette i valori che contengono spazi.", $language)}</p>
     <TextField id="native-arguments" label={t("Opzioni di avvio", $language)} value={nativeArguments} placeholder="-windowed -novid" oninput={(value) => (nativeArguments = value)} />
     <TextField id="native-environment" type="textarea" rows={4} label={t("Variabili ambiente", $language)} bind:value={nativeEnvironmentText} hint={t("Una voce KEY=VALUE per riga. Applicate solo all'avvio di questo gioco.", $language)} />
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
     {#if saved}<Callout tone="success" variant="inline" message={t("Argomenti salvati.", $language)} />{/if}
   {:else if !compatibilityGame}
     {#if section === "locations"}
-      <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Imposta la cartella iniziale del processo per questo gioco.", $language)}</p>
+      <p class="text-sm text-legio-fg-muted">{t("Imposta la cartella iniziale del processo per questo gioco.", $language)}</p>
       <TextField id="native-working-directory" label={t("Cartella di lavoro", $language)} value={nativeWorkingDirectory} placeholder={t("Cartella dell'eseguibile", $language)} oninput={(value) => (nativeWorkingDirectory = value)} />
       {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
       {#if saved}<Callout tone="success" variant="inline" message={t("Percorso salvato.", $language)} />{/if}
     {:else}
-      <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Le opzioni di compatibilità aggiuntive non sono disponibili per i runner nativi. Configura gli argomenti di avvio in Generali.", $language)}</p>
+      <p class="text-sm text-legio-fg-muted">{t("Le opzioni di compatibilità aggiuntive non sono disponibili per i runner nativi. Configura gli argomenti di avvio in Generali.", $language)}</p>
     {/if}
   {:else}
-    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Le impostazioni di avvio manuale non sono disponibili su questa piattaforma.", $language)}</p>
+    <p class="text-sm text-legio-fg-muted">{t("Le impostazioni di avvio manuale non sono disponibili su questa piattaforma.", $language)}</p>
   {/if}
 </Panel>

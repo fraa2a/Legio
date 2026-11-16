@@ -11,6 +11,7 @@
   } from "../../stores/manual-import";
   import Badge from "../../components/ui/Badge.svelte";
   import Button from "../../components/ui/Button.svelte";
+  import RadioCard from "../../components/ui/RadioCard.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Spinner from "../../components/ui/Spinner.svelte";
   import TextField from "../../components/ui/TextField.svelte";
@@ -48,7 +49,7 @@
 </script>
 
 <section class="flex flex-col gap-3">
-  <p class="text-sm text-zinc-400 light:text-zinc-600">{hint}</p>
+  <p class="text-sm text-legio-fg-muted">{hint}</p>
 
   <TextField
     id="{group}-game-name"
@@ -83,12 +84,12 @@
   </div>
 
   {#if $manualImport.directory !== null}
-    <p class="break-all text-xs text-zinc-500">{$manualImport.directory}</p>
+    <p class="select-text break-all text-xs text-legio-fg-subtle" data-selectable>{$manualImport.directory}</p>
   {/if}
 
   {#if pickedPath !== null}
     <div
-      class="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-sky-500/10 p-3 text-sm text-sky-200 light:text-sky-900"
+      class="flex flex-wrap items-center justify-between gap-2 rounded-control bg-legio-info/10 p-3 text-sm text-legio-info"
     >
       <span class="min-w-0 break-all">{t("Eseguibile scelto: {0}", $language, [pickedPath])}</span>
       <Button
@@ -101,7 +102,7 @@
   {/if}
 
   {#if $manualImport.status === "loading"}
-    <p class="flex items-center gap-3 text-sm text-zinc-300 light:text-zinc-700" role="status">
+    <p class="flex items-center gap-3 text-sm text-legio-fg" role="status">
       <Spinner />{t("Scansione degli eseguibili in corso...", $language)}</p>
   {/if}
 
@@ -110,7 +111,7 @@
   {/if}
 
   {#if $manualImport.status === "empty"}
-    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Nessun eseguibile trovato in questa cartella.", $language)}</p>
+    <p class="text-sm text-legio-fg-muted">{t("Nessun eseguibile trovato in questa cartella.", $language)}</p>
   {/if}
 
   {#if $manualImport.candidates.length > 0}
@@ -120,28 +121,19 @@
     <fieldset class="flex flex-col gap-2" {disabled}>
       <legend class="sr-only">{t("Candidati trovati", $language)}</legend>
       {#each $manualImport.candidates as candidate (candidate.path)}
-        <label
-          class="flex cursor-pointer items-start gap-3 rounded-lg bg-white/5 p-3 has-checked:bg-white/10 light:bg-zinc-100"
-        >
-          <input
-            type="radio"
-            name={group}
-            class="mt-1"
-            checked={$manualImport.selectedPath === candidate.path}
-            onchange={() => chooseCandidate(candidate.path)}
-          />
+        <RadioCard name={group} checked={$manualImport.selectedPath === candidate.path} onSelect={() => chooseCandidate(candidate.path)}>
           <span class="min-w-0 flex-1">
-            <span class="block break-all text-sm text-zinc-100 light:text-zinc-900">
+            <span class="block break-all text-sm text-legio-fg">
               {candidate.path}
             </span>
-            <span class="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+            <span class="mt-1 flex flex-wrap items-center gap-2 text-xs text-legio-fg-subtle">
               <Badge tone="neutral" title={t("Punteggio {0}", $language, [candidate.score])} />
               {#if candidate.signals.length > 0}
                 <span>{describeSignals(candidate.signals)}</span>
               {/if}
             </span>
           </span>
-        </label>
+        </RadioCard>
       {/each}
     </fieldset>
   {/if}

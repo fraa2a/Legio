@@ -5,8 +5,12 @@
   import { fly } from "svelte/transition";
   import { reducedMotion } from "../../utils/motion";
   import { t, language } from "../../i18n";
+  import Button from "./Button.svelte";
   import Icon from "./Icon.svelte";
   import IconButton from "./IconButton.svelte";
+  import CopyButton from "./CopyButton.svelte";
+  import { failureReport, technicalDetail } from "../../utils/error-message";
+  import { noticeTones as tones } from "./notice-tones";
 
   let notice: HTMLDivElement | undefined = $state();
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
@@ -34,7 +38,7 @@
       if (notice.matches(":popover-open")) notice.hidePopover();
       notice.showPopover();
     } else if (notice.matches(":popover-open")) {
-      hideTimer = setTimeout(() => notice?.hidePopover(), 180);
+      hideTimer = setTimeout(() => notice?.hidePopover(), 200);
     }
   });
 
@@ -59,14 +63,29 @@
   aria-live="polite"
 >
   {#each $toast as notification (notification.id)}
+    {@const tone = tones[notification.tone]}
+    {@const technical = technicalDetail(notification.message, notification.detail)}
     <div
-      transition:fly={{ y: 16, duration: reducedMotion ? 0 : 180 }}
+      transition:fly={{ y: 16, duration: reducedMotion ? 0 : 200 }}
       role={notification.tone === "error" ? "alert" : "status"}
-      class="pointer-events-auto flex items-start gap-3 rounded-xl border border-white/15 px-4 py-3 text-sm shadow-xl {notification.tone === 'error' ? 'bg-red-700 text-white' : notification.tone === 'success' ? 'bg-emerald-700 text-white' : notification.tone === 'warning' ? 'bg-amber-700 text-white' : 'bg-zinc-900 text-zinc-100 light:border-zinc-900/15 light:bg-zinc-50 light:text-zinc-900'}"
+      class="legio-popover pointer-events-auto flex items-start gap-3 rounded-card p-inset-compact text-sm text-legio-fg shadow-xl shadow-black/30 inset-ring light:shadow-zinc-900/15 {tone.line}"
     >
-      <p class="min-w-0 flex-1 break-words">{notification.message}</p>
-      {#if notification.onRetry}<button type="button" class="shrink-0 rounded px-2 py-0.5 font-semibold hover:bg-white/15" onclick={() => { dismissToast(notification.id); notification.onRetry?.(); }}>{notification.retryLabel ?? t("Riprova", $language)}</button>{/if}
-      <IconButton size="xs" variant="plain" label={t("Chiudi notifica", $language)} onClick={() => dismissToast(notification.id)}><Icon name="close" size="size-4" /></IconButton>
+      <span class="mt-0.5 shrink-0 {tone.text}"><Icon name={tone.icon} /></span>
+      <div class="min-w-0 flex-1 select-text break-words" data-selectable>
+        <p>{notification.message}</p>
+        {#if technical !== null}
+          <details class="group mt-1">
+            <summary class="flex w-fit cursor-pointer list-none items-center gap-1 text-xs text-legio-fg-muted transition-colors hover:text-legio-fg">
+              {t("Dettagli tecnici", $language)}
+              <span class="transition-transform group-open:rotate-180 motion-reduce:transition-none"><Icon name="chevron-down" size="sm" /></span>
+            </summary>
+            <pre class="mt-1 whitespace-pre-wrap break-words font-mono text-xs text-legio-fg-muted">{technical}</pre>
+          </details>
+        {/if}
+      </div>
+      {#if technical !== null}<CopyButton text={failureReport(notification.message, notification.detail)} size="inline-sm" label={t("Copia l'errore", $language)} />{/if}
+      {#if notification.onRetry}<Button label={notification.retryLabel ?? t("Riprova", $language)} variant="link" class="shrink-0" onClick={() => { dismissToast(notification.id); notification.onRetry?.(); }} />{/if}
+      <IconButton size="inline-sm" variant="plain" label={t("Chiudi notifica", $language)} onClick={() => dismissToast(notification.id)}><Icon name="close" /></IconButton>
     </div>
   {/each}
 </div>

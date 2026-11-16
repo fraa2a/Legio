@@ -23,6 +23,7 @@ export function libraryItems(groups: Game[][], query: string, summaries: Map<str
       ?? (needle ? group.find((game) => game.name.toLowerCase().includes(needle)) : undefined)
       ?? group.find((game) => game.steamInstallPath !== null)
       ?? group[0],
+    group,
     totalMilliseconds: group.reduce((total, game) => total + (summaries.get(game.id)?.totalMilliseconds ?? 0), 0),
   })).sort((left, right) => collator.compare(left.game.name, right.game.name));
 }

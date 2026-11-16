@@ -111,7 +111,7 @@ jobs:
         run: corepack pnpm test:regressions
 
       - name: Test dropdowns, rendering, and shared artwork cache
-        run: corepack pnpm test:select && corepack pnpm test:visual && corepack pnpm test:artwork-cache && corepack pnpm test:artwork-work && corepack pnpm test:details-cache
+        run: corepack pnpm test:select && corepack pnpm test:visual && corepack pnpm test:artwork-cache && corepack pnpm test:artwork-work && corepack pnpm test:details-cache && corepack pnpm test:protondb && corepack pnpm test:game-media
 
       - name: Test source management and deep links
         run: corepack pnpm test:sources
@@ -125,6 +125,9 @@ jobs:
       - name: Check translation catalog
         run: corepack pnpm test:i18n
 
+      - name: Check UI radius, color and control height scales
+        run: corepack pnpm test:ui-spec
+
       - name: Test library artwork on cold startup
         run: corepack pnpm test:artwork
 
@@ -135,7 +138,7 @@ jobs:
         run: corepack pnpm test:window
 
       - name: Test dialogs and notifications
-        run: corepack pnpm test:dialog && corepack pnpm test:feedback
+        run: corepack pnpm test:dialog && corepack pnpm test:a11y && corepack pnpm test:feedback
 
       - name: Test onboarding and persistent news
         run: corepack pnpm test:onboarding
@@ -155,6 +158,8 @@ jobs:
         run: corepack pnpm test:modding-browser
       - name: Test Thunderstore mod links
         run: corepack pnpm test:modding-links
+      - name: Test application smoke test budget and process sampling
+        run: corepack pnpm test:smoke-tools
 
       - name: Test release manifest
         run: python -B -m unittest discover -s scripts
@@ -218,11 +223,13 @@ jobs:
         if: runner.os == 'Linux'
         timeout-minutes: 30
         uses: ./.github/actions/linux-dependencies
+        with:
+          extra-packages: webkit2gtk-driver xvfb
 
       - name: Set up Rust 1.98.1
         shell: bash
         run: |
-          rustup toolchain install 1.98.1 --profile minimal
+          rustup toolchain install 1.98.1 --profile minimal --component clippy
           rustup default 1.98.1
 
       - name: Configure Windows archive cache
@@ -272,61 +279,19 @@ jobs:
         shell: bash
         run: corepack pnpm install --frozen-lockfile
 
-      - name: Test Windows local JSON sources and converted catalogs
+      - name: Run Windows Clippy
         if: runner.os == 'Windows'
         shell: bash
         env:
           LEGIO_WINDOWS_TESTS: "1"
-        run: |
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib local_source::tests
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib legio_source::tests
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib legio_source_cache::tests
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib source_catalog::tests
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --locked -- -D warnings
 
-      - name: Test Windows game updates and executable paths
+      - name: Run Windows Rust tests
         if: runner.os == 'Windows'
         shell: bash
         env:
           LEGIO_WINDOWS_TESTS: "1"
-        run: |
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_library::tests
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_transfer::tests
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib finalize_install::tests
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib manual_import::tests
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib overlay_update::tests
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_updates::tests
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib update_policy
-
-      - name: Test Windows development data isolation
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LEGIO_WINDOWS_TESTS: "1"
-        run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib app_profile::tests::'
-
-      - name: Test Windows application logging
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LEGIO_WINDOWS_TESTS: "1"
-        run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib application_log::tests::'
-
-      - name: Test Windows artwork conversion and blur
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LEGIO_WINDOWS_TESTS: "1"
-        run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib image_trim::tests::'
-
-      - name: Test Windows artwork scheduling, metadata and cache publication
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LEGIO_WINDOWS_TESTS: "1"
-        run: |
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib artwork_
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib steam_details::tests::
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib steam_assets::tests::
+        run: cargo test --manifest-path src-tauri/Cargo.toml --all-features --locked
 
       - name: Test release artwork command stack usage on Windows
         if: runner.os == 'Windows'
@@ -336,40 +301,36 @@ jobs:
           CARGO_PROFILE_RELEASE_DEBUG: "1"
         run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --release --lib commands::tests::'
 
-      - name: Test Windows WebView diagnostics
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LEGIO_WINDOWS_TESTS: "1"
-        run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib webview_diagnostics::tests::'
-
-      - name: Test Windows Steam discovery
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LEGIO_WINDOWS_TESTS: "1"
-        run: |
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib steam_local::tests::
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib steam_import::tests::
-
-      - name: Test Windows game process control
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LEGIO_WINDOWS_TESTS: "1"
-        run: 'cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_process::tests::'
-
-      - name: Test Windows native lifecycle manager
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LEGIO_WINDOWS_TESTS: "1"
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib game_lifecycle::tests::native_manager_lifecycle_tracks_a_controlled_process
-
       - name: Build Tauri application
         if: needs.plan.outputs.release != 'true' && !(github.event_name == 'workflow_dispatch' && inputs.test_packages)
         shell: bash
         run: corepack pnpm tauri build --debug --no-bundle
+
+      # The smoke test does not run on Windows: the Edge driver cannot attach (KI-003 in KNOWN-ISSUES.md).
+      - name: Install WebDriver for the application smoke test
+        id: smoke-driver
+        if: runner.os == 'Linux' && needs.plan.outputs.release != 'true' && !(github.event_name == 'workflow_dispatch' && inputs.test_packages)
+        timeout-minutes: 15
+        shell: bash
+        run: cargo install tauri-driver --version 2.1.0 --locked
+
+      - name: Smoke test the application and check the performance budget
+        id: smoke
+        if: steps.smoke-driver.outcome == 'success'
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          xvfb-run -a -s "-screen 0 1920x1080x24" node tools/app-smoke/smoke.mjs \
+            --application src-tauri/target/debug/legio --output "$RUNNER_TEMP/legio-smoke"
+
+      - name: Upload smoke test screenshots and logs
+        if: always() && steps.smoke.outcome != 'skipped'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: legio-smoke-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/legio-smoke
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Build Linux test AppImage
         if: runner.os == 'Linux' && github.event_name == 'workflow_dispatch' && inputs.test_packages

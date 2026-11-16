@@ -1,6 +1,7 @@
 <script lang="ts">
   import DiscordPresenceSettings from "./DiscordPresenceSettings.svelte";
   import ThunderstoreLinkSettings from "./ThunderstoreLinkSettings.svelte";
+  import SteamGridDbSettings from "./SteamGridDbSettings.svelte";
   import { t, language } from "../../i18n";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
@@ -12,6 +13,7 @@
   import type { Settings } from "../../services/local-state";
   import { closeSettings } from "../../stores/navigation";
   import { defaultSettings, settings, settingsError, updateSettings } from "../../stores/settings";
+  import { openReleaseNotes } from "../../stores/update-notes";
   import { toMessage } from "../../utils/errors";
   import { checkForAppUpdate, installAppUpdate, updateState } from "../../services/app-updater";
 
@@ -50,9 +52,9 @@
 
 </script>
 
-<section class="flex flex-col gap-4">
+<section class="flex flex-col gap-6">
   {#if $settingsError}
-    <ErrorBanner message={$settingsError} />
+    <ErrorBanner message={t("Impossibile salvare le impostazioni.", $language)} detail={$settingsError} />
   {/if}
 
   <SettingsGroup icon="translate" title={t("Lingua", $language)}>
@@ -62,7 +64,7 @@
       <ResetSetting label={t("Ripristina lingua", $language)} disabled={saving || $settings.data.language === defaultSettings.language} onClick={() => void update({ language: defaultSettings.language })} />
     </div>
   </SettingsGroup>
-  <SettingsGroup icon="settings" title={t("Comportamento", $language)}>
+  <SettingsGroup icon="power" title={t("Comportamento", $language)}>
     {#each behaviors as option (option.key)}
       <ToggleSetting label={option.label} checked={Boolean($settings.data[option.key])}
         defaultValue={Boolean(defaultSettings[option.key])}
@@ -76,26 +78,35 @@
 
   <ThunderstoreLinkSettings />
 
+  <SteamGridDbSettings />
 
 
-  <SettingsGroup icon="settings" title={t("Configurazione iniziale", $language)}>
+
+  <SettingsGroup title={t("Configurazione iniziale", $language)}>
     <Button label={t("Ripeti configurazione iniziale", $language)} variant="secondary" disabled={saving} onClick={() => void update({ onboardingCompleted: false })} />
   </SettingsGroup>
 
-  <SettingsGroup icon="reload" title={t("Aggiornamenti", $language)}>
+  <SettingsGroup icon="update" title={t("Aggiornamenti", $language)}>
     <div class="flex flex-wrap items-center gap-3">
       <Button label={$updateState.checking ? t("Controllo...", $language) : t("Controlla aggiornamenti", $language)} variant="secondary" disabled={$updateState.checking || $updateState.installing} onClick={() => void checkForAppUpdate()} />
       {#if $updateState.version}
-        <span class="text-sm text-zinc-300 light:text-zinc-700">{t("Versione {0} disponibile.", $language, [$updateState.version])}{#if $updateState.aur} {t("Aggiorna tramite AUR.", $language)}{/if}</span>
+        <span class="text-sm text-legio-fg">{t("Versione {0} disponibile.", $language, [$updateState.version])}{#if $updateState.aur} {t("Aggiorna tramite AUR.", $language)}{/if}</span>
+        {#if $updateState.notes !== null}
+          <Button label={t("Cosa c'è di nuovo", $language)} variant="secondary" onClick={() => openReleaseNotes({ version: $updateState.version ?? "", notes: $updateState.notes ?? "" })} />
+        {/if}
         {#if !$updateState.aur}
           <Button label={$updateState.installing ? t("Installazione...", $language) : t("Installa e riavvia", $language)} disabled={$updateState.installing} onClick={() => void installAppUpdate()} />
         {/if}
       {:else if $updateState.unavailable}
-        <span class="text-sm text-zinc-400 light:text-zinc-600">{t("Nessun aggiornamento automatico disponibile per questa piattaforma.", $language)}</span>
+        <span class="text-sm text-legio-fg-muted">{t("Nessun aggiornamento automatico disponibile per questa piattaforma.", $language)}</span>
       {:else if $updateState.checked}
-        <span class="text-sm text-zinc-300 light:text-zinc-700">{t("Legio è aggiornato.", $language)}</span>
+        <span class="text-sm text-legio-fg">{t("Legio è aggiornato.", $language)}</span>
       {/if}
     </div>
+    {#if !$updateState.aur}
+      <ToggleSetting label={t("Ricevi versioni di anteprima", $language)} checked={$settings.data.previewUpdates} defaultValue={defaultSettings.previewUpdates}
+        disabled={saving || $settings.status !== "ready"} onChange={(checked) => void update({ previewUpdates: checked })} />
+    {/if}
     {#if $updateState.error}<ErrorBanner message={$updateState.error} />{/if}
   </SettingsGroup>
 

@@ -30,15 +30,15 @@
 
 <ul class="flex flex-col gap-2" role="list">
   {#each jobs as job (job.id)}
-    <li class="flex flex-wrap items-center gap-3 rounded-xl legio-glass p-3">
-      <DownloadCover steamAppId={job.steamAppId} name={job.name} class="aspect-[2/3] w-9" rounded="lg" />
+    <li class="flex flex-wrap items-center gap-3 rounded-card legio-glass p-3">
+      <DownloadCover steamAppId={job.steamAppId} name={job.name} class="aspect-[2/3] w-9" radius="control" />
 
       <div class="min-w-0 flex-1 basis-44">
         <div class="flex flex-wrap items-center gap-2">
-          <p class="min-w-0 truncate font-medium text-zinc-50 light:text-zinc-900">{job.name}</p>
+          <p class="min-w-0 truncate font-medium text-legio-fg">{job.name}</p>
           <Badge tone={statusTone(job.status)} title={statusBadge(job.status, $language)} />
         </div>
-        <p class="mt-0.5 truncate text-xs text-zinc-400 light:text-zinc-600">
+        <p class="mt-0.5 truncate text-xs text-legio-fg-muted">
           {t("Versione {0}", $language, [job.releaseVersion])} · {formatBytes(job.sizeBytes, $language)} · {completedOn(job)}
         </p>
         {#if job.status === "installed"}
@@ -50,7 +50,7 @@
           />
         {/if}
         {#if job.error !== null}
-          <Callout tone="danger" variant="inline" class="mt-2" message={job.error} />
+          <Callout tone="danger" variant="inline" class="mt-2" message={t("Download non riuscito.", $language)} detail={job.error} copyable />
         {/if}
       </div>
 

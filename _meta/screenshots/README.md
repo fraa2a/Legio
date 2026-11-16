@@ -7,7 +7,6 @@ This directory contains screenshots used to illustrate Legio. Runtime assets bel
 | File | Content |
 | --- | --- |
 | `legio-launcher.png` | Home screen used in the project README |
-| `sources.png` | Source management |
 | `library-feedback-downloads.png` | Library and download feedback |
 | `library-feedback-modal-notifications.png` | Modal notifications |
 | `library-feedback-notifications.png` | Library notifications |
@@ -18,6 +17,10 @@ This directory contains screenshots used to illustrate Legio. Runtime assets bel
 | `hydra-source-selection.png` | Hydra source selection |
 | `store-availability.jpg` | Store availability filter |
 | `store-sort.jpg` | Store sorting |
+
+## Generated application screenshots
+
+`app/home.png`, `app/library.png`, `app/game.png`, `app/store.png` and `app/settings.png` are 1280 x 720 captures of a fresh profile with one placeholder game, taken by the [application smoke test](../../tools/app-smoke/README.md) on Linux with the dark System palette. Store content comes from the default catalog at capture time. Regenerate them from a smoke test output folder with `node tools/app-smoke/update-screenshots.mjs <folder>` instead of editing them by hand.
 
 ## Component previews
 

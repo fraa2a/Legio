@@ -22,8 +22,8 @@ static APPLICATION_LOG: OnceLock<ApplicationLog> = OnceLock::new();
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LogStatus {
-    enabled: bool,
-    directory: Option<PathBuf>,
+    pub(crate) enabled: bool,
+    pub(crate) directory: Option<PathBuf>,
     last_error: Option<String>,
     dropped_records: u64,
 }
@@ -348,7 +348,7 @@ fn update_status(status: &mut LogStatus, result: io::Result<()>) {
         Err(error) => {
             status.dropped_records = status.dropped_records.saturating_add(1);
             status.last_error = Some(format!(
-                "Could not write application logs ({:?}). Check directory permissions and free disk space.",
+                "Could not write application logs ({}). Check directory permissions and free disk space.",
                 error.kind()
             ));
         }

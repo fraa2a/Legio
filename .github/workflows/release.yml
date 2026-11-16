@@ -103,14 +103,12 @@ jobs:
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-cache
 
     steps:
-      - name: Require updater signing secrets
+      - name: Require updater signing key
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           test -n "$TAURI_SIGNING_PRIVATE_KEY" || { echo "::error::TAURI_SIGNING_PRIVATE_KEY is empty. Add it to the release environment secrets."; exit 1; }
-          test -n "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" || { echo "::error::TAURI_SIGNING_PRIVATE_KEY_PASSWORD is empty. The updater key must be password protected; see _meta/docs/UPDATING.md."; exit 1; }
 
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -271,7 +269,10 @@ jobs:
             cp -- "$asset" "$target"
           done
 
-          python scripts/release_manifest.py release-publish "$VERSION" "$REPOSITORY"
+          gh api "repos/$REPOSITORY/releases/generate-notes" \
+            -f tag_name="$TAG" -f target_commitish="$TARGET_SHA" --jq .body > release-notes.md
+
+          python scripts/release_manifest.py release-publish "$VERSION" "$REPOSITORY" release-notes.md
 
           (
             cd release-publish
@@ -304,7 +305,8 @@ jobs:
             "$TARGET_SHA"
             --title
             "Legio $VERSION"
-            --generate-notes
+            --notes-file
+            release-notes.md
           )
 
           if [[ "$PRERELEASE" == "true" ]]; then
@@ -312,6 +314,22 @@ jobs:
           fi
 
           gh "${args[@]}" "${files[@]}"
+
+      - name: Refresh preview channel manifest
+        # A failure here must not block the AUR update; preview users keep the previous manifest.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          # Every release, stable or not, refreshes the manifest, so preview users also get stable versions.
+          if ! gh release view preview-channel > /dev/null 2>&1; then
+            gh release create preview-channel --target "$TARGET_SHA" --title "Preview channel" \
+              --notes "Update manifest for preview versions. Not a downloadable release." --prerelease
+          fi
+          cp release-publish/latest.json latest-preview.json
+          gh release upload preview-channel latest-preview.json --clobber
 
   aur:
     name: Update AUR package

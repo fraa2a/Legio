@@ -1,18 +1,27 @@
 <script lang="ts">
   import { t } from "../../i18n";
   import { onDestroy } from "svelte";
-  import { loadBackground, type DitherSettings } from "../../services/appearance";
+  import { loadBackground, type AnimatedBackground as AnimatedBackgroundKind, type DitherSettings, type Season, type StarDensity, type ThemePreset } from "../../services/appearance";
+  import AmbientBackground from "./AmbientBackground.svelte";
   import AnimatedBackground from "./AnimatedBackground.svelte";
   import AuroraBackground from "./AuroraBackground.svelte";
+  import CanvasBackground from "./CanvasBackground.svelte";
   import DitherBackground from "./DitherBackground.svelte";
+  import GrainOverlay from "./GrainOverlay.svelte";
+  import { createSeasonalRenderer } from "./seasonal";
+  import { createStarfieldRenderer } from "./starfield";
   import { toMessage } from "../../utils/errors";
 
-  let { id, animation, animationOpacity, accent, dither, active = true }: {
+  let { id, animation, animationOpacity, accent, dither, palette, season = "snow", starDensity = "medium", grain = 0, active = true }: {
     id: string | null;
-    animation: "none" | "particles" | "dither" | "aurora";
+    animation: AnimatedBackgroundKind;
     animationOpacity: number;
     accent: string;
     dither: DitherSettings;
+    palette: ThemePreset;
+    season?: Season;
+    starDensity?: StarDensity;
+    grain?: number;
     active?: boolean;
   } = $props();
   const selectedId = $derived(id);
@@ -69,14 +78,21 @@
 
 <div class="legio-backdrop" aria-hidden="true">
   {#if url}<img src={url} alt="" class="legio-wallpaper" onerror={imageFailed} />{/if}
-  {#if animationOpacity > 0 && animation === "dither"}
-    <DitherBackground opacity={animationOpacity} settings={dither} {accent} {active} />
+  {#if animationOpacity > 0 && (animation === "dither" || animation === "scanlines")}
+    {#key animation}<DitherBackground opacity={animationOpacity} settings={dither} {accent} scanlines={animation === "scanlines"} {active} />{/key}
   {:else if animationOpacity > 0 && animation === "aurora"}
     <AuroraBackground opacity={animationOpacity} color={accent} {active} />
-  {:else if animationOpacity > 0 && animation !== "none"}
+  {:else if animationOpacity > 0 && animation === "ambient"}
+    <AmbientBackground opacity={animationOpacity} {palette} {accent} {active} />
+  {:else if animationOpacity > 0 && animation === "starfield"}
+    <CanvasBackground opacity={animationOpacity} {active} config={{ density: starDensity, color: palette.palette.text }} create={createStarfieldRenderer} maxFps={30} pointer />
+  {:else if animationOpacity > 0 && animation === "seasonal"}
+    <CanvasBackground opacity={animationOpacity} {active} config={{ season, color: palette.palette.text, scheme: palette.scheme }} create={createSeasonalRenderer} />
+  {:else if animationOpacity > 0 && animation === "particles"}
     {#key animation + accent}<AnimatedBackground opacity={animationOpacity} color={accent} {active} />{/key}
   {/if}
+  {#if grain > 0}<GrainOverlay intensity={grain} />{/if}
 </div>
 {#if error}
-  <p class="fixed bottom-3 left-3 z-50 max-w-sm rounded-lg bg-zinc-900 p-3 text-sm text-legio-error light:bg-zinc-50" role="alert">{error}</p>
+  <p class="fixed bottom-3 left-3 z-50 max-w-sm select-text rounded-control bg-zinc-900 p-3 text-sm text-legio-error light:bg-zinc-50" data-selectable role="alert">{error}</p>
 {/if}

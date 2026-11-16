@@ -31,8 +31,8 @@
     try { await browseInstalledFolder(); } finally { openingFolder = false; }
   }
 </script>
-<section class="flex flex-col gap-4">
-  {#if settingsError}<ErrorBanner message={settingsError} />{/if}
+<section class="flex flex-col gap-6">
+  {#if settingsError}<ErrorBanner message={t("Impossibile salvare le impostazioni.", $language)} detail={settingsError} />{/if}
   {#if $installedFolderError}<ErrorBanner message={$installedFolderError} />{/if}
   <SettingsGroup icon="folder" title={t("Cartelle", $language)}>
     <SettingsRow label={t("Cartella per download e installazioni", $language)} description={$settings.data.downloadPath ?? t("Cartella predefinita di Legio", $language)}>

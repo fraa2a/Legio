@@ -17,6 +17,10 @@ import { activeSection, openGame } from "./navigation";
 import { showToast } from "./toast";
 import { t } from "../i18n";
 import { loadNews } from "./news";
+import { checkForAppUpdate } from "../services/app-updater";
+import { databaseFailure } from "./database-recovery";
+import { announceInstalledVersion } from "./update-notes";
+import { toMessage } from "../utils/errors";
 
 let steamScanTimer: ReturnType<typeof setInterval> | null = null;
 let startupWarningsShown = false;
@@ -45,7 +49,18 @@ function startAppEvents(): Promise<void> {
   return appEvents;
 }
 
+export async function checkForAppUpdateWhenEnabled(): Promise<void> {
+  if (get(settings).status !== "ready") await settings.load();
+  if (get(settings).data.automaticUpdateCheck) await checkForAppUpdate();
+}
+
 export async function hydrateApp(): Promise<void> {
+  await databaseFailure.load();
+  // Without a database nothing else can load; the recovery screen takes over.
+  if (get(databaseFailure).data !== null) {
+    await appInfo.load();
+    return;
+  }
   await startLaunchEvents();
   if (get(settings).status !== "ready") await settings.load();
   await appInfo.load();
@@ -72,6 +87,7 @@ export async function hydrateApp(): Promise<void> {
     startupWarningsShown = true;
     showToast(t("Alcuni dati non sono stati caricati all'avvio: {0}", undefined, [startup.startupWarnings.join("; ")]), "warning", { persistent: true });
   }
+  await announceInstalledVersion().catch((error: unknown) => showToast(toMessage(error), "error"));
   if (steamScanTimer === null) {
     configureSteamScanInterval(get(settings).data.steamLibraryPollMinutes);
     if (get(settings).data.syncSteamGames && !get(hasPendingLaunch)) await importSteamLibrary();

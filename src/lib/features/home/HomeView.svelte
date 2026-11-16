@@ -41,10 +41,10 @@
       {:else if loading}
         <StateBlock status="loading" error={null} loadingMessage={t("Caricamento dell'ultima partita...", $language)} />
       {:else}
-        <section class="legio-glass flex min-h-0 flex-1 flex-col items-start justify-center gap-4 overflow-hidden rounded-2xl p-8">
-          <Icon name="play" size="size-10 text-legio-activity" />
-          <h1 class="text-3xl font-semibold text-zinc-50 light:text-zinc-900">{t("La tua prossima partita ti aspetta", $language)}</h1>
-          <p class="max-w-xl text-sm text-zinc-400 light:text-zinc-600">{t("Avvia un gioco dalla libreria. Qui troverai l'ultima partita e la tua attività di gioco.", $language)}</p>
+        <section class="legio-glass flex min-h-0 flex-1 flex-col items-start justify-center gap-4 overflow-hidden rounded-panel p-6">
+          <Icon name="play" size="xl" class="text-legio-activity" />
+          <h1 class="text-2xl font-semibold text-legio-fg">{t("La tua prossima partita ti aspetta", $language)}</h1>
+          <p class="max-w-xl text-sm text-legio-fg-muted">{t("Avvia un gioco dalla libreria. Qui troverai l'ultima partita e la tua attività di gioco.", $language)}</p>
           <Button label={t("Apri la libreria", $language)} variant="secondary" onClick={() => selectSection('library')} />
         </section>
       {/if}
@@ -75,7 +75,7 @@
         {/each}
       </ul>
     {:else}
-      <p class="py-4 text-sm text-zinc-400 light:text-zinc-600">{t("Gli altri giochi avviati di recente compariranno qui.", $language)}</p>
+      <p class="py-4 text-sm text-legio-fg-muted">{t("Gli altri giochi avviati di recente compariranno qui.", $language)}</p>
     {/if}
   </Panel>
 </div>

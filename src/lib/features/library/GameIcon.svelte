@@ -3,7 +3,7 @@
   import { acquireGameArtwork, gameArtworkRevision } from "../../services/game-artwork";
   import SteamArtwork from "./SteamArtwork.svelte";
 
-  let { game, class: className = "size-8 rounded object-contain" }: { game: Game; class?: string } = $props();
+  let { game, class: className = "size-8 rounded-control object-contain" }: { game: Game; class?: string } = $props();
   let url = $state<string | null>(null);
   let loading = $state(true);
   const gameId = $derived(game.id);
@@ -33,5 +33,5 @@
 {/if}
 
 {#snippet monogram()}
-  <span class="flex items-center justify-center bg-zinc-700/60 text-sm font-semibold text-zinc-100 light:bg-zinc-200 light:text-zinc-800 {className}" aria-hidden="true">{game.name.trim().charAt(0).toUpperCase() || "?"}</span>
+  <span class="flex items-center justify-center bg-zinc-700/60 text-sm font-semibold text-legio-fg light:bg-zinc-200 {className}" aria-hidden="true">{game.name.trim().charAt(0).toUpperCase() || "?"}</span>
 {/snippet}

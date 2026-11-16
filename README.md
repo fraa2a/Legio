@@ -14,10 +14,11 @@ Legio is a desktop game launcher for Windows and Linux. Import games from Steam 
 - **A Steam account for each game.** If you use multiple accounts, assign the right one to each title. Legio asks before restarting Steam to switch accounts when needed.
 - **Per-game launch settings.** Run native Linux games or Windows games through Proton, GE-Proton, or Wine. Configure prefixes, launch arguments, environment variables, and DLL overrides on Linux, or native launch options on Windows.
 - **Flexible game import.** Detect your Steam library or add games and executables manually.
-- **Themes you can make your own.** Choose from built-in palettes with a live preview, set your own accent color, pick a flat, glass or solid panel style, and add an image or an animated background (connected dots, Dither or Aurora).
-- **Quick navigation.** Press Ctrl+K (Cmd+K on macOS) to jump to a game, a page or a settings category.
+- **Themes you can make your own.** Choose from twelve built-in palettes (including midnight blue, violet, high contrast, pure black OLED and a cool light one) with a live preview, set your own accent color, optionally let each game page take the accent from its artwork, share a theme as a copyable code or a `legio://theme` link, pick a flat, glass or solid panel style, choose compact, normal or wide density, square, soft or round corners and a 90 to 120 percent text size, and add an image or an animated background (connected dots, Dither, scanlines, Aurora, an ambient gradient from the current game's artwork, a starfield, or snow, rain or leaves you switch on yourself), with an optional film grain over any of them.
+- **Quick navigation.** Press Ctrl+K to jump to a game, a page or a settings category. Ctrl+1 to Ctrl+4 switch view, Ctrl+F goes to search, Enter plays the open game and ? lists every shortcut.
 - **Hyprland transparency.** Enable a transparent Legio window on Hyprland and adjust the surface opacity. Background blur is controlled by your Hyprland rules.
 - **Playtime at a glance.** See recently played games, tracked playtime, and a calendar of your activity.
+- **Play recap.** Look back on a year or a month with total time, top games, longest day and streak, and charts by weekday and month, then save it as an image card to share.
 
 ## Online Fix
 
@@ -61,6 +62,7 @@ for checks and the pull request workflow.
 
 - [Documentation index](_meta/docs/README.md)
 - [Development setup](_meta/docs/DEVELOPMENT.md) and [contributing](CONTRIBUTING.md)
+- [Privacy and network](_meta/docs/PRIVACY.md)
 - [Known issues and limitations](_meta/docs/KNOWN-ISSUES.md)
 - [Source schemas and download flow](_meta/docs/SCHEMA.md)
 - [Releases and updates](_meta/docs/UPDATING.md)

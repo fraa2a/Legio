@@ -1,0 +1,14 @@
+{
+  "provisional": true,
+  "build": "debug",
+  "platforms": {
+    "linux": {
+      "startupMs": { "max": 15000 },
+      "idleMemoryMiB": { "max": 2000 },
+      "hiddenCpuPercent": { "max": 10 }
+    },
+    "win32": {
+      "startupMs": { "max": 30000 }
+    }
+  }
+}

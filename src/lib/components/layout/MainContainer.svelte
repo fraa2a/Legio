@@ -5,10 +5,11 @@
   import HomeView from "../../features/home/HomeView.svelte";
   import GameDetailView from "../../features/library/GameDetailView.svelte";
   import LibraryView from "../../features/library/LibraryView.svelte";
+  import PlaytimeRecapView from "../../features/recap/PlaytimeRecapView.svelte";
   import StoreView from "../../features/store/StoreView.svelte";
   import GameModsView from "../../features/modding/GameModsView.svelte";
   import ModdingPage from "../../features/modding/ModdingPage.svelte";
-  import { activeSection, selectedGameId, selectedModGame } from "../../stores/navigation";
+  import { activeSection, playtimeRecapOpen, selectedGameId, selectedModGame } from "../../stores/navigation";
   import { pageTransitionDuration, reducedMotion } from "../../utils/motion";
   import { logApplicationEvent } from "../../services/application-log";
 
@@ -16,10 +17,12 @@
 
   const gamePrefix = "library:";
   const modsPrefix = "mods:";
+  const recapTarget = "home:recap";
 
   let mounted = $state(false);
 
   const target = $derived.by(() => {
+    if ($activeSection === "home" && $playtimeRecapOpen) return recapTarget;
     if ($activeSection === "mods" && $selectedModGame !== null) return `${modsPrefix}${$selectedModGame.gameId}`;
     return $selectedGameId === null ? $activeSection : `${gamePrefix}${$selectedGameId}`;
   });
@@ -39,6 +42,7 @@
 
   function pageName(value: string): string {
     if (value.startsWith(gamePrefix)) return "game_details";
+    if (value === recapTarget) return "playtime_recap";
     return value.startsWith(modsPrefix) ? "mod_manager" : value;
   }
 
@@ -83,7 +87,7 @@
 </script>
 
 <main
-  class="legio-content relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl scrollbar-none"
+  class="legio-content relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-card scrollbar-none"
 >
   {#key displayedTarget}
     <ArtworkScope active={displayedTarget === target}>
@@ -94,6 +98,8 @@
       >
         {#if displayedTarget === "home"}
           <HomeView />
+        {:else if displayedTarget === recapTarget}
+          <PlaytimeRecapView />
         {:else if displayedTarget === "library"}
           <LibraryView />
         {:else if displayedTarget.startsWith(gamePrefix)}

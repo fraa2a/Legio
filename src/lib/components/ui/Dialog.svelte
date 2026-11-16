@@ -27,7 +27,7 @@
   let dialog: HTMLDialogElement | undefined = $state();
 
   const widthClass = $derived(size === "large" ? "w-[72rem]" : size === "wide" ? "w-[52rem]" : "w-[26rem]");
-  const dialogDuration = reducedMotion ? 0 : 180;
+  const dialogDuration = reducedMotion ? 0 : 200;
   let openFrame = 0;
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
   let notifyOnClose = false;
@@ -98,7 +98,7 @@
   aria-labelledby={titleId}
   tabindex="-1"
   data-visible="false"
-  class="legio-dialog m-auto {widthClass} max-w-[calc(100vw-2rem)] rounded-2xl border border-white/15 bg-zinc-900 text-zinc-100 shadow-2xl shadow-black/40 backdrop:bg-black/70 light:border-zinc-900/15 light:bg-zinc-50 light:text-zinc-900 {flush
+  class="legio-dialog m-auto {widthClass} max-w-[calc(100vw-2rem)] rounded-panel bg-zinc-900 text-legio-fg shadow-2xl shadow-black/40 backdrop:bg-black/70 light:bg-zinc-50 {flush
     ? size === 'large' ? 'h-[min(48rem,calc(100dvh-3rem))] overflow-hidden' : 'h-[min(40rem,calc(100dvh-3rem))] overflow-hidden'
     : 'max-h-[calc(100dvh-3rem)] overflow-y-auto'}"
   oncancel={(event) => {
@@ -117,11 +117,11 @@
 >
   <div class="legio-dialog-surface" aria-hidden="true"></div>
   <div
-    class={flush ? 'legio-dialog-content relative z-10 flex h-full min-h-0 flex-col' : 'legio-dialog-content relative z-10 flex flex-col gap-5 p-6'}
+    class={flush ? 'legio-dialog-content relative z-10 flex h-full min-h-0 flex-col' : 'legio-dialog-content relative z-10 flex flex-col gap-rhythm-row p-inset-wide'}
   >
     <div
-      class="flex items-center justify-between gap-4 {flush
-        ? 'shrink-0 border-b border-white/15 px-6 py-4 light:border-zinc-900/15'
+      class="flex items-center justify-between gap-rhythm-row {flush
+        ? 'shrink-0 border-b border-legio-line px-inset-wide py-inset-compact'
         : ''}"
     >
       <h2 id={titleId} class="text-lg font-semibold">{title}</h2>

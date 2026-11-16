@@ -4,6 +4,9 @@
   import type { GameLaunchState } from "../../services/steam-accounts";
   import Button from "../../components/ui/Button.svelte";
   import Icon from "../../components/ui/Icon.svelte";
+  import { launchProfiles } from "../../stores/launch-profiles";
+  import LaunchProfileSplit from "./LaunchProfileSplit.svelte";
+  import { lastUsedProfileId, profileMenuOptions, profilesOf } from "./launch-profiles";
 
   let {
     game,
@@ -12,10 +15,10 @@
     cancelPending = false,
     variant = "secondary",
     playLabel = t("GIOCA", $language),
-    circle = false,
-    pill = false,
+    shape = "rect",
     size = "md",
     revealOnHover = false,
+    menuAbove = false,
     class: className = "",
     onPlay,
     onCancel,
@@ -27,53 +30,65 @@
     cancelPending?: boolean;
     variant?: "primary" | "secondary";
     playLabel?: string;
-    circle?: boolean;
-    pill?: boolean;
+    shape?: "rect" | "pill";
     size?: "md" | "hero";
     revealOnHover?: boolean;
+    menuAbove?: boolean;
     class?: string;
-    onPlay: (game: Game) => void;
+    // A null profile is the game's base settings.
+    onPlay: (game: Game, profileId: string | null) => void | Promise<void>;
     onCancel: (game: Game) => void;
     onStop: (game: Game) => void;
   } = $props();
 
   const status = $derived(launch?.status ?? "idle");
+  const iconSize = $derived(size === "hero" ? "xl" : "md");
   const actionVariant = $derived(
     status === "launching" ? "launching" : status === "running" ? "running" : variant === "primary" ? "play" : "secondary",
   );
+  const profiles = $derived(profilesOf($launchProfiles.data, game.id));
+  const launchable = $derived(game.steamInstallPath !== null || game.executablePath !== null);
+
+  $effect(() => {
+    if (launchable && $launchProfiles.status === "idle") void launchProfiles.load();
+  });
+
+  async function play(profileId: string | null): Promise<void> {
+    try {
+      await onPlay(game, profileId);
+    } finally {
+      // The backend records the profile of a launch that started.
+      await launchProfiles.reload();
+    }
+  }
 </script>
 
-{#if game.steamInstallPath !== null || game.executablePath !== null}
-  {#if status === "idle"}
-    <Button
+{#if launchable}
+  {#if status === "idle" && profiles.length > 0 && !revealOnHover}
+    <LaunchProfileSplit
       label={playLabel}
-      variant={actionVariant}
-      {circle}
-      {pill}
+      options={profileMenuOptions(profiles, t("Predefinito", $language))}
+      selectedId={lastUsedProfileId($launchProfiles.data, game.id)}
+      {variant}
+      {shape}
       {size}
-      class={revealOnHover
-        ? "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-        : className}
-      disabled={actionPending}
-      onClick={() => onPlay(game)}
-    >
-      <Icon name="play" size="h-6 w-6" />
-    </Button>
-  {:else if status === "launching"}
-    <Button
-      label={cancelPending ? t("ANNULLAMENTO...", $language) : t("AVVIO...", $language)}
-      variant={actionVariant}
-      {pill}
-      {size}
+      {menuAbove}
       class={className}
-      disabled={cancelPending}
-      onClick={() => onCancel(game)}
-    >
-      <Icon name="close" size="h-6 w-6" />
-    </Button>
+      disabled={actionPending}
+      onPlay={(profileId) => void play(profileId)}
+    />
   {:else}
-    <Button label={t("FERMA", $language)} variant={actionVariant} {pill} {size} class={className} disabled={actionPending} onClick={() => onStop(game)}>
-      <Icon name="stop" size="h-6 w-6" />
+    <!-- One button for every state, so the color transitions instead of switching. -->
+    <Button
+      label={status === "idle" ? playLabel : status === "launching" ? (cancelPending ? t("ANNULLAMENTO...", $language) : t("AVVIO...", $language)) : t("FERMA", $language)}
+      variant={actionVariant}
+      {shape}
+      {size}
+      class="duration-(--legio-motion-slow) {status === 'idle' && revealOnHover ? 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100' : className}"
+      disabled={status === "idle" ? actionPending : status === "launching" ? cancelPending : actionPending}
+      onClick={() => (status === "idle" ? void onPlay(game, null) : status === "launching" ? onCancel(game) : onStop(game))}
+    >
+      <Icon name={status === "idle" ? "play" : status === "launching" ? "close" : "stop"} size={iconSize} />
     </Button>
   {/if}
 {/if}

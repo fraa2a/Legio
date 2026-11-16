@@ -6,17 +6,22 @@
     title,
     children,
   }: {
-    tone?: "neutral" | "info" | "success" | "warning" | "danger";
+    tone?: "neutral" | "info" | "success" | "warning" | "danger" | "tier-platinum" | "tier-gold" | "tier-silver" | "tier-bronze" | "tier-borked";
     title: string;
     children?: Snippet;
   } = $props();
 
   const toneClass = $derived.by(() => {
+    if (tone === "tier-platinum") return "bg-legio-tier-platinum/15 text-legio-tier-platinum";
+    if (tone === "tier-gold") return "bg-legio-tier-gold/15 text-legio-tier-gold";
+    if (tone === "tier-silver") return "bg-legio-tier-silver/15 text-legio-tier-silver";
+    if (tone === "tier-bronze") return "bg-legio-tier-bronze/15 text-legio-tier-bronze";
+    if (tone === "tier-borked") return "bg-legio-tier-borked/15 text-legio-tier-borked";
     if (tone === "success") return "bg-legio-success/15 text-legio-success";
     if (tone === "warning") return "bg-legio-warning/15 text-legio-warning";
     if (tone === "danger") return "bg-legio-error/15 text-legio-error";
     if (tone === "info") return "bg-legio-info/15 text-legio-info";
-    return "bg-white/10 text-zinc-300 light:bg-zinc-900/10 light:text-zinc-700";
+    return "bg-legio-fill-hover text-legio-fg";
   });
 </script>
 

@@ -1,6 +1,11 @@
+pub(crate) mod backup;
+mod launch_profiles;
+mod library_organization;
 mod migrations;
 mod modding;
 mod sessions;
+pub(crate) use launch_profiles::{LaunchOverrides, LaunchProfiles};
+pub(crate) use library_organization::{LibraryOrganization, PlayStatus};
 use migrations::migrate;
 pub(crate) use modding::{GameModding, MAX_PROFILE_NAME_CHARS, ModProfile, ProfileMod};
 #[cfg(test)]
@@ -23,7 +28,8 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 39;
+pub(crate) const SCHEMA_VERSION: i64 = 41;
+pub(crate) const DATABASE_FILE_NAME: &str = "legio.sqlite3";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -79,7 +85,10 @@ pub struct CompatibilityDefaults {
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct LinuxPerformance {
     pub game_mode: bool,
+    pub mangohud: bool,
     pub gamescope: Option<GamescopeConfig>,
+    /// Command prefix placed directly before the game command.
+    pub wrapper: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -92,6 +101,20 @@ pub struct GamescopeConfig {
 
 impl LinuxPerformance {
     pub(crate) fn validate(&self) -> Result<(), String> {
+        if self
+            .wrapper
+            .first()
+            .is_some_and(|program| program.trim().is_empty())
+        {
+            return Err("Custom wrapper command needs a program name".to_owned());
+        }
+        if self
+            .wrapper
+            .iter()
+            .any(|argument| argument.chars().any(char::is_control))
+        {
+            return Err("Custom wrapper command cannot contain control characters".to_owned());
+        }
         if let Some(config) = &self.gamescope {
             if config.width.is_some() != config.height.is_some()
                 || config
@@ -140,6 +163,7 @@ pub struct GameCompatibilityOverrides {
 /// Prefixes use the global root unless `prefix_path` names a game-specific path.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub struct EffectiveCompatibilityConfig {
     pub runner_path: Option<String>,
     pub prefix_root: Option<String>,
@@ -185,6 +209,11 @@ pub enum Theme {
     Steel,
     Emerald,
     Sand,
+    Midnight,
+    Violet,
+    Contrast,
+    Oled,
+    Frost,
 }
 
 impl Theme {
@@ -198,6 +227,11 @@ impl Theme {
             "steel" => Ok(Self::Steel),
             "emerald" => Ok(Self::Emerald),
             "sand" => Ok(Self::Sand),
+            "midnight" => Ok(Self::Midnight),
+            "violet" => Ok(Self::Violet),
+            "contrast" => Ok(Self::Contrast),
+            "oled" => Ok(Self::Oled),
+            "frost" => Ok(Self::Frost),
             _ => Err(format!("stored theme is invalid: {value}")),
         }
     }
@@ -212,6 +246,11 @@ impl Theme {
             Self::Steel => "steel",
             Self::Emerald => "emerald",
             Self::Sand => "sand",
+            Self::Midnight => "midnight",
+            Self::Violet => "violet",
+            Self::Contrast => "contrast",
+            Self::Oled => "oled",
+            Self::Frost => "frost",
         }
     }
 }
@@ -253,6 +292,8 @@ pub struct Settings {
     #[serde(default)]
     pub library_portrait: bool,
     #[serde(default)]
+    pub library_view: LibraryViewPreferences,
+    #[serde(default)]
     pub automatic_game_updates: bool,
     #[serde(default = "default_true")]
     pub download_while_playing: bool,
@@ -268,10 +309,102 @@ pub struct Settings {
     pub defer_extraction_while_playing: bool,
     #[serde(default)]
     pub thunderstore_links_enabled: bool,
+    #[serde(default = "default_true")]
+    pub news_enabled: bool,
+    #[serde(default = "default_true")]
+    pub automatic_update_check: bool,
+    #[serde(default)]
+    pub preview_updates: bool,
+    #[serde(default)]
+    pub last_seen_version: Option<String>,
+    #[serde(default)]
+    pub pending_update_notes: Option<PendingUpdateNotes>,
 }
+
+/// Release notes kept across the restart that installs their version.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingUpdateNotes {
+    pub version: String,
+    pub notes: String,
+}
+
+const MAX_UPDATE_NOTES_CHARS: usize = 20_000;
 
 fn default_true() -> bool {
     true
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum LibraryViewMode {
+    #[default]
+    Grid,
+    List,
+    Shelves,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum LibrarySortKey {
+    #[default]
+    Name,
+    Playtime,
+    LastPlayed,
+    Added,
+    Origin,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "id")]
+pub enum LibraryCollectionFilter {
+    #[default]
+    All,
+    Uncollected,
+    Collection(String),
+}
+
+pub const MIN_LIBRARY_COVER_SCALE: u8 = 70;
+pub const MAX_LIBRARY_COVER_SCALE: u8 = 150;
+
+/// Library layout, sort and filters. Unknown collection IDs filter nothing.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LibraryViewPreferences {
+    pub mode: LibraryViewMode,
+    pub sort: LibrarySortKey,
+    pub descending: bool,
+    /// Grid tile width as a percentage of the default width.
+    pub cover_scale: u8,
+    pub favorites_only: bool,
+    pub play_status: Option<PlayStatus>,
+    pub collection: LibraryCollectionFilter,
+}
+
+impl Default for LibraryViewPreferences {
+    fn default() -> Self {
+        Self {
+            mode: LibraryViewMode::default(),
+            sort: LibrarySortKey::default(),
+            descending: false,
+            cover_scale: 100,
+            favorites_only: false,
+            play_status: None,
+            collection: LibraryCollectionFilter::default(),
+        }
+    }
+}
+
+fn validate_library_view(preferences: &LibraryViewPreferences) -> Result<(), String> {
+    if !(MIN_LIBRARY_COVER_SCALE..=MAX_LIBRARY_COVER_SCALE).contains(&preferences.cover_scale) {
+        return Err(format!(
+            "Library cover size must be between {MIN_LIBRARY_COVER_SCALE} and {MAX_LIBRARY_COVER_SCALE} percent"
+        ));
+    }
+    if let LibraryCollectionFilter::Collection(id) = &preferences.collection {
+        Uuid::parse_str(id).map_err(|_| "Library collection filter is invalid".to_owned())?;
+    }
+    Ok(())
 }
 
 fn default_steam_library_poll_minutes() -> u32 {
@@ -316,6 +449,7 @@ impl Default for Settings {
             launch_in_library: false,
             sidebar_collapsed: true,
             library_portrait: false,
+            library_view: LibraryViewPreferences::default(),
             automatic_game_updates: false,
             download_while_playing: true,
             download_notifications: true,
@@ -324,6 +458,11 @@ impl Default for Settings {
             application_logging_enabled: false,
             defer_extraction_while_playing: false,
             thunderstore_links_enabled: false,
+            news_enabled: true,
+            automatic_update_check: true,
+            preview_updates: false,
+            last_seen_version: None,
+            pending_update_notes: None,
         }
     }
 }
@@ -404,11 +543,32 @@ pub struct Database {
     settings_cache: Mutex<Option<Settings>>,
     pub(crate) source_cache: Mutex<Option<crate::legio_source_cache::CachedSource>>,
     downloads_changed: tokio::sync::watch::Sender<()>,
+    library_changed: tokio::sync::watch::Sender<()>,
 }
 
 impl Database {
     pub(crate) fn subscribe_downloads_changes(&self) -> tokio::sync::watch::Receiver<()> {
         self.downloads_changed.subscribe()
+    }
+
+    pub(crate) fn subscribe_library_changes(&self) -> tokio::sync::watch::Receiver<()> {
+        self.library_changed.subscribe()
+    }
+
+    /// Opens an existing database without migrating or writing to it.
+    pub(crate) fn open_read_only(data_dir: &Path) -> Result<Self, String> {
+        let connection = Connection::open_with_flags(
+            data_dir.join("legio.sqlite3"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(|error| format!("could not open the local database: {error}"))?;
+        Ok(Self {
+            connection: Mutex::new(connection),
+            settings_cache: Mutex::new(None),
+            source_cache: Mutex::new(None),
+            downloads_changed: tokio::sync::watch::channel(()).0,
+            library_changed: tokio::sync::watch::channel(()).0,
+        })
     }
 
     pub(crate) fn storage_root(&self, data_dir: &Path) -> Result<std::path::PathBuf, String> {
@@ -544,7 +704,7 @@ impl Database {
     pub(crate) fn open(data_dir: &Path) -> Result<Self, String> {
         fs::create_dir_all(data_dir)
             .map_err(|error| format!("could not create application data directory: {error}"))?;
-        let connection = Connection::open(data_dir.join("legio.sqlite3"))
+        let connection = Connection::open(data_dir.join(DATABASE_FILE_NAME))
             .map_err(|error| format!("could not open the local database: {error}"))?;
 
         connection
@@ -555,17 +715,25 @@ impl Database {
                  PRAGMA busy_timeout = 5000;",
             )
             .map_err(|error| format!("could not configure the local database: {error}"))?;
+        backup::backup_before_migration(&connection, data_dir)?;
         migrate(&connection)?;
         initialize_preferences(&connection)?;
         let downloads_changed = tokio::sync::watch::channel(()).0;
         // Covers every write to the table, whichever code path performs it.
         let notifier = downloads_changed.clone();
+        let library_changed = tokio::sync::watch::channel(()).0;
+        let library_notifier = library_changed.clone();
         connection
             .update_hook(Some(
-                move |_: rusqlite::hooks::Action, _: &str, table: &str, _: i64| {
-                    if table == "downloads" {
+                move |_: rusqlite::hooks::Action, _: &str, table: &str, _: i64| match table {
+                    "downloads" => {
                         notifier.send_replace(());
                     }
+                    // The tray menu lists recent games and is labelled in the saved language.
+                    "games" | "game_sessions" | "hidden_games" | "settings" => {
+                        library_notifier.send_replace(());
+                    }
+                    _ => {}
                 },
             ))
             .map_err(|error| format!("could not watch the local database: {error}"))?;
@@ -574,6 +742,7 @@ impl Database {
             settings_cache: Mutex::new(None),
             source_cache: Mutex::new(None),
             downloads_changed,
+            library_changed,
         };
         database.recover_open_game_sessions(now_milliseconds()?)?;
         Ok(database)
@@ -595,6 +764,7 @@ impl Database {
     pub fn save_settings(&self, settings: Settings) -> Result<Settings, String> {
         crate::appearance::validate(&settings.appearance)?;
         validate_steam_library_poll_minutes(settings.steam_library_poll_minutes)?;
+        validate_library_view(&settings.library_view)?;
         if !matches!(
             settings.store_sort.as_str(),
             "relevance" | "name_asc" | "name_desc"
@@ -606,6 +776,13 @@ impl Database {
             "all" | "available" | "verified"
         ) {
             return Err("Invalid Store availability preference".to_owned());
+        }
+        if settings
+            .pending_update_notes
+            .as_ref()
+            .is_some_and(|pending| pending.notes.chars().count() > MAX_UPDATE_NOTES_CHARS)
+        {
+            return Err("Update notes are too long".to_owned());
         }
         if settings.launch_minimized && !settings.launch_on_system_start {
             return Err("Launch minimized requires launch on system startup".to_owned());
@@ -691,6 +868,7 @@ impl Database {
     }
 
     /// Resolves global defaults and per-game overrides in one database read.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn effective_compatibility_config(
         &self,
         game_id: &str,
@@ -1022,10 +1200,52 @@ impl Database {
             if changed == 0 {
                 return Err("game was not found".to_owned());
             }
+            connection
+                .execute(
+                    "DELETE FROM settings WHERE key = ?1",
+                    [screenshot_folder_key(&id)],
+                )
+                .map_err(database_error)?;
             Ok(())
         })?;
         crate::game_library::flush_registered(self);
         Ok(())
+    }
+
+    /// Per-game screenshot folder override. It lives in the key/value settings table
+    /// because a dedicated column would need a schema migration.
+    pub(crate) fn screenshot_folder(&self, game_id: &str) -> Result<Option<String>, String> {
+        let key = screenshot_folder_key(&parse_game_id(game_id)?);
+        self.with_connection(|connection| {
+            connection
+                .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| {
+                    row.get(0)
+                })
+                .optional()
+                .map_err(database_error)
+        })
+    }
+
+    pub(crate) fn set_screenshot_folder(
+        &self,
+        game_id: &str,
+        folder: Option<&str>,
+    ) -> Result<(), String> {
+        let id = parse_game_id(game_id)?;
+        let key = screenshot_folder_key(&id);
+        self.game(&id)?;
+        self.with_connection(|connection| {
+            match folder {
+                Some(folder) => connection.execute(
+                    "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    params![key, folder],
+                ),
+                None => connection.execute("DELETE FROM settings WHERE key = ?1", [key]),
+            }
+            .map(|_| ())
+            .map_err(database_error)
+        })
     }
 
     pub(crate) fn with_connection<T>(
@@ -1320,6 +1540,7 @@ fn load_game_compatibility_overrides(
     })
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn merge_compatibility_config(
     defaults: CompatibilityDefaults,
     overrides: GameCompatibilityOverrides,
@@ -1504,6 +1725,10 @@ fn normalize_prefix_path(value: Option<String>) -> Result<Option<String>, String
     Ok(Some(normalized.to_string_lossy().into_owned()))
 }
 
+fn screenshot_folder_key(game_id: &str) -> String {
+    format!("game_screenshot_folder.{game_id}")
+}
+
 fn parse_game_id(value: &str) -> Result<String, String> {
     Uuid::parse_str(value)
         .map(|id| id.to_string())
@@ -1536,6 +1761,127 @@ mod tests {
             assert_eq!(settings["diagnosticsEnabled"], false);
             assert_eq!(settings["applicationLoggingEnabled"], false);
         }
+    }
+
+    #[test]
+    fn network_features_stay_enabled_for_legacy_settings() {
+        for settings in [
+            Settings::default(),
+            serde_json::from_str(r#"{"theme":"system"}"#).unwrap(),
+        ] {
+            assert!(settings.news_enabled);
+            assert!(settings.automatic_update_check);
+        }
+    }
+
+    #[test]
+    fn library_view_preferences_default_for_older_settings_and_are_validated() {
+        let legacy: Settings = serde_json::from_str(r#"{"theme":"system"}"#).unwrap();
+        assert_eq!(legacy.library_view, LibraryViewPreferences::default());
+        let value = serde_json::to_value(LibraryViewPreferences::default()).unwrap();
+        assert_eq!(value["collection"], serde_json::json!({ "kind": "all" }));
+        assert_eq!(value["playStatus"], serde_json::Value::Null);
+
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        for library_view in [
+            LibraryViewPreferences {
+                cover_scale: MIN_LIBRARY_COVER_SCALE - 1,
+                ..LibraryViewPreferences::default()
+            },
+            LibraryViewPreferences {
+                cover_scale: MAX_LIBRARY_COVER_SCALE + 1,
+                ..LibraryViewPreferences::default()
+            },
+            LibraryViewPreferences {
+                collection: LibraryCollectionFilter::Collection("../escape".to_owned()),
+                ..LibraryViewPreferences::default()
+            },
+        ] {
+            let settings = Settings {
+                library_view,
+                ..database.settings().unwrap()
+            };
+            assert!(database.save_settings(settings).is_err());
+        }
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn migration_40_adds_organization_and_keeps_games() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch("PRAGMA foreign_keys = ON;")
+            .unwrap();
+        migrate(&connection).unwrap();
+        connection
+            .execute_batch(
+                "DROP TABLE collection_games;
+                 DROP TABLE collections;
+                 DROP TRIGGER games_added_at;
+                 ALTER TABLE games DROP COLUMN added_at;
+                 ALTER TABLE games DROP COLUMN play_status;
+                 ALTER TABLE games DROP COLUMN favorite;
+                 INSERT INTO games (id, steam_app_id, automatic_name, name_override, steam_install_path)
+                 VALUES ('00000000-0000-0000-0000-000000000001', 400, 'Portal', 'My Portal', '/steam/Portal');
+                 INSERT INTO hidden_games (game_id) VALUES ('00000000-0000-0000-0000-000000000001');
+                 PRAGMA user_version = 39;",
+            )
+            .unwrap();
+        migrate(&connection).unwrap();
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        let row: (String, Option<String>, bool, String, Option<i64>, bool) = connection
+            .query_row(
+                "SELECT automatic_name, name_override, favorite, play_status, added_at,
+                        EXISTS(SELECT 1 FROM hidden_games WHERE game_id = games.id)
+                 FROM games",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            row,
+            (
+                "Portal".to_owned(),
+                Some("My Portal".to_owned()),
+                false,
+                "none".to_owned(),
+                None,
+                true
+            )
+        );
+        connection
+            .execute(
+                "INSERT INTO games (id, name_override) VALUES ('00000000-0000-0000-0000-000000000002', 'New')",
+                [],
+            )
+            .unwrap();
+        let added_at: Option<i64> = connection
+            .query_row(
+                "SELECT added_at FROM games WHERE name_override = 'New'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(added_at.is_some_and(|value| value > 1_600_000_000_000));
+        assert!(
+            connection
+                .execute("UPDATE games SET play_status = 'unknown'", [])
+                .is_err()
+        );
     }
 
     #[test]
@@ -1624,6 +1970,31 @@ mod tests {
     }
 
     #[test]
+    fn failed_backup_blocks_the_pending_migration() {
+        let directory = temporary_directory();
+        let connection = Connection::open(directory.join(DATABASE_FILE_NAME)).unwrap();
+        migrate(&connection).unwrap();
+        connection
+            .execute_batch(
+                "ALTER TABLE downloads DROP COLUMN library_id;
+                 PRAGMA user_version = 34;",
+            )
+            .unwrap();
+        drop(connection);
+        // A file where the backup folder belongs makes the backup fail.
+        fs::write(backup::backup_directory(&directory), b"blocked").unwrap();
+        let error = Database::open(&directory).err().unwrap();
+        assert!(error.contains("backup"), "{error}");
+        let connection = Connection::open(directory.join(DATABASE_FILE_NAME)).unwrap();
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 34);
+        drop(connection);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn cached_settings_follow_save_settings() {
         let directory = temporary_directory();
         let database = Database::open(&directory).unwrap();
@@ -1706,6 +2077,11 @@ mod tests {
             Theme::Steel,
             Theme::Emerald,
             Theme::Sand,
+            Theme::Midnight,
+            Theme::Violet,
+            Theme::Contrast,
+            Theme::Oled,
+            Theme::Frost,
         ] {
             assert_eq!(Theme::parse(theme.as_str()).unwrap(), theme);
             let encoded = serde_json::to_string(&theme).unwrap();
@@ -1729,6 +2105,9 @@ mod tests {
                 background_blur: 16,
                 background_opacity: 40,
                 transparent: true,
+                density: crate::appearance::Density::Wide,
+                corners: crate::appearance::Corners::Sharp,
+                text_scale: 110,
                 ..crate::appearance::Appearance::default()
             },
             ..Settings::default()
@@ -2201,6 +2580,7 @@ mod tests {
             settings_cache: Mutex::new(None),
             source_cache: Mutex::new(None),
             downloads_changed: tokio::sync::watch::channel(()).0,
+            library_changed: tokio::sync::watch::channel(()).0,
         };
         assert_eq!(database.settings().unwrap().theme, Theme::Dark);
         assert_eq!(
@@ -2299,6 +2679,7 @@ mod tests {
             .unwrap_err();
         assert!(error.contains("nome è già usato"));
         assert_eq!(database.game(&first.id).unwrap().name, "Portal");
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -2505,6 +2886,31 @@ mod tests {
     }
 
     #[test]
+    fn update_preferences_default_off_and_cap_notes() {
+        let mut preferences = serde_json::to_value(Settings::default()).unwrap();
+        let object = preferences.as_object_mut().unwrap();
+        for key in ["previewUpdates", "lastSeenVersion", "pendingUpdateNotes"] {
+            object.remove(key);
+        }
+        let legacy = serde_json::from_value::<Settings>(preferences).unwrap();
+        assert!(!legacy.preview_updates);
+        assert!(legacy.last_seen_version.is_none() && legacy.pending_update_notes.is_none());
+
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let oversized = Settings {
+            pending_update_notes: Some(PendingUpdateNotes {
+                version: "1.0.0".to_owned(),
+                notes: "x".repeat(MAX_UPDATE_NOTES_CHARS + 1),
+            }),
+            ..Settings::default()
+        };
+        assert!(database.save_settings(oversized).is_err());
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn persists_settings_and_enriched_manual_games_after_reopen() {
         let directory = temporary_directory();
         let database = Database::open(&directory).unwrap();
@@ -2513,6 +2919,15 @@ mod tests {
             theme: Theme::Light,
             steam_library_poll_minutes: 15,
             library_portrait: true,
+            library_view: LibraryViewPreferences {
+                mode: LibraryViewMode::Shelves,
+                sort: LibrarySortKey::LastPlayed,
+                descending: true,
+                cover_scale: 130,
+                favorites_only: true,
+                play_status: Some(PlayStatus::Playing),
+                collection: LibraryCollectionFilter::Collection(Uuid::new_v4().to_string()),
+            },
             sidebar_collapsed: false,
             sync_steam_games: false,
             store_sort: "name_desc".to_owned(),
@@ -2541,6 +2956,7 @@ mod tests {
         let reopened = Database::open(&directory).unwrap();
         assert_eq!(reopened.settings().unwrap(), settings);
         assert_eq!(reopened.games().unwrap(), vec![enriched]);
+        drop(reopened);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -2751,6 +3167,7 @@ mod tests {
         assert_eq!(reopened.compatibility_defaults().unwrap(), defaults);
         let stored = reopened.game_compatibility_overrides(&game.id).unwrap();
         assert_eq!(stored, overrides);
+        drop(reopened);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -2773,6 +3190,7 @@ mod tests {
                 .unwrap_err(),
             "game was not found"
         );
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -2868,6 +3286,7 @@ mod tests {
         );
         assert_eq!(effective.graphics_renderer, GraphicsRenderer::WineD3d);
         assert_eq!(effective.wayland, WaylandMode::Disabled);
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -2931,6 +3350,7 @@ mod tests {
                 linux_performance: LinuxPerformance::default(),
             }
         );
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -2993,6 +3413,7 @@ mod tests {
         assert_eq!(reset.wayland, WaylandMode::Native);
         assert!(reset.debug_logging);
         assert!(!reset.online_fix);
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3026,11 +3447,13 @@ mod tests {
         assert_eq!(overrides.linux_performance, LinuxPerformance::default());
         overrides.linux_performance = LinuxPerformance {
             game_mode: true,
+            mangohud: true,
             gamescope: Some(GamescopeConfig {
                 width: Some(1280),
                 height: Some(720),
                 fps: Some(123),
             }),
+            wrapper: vec!["taskset".to_owned(), "-c".to_owned(), "0-7".to_owned()],
         };
         database
             .save_game_compatibility_overrides(&game.id, overrides.clone())
@@ -3078,6 +3501,7 @@ mod tests {
             })
             .unwrap_err();
         assert_eq!(error, "a game needs an automatic name or a name override");
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3128,6 +3552,7 @@ mod tests {
                 .steam_account_id,
             None
         );
+        drop(reopened);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3155,6 +3580,7 @@ mod tests {
                 .unwrap_err(),
             "game was not found or has no Steam App ID"
         );
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3193,6 +3619,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(theme, "light");
+        drop(connection);
         fs::remove_dir_all(directory).unwrap();
     }
 

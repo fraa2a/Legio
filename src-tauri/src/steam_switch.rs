@@ -50,6 +50,7 @@ pub(crate) fn launch(
     app: &AppHandle,
     game_id: &str,
     confirm_account_switch: bool,
+    profile: Option<&crate::database::LaunchOverrides>,
     cancel: &AtomicBool,
 ) -> Result<SteamLaunchResult, String> {
     let _guard = LAUNCH_LOCK
@@ -58,11 +59,14 @@ pub(crate) fn launch(
     check_cancel(cancel)?;
     let game = app.state::<DatabaseState>().database()?.game(game_id)?;
     let steam_app_id = launch_app_id(&game)?;
-    let mut arguments = app
+    let mut config = app
         .state::<DatabaseState>()
         .database()?
-        .steam_launch_config(game_id)?
-        .arguments;
+        .steam_launch_config(game_id)?;
+    if let Some(profile) = profile {
+        config = profile.resolve_steam(config);
+    }
+    let mut arguments = config.arguments;
     if let Some(plan) = crate::modding::launch::prepare_launch(app, &game)? {
         arguments.extend(plan.arguments);
     }
@@ -405,6 +409,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if !metadata.is_file() {
         return Err("Steam configuration is not a regular file".to_owned());
     }
+    #[cfg_attr(not(unix), allow(unused_variables))]
     let parent = path
         .parent()
         .ok_or_else(|| "Steam configuration path has no parent".to_owned())?;

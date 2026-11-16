@@ -1,8 +1,24 @@
 import { invoke } from "./invoke";
 
 import type { Appearance } from "./appearance";
+import type { PlayStatus } from "./library-organization";
 
-export type Theme = "system" | "dark" | "light" | "bronze" | "crimson" | "steel" | "emerald" | "sand";
+export type Theme = "system" | "dark" | "light" | "bronze" | "crimson" | "steel" | "emerald" | "sand" | "midnight" | "violet" | "contrast" | "oled" | "frost";
+
+export type LibraryViewMode = "grid" | "list" | "shelves";
+export type LibrarySortKey = "name" | "playtime" | "lastPlayed" | "added" | "origin";
+export type LibraryCollectionFilter = { kind: "all" } | { kind: "uncollected" } | { kind: "collection"; id: string };
+
+export interface LibraryViewPreferences {
+  mode: LibraryViewMode;
+  sort: LibrarySortKey;
+  descending: boolean;
+  // Grid tile width as a percentage of the default width.
+  coverScale: number;
+  favoritesOnly: boolean;
+  playStatus: PlayStatus | null;
+  collection: LibraryCollectionFilter;
+}
 
 export interface Settings {
   discordPresence: { enabled: boolean };
@@ -22,6 +38,7 @@ export interface Settings {
   launchInLibrary: boolean;
   sidebarCollapsed: boolean;
   libraryPortrait: boolean;
+  libraryView: LibraryViewPreferences;
   automaticGameUpdates: boolean;
   downloadWhilePlaying: boolean;
   downloadNotifications: boolean;
@@ -30,6 +47,11 @@ export interface Settings {
   applicationLoggingEnabled: boolean;
   deferExtractionWhilePlaying: boolean;
   thunderstoreLinksEnabled: boolean;
+  newsEnabled: boolean;
+  automaticUpdateCheck: boolean;
+  previewUpdates: boolean;
+  lastSeenVersion: string | null;
+  pendingUpdateNotes: { version: string; notes: string } | null;
 }
 
 export interface Game {

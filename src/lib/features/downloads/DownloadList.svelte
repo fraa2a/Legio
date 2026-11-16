@@ -99,7 +99,7 @@
   {#each jobs as job, index (job.id)}
     {@const phase = phaseLabel(job, $language)}
     <li
-      class="group flex flex-wrap items-center gap-3 rounded-xl legio-glass p-3 transition-colors duration-200
+      class="group flex flex-wrap items-center gap-3 rounded-card legio-glass p-3 transition-colors
         {fromIndex === index ? 'opacity-40' : ''}
         {overIndex === index && fromIndex !== index ? 'ring-2 ring-legio-download' : ''}
         {reorder && isReorderable(job) ? 'cursor-grab active:cursor-grabbing' : ''}"
@@ -113,19 +113,19 @@
       }}
     >
       {#if positions}
-        <span class="w-5 shrink-0 text-center text-xs font-medium tabular-nums text-zinc-500 light:text-zinc-400">
+        <span class="w-5 shrink-0 text-center text-xs font-medium tabular-nums text-legio-fg-subtle">
           {positionOffset + index + 1}
         </span>
       {/if}
 
-      <DownloadCover steamAppId={job.steamAppId} name={job.name} class="aspect-[2/3] w-9" rounded="lg" />
+      <DownloadCover steamAppId={job.steamAppId} name={job.name} class="aspect-[2/3] w-9" radius="control" />
 
       <div class="min-w-0 flex-1 basis-44">
         <div class="flex flex-wrap items-center gap-2">
-          <p class="min-w-0 truncate font-medium text-zinc-50 light:text-zinc-900">{job.name}</p>
+          <p class="min-w-0 truncate font-medium text-legio-fg">{job.name}</p>
           <Badge tone={statusTone(job.status)} title={statusBadge(job.status, $language)} />
         </div>
-        <p class="mt-0.5 truncate text-xs text-zinc-400 light:text-zinc-600">
+        <p class="mt-0.5 truncate text-xs text-legio-fg-muted">
           {t("Versione {0}", $language, [job.releaseVersion])} · {formatBytes(job.sizeBytes, $language)}{#if phase !== null} · {phase}{/if}
         </p>
         {#if job.downloadedBytes > 0}
@@ -137,7 +137,7 @@
           />
         {/if}
         {#if job.error !== null}
-          <Callout tone="danger" variant="inline" class="mt-2" message={job.error} />
+          <Callout tone="danger" variant="inline" class="mt-2" message={t("Download non riuscito.", $language)} detail={job.error} copyable />
         {/if}
       </div>
 
@@ -191,25 +191,25 @@
 
       {#if reorder && onReorder !== undefined && isReorderable(job)}
         <div
-          class="ml-auto flex shrink-0 flex-col gap-0.5 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100"
+          class="ml-auto flex shrink-0 flex-col gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
         >
           <IconButton
-            size="xs"
+            size="inline-sm"
             label={t("Sposta {0} in alto", $language, [job.name])}
             title={t("Sposta in alto", $language)}
             disabled={index === 0 || busyJob !== null}
             onClick={() => move(index, index - 1)}
           >
-            <Icon name="chevron-down" size="size-3.5 rotate-180" />
+            <Icon name="chevron-down" size="sm" class="rotate-180" />
           </IconButton>
           <IconButton
-            size="xs"
+            size="inline-sm"
             label={t("Sposta {0} in basso", $language, [job.name])}
             title={t("Sposta in basso", $language)}
             disabled={index === jobs.length - 1 || busyJob !== null}
             onClick={() => move(index, index + 1)}
           >
-            <Icon name="chevron-down" size="size-3.5" />
+            <Icon name="chevron-down" size="sm" />
           </IconButton>
         </div>
       {/if}

@@ -24,20 +24,20 @@
 </script>
 
 <nav bind:this={root} aria-label={t("Pagine", $language)} class="flex flex-wrap items-center justify-center gap-1 pt-2">
-  <Button label={t("Pagina precedente", $language)} variant="secondary" size="sm" square disabled={disabled || page <= 1} onClick={() => select(page - 1)}>
-    <Icon name="previous" size="size-4" />
+  <Button label={t("Pagina precedente", $language)} variant="secondary" size="sm" iconOnly disabled={disabled || page <= 1} onClick={() => select(page - 1)}>
+    <Icon name="previous" />
   </Button>
   {#each numbers as item, index (item === "gap" ? `gap${index}` : item)}
     {#if item === "gap"}
-      <span aria-hidden="true" class="px-1 text-xs text-zinc-500">...</span>
+      <span aria-hidden="true" class="px-1 text-xs text-legio-fg-subtle">...</span>
     {:else}
-      <Button label={t("Pagina {0}", $language, [item])} variant={item === page ? "primary" : "secondary"} size="sm" square pressed={item === page} {disabled} onClick={() => select(item)}>
+      <Button label={t("Pagina {0}", $language, [item])} variant={item === page ? "primary" : "secondary"} size="sm" iconOnly pressed={item === page} {disabled} onClick={() => select(item)}>
         {item}
       </Button>
     {/if}
   {/each}
-  {#if hasMore}<span aria-hidden="true" class="px-1 text-xs text-zinc-500">...</span>{/if}
-  <Button label={t("Pagina successiva", $language)} variant="secondary" size="sm" square disabled={disabled || (page >= pageCount && !hasMore)} onClick={() => select(page + 1)}>
-    <Icon name="next" size="size-4" />
+  {#if hasMore}<span aria-hidden="true" class="px-1 text-xs text-legio-fg-subtle">...</span>{/if}
+  <Button label={t("Pagina successiva", $language)} variant="secondary" size="sm" iconOnly disabled={disabled || (page >= pageCount && !hasMore)} onClick={() => select(page + 1)}>
+    <Icon name="next" />
   </Button>
 </nav>

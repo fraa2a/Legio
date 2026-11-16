@@ -26,9 +26,23 @@ corepack pnpm test:feedback
 corepack pnpm test:sources
 ```
 
-The [CI workflow](../../.github/workflows/ci.yml) checks documentation on every run. Documentation-only changes skip native builds and application tests; code changes run frontend, Rust and Linux/Windows native checks. New PR pushes cancel superseded runs. Release commits use the production build instead of an additional smoke build. [Scripts](../../scripts/README.md) describes fixtures and test support. JSDOM and mock graphics tests do not validate native rendering.
+The [CI workflow](../../.github/workflows/ci.yml) checks documentation on every run. Documentation-only changes skip native builds and application tests; code changes run frontend, Rust (formatting, Clippy and tests) and Linux/Windows native checks. The Windows job also runs Clippy with `-D warnings` and the complete Rust test suite. New PR pushes cancel superseded runs. Release commits use the production build instead of an additional smoke build. [Scripts](../../scripts/README.md) describes fixtures and test support. JSDOM and mock graphics tests do not validate native rendering.
 
 Native tests need platform dependencies, localhost sockets and access to their child processes. Run relevant ignored or interactive tests explicitly; a passing subset does not replace required CI checks.
+
+## Application smoke test
+
+The [application smoke test](../../tools/app-smoke/README.md) drives the built binary through `tauri-driver` with a temporary profile: startup, onboarding, adding a game, the main sections and every settings category, hiding to the tray and quitting. It also measures startup time, idle memory and hidden CPU against a performance budget and captures screenshots. CI runs it on Linux after the debug build. It is disabled on Windows while KI-003 is open.
+
+Linux needs `webkit2gtk-driver`, `xvfb` and `tauri-driver`:
+
+```sh
+corepack pnpm tauri build --debug --no-bundle
+cargo install tauri-driver --version 2.1.0 --locked
+xvfb-run -a -s "-screen 0 1920x1080x24" corepack pnpm smoke:app --output /tmp/legio-smoke
+```
+
+Windows needs `tauri-driver` and an `msedgedriver.exe` matching the installed WebView2 runtime, passed with `--native-driver`. On Windows the smoke test uses the real per-user application data folders, so run it only in a disposable account or VM; it refuses to start outside CI when a Legio profile exists.
 
 ## Desktop checklist
 
@@ -37,7 +51,8 @@ Test development and installed builds. Back up production data before testing in
 - **Library:** empty/populated states, restart persistence, Steam detection, launch/stop and playtime.
 - **Downloads:** pause, resume, cancel, extract and finalize using an authorized source.
 - **Store:** sorting, filters, release selection, source refresh and offline cache. Rapid changes must not show stale results.
-- **UI:** every palette and panel style, both languages, keyboard focus, the Ctrl+K palette, retries, reduced motion, minimum window size, scaling and both sidebar states.
+- **UI:** every palette and panel style, both languages, keyboard focus, the Ctrl+K palette, the title bar path, search and notification panel, retries, reduced motion, minimum window size, scaling and both sidebar states.
+- **Accessibility:** one pass with the keyboard only (Tab, Shift+Tab, arrows, Space, Enter, Escape) through the sidebar, a dialog, a select, segmented controls, sliders, toasts and the Ctrl+K palette, then one with a screen reader (Orca on Linux, NVDA on Windows). Check that focus is always visible, dialogs trap and return focus, icon-only buttons are announced by name, toasts and loading states are announced once, and each view starts with its heading. `test:a11y` and `test:appearance` cannot replace this pass.
 - **Artwork:** cold/warm/expired caches, offline refresh, quick A/B/A navigation and cancellation. Failed refreshes must retain displayed content.
 - **Rendering:** animated/frozen/disabled backgrounds, resize, minimize/restore and GPU context recovery. See [Linux diagnostics](LINUX-RENDERING.md).
 - **Logging:** independent application/network toggles, off by default, and redaction. See [Troubleshooting](TROUBLESHOOTING.md).
@@ -59,3 +74,5 @@ Keep build configuration, games, settings, scaling and network conditions consta
 - Same-volume and cross-volume transfer time.
 
 Separate queue wait, transfer, conversion and publication times. Queue tests alone do not prove a speedup.
+
+The smoke test records startup time, idle memory and hidden CPU for the debug build in CI; see its [performance budget](../../tools/app-smoke/README.md#performance-budget). Use those numbers to spot large regressions, not to judge release performance.

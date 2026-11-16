@@ -6,6 +6,7 @@
   import Icon from "../../components/ui/Icon.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
+  import { openPlaytimeRecap } from "../../stores/navigation";
   import { getPlaytimeActivity } from "../../services/playtime";
   import { createResource } from "../../stores/resource";
   import { formatDate } from "../../utils/format";
@@ -33,23 +34,24 @@
 
 <Panel title={t("Attività di gioco", $language)} description={monthLabel.charAt(0).toLocaleUpperCase() + monthLabel.slice(1)} class="min-h-0">
   {#snippet actions()}
-    <div class="flex gap-1">
-      <Button label={t("Mese precedente", $language)} variant="secondary" size="sm" circle onClick={() => monthOffset--}><Icon name="previous" /></Button>
-      <Button label={t("Mese successivo", $language)} variant="secondary" size="sm" circle disabled={monthOffset >= 0} onClick={() => monthOffset++}><Icon name="next" /></Button>
+    <div class="flex items-center gap-1">
+      <Button label={t("Annata di gioco", $language)} variant="secondary" size="sm" onClick={openPlaytimeRecap} />
+      <Button label={t("Mese precedente", $language)} variant="secondary" size="sm" iconOnly onClick={() => monthOffset--}><Icon name="previous" /></Button>
+      <Button label={t("Mese successivo", $language)} variant="secondary" size="sm" iconOnly disabled={monthOffset >= 0} onClick={() => monthOffset++}><Icon name="next" /></Button>
     </div>
   {/snippet}
 
   <StateBlock status={$activity.status} hasData={$activity.data !== null} error={$activity.error} onRetry={() => void activity.load()} loadingMessage={t("Caricamento attività...", $language)} />
 
   {#if $activity.data !== null}
-    <div class="flex shrink-0 items-center gap-3 text-xs text-zinc-400 light:text-zinc-600" role="img" aria-label={t("Intensità proporzionale alle ore giocate, da 0 a 8 ore o più", $language)}>
+    <div class="flex shrink-0 items-center gap-3 text-xs text-legio-fg-muted" role="img" aria-label={t("Intensità proporzionale alle ore giocate, da 0 a 8 ore o più", $language)}>
       <span>0 h</span>
       <span class="activity-scale block h-2 flex-1 rounded-full" aria-hidden="true"></span>
       <span>{t("8 h o più", $language)}</span>
     </div>
     <div class="grid shrink-0 grid-cols-7 gap-1.5" aria-hidden="true">
       {#each Array.from({ length: 7 }, (_, day) => formatDate(new Date(2026, 0, 5 + day), $language, { weekday: "short" })) as weekday (weekday)}
-        <span class="pb-1 text-center text-xs text-zinc-500 light:text-zinc-600">{weekday}</span>
+        <span class="pb-1 text-center text-xs text-legio-fg-muted">{weekday}</span>
       {/each}
     </div>
     <div class="grid shrink-0 grid-cols-7 gap-1.5" role="group" aria-label={t("Calendario di {0}", $language, [monthLabel])}>
@@ -62,7 +64,7 @@
           {@const today = new Date(calendar.boundaries[day - 1]).toDateString() === now.toDateString()}
           {@const label = `${day} ${monthLabel}: ${future ? t("giorno futuro", $language) : t("{0} giocati", $language, [formatPlaytime(milliseconds)])}`}
           <span
-            class="activity-cell flex aspect-square items-center justify-center rounded-lg text-xs font-medium tabular-nums text-zinc-200 light:text-zinc-800"
+            class="activity-cell flex aspect-square items-center justify-center rounded-control text-xs font-medium tabular-nums text-legio-fg"
             class:future
             class:today
             class:active={milliseconds >= 3 * 3600000}
@@ -84,10 +86,9 @@
   .activity-scale {
     background: linear-gradient(to right, var(--activity-base, #3f3f46), var(--color-legio-activity));
   }
-  .active { color: #18181b; }
-  .future { color: #a1a1aa; }
+  .active { color: var(--legio-accent-text); }
+  .future { color: var(--legio-fg-muted); }
   .today { outline: 2px solid var(--color-legio-activity); outline-offset: 2px; }
   :global([data-theme="light"]) .activity-cell,
   :global([data-theme="light"]) .activity-scale { --activity-base: #d4d4d8; }
-  :global([data-theme="light"]) .future { color: #52525b; }
 </style>

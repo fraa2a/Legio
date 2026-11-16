@@ -35,7 +35,7 @@
   });
 </script>
 
-<section class="relative isolate flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-zinc-800 p-5 sm:p-6" aria-label={game.name}>
+<section class="relative isolate flex min-h-0 flex-1 flex-col overflow-hidden rounded-panel bg-zinc-800 p-6" aria-label={game.name}>
   <div class="absolute inset-0 -z-20 bg-gradient-to-br from-zinc-700 to-zinc-950">
     {#if bannerUrl !== null}
       <img src={bannerUrl} alt="" class="size-full scale-125 object-cover blur-xl" />
@@ -47,11 +47,11 @@
     <GameLogo {game} class="h-24 w-auto max-w-full object-contain object-center sm:h-32 lg:h-40" />
   </div>
   <div class="flex shrink-0 flex-wrap items-center justify-center gap-2">
-    <Button label={t("Informazioni su {0}", $language, [game.name])} variant="overlay" circle onClick={() => openGame(game.id)}><Icon name="info" /></Button>
-    <GameLaunchControls {game} {launch} playLabel={t("Continua a giocare", $language)} variant="primary" pill class="px-5"
+    <Button label={t("Informazioni su {0}", $language, [game.name])} variant="overlay" shape="circle" onClick={() => openGame(game.id)}><Icon name="info" /></Button>
+    <GameLaunchControls {game} {launch} playLabel={t("Continua a giocare", $language)} variant="primary" shape="pill" menuAbove class="px-5"
       actionPending={$pendingGameId === game.id} cancelPending={$cancelPendingGameId === game.id}
       onPlay={playGame} onCancel={abortGameLaunch} onStop={stopGameProcess} />
-    <Button label={t("Impostazioni di {0}", $language, [game.name])} variant="overlay" circle onClick={onSettings}><Icon name="settings" /></Button>
+    <Button label={t("Impostazioni di {0}", $language, [game.name])} variant="overlay" shape="circle" onClick={onSettings}><Icon name="settings" /></Button>
   </div>
 </section>
 {#if artworkError !== null}<ErrorBanner message={t("Immagine del gioco: {0}", $language, [artworkError])} />{/if}

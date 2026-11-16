@@ -23,6 +23,18 @@ export function formatDate(value: string | number | Date, selected: Language = g
   return new Date(value).toLocaleDateString(regionalLocale(selected), options);
 }
 
+const relativeUnits: [Intl.RelativeTimeFormatUnit, number][] = [["day", 86400000], ["hour", 3600000], ["minute", 60000]];
+
+// Times are epoch milliseconds; under a minute reads as "now".
+export function formatRelativeTime(time: number, now: number, selected: Language = get(language)): string {
+  const format = new Intl.RelativeTimeFormat(regionalLocale(selected), { numeric: "auto" });
+  const elapsed = time - now;
+  for (const [unit, size] of relativeUnits) {
+    if (Math.abs(elapsed) >= size) return format.format(Math.trunc(elapsed / size), unit);
+  }
+  return format.format(0, "second");
+}
+
 // The backend reports cache freshness as epoch seconds.
 export function formatDateTime(epochSeconds: number, selected: Language = get(language)): string {
   return new Date(epochSeconds * 1000).toLocaleString(regionalLocale(selected), {

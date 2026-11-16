@@ -134,6 +134,7 @@ pub(crate) fn parse_loginusers(bytes: &[u8]) -> Result<Vec<LoginUser>, VdfError>
 
 /// Returns a remembered selection only when AutoLogin and MostRecent agree uniquely.
 /// This is persisted startup intent, not proof of the account currently online.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) fn selected_account_id(bytes: &[u8]) -> Result<Option<String>, VdfError> {
     let users = parse_loginusers(bytes)?;
     let selected: Vec<_> = users
@@ -332,6 +333,7 @@ fn valid_steam_id(value: &str) -> bool {
         .is_some_and(|id| id > 0 && id.to_string() == value)
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn is_one(value: Option<&str>) -> bool {
     value.is_some_and(|value| value == "1")
 }

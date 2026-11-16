@@ -19,18 +19,18 @@
   let open = $state(untrack(() => defaultOpen));
 </script>
 
-<section class="flex flex-col gap-4 rounded-2xl legio-glass p-5">
+<section class="flex flex-col gap-rhythm-row rounded-panel legio-glass p-inset-wide">
   {#snippet iconBadge()}
     {#if icon}
       <span
-        class="grid size-8 shrink-0 place-items-center rounded-lg bg-white/10 text-zinc-200 light:bg-zinc-900/10 light:text-zinc-800"
+        class="grid size-8 shrink-0 place-items-center rounded-control bg-legio-fill-hover text-legio-fg"
       >
-        <Icon name={icon} size="size-4" />
+        <Icon name={icon} />
       </span>
     {/if}
   {/snippet}
   {#if collapsible}
-    <h3 class="text-sm font-semibold text-zinc-100 light:text-zinc-900">
+    <h3 class="text-sm font-semibold text-legio-fg">
       <button
         type="button"
         class="group flex w-full cursor-pointer items-center gap-3 text-left"
@@ -38,16 +38,16 @@
         onclick={() => { open = !open; }}
       >
         <span
-          class="flex min-w-0 items-center gap-3 rounded-lg transition-colors hover:bg-white/5 light:hover:bg-zinc-900/5"
+          class="flex min-w-0 items-center gap-3 rounded-control transition-colors hover:bg-legio-fill"
         >
           {@render iconBadge()}
           <span class="min-w-0">{title}</span>
         </span>
         <span
-          class="ml-auto shrink-0 text-zinc-500 transition-transform motion-reduce:transition-none {open ? 'rotate-180' : ''}"
+          class="ml-auto shrink-0 text-legio-fg-subtle transition-transform motion-reduce:transition-none {open ? 'rotate-180' : ''}"
           aria-hidden="true"
         >
-          <Icon name="chevron-down" size="size-4" />
+          <Icon name="chevron-down" />
         </span>
       </button>
     </h3>
@@ -55,12 +55,12 @@
     <div class="flex items-center gap-3">
       {@render iconBadge()}
       <div class="min-w-0">
-        <h3 class="text-sm font-semibold text-zinc-100 light:text-zinc-900">{title}</h3>
+        <h3 class="text-sm font-semibold text-legio-fg">{title}</h3>
       </div>
     </div>
   {/if}
   {#if !collapsible || open}
-    <div class="flex flex-col gap-4">
+    <div class="flex flex-col gap-rhythm-row">
       {@render children()}
     </div>
   {/if}

@@ -36,7 +36,7 @@ const mocks = {
  export const isActiveDownloadStatus=()=>false;export const isFinishedDownloadStatus=()=>false;
  export const cancelDownload=()=>{};export const pauseDownload=()=>{};export const queueDownload=()=>{};export const removeDownload=()=>{};
  export const removeFinishedDownloads=()=>{};export const reorderDownloads=()=>{};export const resumeDownload=()=>{};export const retryDownload=()=>{};`),
- 'src/lib/stores/games': d(storeImport + 'export const games={load:async()=>{}};export const hiddenSteamGames=writable({data:[],error:null});hiddenSteamGames.load=async()=>{};hiddenSteamGames.reload=async()=>{};export const restoreSteamGame=async()=>{};export const reconcileGame=()=>{};export const saveGame=async()=>{};'),
+ 'src/lib/stores/games': d(storeImport + 'export const games=writable({data:[],error:null});games.load=async()=>{};export const hiddenSteamGames=writable({data:[],error:null});hiddenSteamGames.load=async()=>{};hiddenSteamGames.reload=async()=>{};export const restoreSteamGame=async()=>{};export const reconcileGame=()=>{};export const saveGame=async()=>{};'),
  'src/lib/stores/steam-library': d('export const importSteamLibrary=async()=>{};'),
  'src/lib/services/manual-import': d(`export const scanGameExecutables=(directory)=>globalThis.frontendRepro.scans.get(directory).promise;
  export const identifyManualGameSteamAppId=()=>{};export const importManualGame=()=>{};export const setGameExecutable=()=>{};`),
@@ -100,6 +100,22 @@ checkboxFor('Nascondi Legio').click();await settle();const discord=checkboxFor('
 assert.equal(saves.length,1);assert.equal(saves[0].value.hideOnGameStart,false);
 saves[0].pending.resolve(saves[0].value);await settle();assert.equal(saves.length,2);assert.equal(saves[1].value.hideOnGameStart,false);assert.equal(saves[1].value.discordPresence.enabled,false);saves[1].pending.resolve(saves[1].value);await settle();
 assert.equal(get(settings).data.hideOnGameStart,false);assert.equal(get(settings).data.discordPresence.enabled,false);
+await unmount(instance);target.remove();
+});
+
+test("privacy switches save through the settings store and default to enabled", async () => {
+settings.set(structuredClone(defaultSettings));
+assert.equal(defaultSettings.newsEnabled,true);assert.equal(defaultSettings.automaticUpdateCheck,true);
+const saves=[];frontendRepro.saveSettings=async value=>{saves.push(value);return value;};
+const PrivacySettings=(await import(await loader.load('src/lib/features/settings/PrivacySettings.svelte'))).default;
+const target=document.createElement('div');document.body.append(target);const instance=mount(PrivacySettings,{target});await settle();
+const toggleFor=name=>[...target.querySelectorAll('label')].find(element=>element.textContent.includes(name)).querySelector('input');
+toggleFor('Novità di Legio').click();await settle();
+assert.equal(saves.at(-1).newsEnabled,false);assert.equal(get(settings).data.newsEnabled,false);
+toggleFor('Aggiornamenti dell\'app').click();await settle();
+assert.equal(saves.at(-1).automaticUpdateCheck,false);assert.equal(saves.at(-1).newsEnabled,false);
+toggleFor('Discord').click();await settle();
+assert.equal(saves.at(-1).discordPresence.enabled,false);
 await unmount(instance);target.remove();
 });
 

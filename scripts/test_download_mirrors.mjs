@@ -15,7 +15,7 @@ const english = JSON.parse(await readFile(new URL("../src/lib/i18n/en.json", imp
 const { load } = createModuleLoader({
   "src/lib/utils/motion": dataModule("export const reducedMotion = true;"),
   "src/lib/features/library/SteamArtwork.svelte": dataModule("export default function () {}"),
-  "src/lib/i18n": dataModule(`import { writable } from ${JSON.stringify(import.meta.resolve("svelte/store"))}; export const language = writable("en"); const english = ${JSON.stringify(english)}; export const t = value => english[value] ?? value;`),
+  "src/lib/i18n": dataModule(`import { writable } from ${JSON.stringify(import.meta.resolve("svelte/store"))}; export const language = writable("en"); const english = ${JSON.stringify(english)}; export const t = (value, _, values = []) => (english[value] ?? value).replace(/\\{(\\d+)\\}/g, (_, index) => String(values[Number(index)] ?? ""));`),
   "src/lib/i18n/en.json": dataModule(`export default ${JSON.stringify(english)}`),
 });
 
@@ -89,4 +89,29 @@ test("release options show source, verification and size and move with the arrow
     target.querySelectorAll('[role="option"]')[1].click(); await settle();
     assert.deepEqual(chosen, ["b"]);
   } finally { await unmount(instance); target.remove(); }
+});
+
+test("space warnings show the numbers and only enough space skips the confirmation", async () => {
+  const { spaceWarning } = await import(await load("src/lib/features/downloads/space-forecast.ts"));
+  const volume = { path: "/games", freeBytes: 30 * 1024 ** 3, reservedBytes: 0, minimumBytes: 20 * 1024 ** 3, estimatedBytes: 40 * 1024 ** 3 };
+  assert.equal(spaceWarning({ verdict: "enough", sizeBytes: 1, volumes: [volume] }, "en"), null);
+  const tight = spaceWarning({ verdict: "tight", sizeBytes: 1, volumes: [volume] }, "en");
+  assert.equal(tight.tone, "primary");
+  assert.equal(tight.confirmLabel, "Download anyway");
+  assert.deepEqual(tight.details, ["/games: needs 20.0 GB to 40.0 GB, 30.0 GB free"]);
+  const blocked = spaceWarning({ verdict: "insufficient", sizeBytes: 1, volumes: [{ ...volume, reservedBytes: 1024 ** 3 }] }, "en");
+  assert.equal(blocked.tone, "danger");
+  assert.equal(blocked.confirmLabel, "Ignore the warning and download");
+  assert.match(blocked.details[0], /1\.0 GB already reserved/);
+  const unknown = spaceWarning({ verdict: "unknown", sizeBytes: null, volumes: [{ ...volume, freeBytes: null }] }, "en");
+  assert.deepEqual(unknown.details, ["The download size is unknown.", "/games: free space unavailable"]);
+});
+
+test("multipart jobs show which part is downloading", async () => {
+  const { phaseLabel } = await import(await load("src/lib/features/downloads/downloads-model.ts"));
+  const job = { status: "downloading", sizeBytes: 100, downloadedBytes: 40, parts: { current: 2, total: 5 }, pauseReason: null };
+  assert.equal(phaseLabel(job, "en"), "Download 40% · part 2 of 5");
+  assert.equal(phaseLabel({ ...job, parts: null }, "en"), "Download 40%");
+  assert.equal(phaseLabel({ ...job, parts: { current: 1, total: 1 } }, "en"), "Download 40%");
+  assert.doesNotMatch(phaseLabel({ ...job, status: "staging" }, "en") ?? "", /part/);
 });

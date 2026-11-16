@@ -5,15 +5,18 @@
 - [Project overview and downloads](../../README.md)
 - [Linux runners and optional performance controls](LINUX.md)
 - [Libraries, transfers and playtime](LIBRARY.md)
+- [Command line](COMMAND-LINE.md)
 - [Download source formats and update manifests](SCHEMA.md)
 - [Hydra source compatibility](HYDRA.md)
 - [Troubleshooting and diagnostic collection](TROUBLESHOOTING.md)
+- [Privacy and network: what Legio contacts](PRIVACY.md)
 - [Known issues and limitations](KNOWN-ISSUES.md)
 
 ## Contributing and maintaining
 
 - [Contribution workflow](../../CONTRIBUTING.md)
 - [Development setup and repository layout](DEVELOPMENT.md)
+- [Legio UI scales and primitives](UI.md)
 - [Testing](TESTING.md)
 - [Linux rendering diagnostics](LINUX-RENDERING.md)
 - [Release and updater maintenance](UPDATING.md)
