@@ -97,6 +97,8 @@ fn main() {
             "open_data_folder",
             "restore_database_backup",
             "reset_local_database",
+            "export_user_data",
+            "stage_user_data_import",
             "get_installed_folder_info",
             "refresh_legio_source",
             "check_steam_connectivity",

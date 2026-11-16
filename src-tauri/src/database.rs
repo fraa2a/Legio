@@ -24,7 +24,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 39;
+pub(crate) const SCHEMA_VERSION: i64 = 39;
 pub(crate) const DATABASE_FILE_NAME: &str = "legio.sqlite3";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -159,6 +159,7 @@ pub struct GameCompatibilityOverrides {
 /// Prefixes use the global root unless `prefix_path` names a game-specific path.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub struct EffectiveCompatibilityConfig {
     pub runner_path: Option<String>,
     pub prefix_root: Option<String>,
@@ -772,6 +773,7 @@ impl Database {
     }
 
     /// Resolves global defaults and per-game overrides in one database read.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn effective_compatibility_config(
         &self,
         game_id: &str,
@@ -1401,6 +1403,7 @@ fn load_game_compatibility_overrides(
     })
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn merge_compatibility_config(
     defaults: CompatibilityDefaults,
     overrides: GameCompatibilityOverrides,
@@ -2417,6 +2420,7 @@ mod tests {
             .unwrap_err();
         assert!(error.contains("nome è già usato"));
         assert_eq!(database.game(&first.id).unwrap().name, "Portal");
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -2684,6 +2688,7 @@ mod tests {
         let reopened = Database::open(&directory).unwrap();
         assert_eq!(reopened.settings().unwrap(), settings);
         assert_eq!(reopened.games().unwrap(), vec![enriched]);
+        drop(reopened);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -2894,6 +2899,7 @@ mod tests {
         assert_eq!(reopened.compatibility_defaults().unwrap(), defaults);
         let stored = reopened.game_compatibility_overrides(&game.id).unwrap();
         assert_eq!(stored, overrides);
+        drop(reopened);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -2916,6 +2922,7 @@ mod tests {
                 .unwrap_err(),
             "game was not found"
         );
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3011,6 +3018,7 @@ mod tests {
         );
         assert_eq!(effective.graphics_renderer, GraphicsRenderer::WineD3d);
         assert_eq!(effective.wayland, WaylandMode::Disabled);
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3074,6 +3082,7 @@ mod tests {
                 linux_performance: LinuxPerformance::default(),
             }
         );
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3136,6 +3145,7 @@ mod tests {
         assert_eq!(reset.wayland, WaylandMode::Native);
         assert!(reset.debug_logging);
         assert!(!reset.online_fix);
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3223,6 +3233,7 @@ mod tests {
             })
             .unwrap_err();
         assert_eq!(error, "a game needs an automatic name or a name override");
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3273,6 +3284,7 @@ mod tests {
                 .steam_account_id,
             None
         );
+        drop(reopened);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3300,6 +3312,7 @@ mod tests {
                 .unwrap_err(),
             "game was not found or has no Steam App ID"
         );
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3338,6 +3351,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(theme, "light");
+        drop(connection);
         fs::remove_dir_all(directory).unwrap();
     }
 

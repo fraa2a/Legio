@@ -260,6 +260,8 @@ test("logging settings default off and application and network toggles persist i
     "src/lib/stores/downloads": dataModule("export const installedFolder = { load: async () => {} };"),
     "src/lib/stores/app-info": dataModule(storeImport + 'export const appInfo = writable({data:{platform:"windows"}});'),
     "src/lib/services/game-settings": dataModule("export const getCompatibilityLogsDirectory = async () => null;"),
+    "src/lib/utils/motion": dataModule("export const reducedMotion = false; export const fadeDuration = 0; export const pageTransitionDuration = 0;"),
+    "src/lib/components/ui/ConfirmDialog.svelte": dataModule("export default () => {};"),
   };
   const settingsLoader = createModuleLoader(mocks);
   const { settings, defaultSettings } = await import(await settingsLoader.load("src/lib/stores/settings.ts"));

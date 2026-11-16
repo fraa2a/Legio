@@ -220,6 +220,7 @@ pub(crate) fn launch_and_wait_selected_account(
 pub(crate) fn active_account_id(steam_root: &Path) -> Result<Option<String>, String> {
     #[cfg(windows)]
     {
+        let _ = steam_root;
         windows_active_account_id()
     }
     #[cfg(target_os = "linux")]

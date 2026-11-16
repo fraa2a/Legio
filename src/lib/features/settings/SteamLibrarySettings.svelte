@@ -49,7 +49,7 @@
   }
 </script>
 
-{#if $settingsError}<ErrorBanner message={$settingsError} />{/if}
+{#if $settingsError}<ErrorBanner message={t("Impossibile salvare le impostazioni.", $language)} detail={$settingsError} />{/if}
   <SettingsGroup
     icon="timer"
     title={t("Controllo Steam", $language)}

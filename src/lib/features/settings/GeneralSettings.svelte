@@ -53,7 +53,7 @@
 
 <section class="flex flex-col gap-6">
   {#if $settingsError}
-    <ErrorBanner message={$settingsError} />
+    <ErrorBanner message={t("Impossibile salvare le impostazioni.", $language)} detail={$settingsError} />
   {/if}
 
   <SettingsGroup icon="translate" title={t("Lingua", $language)}>

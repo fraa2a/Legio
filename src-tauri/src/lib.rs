@@ -24,6 +24,7 @@ mod commands;
 mod compatibility_logs;
 #[cfg(target_os = "linux")]
 mod compatibility_options;
+mod data_transfer;
 mod database;
 mod database_recovery;
 mod desktop_shortcuts;
@@ -217,6 +218,9 @@ fn run_application(
                 .map_err(std::io::Error::other)?;
             app.manage(mod_links);
             gofile::initialize(app.path().app_data_dir()?);
+            let import_failure =
+                data_transfer::apply_staged_import(&app.path().app_data_dir()?).err();
+            app.manage(data_transfer::ImportFailure(import_failure));
             let database = database::DatabaseState::new(app.path().app_data_dir());
             // A database that cannot open or migrate starts the recovery screen instead of failing.
             let open_database = match database.database() {
@@ -567,6 +571,8 @@ fn run_application(
             database_recovery::open_data_folder,
             database_recovery::restore_database_backup,
             database_recovery::reset_local_database,
+            data_transfer::export_user_data,
+            data_transfer::stage_user_data_import,
             installed_folder::get_installed_folder_info,
             commands::refresh_legio_source,
             commands::check_steam_connectivity,

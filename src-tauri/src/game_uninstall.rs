@@ -77,7 +77,9 @@ fn checked_target(database: &Database, id: &str, protected: &[PathBuf]) -> Resul
     for library in libraries {
         let library = match dunce::canonicalize(&library) {
             Ok(path) => path,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => PathBuf::from(library),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                canonicalize_existing_prefix(Path::new(&library))?
+            }
             Err(error) => {
                 return Err(format!(
                     "Could not inspect a game library directory: {error}"
@@ -120,7 +122,7 @@ fn canonicalize_existing_prefix(path: &Path) -> Result<PathBuf, String> {
                     _ => return Ok(path.to_path_buf()),
                 }
             }
-            Err(error) => return Err(format!("Could not inspect another game's path: {error}")),
+            Err(error) => return Err(format!("Could not inspect path: {error}")),
         }
     }
 }
@@ -423,8 +425,10 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
-            let root =
-                std::env::temp_dir().join(format!("legio-uninstall-{}", uuid::Uuid::new_v4()));
+            // Canonical form: Windows temp paths use 8.3 short names that canonicalize to long ones.
+            let root = dunce::canonicalize(std::env::temp_dir())
+                .unwrap()
+                .join(format!("legio-uninstall-{}", uuid::Uuid::new_v4()));
             let directory = root.join("Game");
             fs::create_dir_all(directory.join("bin")).unwrap();
             fs::write(directory.join("bin/game.exe"), b"game").unwrap();

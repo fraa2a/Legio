@@ -328,7 +328,7 @@
       <ErrorBanner message={queueError} />
     {/if}
     {#if storeGame !== null && $sourceRefreshError !== null}
-      <ErrorBanner message={$sourceRefreshError} onRetry={() => void refreshSource()} retryLabel={t("Riprova", $language)} />
+      <ErrorBanner message={t("Impossibile aggiornare le sorgenti.", $language)} detail={$sourceRefreshError} onRetry={() => void refreshSource()} retryLabel={t("Riprova", $language)} />
     {/if}
     {#if storeGame === null && artworkError !== null}
       <ErrorBanner message={artworkError} />
@@ -353,7 +353,7 @@
             <dl class="grid gap-2 text-sm">
               <div class="flex flex-wrap gap-x-3">
                 <dt class="w-40 shrink-0 text-legio-fg-muted">{t("Versione", $language)}</dt>
-                <dd class="min-w-0 flex-1 break-words text-legio-fg">{entry?.release.version ?? t("non pubblicata", $language)}</dd>
+                <dd class="min-w-0 flex-1 select-text break-words text-legio-fg" data-selectable>{entry?.release.version ?? t("non pubblicata", $language)}</dd>
               </div>
               <div class="flex flex-wrap gap-x-3">
                 <dt class="w-40 shrink-0 text-legio-fg-muted">{t("Pubblicato", $language)}</dt>
