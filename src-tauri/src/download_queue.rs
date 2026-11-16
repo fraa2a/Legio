@@ -2429,6 +2429,8 @@ mod tests {
                         Err(error) => panic!("Mirror request {index} was not received: {error}"),
                     }
                 };
+                // Windows sockets inherit the listener's non-blocking mode.
+                socket.set_nonblocking(false).unwrap();
                 socket
                     .set_read_timeout(Some(Duration::from_secs(3)))
                     .unwrap();
@@ -2799,6 +2801,7 @@ mod tests {
                 .load(Ordering::Acquire)
         );
         assert_eq!(status_of(&database, &job.id).as_deref(), Some("queued"));
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         drop(database);
         remove_directory(directory);
@@ -2997,6 +3000,7 @@ mod tests {
             })
             .unwrap();
         assert!(changes.has_changed().unwrap());
+        drop(database);
         remove_directory(directory);
     }
 
@@ -3057,7 +3061,20 @@ mod tests {
     }
 
     fn install_archive_fixture() -> (&'static [u8], String) {
+        // The checked-in archive holds a shell script, which Windows does not treat as a game executable.
+        #[cfg(not(windows))]
         let bytes: &'static [u8] = include_bytes!("../test-fixtures/archive/executable.zip");
+        #[cfg(windows)]
+        let bytes: &'static [u8] = {
+            use std::io::Write as _;
+            use zip::{ZipWriter, write::SimpleFileOptions};
+            let mut writer = ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            writer
+                .start_file("Game/start.exe", SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(b"game").unwrap();
+            Box::leak(writer.finish().unwrap().into_inner().into_boxed_slice())
+        };
         (bytes, format!("{:x}", Sha256::digest(bytes)))
     }
 
@@ -3410,6 +3427,7 @@ mod tests {
             fs::read(queue.path(&job.id, "stage").unwrap().join("Game/data.bin")).unwrap(),
             b"hello"
         );
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         drop(database);
         remove_directory(directory);
@@ -3438,6 +3456,7 @@ mod tests {
         settle().await;
         assert_eq!(status(&database, &job.id).unwrap(), "staged");
         assert!(changes.has_changed().unwrap());
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         drop(database);
         remove_directory(directory);
@@ -4430,6 +4449,7 @@ mod tests {
             .unwrap();
 
         wait_for_status(&database, &job.id, "staged");
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         drop(database);
         remove_directory(directory);

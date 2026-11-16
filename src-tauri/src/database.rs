@@ -3300,6 +3300,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(theme, "light");
+        drop(connection);
         fs::remove_dir_all(directory).unwrap();
     }
 
