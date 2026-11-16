@@ -186,7 +186,7 @@
       </div>
     </div>
     {#if items.length > 0}
-      <p class="text-xs text-zinc-400 light:text-zinc-600">{t("{0} risultati", $language, [total])}</p>
+      <p class="text-xs text-legio-fg-muted">{t("{0} risultati", $language, [total])}</p>
     {/if}
   </div>
 
@@ -220,7 +220,7 @@
       {#each items as item (item.fullName)}
         {@const installState = installedState(item.fullName, installed, updateIndex)}
         {@const opened = tabs.active === modKey(item.fullName)}
-        <li class="flex flex-wrap items-center gap-3 rounded-xl legio-glass p-3 transition-colors hover:bg-white/5 light:hover:bg-zinc-900/5 {opened ? 'ring-1 ring-legio-accent ring-inset' : ''}">
+        <li class="flex flex-wrap items-center gap-3 rounded-xl legio-glass p-3 transition-colors hover:bg-legio-fill {opened ? 'ring-1 ring-legio-accent ring-inset' : ''}">
           <button
             type="button"
             class="flex min-w-0 flex-1 basis-64 items-center gap-3 rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--legio-focus)"
@@ -231,14 +231,14 @@
             <ModIcon source={item.icon} class="size-12 rounded-lg" />
             <span class="min-w-0 flex-1">
               <span class="flex flex-wrap items-center gap-2">
-                <span class="min-w-0 truncate font-medium text-zinc-50 light:text-zinc-900">{packageTitle(item.name)}</span>
-                <span class="text-xs text-zinc-500">{t("di {0}", $language, [item.owner])}</span>
+                <span class="min-w-0 truncate font-medium text-legio-fg">{packageTitle(item.name)}</span>
+                <span class="text-xs text-legio-fg-subtle">{t("di {0}", $language, [item.owner])}</span>
                 {#if item.isPinned}<Badge tone="info" title={t("In evidenza", $language)} />{/if}
                 {#if item.isDeprecated}<Badge tone="warning" title={t("Deprecata", $language)} />{/if}
                 {#if item.hasNsfwContent}<Badge tone="danger" title="NSFW" />{/if}
               </span>
-              <span class="mt-0.5 line-clamp-2 text-xs text-zinc-400 light:text-zinc-600">{item.description}</span>
-              <span class="mt-1 flex flex-wrap gap-x-4 text-xs tabular-nums text-zinc-500">
+              <span class="mt-0.5 line-clamp-2 text-xs text-legio-fg-muted">{item.description}</span>
+              <span class="mt-1 flex flex-wrap gap-x-4 text-xs tabular-nums text-legio-fg-subtle">
                 <span class="inline-flex items-center gap-1"><Icon name="download" size="size-3.5" />{formatCount(item.totalDownloads, locale)}</span>
                 <span class="inline-flex items-center gap-1"><Icon name="thumbs-up" size="size-3.5" />{formatCount(item.ratingScore, locale)}</span>
                 <span>{t("Aggiornata il {0}", $language, [formatDate(item.dateUpdated, $language)])}</span>

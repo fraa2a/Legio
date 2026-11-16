@@ -1,5 +1,7 @@
 use std::{
     collections::HashSet,
+    future::Future,
+    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -10,7 +12,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::{
     database::{Database, DatabaseState},
-    network::NetworkState,
+    network::{NetworkError, NetworkState},
 };
 
 pub const URL: &str = "https://source.taxphobia.top/news.json";
@@ -143,13 +145,32 @@ pub async fn cached(app: AppHandle) -> Result<Snapshot, String> {
 }
 
 pub async fn refresh(app: AppHandle, state: &NetworkState) -> Result<Snapshot, String> {
-    let fetched = state
-        .news()
+    let database = app.state::<DatabaseState>().shared_database()?;
+    refresh_with(database, || state.news()).await
+}
+
+/// Calls `fetch` only while news is enabled; otherwise returns the cached feed untouched.
+async fn refresh_with<F, Fut>(database: Arc<Database>, fetch: F) -> Result<Snapshot, String>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<Vec<u8>, NetworkError>>,
+{
+    let checked = database.clone();
+    let enabled = tauri::async_runtime::spawn_blocking(move || {
+        checked.settings().map(|settings| settings.news_enabled)
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    if !enabled {
+        return tauri::async_runtime::spawn_blocking(move || read_cache(&database))
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    let fetched = fetch()
         .await
         .map_err(|error| format!("Could not fetch news: {error}"));
     tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<DatabaseState>();
-        let database = state.database()?;
+        let database = database.as_ref();
         let fresh = fetched.and_then(|bytes| parse(&bytes)).and_then(|feed| {
             let cached_at = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_secs() as i64;
             let snapshot = Snapshot { feed: Some(feed), cached_at: Some(cached_at), warning: None };
@@ -264,6 +285,34 @@ mod tests {
             .unwrap();
         assert!(read_cache(reopened.database().unwrap()).is_err());
         drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn disabled_news_makes_no_request() {
+        let root = std::env::temp_dir().join(format!("legio-news-{}", uuid::Uuid::new_v4()));
+        let database = DatabaseState::new(Ok(root.clone()))
+            .shared_database()
+            .unwrap();
+        let body = serde_json::to_vec(&document()).unwrap();
+        let requests = std::sync::atomic::AtomicUsize::new(0);
+        let count = || requests.load(std::sync::atomic::Ordering::SeqCst);
+        let fetch = || async {
+            requests.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(body.clone())
+        };
+        let mut settings = database.settings().unwrap();
+        settings.news_enabled = false;
+        database.save_settings(settings.clone()).unwrap();
+        let snapshot =
+            tauri::async_runtime::block_on(refresh_with(database.clone(), fetch)).unwrap();
+        assert!(snapshot.feed.is_none() && snapshot.warning.is_none());
+        assert_eq!(count(), 0);
+        settings.news_enabled = true;
+        database.save_settings(settings).unwrap();
+        let snapshot = tauri::async_runtime::block_on(refresh_with(database, fetch)).unwrap();
+        assert!(snapshot.feed.is_some());
+        assert_eq!(count(), 1);
         std::fs::remove_dir_all(root).unwrap();
     }
 }

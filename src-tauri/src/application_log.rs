@@ -22,8 +22,8 @@ static APPLICATION_LOG: OnceLock<ApplicationLog> = OnceLock::new();
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LogStatus {
-    enabled: bool,
-    directory: Option<PathBuf>,
+    pub(crate) enabled: bool,
+    pub(crate) directory: Option<PathBuf>,
     last_error: Option<String>,
     dropped_records: u64,
 }

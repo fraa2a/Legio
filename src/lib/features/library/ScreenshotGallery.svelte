@@ -42,7 +42,7 @@
   {:else}
   <button
     type="button"
-    class="relative w-full cursor-zoom-in overflow-hidden rounded-2xl bg-white/5 ring-1 ring-white/10 light:bg-zinc-200"
+    class="relative w-full cursor-zoom-in overflow-hidden rounded-2xl bg-white/5 ring-1 ring-legio-line-subtle light:bg-zinc-200"
     aria-label={t("Ingrandisci schermata {0} di {1}", $language, [screenshotIndex + 1, count])}
     onclick={() => (open = true)}
   >
@@ -70,7 +70,7 @@
   <div bind:this={strip} class="overflow-x-auto px-1.5 pt-1.5 pb-4">
     <div class="flex gap-2.5">
       {#each movies as movie, position (movie.id)}
-        <button type="button" data-index={position} class="relative aspect-video min-w-28 flex-1 overflow-hidden rounded-xl bg-zinc-800 transition-opacity {position === active ? 'ring-2 ring-white light:ring-zinc-900' : 'opacity-60 hover:opacity-100'}"
+        <button type="button" data-index={position} class="relative aspect-video min-w-28 flex-1 overflow-hidden rounded-xl bg-zinc-800 transition-opacity {position === active ? 'ring-2 ring-legio-fg' : 'opacity-60 hover:opacity-100'}"
           aria-label={t("Mostra trailer: {0}", $language, [movie.name || t("Trailer", $language)])} aria-current={position === active} onclick={() => select(position)}>
           {#if movie.thumbnail}<img src={movie.thumbnail} alt="" loading="lazy" referrerpolicy="no-referrer" class="size-full object-cover" />{/if}
           <span class="absolute inset-0 grid place-items-center bg-black/20"><span class="grid size-8 place-items-center rounded-full bg-black/70 text-white"><Icon name="play" size="size-4" /></span></span>
@@ -82,8 +82,8 @@
           data-index={movies.length + position}
           class="aspect-video min-w-28 flex-1 overflow-hidden rounded-xl bg-white/5 transition duration-200 light:bg-zinc-200 {movies.length + position
             === active
-            ? 'opacity-100 ring-2 ring-white light:ring-zinc-900'
-            : 'opacity-60 ring-1 ring-white/10 hover:opacity-100'}"
+            ? 'opacity-100 ring-2 ring-legio-fg'
+            : 'opacity-60 ring-1 ring-legio-line-subtle hover:opacity-100'}"
           aria-label={t("Mostra schermata {0}", $language, [position + 1])}
           aria-current={movies.length + position === active}
           onclick={() => select(movies.length + position)}

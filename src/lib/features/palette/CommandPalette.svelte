@@ -60,8 +60,8 @@
 <Dialog open title={t("Cerca ovunque", $language)} onClose={() => paletteOpen.set(false)}>
   {#snippet children(close)}
     <div class="flex flex-col gap-3">
-      <div class="flex h-11 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 light:border-zinc-900/10 light:bg-white">
-        <Icon name="search" size="size-4 shrink-0 text-zinc-500" />
+      <div class="flex h-11 items-center gap-2 rounded-xl border border-legio-line-subtle bg-white/5 px-3 light:bg-white">
+        <Icon name="search" size="size-4 shrink-0 text-legio-fg-subtle" />
         <input
           bind:this={input}
           bind:value={query}
@@ -76,7 +76,7 @@
           spellcheck="false"
           oninput={() => { active = 0; }}
           onkeydown={(event) => handleKeydown(event, close)}
-          class="h-full min-w-0 flex-1 bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-500 light:text-zinc-900"
+          class="h-full min-w-0 flex-1 bg-transparent text-sm text-legio-fg outline-none placeholder:text-legio-fg-subtle"
         />
       </div>
       <div id={listId} role="listbox" aria-label={t("Risultati", $language)} class="flex max-h-80 flex-col gap-0.5 overflow-y-auto">
@@ -89,14 +89,14 @@
             aria-selected={index === Math.min(active, results.length - 1)}
             onpointermove={() => { active = index; }}
             onclick={() => choose(entry, close)}
-            class="flex h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm text-zinc-200 aria-selected:bg-white/10 aria-selected:text-white light:text-zinc-800 light:aria-selected:bg-zinc-900/10 light:aria-selected:text-zinc-950"
+            class="flex h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm text-legio-fg aria-selected:bg-legio-fill-hover aria-selected:text-legio-fg"
           >
-            <span class="shrink-0 text-zinc-400 light:text-zinc-600"><Icon name={entry.icon} size="size-4" /></span>
+            <span class="shrink-0 text-legio-fg-muted"><Icon name={entry.icon} size="size-4" /></span>
             <span class="min-w-0 flex-1 truncate">{entry.label}</span>
-            {#if entry.hint}<span class="shrink-0 text-xs text-zinc-500">{entry.hint}</span>{/if}
+            {#if entry.hint}<span class="shrink-0 text-xs text-legio-fg-subtle">{entry.hint}</span>{/if}
           </button>
         {:else}
-          <p class="px-3 py-6 text-center text-sm text-zinc-500" role="status">{t("Nessun risultato", $language)}</p>
+          <p class="px-3 py-6 text-center text-sm text-legio-fg-subtle" role="status">{t("Nessun risultato", $language)}</p>
         {/each}
       </div>
     </div>
