@@ -122,8 +122,8 @@ mod steam_pics;
 mod steam_process;
 mod steam_switch;
 mod steam_vdf;
-mod tray_menu;
 mod steamgriddb;
+mod tray_menu;
 #[cfg(any(windows, test))]
 mod webview_diagnostics;
 
