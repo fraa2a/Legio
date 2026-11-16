@@ -11,7 +11,9 @@ export const defaultSettings: Settings = {
   appearance: defaultAppearance(), theme: "system", language: "system", steamLibraryPollMinutes: 30, syncSteamGames: true, storeSort: "relevance", storeAvailability: "all", downloadPath: null,
   closeToTray: true, hideOnGameStart: true, launchOnSystemStart: false,
   launchMinimized: false, launchInLibrary: false, downloadNotifications: true, verifyVerifiedDownloads: true,
-  diagnosticsEnabled: false, applicationLoggingEnabled: false, sidebarCollapsed: true, libraryPortrait: false, automaticGameUpdates: false, downloadWhilePlaying: true, deferExtractionWhilePlaying: false,
+  diagnosticsEnabled: false, applicationLoggingEnabled: false, sidebarCollapsed: true, libraryPortrait: false,
+  libraryView: { mode: "grid", sort: "name", descending: false, coverScale: 100, favoritesOnly: false, playStatus: null, collection: { kind: "all" } },
+  automaticGameUpdates: false, downloadWhilePlaying: true, deferExtractionWhilePlaying: false,
   thunderstoreLinksEnabled: false, newsEnabled: true, automaticUpdateCheck: true,
   previewUpdates: false, lastSeenVersion: null, pendingUpdateNotes: null,
 };

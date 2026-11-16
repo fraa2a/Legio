@@ -841,5 +841,58 @@ pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
             .pragma_update(None, "user_version", 39)
             .map_err(database_error)?;
     }
+    if version < 40 {
+        // Library organization: favorites, play status, insertion time and collections.
+        // Existing games keep a NULL added_at because their insertion time is unknown.
+        for (column, definition) in [
+            (
+                "favorite",
+                "INTEGER NOT NULL DEFAULT 0 CHECK (favorite IN (0, 1))",
+            ),
+            (
+                "play_status",
+                "TEXT NOT NULL DEFAULT 'none' CHECK (play_status IN ('none', 'backlog', 'playing', 'completed', 'on_hold', 'dropped'))",
+            ),
+            ("added_at", "INTEGER"),
+        ] {
+            let exists: bool = transaction
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM pragma_table_info('games') WHERE name = ?1)",
+                    [column],
+                    |row| row.get(0),
+                )
+                .map_err(database_error)?;
+            if !exists {
+                transaction
+                    .execute_batch(&format!(
+                        "ALTER TABLE games ADD COLUMN {column} {definition};"
+                    ))
+                    .map_err(database_error)?;
+            }
+        }
+        transaction
+            .execute_batch(
+                "CREATE TRIGGER IF NOT EXISTS games_added_at AFTER INSERT ON games
+                 WHEN NEW.added_at IS NULL BEGIN
+                    UPDATE games SET added_at = CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
+                    WHERE id = NEW.id;
+                 END;
+                 CREATE TABLE IF NOT EXISTS collections (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 64),
+                    position INTEGER NOT NULL,
+                    UNIQUE (name COLLATE NOCASE)
+                 );
+                 CREATE TABLE IF NOT EXISTS collection_games (
+                    collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+                    game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                    position INTEGER NOT NULL,
+                    PRIMARY KEY (collection_id, game_id)
+                 );
+                 CREATE INDEX IF NOT EXISTS collection_games_game_idx ON collection_games (game_id);
+                 PRAGMA user_version = 40;",
+            )
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }
