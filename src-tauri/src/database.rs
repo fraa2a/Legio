@@ -3512,7 +3512,7 @@ mod tests {
 
     #[test]
     fn steam_start_preference_defaults_on_and_persists() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let game = database
             .create_game(CreateGameInput {
