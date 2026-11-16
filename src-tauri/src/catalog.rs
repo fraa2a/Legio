@@ -697,6 +697,7 @@ mod tests {
                 availability: SourceAvailability::Verified,
             }]
         );
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         std::fs::remove_dir_all(directory).unwrap();
     }
@@ -798,6 +799,7 @@ mod tests {
             alias.games.is_empty(),
             "source aliases must not replace a known catalog title"
         );
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         std::fs::remove_dir_all(directory).unwrap();
     }
@@ -836,6 +838,7 @@ mod tests {
         .unwrap();
         assert_eq!(result.total, 0);
         assert!(result.games.is_empty());
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         std::fs::remove_dir_all(directory).unwrap();
     }
@@ -880,6 +883,7 @@ mod tests {
         assert_eq!(result.total, CACHE_LIMIT + 1);
         assert_eq!(result.games.len(), (CACHE_LIMIT + 1) as usize);
         assert_eq!(result.games.last().unwrap().steam_app_id, 30000);
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         std::fs::remove_dir_all(directory).unwrap();
     }
@@ -1100,6 +1104,7 @@ mod tests {
         assert_eq!(result.games, page.games);
         assert_eq!(result.cached_at, Some(fetched_at));
         assert!(!result.stale);
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         std::fs::remove_dir_all(directory).unwrap();
     }

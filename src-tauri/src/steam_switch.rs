@@ -405,6 +405,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if !metadata.is_file() {
         return Err("Steam configuration is not a regular file".to_owned());
     }
+    #[cfg_attr(not(unix), allow(unused_variables))]
     let parent = path
         .parent()
         .ok_or_else(|| "Steam configuration path has no parent".to_owned())?;
