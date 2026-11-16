@@ -25,6 +25,7 @@ pub struct LaunchOverrides {
 }
 
 impl LaunchOverrides {
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub(crate) fn resolve_compatibility(
         &self,
         mut config: EffectiveCompatibilityConfig,
