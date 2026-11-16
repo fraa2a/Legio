@@ -1377,5 +1377,8 @@
   "Affidabilità": "Confidence",
   "Segnalazioni": "Reports",
   "Tendenza recente": "Recent trend",
-  "Apri su ProtonDB": "Open on ProtonDB"
+  "Apri su ProtonDB": "Open on ProtonDB",
+  "Valutazione di compatibilità su Linux mostrata nella pagina del gioco.": "Linux compatibility rating shown on the game page.",
+  "Solo su Linux, quando apri la pagina di un gioco. La risposta resta in cache per 7 giorni.": "Linux only, when you open a game page. The answer stays cached for 7 days.",
+  "ID del gioco.": "Game ID."
 }
