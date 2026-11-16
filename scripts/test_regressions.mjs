@@ -482,8 +482,8 @@ test("manual artwork refresh renews its visible URLs while retaining other games
 test("missing updater platform is unavailable, not current, and invalidates a prior installer", async () => {
   let checks = 0; let installs = 0;
   globalThis.legioUpdaterCheck = async () => {
-    if (++checks === 1) return { version: "9.0.0", close: async () => {}, downloadAndInstall: async () => { installs++; } };
-    throw 'None of the fallback platforms `["linux-x86_64"]` were found in the response `platforms` object';
+    if (++checks === 1) return { update: { version: "9.0.0", close: async () => {}, downloadAndInstall: async () => { installs++; } }, unavailable: false };
+    return { update: null, unavailable: true };
   };
   const { load } = createModuleLoader({
     "src/lib/i18n": dataModule("export const t = value => value;"),
