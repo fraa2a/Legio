@@ -195,7 +195,8 @@ class Driver {
 
   async assertNoErrorBanner(context) {
     const message = await this.run("const scope = openDialog() ?? document; const alert = [...scope.querySelectorAll('[role=alert]')].find(visible); return alert === undefined ? null : nameOf(alert);");
-    if (message !== null) throw new Error(`${context} shows an error: ${message}`);
+    // CI runners have no Secret Service provider, so the app reports the missing keychain by design.
+    if (message !== null && !message.startsWith("No system keychain is available")) throw new Error(`${context} shows an error: ${message}`);
   }
 
   // Screenshots can return the previous frame, so wait for transitions and fresh frames first.
