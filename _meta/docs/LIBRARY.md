@@ -178,6 +178,8 @@ history and calendar activity. Future sessions add time normally. Active session
 invalid totals and externally detected running games are rejected by the backend.
 Steam account playtime is not modified.
 
+
+
 ## Import from other launchers
 
 The initial setup (onboarding) offers games installed with Heroic, Lutris, itch and
