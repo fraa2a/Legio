@@ -8,12 +8,12 @@
 use std::{
     future::Future,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, Runtime};
 
+use crate::database::now_seconds;
 use crate::network::{NetworkError, NetworkState};
 
 const SUMMARY_URL: &str = "https://www.protondb.com/api/v1/reports/summaries";
@@ -157,12 +157,10 @@ async fn write_cache(directory: &Path, app_id: u32, entry: &CacheEntry) -> Resul
         .await
         .map_err(|error| error.to_string())?;
     let path = cache_path(directory, app_id);
-    let temporary = path.with_extension("json.tmp");
-    tokio::fs::write(&temporary, bytes)
+    tauri::async_runtime::spawn_blocking(move || crate::atomic_file::write_atomic(&path, &bytes))
         .await
-        .map_err(|error| error.to_string())?;
-    tokio::fs::rename(&temporary, &path)
-        .await
+        .map_err(std::io::Error::other)
+        .and_then(|written| written)
         .map_err(|error| error.to_string())
 }
 
@@ -218,13 +216,6 @@ where
     }
 }
 
-fn now() -> Result<i64, String> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|error| format!("The system clock is before 1970: {error}"))
-        .and_then(|time| i64::try_from(time.as_secs()).map_err(|error| error.to_string()))
-}
-
 pub async fn get_summary<R: Runtime>(
     app: &tauri::AppHandle<R>,
     network: &NetworkState,
@@ -238,7 +229,7 @@ pub async fn get_summary<R: Runtime>(
         .app_cache_dir()
         .map_err(|error| format!("Could not resolve the cache directory: {error}"))?
         .join("protondb");
-    load_summary(&directory, app_id, now()?, || {
+    load_summary(&directory, app_id, now_seconds()?, || {
         network.protondb_summary(app_id)
     })
     .await

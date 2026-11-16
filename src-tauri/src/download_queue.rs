@@ -2,7 +2,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 use reqwest::{
@@ -21,7 +21,7 @@ use uuid::Uuid;
 use crate::{
     archive_install,
     archive_parts::PartScheme,
-    database::{Database, DatabaseState},
+    database::{Database, DatabaseState, now_seconds},
     download_resolver::{PlainHttp, ResolveError, ResolvedDownload, ResolvedFile},
     download_selection::{Layout, MirrorPlan, PartLayout},
     finalize_install,
@@ -397,14 +397,6 @@ fn stored_layout(database: &Database, id: &str) -> Result<Option<PartLayout>, St
         .map(Option::flatten)
 }
 
-fn now() -> Result<i64, String> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .and_then(|elapsed| i64::try_from(elapsed.as_secs()).ok())
-        .ok_or_else(|| "System clock is outside the supported date range".to_owned())
-}
-
 fn db_error(error: rusqlite::Error) -> String {
     format!("Local download database error: {error}")
 }
@@ -484,7 +476,7 @@ fn change_status(
     let id = Uuid::parse_str(id)
         .map_err(|_| "Download ID is invalid".to_owned())?
         .to_string();
-    let updated = now()?;
+    let updated = now_seconds()?;
     database.with_connection(|connection| {
         let status: Option<String> = connection.query_row(
             "SELECT status FROM downloads WHERE id = ?1", [&id], |row| row.get(0),
@@ -570,6 +562,25 @@ pub(crate) enum PlanChoice {
     Given(Option<crate::download_selection::MirrorPlan>),
 }
 
+/// Candidate links for a source entry and whether its source is a Hydra source.
+fn source_candidates(
+    source: Option<&crate::legio_source_cache::SourceRow>,
+    entry: &crate::legio_source::SourceEntry,
+) -> (Vec<String>, bool) {
+    let candidates = source
+        .and_then(|source| {
+            entry
+                .id
+                .as_ref()
+                .and_then(|id| source.catalog.candidates.get(id))
+        })
+        .cloned()
+        .unwrap_or_else(|| vec![entry.download.url.clone()]);
+    let hydra = source
+        .is_some_and(|source| source.catalog.format == crate::source_catalog::SourceFormat::Hydra);
+    (candidates, hydra)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn enqueue_prepared(
     database: &Database,
@@ -614,21 +625,12 @@ pub(crate) fn enqueue_prepared(
         .transpose()
         .map_err(|_| "Published download size exceeds local storage limits".to_owned())?;
     let id = Uuid::new_v4().to_string();
-    let created = now()?;
+    let created = now_seconds()?;
 
     let mirror_plan = match plan {
         PlanChoice::Given(plan) => plan,
         PlanChoice::Derived => {
-            let mut uris = source
-                .as_ref()
-                .and_then(|source| {
-                    entry
-                        .id
-                        .as_ref()
-                        .and_then(|id| source.catalog.candidates.get(id))
-                })
-                .cloned()
-                .unwrap_or_else(|| vec![entry.download.url.clone()]);
+            let (mut uris, hydra) = source_candidates(source, &entry);
             // Unsupported links can never be downloaded; keep them only when
             // nothing else is left so the job still fails with its own error.
             if uris
@@ -637,9 +639,6 @@ pub(crate) fn enqueue_prepared(
             {
                 uris.retain(|uri| crate::download_selection::supported(uri));
             }
-            let hydra = source.as_ref().is_some_and(|source| {
-                source.catalog.format == crate::source_catalog::SourceFormat::Hydra
-            });
             if uris.len() == 1 && !hydra && crate::download_selection::native_cdn(&uris[0]) {
                 None
             } else {
@@ -722,7 +721,7 @@ fn claim(database: &Database) -> Result<Option<Transfer>, String> {
         let Some((id, url, size, etag, hash)) = row else { return Ok(None); };
         connection.execute(
             "UPDATE downloads SET status = 'downloading', updated_at = ?2 WHERE id = ?1",
-            params![id, now()?],
+            params![id, now_seconds()?],
         ).map_err(db_error)?;
         Ok(Some(Transfer { id, url, size: u64::try_from(size).map_err(|_| "Invalid stored download size".to_owned())?, etag, plain_http: PlainHttp::for_hash(Some(&hash)) }))
     })
@@ -735,6 +734,15 @@ fn status(database: &Database, id: &str) -> Result<String, String> {
                 row.get(0)
             })
             .map_err(db_error)
+    })
+}
+
+fn clear_error(database: &Database, id: &str) -> Result<(), String> {
+    database.with_connection(|connection| {
+        connection
+            .execute("UPDATE downloads SET error = NULL WHERE id = ?1", [id])
+            .map_err(db_error)?;
+        Ok(())
     })
 }
 
@@ -755,7 +763,7 @@ fn update_progress(
             .execute(
                 "UPDATE downloads SET downloaded_bytes = ?2, speed_bps = ?3, eta_seconds = ?4,
              etag = ?5, updated_at = ?6 WHERE id = ?1 AND status = 'downloading'",
-                params![id, bytes, speed, remaining, etag, now()?],
+                params![id, bytes, speed, remaining, etag, now_seconds()?],
             )
             .map_err(db_error)?;
         Ok(())
@@ -773,7 +781,7 @@ fn finish(
             .execute(
                 "UPDATE downloads SET status = ?2, error = ?3, speed_bps = 0, eta_seconds = NULL,
              updated_at = ?4 WHERE id = ?1 AND status = 'downloading'",
-                params![id, to.as_str(), error, now()?],
+                params![id, to.as_str(), error, now_seconds()?],
             )
             .map_err(db_error)?;
         Ok(())
@@ -849,7 +857,7 @@ fn stage_one(queue: &DownloadQueueState, database: &Database, id: &str) -> Resul
         }
         connection.execute(
             "UPDATE downloads SET status = 'staging', error = NULL, updated_at = ?2 WHERE id = ?1",
-            params![id, now()?],
+            params![id, now_seconds()?],
         ).map_err(db_error)?;
         Ok((hash, verified))
     })?;
@@ -885,7 +893,7 @@ fn stage_one(queue: &DownloadQueueState, database: &Database, id: &str) -> Resul
             let persisted = database.with_connection(|connection| {
                 connection.execute(
                     "UPDATE downloads SET status = 'staged', staged_path = ?2, updated_at = ?3 WHERE id = ?1 AND status = 'staging'",
-                    params![id, stage.to_string_lossy(), now()?],
+                    params![id, stage.to_string_lossy(), now_seconds()?],
                 ).map_err(db_error)?;
                 Ok(())
             });
@@ -905,7 +913,7 @@ fn stage_one(queue: &DownloadQueueState, database: &Database, id: &str) -> Resul
             database.with_connection(|connection| {
                 connection.execute(
                     "UPDATE downloads SET status = 'failed', error = ?2, staged_path = NULL, updated_at = ?3 WHERE id = ?1 AND status = 'staging'",
-                    params![id, error, now()?],
+                    params![id, error, now_seconds()?],
                 ).map_err(db_error)?;
                 Ok(())
             }).map_err(|db| format!("{error}; could not save failure: {db}"))?;
@@ -1109,7 +1117,7 @@ fn recover_staging(queue: &DownloadQueueState, database: &Database) -> Result<()
         database.with_connection(|connection| {
             connection.execute(
                 "UPDATE downloads SET status = ?2, error = ?3, staged_path = NULL, updated_at = ?4 WHERE id = ?1 AND status = 'staging'",
-                params![id, next, error, now()?],
+                params![id, next, error, now_seconds()?],
             ).map_err(db_error)?;
             Ok(())
         })?;
@@ -1129,7 +1137,7 @@ fn cancellation_error(database: &Database, id: &str, error: &str) -> Result<(), 
     database.with_connection(|connection| {
         connection.execute(
             "UPDATE downloads SET error = ?2, updated_at = ?3 WHERE id = ?1 AND status = 'cancelled'",
-            params![id, error, now()?],
+            params![id, error, now_seconds()?],
         ).map_err(db_error)?;
         Ok(())
     })
@@ -1213,7 +1221,7 @@ fn wake_waiting(database: &Database) -> Result<bool, String> {
     database.with_connection(|connection| {
         let count = connection.execute(
             "UPDATE downloads SET status = 'queued', error = NULL, updated_at = ?1 WHERE status = 'waiting'",
-            [now()?],
+            [now_seconds()?],
         ).map_err(db_error)?;
         Ok(count > 0)
     })
@@ -2127,27 +2135,12 @@ pub async fn queue_download(
                 return Err("Confirm the unverified source before downloading".to_owned());
             }
             let rows = crate::legio_source_cache::cached_rows(&read_database)?;
-            let candidates = rows
-                .iter()
-                .find(|row| row.id == origin)
-                .and_then(|row| {
-                    entry
-                        .id
-                        .as_ref()
-                        .and_then(|id| row.catalog.candidates.get(id))
-                })
-                .cloned()
-                .unwrap_or_else(|| vec![entry.download.url.clone()]);
-            let origin_catalog = rows
+            let row = rows
                 .iter()
                 .find(|row| row.id == origin)
                 .ok_or("Download source is unavailable")?;
-            Ok::<_, String>((
-                origin,
-                entry,
-                candidates,
-                origin_catalog.catalog.format == crate::source_catalog::SourceFormat::Hydra,
-            ))
+            let (candidates, hydra) = source_candidates(Some(row), &entry);
+            Ok::<_, String>((origin, entry, candidates, hydra))
         })
         .await
         .map_err(|error| error.to_string())??;
@@ -2378,37 +2371,30 @@ pub async fn retry_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result
         let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
         let _operation = manager.operation()?;
         crate::download_policy::require_resumable(database, &manager, &id)?;
-        // Clearing the error lets schedule_installations stage the archive again.
-        if status(database, &id)? == "downloaded" {
-            return database.with_connection(|connection| {
-                connection
-                    .execute("UPDATE downloads SET error = NULL WHERE id = ?1", [&id])
-                    .map_err(db_error)?;
-                Ok(())
-            });
-        }
-        if status(database, &id)? == "staged" {
-            crate::overlay_update::recover(database)?;
-            if let Some(game) = crate::game_updates::target(database, &id)? {
-                crate::overlay_update::ensure_launchable(database, &game)?;
+        match status(database, &id)?.as_str() {
+            // Clearing the error lets schedule_installations stage the archive again.
+            "downloaded" => return clear_error(database, &id),
+            "staged" => {
+                crate::overlay_update::recover(database)?;
+                if let Some(game) = crate::game_updates::target(database, &id)? {
+                    crate::overlay_update::ensure_launchable(database, &game)?;
+                }
+                return clear_error(database, &id);
             }
-            database.with_connection(|connection| {
-                connection
-                    .execute("UPDATE downloads SET error = NULL WHERE id = ?1", [&id])
-                    .map_err(db_error)?;
-                Ok(())
-            })?;
-            return Ok(());
-        }
-        if status(database, &id)? == "finalizing" {
-            let data_dir = app
-                .path()
-                .app_data_dir()
-                .map_err(|error| format!("Could not locate app data: {error}"))?;
-            let result =
-                crate::finalize_install::retry(database, &database.storage_root(&data_dir)?, &id);
-            crate::disk_usage::invalidate(&app, &id);
-            return result;
+            "finalizing" => {
+                let data_dir = app
+                    .path()
+                    .app_data_dir()
+                    .map_err(|error| format!("Could not locate app data: {error}"))?;
+                let result = crate::finalize_install::retry(
+                    database,
+                    &database.storage_root(&data_dir)?,
+                    &id,
+                );
+                crate::disk_usage::invalidate(&app, &id);
+                return result;
+            }
+            _ => {}
         }
         change_status(
             database,

@@ -1,7 +1,4 @@
-use std::{
-    collections::HashSet,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::collections::HashSet;
 
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -222,16 +219,12 @@ fn decode(bytes: &[u8]) -> Result<CatalogPage, CatalogError> {
 }
 
 fn now() -> Result<i64, CatalogError> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
-        .ok_or_else(|| {
-            CatalogError::new(
-                CatalogErrorKind::Internal,
-                "System clock is outside the supported date range.",
-            )
-        })
+    crate::database::now_seconds().map_err(|_| {
+        CatalogError::new(
+            CatalogErrorKind::Internal,
+            "System clock is outside the supported date range.",
+        )
+    })
 }
 
 fn sql_error(error: rusqlite::Error) -> String {
