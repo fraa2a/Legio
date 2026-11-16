@@ -193,7 +193,7 @@ test("binary artwork response retains metadata and views bytes without a second 
 test("catalog load more requests the next remote page", async () => {
   const pages = [];
   const game = { steamAppId: 400, name: "Portal", availability: "unavailable" };
-  const result = (games, nextOffset, total = games.length) => ({ games, total, nextOffset, cachedAt: 1, stale: false, sourceCachedAt: null, sourceStale: false });
+  const result = (games, nextOffset, total = games.length) => ({ games, total, nextOffset, cachedAt: 1, stale: false });
   globalThis.legioCatalogMock = {
     cachedCatalogSearch: () => null,
     searchCatalog: async (_query, limit) => result(limit ? [game, { ...game, steamAppId: 401 }] : [game], null),

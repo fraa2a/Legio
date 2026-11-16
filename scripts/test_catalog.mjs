@@ -7,7 +7,7 @@ const defaults = { sort: "relevance", availability: "all" };
 const filtered = { sort: "name_desc", availability: "verified" };
 const result = (id, nextOffset = null, total = 1) => ({
   games: [{ steamAppId: id, name: `Game ${id}`, availability: "verified" }],
-  total, nextOffset, cachedAt: 1, stale: false, sourceCachedAt: 1, sourceStale: false,
+  total, nextOffset, cachedAt: 1, stale: false,
 });
 
 function fixture(name, invoke) {

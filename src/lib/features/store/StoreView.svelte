@@ -161,7 +161,7 @@
         {#if $catalog.refreshing}
           <span role="status">{t("Aggiornamento in corso...", $language)}</span>
         {/if}
-        {#if $catalog.sourceStale}
+        {#if $source.data.stale}
           <Badge tone="warning" title={t("Sorgente non aggiornata", $language)} />
         {/if}
       </div>
