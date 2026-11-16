@@ -23,6 +23,8 @@
   import LaunchProfilesPanel from "./LaunchProfilesPanel.svelte";
   import SteamAccountPanel from "./SteamAccountPanel.svelte";
   import SteamLaunchSettings from "./SteamLaunchSettings.svelte";
+  import SteamExportDialog from "./SteamExportDialog.svelte";
+  import { isSteamExportable } from "./steam-export";
   import GameModSettings from "../modding/GameModSettings.svelte";
   import { launchStateByGame } from "../../stores/launch";
   import { appInfo } from "../../stores/app-info";
@@ -53,6 +55,7 @@
   let shortcutError = $state<string | null>(null);
   let shortcutPath = $state<string | null>(null);
   let shortcutPending = $state(false);
+  let steamExportOpen = $state(false);
   const running = $derived(($launchStateByGame.get(game.id)?.status ?? "idle") !== "idle");
   let transferPickerOpen = $state(false);
   let transferPending = $state(false);
@@ -105,8 +108,13 @@
         <div class="flex flex-col gap-4">
           <GameDetailsPanel {game} {onRemoved} />
           <Panel title={t("Collegamento", $language)}>
-            <Button label={shortcutPending ? t("Creazione...", $language) : t("Aggiungi collegamento desktop", $language)}
-              disabled={shortcutPending} onClick={() => void addDesktopShortcut()} />
+            <div class="flex flex-wrap gap-2">
+              <Button label={shortcutPending ? t("Creazione...", $language) : t("Aggiungi collegamento desktop", $language)}
+                disabled={shortcutPending} onClick={() => void addDesktopShortcut()} />
+              {#if isSteamExportable(game)}
+                <Button label={t("Aggiungi a Steam", $language)} variant="secondary" onClick={() => { steamExportOpen = true; }} />
+              {/if}
+            </div>
             {#if shortcutPath}<Callout tone="success" variant="inline" class="mt-2 break-all" message={t("Collegamento creato: {0}", $language, [shortcutPath])} />{/if}
             {#if shortcutWarning}<ErrorBanner message={shortcutWarning} tone="warning" />{/if}
             {#if shortcutError}<ErrorBanner message={shortcutError} />{/if}
@@ -179,3 +187,5 @@
   onSelect={(library) => void moveGame(library)}
   onClose={() => (transferPickerOpen = false)}
 />
+
+{#if steamExportOpen}<SteamExportDialog games={[game]} onClose={() => (steamExportOpen = false)} />{/if}

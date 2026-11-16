@@ -386,12 +386,15 @@ pub(crate) fn validate_background(app: &AppHandle, appearance: &Appearance) -> R
 
 #[tauri::command]
 pub async fn import_theme_background(app: AppHandle, source: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let bytes = normalize_background(&read_bounded(Path::new(&source), MAX_IMAGE_BYTES)?)?;
-        store_background(&app, &bytes)
-    })
-    .await
-    .map_err(|error| error.to_string())?
+    tauri::async_runtime::spawn_blocking(move || import_background_file(&app, Path::new(&source)))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Normalizes an image file into a stored theme background and returns its id.
+pub(crate) fn import_background_file(app: &AppHandle, source: &Path) -> Result<String, String> {
+    let bytes = normalize_background(&read_bounded(source, MAX_IMAGE_BYTES)?)?;
+    store_background(app, &bytes)
 }
 
 #[tauri::command]

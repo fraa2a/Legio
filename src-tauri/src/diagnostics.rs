@@ -19,9 +19,11 @@ pub enum Operation {
     HydraSearch,
     LegioSource,
     News,
+    ProtonDb,
     SteamDetails,
     SteamAsset,
     SteamConnectivity,
+    SteamGridDb,
     Thunderstore,
 }
 

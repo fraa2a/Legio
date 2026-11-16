@@ -254,6 +254,25 @@ Only `shop: "steam"` entries are considered, with `objectId` convertible to a po
 
 Details come from `https://store.steampowered.com/api/appdetails`, using the App ID and requested language. Artwork comes from Steam hosts allowed by the client. These data support game presentation and do not define download URLs, releases, or source trust.
 
+## ProtonDB summaries
+
+On Linux only, the game page and the Store detail request `https://www.protondb.com/api/v1/reports/summaries/<appid>.json` for a game with a Steam App ID. The endpoint is public but unofficial: ProtonDB documents no contract for it, so Legio treats the response as untrusted and may lose the rating if ProtonDB changes it.
+
+The consumed response has this shape, and every field is optional:
+
+```json
+{
+  "tier": "gold",
+  "confidence": "strong",
+  "score": 0.87,
+  "total": 1234,
+  "trendingTier": "platinum",
+  "bestReportedTier": "platinum"
+}
+```
+
+Responses are limited to 64 KiB. Tiers are `platinum`, `gold`, `silver`, `bronze`, `borked` and `pending`; any other value becomes unknown. HTTP 404 means the game has no reports. Results are cached for 7 days as one file per App ID in the `protondb` folder of the app cache directory, and an expired entry is served when a refresh fails. A failed request shows no rating and is logged.
+
 ## News manifest: `news.json`
 
 The example uses placeholders for Italian content; published articles must supply actual Italian and English translations.

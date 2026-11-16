@@ -228,3 +228,66 @@ involved. `legio:disk-usage-changed` tells the UI to read the cache again.
 bytes of its measured games and the remaining used space as "other". The figure is
 flagged as an estimate while any game is unmeasured or partial. Uninstalling from
 the usage dialog reuses the regular uninstall dialog and its backend path.
+
+## SteamGridDB artwork
+
+The artwork panel of a game can search SteamGridDB by name and, when known, by Steam
+App ID. The API key is entered in the general settings and stored only in the system
+keychain (Secret Service on Linux, Credential Manager on Windows). It is never written
+to the database or settings JSON, never logged and never returned to the frontend: the
+commands only set it, clear it and report whether one is set. Without a reachable
+keychain the user gets an explicit error and nothing is stored.
+
+Responses are untrusted. API replies are capped at 512 KiB and images are accepted only
+over `https` from `cdn.steamgriddb.com` and `cdn2.steamgriddb.com`, with no redirects
+and no key sent to the CDN. The chosen image is downloaded by Rust and stored with the
+same 2 MiB limit, format sniffing and dimension checks as an image picked from disk.
+Heroes and landscape covers fill the custom banner; icons fill the custom icon.
+Thumbnails load directly from the CDN, which the existing `img-src https:` allows.
+
+## Local screenshots
+
+The game page lists screenshots newest first, 12 per page and at most 500 per game, from
+two places: the Steam folder `userdata/<account>/760/remote/<appid>/screenshots` of every
+local Steam account, and one folder per game. That folder defaults to
+`game-screenshots/<game id>` in the Legio data directory; an override chosen in the UI is
+stored in the key/value `settings` table as `game_screenshot_folder.<game id>` (no schema
+migration) and removed with the game.
+
+Only regular files with a `png`, `jpg`, `jpeg` or `webp` extension whose first bytes match
+one of those formats are listed. Symbolic links are skipped and never opened, files over
+32 MiB are ignored, and the frontend only uses opaque ids resolved by the backend inside
+the known folders. Images reach the WebView through the artwork IPC response as object
+URLs; the strip uses 480 px JPEG thumbnails made on demand and the full image loads for
+the screenshot on display. "Open folder" opens the folder of the selected screenshot.
+"Set as wallpaper" imports the file through the appearance background pipeline
+(normalized PNG, up to 2560 px) and selects it as the app wallpaper.
+
+## Exporting games to Steam
+
+"Add to Steam" in a game's settings and "Export to Steam" in the Steam section of the
+library settings add Legio games to Steam as non-Steam shortcuts, so they appear on
+Steam Deck and in Big Picture. Each shortcut runs the Legio executable with
+`--launch-game=<id>`, the same command desktop shortcuts use, so playtime and launch
+settings still apply.
+
+This edits Steam's own files. Legio rewrites
+`<Steam>/userdata/<account>/config/shortcuts.vdf` (a binary VDF file) and refuses to
+do it while Steam is running, because Steam would overwrite the change on exit. Before
+every write Legio saves the previous file next to it as
+`shortcuts.vdf.legio-<timestamp>.bak` (the five newest are kept), writes the new file
+atomically and reads it back to verify it. Close Steam first, then restart it to see the
+games.
+
+- Legio marks its entries with the `Legio` tag and recognizes them by the
+  `--launch-game=<id>` launch option together with that tag or the Legio executable.
+  Re-exporting updates those entries; every other entry and every unknown key is kept
+  byte for byte. Removal only deletes entries Legio created.
+- The shortcut id is the CRC32 of the quoted executable path and the game name with the
+  top bit set. An existing entry keeps its id, so Steam artwork stays attached.
+- A custom game icon and banner are copied as PNG into `config/grid/`
+  (`<id>_icon.png`, `<id>_hero.png`, `<id>.png`). Existing files are never
+  overwritten, and artwork is left in place when shortcuts are removed.
+- A file that is too large, malformed, truncated or has value types Legio does not
+  know is never modified. Symlinks inside `userdata` are refused.
+- Steam's files are not versioned by Legio: the backup is the way back.

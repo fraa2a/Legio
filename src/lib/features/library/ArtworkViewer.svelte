@@ -8,10 +8,12 @@
   import Icon from "../../components/ui/Icon.svelte";
   import { fadeDuration } from "../../utils/motion";
   import SteamArtwork from "./SteamArtwork.svelte";
+  import type { LocalImage } from "./local-screenshots";
 
   let {
-    steamAppId,
-    asset,
+    steamAppId = 0,
+    asset = "screenshot",
+    local = undefined,
     fallbackAsset = null,
     index = null,
     count = 1,
@@ -20,8 +22,10 @@
     onSelect,
     onClose,
   }: {
-    steamAppId: number;
-    asset: SteamAssetKind;
+    steamAppId?: number;
+    asset?: SteamAssetKind;
+    // Local files shown instead of a Steam asset.
+    local?: readonly LocalImage[];
     fallbackAsset?: SteamAssetKind | null;
     index?: number | null;
     count?: number;
@@ -105,6 +109,12 @@
           class="absolute inset-0 flex items-center justify-center p-4"
           transition:fade={{ duration: fadeDuration }}
         >
+          {#if local !== undefined}
+            {@const image = local[index ?? 0]}
+            {#if image?.fullUrl ?? image?.thumbUrl}
+              <img src={image.fullUrl ?? image.thumbUrl} {alt} draggable="false" class="h-full max-h-full w-auto max-w-full rounded-panel object-contain" />
+            {/if}
+          {:else}
           <SteamArtwork
             {steamAppId}
             {asset}
@@ -117,6 +127,7 @@
             caption={false}
             class="h-full max-h-full w-auto max-w-full rounded-panel object-contain"
           />
+          {/if}
         </div>
       {/key}
     </div>
@@ -154,6 +165,9 @@
           aria-current={slot === index}
           onclick={() => onSelect?.(slot)}
         >
+          {#if local !== undefined}
+            {#if local[slot]?.thumbUrl}<img src={local[slot].thumbUrl} alt="" draggable="false" class="size-full object-cover" />{/if}
+          {:else}
           <SteamArtwork
             {steamAppId}
             {asset}
@@ -164,6 +178,7 @@
             caption={false}
             class="size-full object-cover"
           />
+          {/if}
         </button>
       {/each}
     </div>

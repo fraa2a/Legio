@@ -44,6 +44,7 @@ mod game_artwork;
 mod game_library;
 mod game_lifecycle;
 mod game_process;
+mod game_screenshots;
 mod game_transfer;
 mod game_uninstall;
 mod game_updates;
@@ -111,14 +112,19 @@ pub(crate) struct StartupLaunch {
     pub game_id: Option<String>,
     pub error: std::sync::Mutex<Option<String>>,
 }
+mod protondb;
+mod secret_store;
 mod steam_assets;
 mod steam_details;
 mod steam_import;
 mod steam_local;
 mod steam_pics;
 mod steam_process;
+mod steam_shortcuts;
+mod steam_shortcuts_export;
 mod steam_switch;
 mod steam_vdf;
+mod steamgriddb;
 mod tray_menu;
 #[cfg(any(windows, test))]
 mod webview_diagnostics;
@@ -358,6 +364,9 @@ fn run_application(
             app.manage(assets);
             app.manage(disk_usage::DiskUsageState::new(app.path().app_cache_dir()));
             app.manage(steam_details::DetailsFetchState::default());
+            app.manage(steamgriddb::SteamGridDb::new(std::sync::Arc::new(
+                secret_store::SystemKeychain::new(steamgriddb::KEY_ACCOUNT),
+            )));
             app.manage(game_artwork::GameArtworkStore::new(
                 app.path().app_data_dir().map_err(|error| error.to_string()),
             ));
@@ -557,6 +566,10 @@ fn run_application(
             commands::inspect_steam_game_launch,
             commands::list_saved_steam_accounts,
             commands::set_game_steam_account_preference,
+            commands::list_steam_shortcut_accounts,
+            commands::preview_steam_shortcuts,
+            commands::export_steam_shortcuts,
+            commands::remove_exported_steam_shortcuts,
             commands::import_steam_installations,
             commands::scan_launcher_games,
             commands::import_launcher_games,
@@ -612,6 +625,18 @@ fn run_application(
             commands::search_catalog,
             commands::refresh_catalog,
             commands::get_steam_details,
+            commands::get_protondb_summary,
+            commands::has_steamgriddb_key,
+            commands::set_steamgriddb_key,
+            commands::clear_steamgriddb_key,
+            commands::search_steamgriddb_games,
+            commands::list_steamgriddb_artwork,
+            commands::apply_steamgriddb_artwork,
+            commands::list_game_screenshots,
+            commands::get_game_screenshot,
+            commands::open_game_screenshots_folder,
+            commands::set_game_screenshots_folder,
+            commands::import_game_screenshot_background,
             commands::get_steam_asset,
             commands::finish_steam_asset_update,
             commands::set_artwork_game,
