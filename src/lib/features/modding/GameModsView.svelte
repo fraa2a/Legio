@@ -152,7 +152,6 @@
   $effect(() => {
     if (!onPage) return;
     return showTitleBarContent({
-      title: profile?.name ?? null,
       start: managed && profile !== null ? profilePicker : undefined,
       end: managed ? profileActions : undefined,
     });

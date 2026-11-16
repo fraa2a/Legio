@@ -855,7 +855,6 @@
   "Nome del profilo": "Profile name",
   "Seleziona l'archivio della mod": "Select the mod archive",
   "Archivi": "Archives",
-  "Mod di {0}": "{0} mods",
   "Chiudi il gioco prima di modificarne l'installazione.": "Stop the game before changing its installation.",
   "È già in corso un download di mod per questo profilo.": "Mods are already being downloaded for this profile.",
   "Download annullato.": "Download cancelled.",
@@ -1315,5 +1314,18 @@
   "Eliminare il profilo {0}? Il gioco tornerà a usare le sue impostazioni.": "Delete profile {0}? The game will go back to its own settings.",
   "Il nome deve avere da 1 a {0} caratteri.": "The name must be between 1 and {0} characters.",
   "Il nome non può contenere caratteri di controllo.": "The name cannot contain control characters.",
-  "Scegli un runner per il profilo.": "Choose a runner for the profile."
+  "Scegli un runner per il profilo.": "Choose a runner for the profile.",
+  "Percorso": "Breadcrumb",
+  "Torna a {0}": "Back to {0}",
+  "Download attivi: {0}, {1}%. Apri la sezione Download": "Active downloads: {0}, {1}%. Open Downloads",
+  "Notifiche": "Notifications",
+  "Notifiche, {0} non lette": "Notifications, {0} unread",
+  "Notifiche, {0} non lette, di cui {1} errori o avvisi": "Notifications, {0} unread, including {1} errors or warnings",
+  "Cancella tutto": "Clear all",
+  "Nessuna notifica in questa sessione.": "No notifications in this session.",
+  "Nuova": "New",
+  "{0} installato.": "{0} installed.",
+  "Download di {0} non riuscito.": "Download of {0} failed.",
+  "Download di {0} non riuscito: {1}": "Download of {0} failed: {1}",
+  "Aggiornamento delle sorgenti non riuscito: {0}": "Source refresh failed: {0}"
 }
