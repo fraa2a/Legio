@@ -3061,6 +3061,12 @@ mod tests {
         (bytes, format!("{:x}", Sha256::digest(bytes)))
     }
 
+    // Name and content of the executable inside `install_archive_fixture`.
+    #[cfg(not(windows))]
+    const FIXTURE_EXECUTABLE: (&str, &[u8]) = ("start.sh", b"#!/bin/sh\nexit 0\n");
+    #[cfg(windows)]
+    const FIXTURE_EXECUTABLE: (&str, &[u8]) = ("start.exe", b"game");
+
     fn install_archive_fixture() -> (&'static [u8], String) {
         // The checked-in archive holds a shell script, which Windows does not treat as a game executable.
         #[cfg(not(windows))]
@@ -3071,9 +3077,12 @@ mod tests {
             use zip::{ZipWriter, write::SimpleFileOptions};
             let mut writer = ZipWriter::new(std::io::Cursor::new(Vec::new()));
             writer
-                .start_file("Game/start.exe", SimpleFileOptions::default())
+                .start_file(
+                    format!("Game/{}", FIXTURE_EXECUTABLE.0),
+                    SimpleFileOptions::default(),
+                )
                 .unwrap();
-            writer.write_all(b"game").unwrap();
+            writer.write_all(FIXTURE_EXECUTABLE.1).unwrap();
             Box::leak(writer.finish().unwrap().into_inner().into_boxed_slice())
         };
         (bytes, format!("{:x}", Sha256::digest(bytes)))
@@ -3500,7 +3509,7 @@ mod tests {
         let game = database.game(&completed.id).unwrap();
         assert_eq!(
             fs::read(game.executable_path.unwrap()).unwrap(),
-            b"#!/bin/sh\nexit 0\n"
+            FIXTURE_EXECUTABLE.1
         );
         assert_eq!(status_of(&database, &queued.id).as_deref(), Some("queued"));
         assert_eq!(status_of(&database, &failed.id).as_deref(), Some("failed"));
@@ -3706,8 +3715,8 @@ mod tests {
         wait_for_installation(&app, &database, &job.id);
         let installed = directory.join("installed/Portal");
         assert_eq!(
-            fs::read(installed.join("start.sh")).unwrap(),
-            b"#!/bin/sh\nexit 0\n"
+            fs::read(installed.join(FIXTURE_EXECUTABLE.0)).unwrap(),
+            FIXTURE_EXECUTABLE.1
         );
         assert!(database.game(&job.id).unwrap().executable_path.is_some());
         server.join().unwrap();
