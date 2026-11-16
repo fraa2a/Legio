@@ -7,7 +7,9 @@
     activeSection,
     closeGame,
     closeModManager,
+    closePlaytimeRecap,
     closeStoreGame,
+    playtimeRecapOpen,
     sectionLabels,
     selectedGameId,
     selectedModGame,
@@ -58,8 +60,10 @@
   const storeGame = $derived($activeSection === "store" ? $selectedStoreGame : null);
   const modSelection = $derived($activeSection === "mods" ? $selectedModGame : null);
   const modGameName = $derived(modSelection === null ? "" : ($games.data.find((entry) => entry.id === modSelection.gameId)?.name ?? ""));
-  const detail = $derived(storeGame ?? game ?? (modSelection === null ? null : { name: t("Mod di {0}", $language, [modGameName]) }));
+  const recap = $derived($activeSection === "home" && $playtimeRecapOpen);
+  const detail = $derived(storeGame ?? game ?? (modSelection === null ? (recap ? { name: t("Annata di gioco", $language) } : null) : { name: t("Mod di {0}", $language, [modGameName]) }));
   const backLabel = $derived.by(() => {
+    if (recap) return t(sectionLabels.home, $language);
     if (storeGame !== null) return t("Risultati", $language);
     if (modSelection !== null) return modSelection.returnTo === "game" ? modGameName : t("Mod", $language);
     return t("Libreria", $language);
@@ -123,7 +127,8 @@
   }
 
   function navigateBack(): void {
-    if (storeGame !== null) closeStoreGame();
+    if (recap) closePlaytimeRecap();
+    else if (storeGame !== null) closeStoreGame();
     else if (modSelection !== null) closeModManager();
     else closeGame();
   }
