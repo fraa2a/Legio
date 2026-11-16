@@ -5,8 +5,8 @@
   import { t, language } from "../../i18n";
   import type { Theme } from "../../services/local-state";
   import {
-    activePalette, chooseBackground, textScaleRange, cleanupBackgrounds, defaultAppearance, defaultDither, exportAppearance, importAppearance, panelStyleOf, panelStyles, themePresets,
-    type Appearance, type Palette, type PanelStyle,
+    activePalette, chooseBackground, textScaleRange, cleanupBackgrounds, defaultAppearance, createThemeCode, defaultDither, exportAppearance, importAppearance, readThemeCode, panelStyleOf, panelStyles, themePresets,
+    type Appearance, type AppearanceProfile, type Palette, type PanelStyle,
   } from "../../services/appearance";
   import { appearancePreview } from "../../stores/appearance";
   import { appInfo } from "../../stores/app-info";
@@ -15,6 +15,8 @@
   import RadioCard from "../../components/ui/RadioCard.svelte";
   import { toMessage } from "../../utils/errors";
   import Button from "../../components/ui/Button.svelte";
+  import ConfirmDialog from "../../components/ui/ConfirmDialog.svelte";
+  import TextField from "../../components/ui/TextField.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import SegmentedControl from "../../components/ui/SegmentedControl.svelte";
@@ -50,6 +52,9 @@
   let busy = $state(false);
   let error = $state<string | null>(null);
   let customPanels = $state(false);
+  let pasteOpen = $state(false);
+  let pasteText = $state("");
+  let pasteError = $state<string | null>(null);
   let disposed = false;
 
   const serialized = $derived(JSON.stringify({ theme, appearance: draft }));
@@ -199,17 +204,51 @@
     }
   }
 
+  function applyProfile(profile: AppearanceProfile): void {
+    theme = profile.theme;
+    draft = { ...profile.appearance, background: draft.background };
+    customPanels = panelStyleOf(draft) === null;
+  }
+
   async function importProfile(): Promise<void> {
     busy = true;
     error = null;
     try {
       const profile = await importAppearance();
       if (profile === null || disposed) return;
-      theme = profile.theme;
-      draft = { ...profile.appearance, background: draft.background };
-      customPanels = panelStyleOf(draft) === null;
+      applyProfile(profile);
     } catch (reason) {
       error = toMessage(reason);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function copyThemeCode(asLink: boolean): Promise<void> {
+    busy = true;
+    error = null;
+    try {
+      const code = await createThemeCode(theme, $state.snapshot(draft));
+      await navigator.clipboard.writeText(asLink ? "legio://theme?code=" + code : code);
+      showToast(asLink ? t("Collegamento copiato.", get(language)) : t("Codice copiato.", get(language)), "success");
+    } catch (reason) {
+      error = toMessage(reason);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function applyPastedCode(): Promise<void> {
+    busy = true;
+    pasteError = null;
+    try {
+      const profile = await readThemeCode(pasteText);
+      if (disposed) return;
+      applyProfile(profile);
+      pasteOpen = false;
+      pasteText = "";
+    } catch (reason) {
+      pasteError = toMessage(reason);
     } finally {
       busy = false;
     }
@@ -251,6 +290,7 @@
       <label for="theme-accent" class="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-legio-fg"><span>{t("Colore di accento", $language)}</span><input id="theme-accent" type="color" disabled={busy} value={draft.accent ?? paletteAccent} class="h-control-md w-12 cursor-pointer rounded-control border border-legio-line bg-transparent" oninput={(event) => { draft.accent = event.currentTarget.value; }} /></label>
       <ResetSetting label={t("Ripristina {0}", $language, [t("Colore di accento", $language)])} disabled={busy || draft.accent === null} onClick={() => { draft.accent = null; }} />
     </div>
+    <div class="flex items-center gap-2"><div class="min-w-0 flex-1"><Toggle label={t("Accento dalla copertina del gioco", $language)} checked={draft.gameAccent} disabled={busy} onChange={(checked) => { draft.gameAccent = checked; }} /></div><ResetSetting label={t("Ripristina {0}", $language, [t("Accento dalla copertina del gioco", $language)])} disabled={busy || !draft.gameAccent} onClick={() => { draft.gameAccent = false; }} /></div>
   </SettingsGroup>
 
   <SettingsGroup title={t("Sfondo e animazioni", $language)} icon="image" collapsible>
@@ -316,11 +356,29 @@
   <div class="flex flex-wrap items-center justify-between gap-3 pt-4">
     <Button variant="secondary" label={t("Ripristina aspetto predefinito", $language)} disabled={busy} onClick={reset} />
     <div class="flex flex-wrap gap-2">
+      <Button variant="secondary" label={t("Copia codice", $language)} disabled={busy} onClick={() => void copyThemeCode(false)} />
+      <Button variant="secondary" label={t("Copia collegamento", $language)} disabled={busy} onClick={() => void copyThemeCode(true)} />
+      <Button variant="secondary" label={t("Incolla codice", $language)} disabled={busy} onClick={() => { pasteError = null; pasteOpen = true; }} />
       <Button variant="secondary" label={t("Importa aspetto", $language)} disabled={busy} onClick={() => void importProfile()} />
       <Button variant="secondary" label={t("Esporta aspetto", $language)} disabled={busy} onClick={() => void exportProfile()} />
     </div>
   </div>
 </section>
+
+{#if pasteOpen}
+  <ConfirmDialog
+    title={t("Incolla codice tema", $language)}
+    message={t("Incolla un codice tema. Lo sfondo resta quello attuale.", $language)}
+    confirmLabel={t("Applica", $language)}
+    pending={busy}
+    confirmDisabled={pasteText.trim() === ""}
+    error={pasteError}
+    onConfirm={() => void applyPastedCode()}
+    onClose={() => { pasteOpen = false; }}
+  >
+    <TextField id="theme-paste-code" type="textarea" rows={4} monospace label={t("Codice tema", $language)} bind:value={pasteText} />
+  </ConfirmDialog>
+{/if}
 
 {#snippet paletteMock(palette: Palette, frame: string)}
   <span class="absolute {frame}" style:background-color={palette.background}>

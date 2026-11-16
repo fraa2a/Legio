@@ -48,6 +48,25 @@ them. Every default is 1, so the default look is the table above.
   load as the defaults.
 - A new scaled token goes into `@theme` with a `var(--legio-*-scale, 1)` factor, not into a component.
 
+## Palettes, per-game accent and sharing
+
+- Palettes are entries in `src/lib/services/theme-presets.json`, with an optional OKLCH `tint`
+  for the neutral ramp, and a matching `Theme` variant in `database.rs`. Every palette keeps text
+  and muted text at 4.5:1 or more on the background and the surface (`test:appearance`); high
+  contrast targets 7:1.
+- The option `gameAccent` (off by default) makes a game page take the dominant vivid color of its
+  hero or custom banner. It is sampled in the frontend from the loaded image
+  (`services/game-accent.ts`), because the artwork pipeline caches several derived images and a
+  custom banner never passes through it. `adjustAccent` moves the lightness in OKLCH until the
+  color has 4.6:1 on the background and the surface, so accent text and focus rings stay readable.
+  `App.svelte` passes it to `applyAppearance`; `--legio-accent`, `--legio-accent-text` and
+  `--legio-focus` are registered properties that fade over `--legio-motion-slow` only while the
+  option is on, and not at all under reduced motion. Late loads of other artwork are dropped.
+- A theme is shared as `LT1.` plus base64url of the minified profile without the wallpaper, up to
+  4096 characters. Rust (`appearance.rs`) validates codes like imported files and rejects other
+  versions. `legio://theme?code=<code>` opens `ThemeLinkDialog`, which previews the theme live and
+  applies it only after confirmation, like source links.
+
 ## Radius
 
 - Control: buttons, fields, menu items and icon buttons of every size.

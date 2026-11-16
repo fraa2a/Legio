@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "./invoke";
+import type { AppearanceProfile } from "./appearance";
 
 export interface SourceEntry {
   id?: string | null;
@@ -71,7 +72,7 @@ export function stopSourceIdentification(): Promise<void> {
 }
 
 export interface PendingSourceLinks {
-  requests: { url: string | null; error: string | null }[];
+  requests: { url: string | null; theme?: AppearanceProfile | null; error: string | null }[];
   registrationError: string | null;
 }
 

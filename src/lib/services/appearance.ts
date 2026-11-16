@@ -2,7 +2,7 @@ import { invoke } from "./invoke";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { t } from "../i18n";
 import presets from "./theme-presets.json";
-import { tintColor, type Tint } from "./color-tint";
+import { luminance, tintColor, type Tint } from "./color-tint";
 import type { Theme } from "./local-state";
 
 export interface Palette {
@@ -51,6 +51,7 @@ export interface Appearance {
   density: Density;
   corners: Corners;
   textScale: number;
+  gameAccent: boolean;
 }
 
 export type Density = "compact" | "normal" | "wide";
@@ -98,25 +99,13 @@ export function defaultAppearance(): Appearance {
     accent: null, background: null, backgroundBlur: 0, backgroundOpacity: 60,
     animatedBackground: "none", animatedOpacity: 65, dither: defaultDither(),
     ...panelStyles.glass, transparent: false,
-    density: "normal", corners: "soft", textScale: 100,
+    density: "normal", corners: "soft", textScale: 100, gameAccent: false,
   };
 }
 
 export function activePalette(theme: Theme, prefersDark: boolean): ThemePreset {
   const id = theme === "system" ? (prefersDark ? "dark" : "light") : theme;
   return themePresets.find((preset) => preset.id === id) ?? themePresets[0];
-}
-
-function channels(color: string): number[] {
-  return [1, 3, 5].map((index) => Number.parseInt(color.slice(index, index + 2), 16));
-}
-
-function luminance(color: string): number {
-  const linear = channels(color).map((value) => {
-    const srgb = value / 255;
-    return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
-  });
-  return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
 }
 
 export function accentText(color: string): string {
@@ -166,16 +155,19 @@ function blurFilter(pixels: number): string {
   return pixels === 0 ? "none" : `blur(${pixels}px)`;
 }
 
+// A per-game accent replaces the resolved one; its color is already adjusted for the palette.
 export function applyAppearance(
   root: HTMLElement, theme: Theme, appearance: Appearance, prefersDark: boolean, hyprland: boolean,
+  accentOverride: string | null = null,
 ): void {
   const palette = activePalette(theme, prefersDark);
   const windowTransparent = appearance.transparent && hyprland;
   root.dataset.theme = palette.scheme;
   root.dataset.palette = theme;
   root.dataset.transparent = String(windowTransparent);
+  root.dataset.accentFade = String(appearance.gameAccent);
   root.style.colorScheme = palette.scheme;
-  for (const [key, value] of Object.entries(paletteVariables(palette, resolvedAccent(palette, appearance)))) root.style.setProperty(key, value);
+  for (const [key, value] of Object.entries(paletteVariables(palette, accentOverride ?? resolvedAccent(palette, appearance)))) root.style.setProperty(key, value);
   for (const [key, value] of Object.entries(interfaceVariables(appearance))) root.style.setProperty(key, value);
   root.style.setProperty("--legio-image-blur", appearance.backgroundBlur + "px");
   root.style.setProperty("--legio-image-opacity", String(appearance.backgroundOpacity / 100));
@@ -211,6 +203,14 @@ export async function exportAppearance(theme: Theme, appearance: Appearance): Pr
 export async function importAppearance(): Promise<AppearanceProfile | null> {
   const path = await open({ title: t("Importa aspetto"), multiple: false, filters: profileFilters() });
   return path === null ? null : invoke<AppearanceProfile>("import_appearance", { path });
+}
+
+export function createThemeCode(theme: Theme, appearance: Appearance): Promise<string> {
+  return invoke<string>("create_theme_code", { profile: { version: 1, theme, appearance } });
+}
+
+export function readThemeCode(code: string): Promise<AppearanceProfile> {
+  return invoke<AppearanceProfile>("read_theme_code", { code });
 }
 
 export function cleanupBackgrounds(): Promise<void> {

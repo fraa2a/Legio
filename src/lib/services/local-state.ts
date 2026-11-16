@@ -3,7 +3,7 @@ import { invoke } from "./invoke";
 import type { Appearance } from "./appearance";
 import type { PlayStatus } from "./library-organization";
 
-export type Theme = "system" | "dark" | "light" | "bronze" | "crimson" | "steel" | "emerald" | "sand";
+export type Theme = "system" | "dark" | "light" | "bronze" | "crimson" | "steel" | "emerald" | "sand" | "midnight" | "violet" | "contrast" | "oled" | "frost";
 
 export type LibraryViewMode = "grid" | "list" | "shelves";
 export type LibrarySortKey = "name" | "playtime" | "lastPlayed" | "added" | "origin";

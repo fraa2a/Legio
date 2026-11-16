@@ -4,6 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
@@ -13,6 +14,10 @@ use crate::database::{DatabaseState, Theme};
 const MAX_IMAGE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_PROFILE_BYTES: u64 = 64 * 1024;
 const PROFILE_VERSION: u8 = 1;
+const SHARE_CODE_PREFIX: &str = "LT";
+const SHARE_CODE_VERSION: u8 = 1;
+const MAX_SHARE_CODE_CHARS: usize = 4096;
+const MAX_SHARE_JSON_BYTES: usize = 3 * MAX_SHARE_CODE_CHARS / 4;
 
 #[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -121,6 +126,7 @@ pub struct Appearance {
     pub density: Density,
     pub corners: Corners,
     pub text_scale: u8,
+    pub game_accent: bool,
 }
 
 impl Default for Appearance {
@@ -141,6 +147,7 @@ impl Default for Appearance {
             density: Density::Normal,
             corners: Corners::Soft,
             text_scale: default_text_scale(),
+            game_accent: false,
         }
     }
 }
@@ -404,6 +411,62 @@ impl AppearanceProfile {
         validate(&self.appearance)?;
         Ok(self)
     }
+}
+
+fn share_code_header() -> String {
+    format!("{SHARE_CODE_PREFIX}{SHARE_CODE_VERSION}.")
+}
+
+impl AppearanceProfile {
+    fn share_code(self) -> Result<String, String> {
+        let json = serde_json::to_vec(&self.checked()?).map_err(|error| error.to_string())?;
+        if json.len() > MAX_SHARE_JSON_BYTES {
+            return Err("The theme is too large to be shared as a code".to_owned());
+        }
+        Ok(share_code_header() + &URL_SAFE_NO_PAD.encode(json))
+    }
+
+    // Codes arrive from the clipboard or a link, so they are validated like an imported file.
+    pub(crate) fn from_share_code(code: &str) -> Result<Self, String> {
+        let code = code.trim();
+        if code.len() > MAX_SHARE_CODE_CHARS {
+            return Err("The theme code is too long".to_owned());
+        }
+        let header = share_code_header();
+        let Some(encoded) = code.strip_prefix(&header) else {
+            let version = code
+                .split_once('.')
+                .and_then(|(head, _)| head.strip_prefix(SHARE_CODE_PREFIX));
+            return Err(
+                if version.is_some_and(|digits| {
+                    !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+                }) {
+                    "Unsupported theme code version".to_owned()
+                } else {
+                    "The text is not a Legio theme code".to_owned()
+                },
+            );
+        };
+        let json = URL_SAFE_NO_PAD
+            .decode(encoded)
+            .map_err(|_| "The theme code is corrupted".to_owned())?;
+        if json.len() > MAX_SHARE_JSON_BYTES {
+            return Err("The theme code is too long".to_owned());
+        }
+        serde_json::from_slice::<Self>(&json)
+            .map_err(|_| "The theme code is corrupted".to_owned())?
+            .checked()
+    }
+}
+
+#[tauri::command]
+pub fn create_theme_code(profile: AppearanceProfile) -> Result<String, String> {
+    profile.share_code()
+}
+
+#[tauri::command]
+pub fn read_theme_code(code: String) -> Result<AppearanceProfile, String> {
+    AppearanceProfile::from_share_code(&code)
 }
 
 #[tauri::command]
@@ -695,5 +758,70 @@ mod tests {
         let mut loud = profile;
         loud.appearance.dialog_blur = 41;
         assert!(loud.checked().is_err());
+    }
+
+    fn shared_profile() -> AppearanceProfile {
+        AppearanceProfile {
+            version: PROFILE_VERSION,
+            theme: Theme::Violet,
+            appearance: Appearance {
+                background: Some("a".repeat(32)),
+                accent: Some("#a67cf0".to_owned()),
+                game_accent: true,
+                ..Appearance::default()
+            },
+        }
+    }
+
+    #[test]
+    fn share_code_round_trips_without_the_background() {
+        let code = shared_profile().share_code().unwrap();
+        assert!(code.starts_with("LT1."));
+        assert!(code.len() < 1024);
+        assert!(
+            code[4..]
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        );
+        let decoded = AppearanceProfile::from_share_code(&format!("  {code}\n")).unwrap();
+        assert_eq!(decoded.theme, Theme::Violet);
+        assert_eq!(decoded.appearance.background, None);
+        assert!(decoded.appearance.game_accent);
+        assert_eq!(decoded.appearance.accent.as_deref(), Some("#a67cf0"));
+    }
+
+    #[test]
+    fn share_code_rejects_oversized_garbled_and_unknown_codes() {
+        let code = shared_profile().share_code().unwrap();
+        let oversized = format!("LT1.{}", "A".repeat(MAX_SHARE_CODE_CHARS));
+        assert!(AppearanceProfile::from_share_code(&oversized).is_err());
+        let long_json = URL_SAFE_NO_PAD.encode(vec![b' '; MAX_SHARE_JSON_BYTES + 1]);
+        assert!(AppearanceProfile::from_share_code(&format!("LT1.{long_json}")).is_err());
+        for garbled in [
+            "",
+            "LT1.",
+            "LT1.@@@",
+            "LT1.e30",
+            "hello",
+            &code[..code.len() - 7],
+        ] {
+            assert!(
+                AppearanceProfile::from_share_code(garbled).is_err(),
+                "{garbled}"
+            );
+        }
+        let future = code.replacen("LT1.", "LT2.", 1);
+        assert_eq!(
+            AppearanceProfile::from_share_code(&future).unwrap_err(),
+            "Unsupported theme code version"
+        );
+        let mut loud = shared_profile();
+        loud.appearance.dialog_blur = 41;
+        let json = serde_json::to_vec(&loud).unwrap();
+        let invalid = format!("LT1.{}", URL_SAFE_NO_PAD.encode(json));
+        assert!(AppearanceProfile::from_share_code(&invalid).is_err());
+        let mut old = shared_profile();
+        old.version = PROFILE_VERSION + 1;
+        assert!(old.share_code().is_err());
     }
 }

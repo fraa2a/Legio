@@ -209,6 +209,11 @@ pub enum Theme {
     Steel,
     Emerald,
     Sand,
+    Midnight,
+    Violet,
+    Contrast,
+    Oled,
+    Frost,
 }
 
 impl Theme {
@@ -222,6 +227,11 @@ impl Theme {
             "steel" => Ok(Self::Steel),
             "emerald" => Ok(Self::Emerald),
             "sand" => Ok(Self::Sand),
+            "midnight" => Ok(Self::Midnight),
+            "violet" => Ok(Self::Violet),
+            "contrast" => Ok(Self::Contrast),
+            "oled" => Ok(Self::Oled),
+            "frost" => Ok(Self::Frost),
             _ => Err(format!("stored theme is invalid: {value}")),
         }
     }
@@ -236,6 +246,11 @@ impl Theme {
             Self::Steel => "steel",
             Self::Emerald => "emerald",
             Self::Sand => "sand",
+            Self::Midnight => "midnight",
+            Self::Violet => "violet",
+            Self::Contrast => "contrast",
+            Self::Oled => "oled",
+            Self::Frost => "frost",
         }
     }
 }
@@ -2016,6 +2031,11 @@ mod tests {
             Theme::Steel,
             Theme::Emerald,
             Theme::Sand,
+            Theme::Midnight,
+            Theme::Violet,
+            Theme::Contrast,
+            Theme::Oled,
+            Theme::Frost,
         ] {
             assert_eq!(Theme::parse(theme.as_str()).unwrap(), theme);
             let encoded = serde_json::to_string(&theme).unwrap();

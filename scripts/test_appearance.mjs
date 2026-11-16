@@ -265,15 +265,20 @@ test("every palette keeps readable text, muted text and accent buttons", () => {
     const [high, low] = [luminance(first), luminance(second)].sort((a, b) => b - a);
     return (high + 0.05) / (low + 0.05);
   };
-  assert.ok(presetData.length >= 7);
+  assert.ok(presetData.length >= 12);
   for (const preset of presetData) {
     const { palette } = preset;
+    for (const ground of ["background", "surface"]) {
+      assert.ok(contrast(palette.text, palette[ground]) >= (preset.id === "contrast" ? 7 : 4.5), preset.id + " text on " + ground);
+      assert.ok(contrast(palette.muted, palette[ground]) >= 4.5, preset.id + " muted on " + ground);
+    }
     assert.ok(contrast(palette.text, palette.surface) >= 7, preset.id + " text on surface");
-    assert.ok(contrast(palette.muted, palette.surface) >= 4.5, preset.id + " muted on surface");
-    assert.ok(contrast(palette.muted, palette.background) >= 3.5, preset.id + " muted on background");
     assert.ok(contrast(palette.accent, appearance.accentText(palette.accent)) >= 4.5, preset.id + " accent button label");
     assert.equal(preset.scheme === "light", luminance(palette.background) > 0.4, preset.id + " scheme matches its background");
   }
+  const contrastPreset = presetData.find((preset) => preset.id === "contrast");
+  assert.ok(contrast(contrastPreset.palette.muted, contrastPreset.palette.surface) >= 7, "high contrast muted text");
+  assert.equal(presetData.find((preset) => preset.id === "oled").palette.background, "#000000");
 });
 
 test("the theme editor previews before auto save and preserves unrelated settings", async () => {
@@ -473,6 +478,52 @@ test("unknown or out of range interface values fall back safely", () => {
   assert.equal(variables["--legio-corner-scale"], "1");
   assert.equal(variables["--legio-text-scale"], "1.2");
   assert.equal(appearance.interfaceVariables({ density: "normal", corners: "soft", textScale: undefined })["--legio-text-scale"], "1");
+});
+
+test("the theme group toggles the game accent and shares the look as a code, a link or pasted text", async () => {
+  settingsStore.set({ data: { theme: "violet", appearance: appearance.defaultAppearance() } });
+  const calls = [];
+  globalThis.themeSave = async value => value;
+  globalThis.themeInvoke = async (command, args) => {
+    calls.push([command, args]);
+    if (command === "create_theme_code") return "LT1.abc";
+    if (command === "read_theme_code") {
+      if (args.code === "bad") throw "The text is not a Legio theme code";
+      return { version: 1, theme: "frost", appearance: { ...appearance.defaultAppearance(), gameAccent: true, background: null } };
+    }
+  };
+  globalThis.requestAnimationFrame ??= callback => setTimeout(callback, 0);
+  globalThis.cancelAnimationFrame ??= clearTimeout;
+  dom.window.HTMLDialogElement.prototype.showModal ??= function () { this.setAttribute("open", ""); };
+  dom.window.HTMLDialogElement.prototype.close ??= function () { this.removeAttribute("open"); };
+  const copied = [];
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async text => { copied.push(text); } } });
+  const component = (await import(await load("src/lib/features/settings/ThemeSettings.svelte"))).default;
+  const target = document.createElement("div"); document.body.append(target);
+  const instance = mount(component, { target }); await settle();
+  const button = label => [...document.querySelectorAll("button")].find(candidate => candidate.textContent.trim() === label);
+  try {
+    assert.equal(appearance.defaultAppearance().gameAccent, false, "off by default");
+    const toggle = [...target.querySelectorAll("label")].find(label => label.textContent.includes("Accento dalla copertina del gioco")).querySelector("input");
+    toggle.checked = true; toggle.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+    assert.equal(get(previewStore).appearance.gameAccent, true);
+    button("Copia codice").click(); await settle();
+    button("Copia collegamento").click(); await settle();
+    assert.deepEqual(copied, ["LT1.abc", "legio://theme?code=LT1.abc"]);
+    assert.equal(calls[0][1].profile.theme, "violet");
+    assert.equal(calls[0][1].profile.appearance.gameAccent, true);
+    button("Incolla codice").click(); await settle();
+    const field = document.querySelector("#theme-paste-code");
+    field.value = "bad"; field.dispatchEvent(new Event("input", { bubbles: true })); await settle();
+    button("Applica").click(); await settle();
+    assert.match(document.body.textContent, /not a Legio theme code/);
+    assert.equal(get(previewStore).theme, "violet", "a rejected code changes nothing");
+    field.value = "LT1.abc"; field.dispatchEvent(new Event("input", { bubbles: true })); await settle();
+    button("Applica").click(); await settle();
+    assert.equal(get(previewStore).theme, "frost");
+    assert.equal(document.querySelector("#theme-paste-code"), null, "the dialog closes after applying");
+  } finally { await unmount(instance); target.remove(); }
+  await settle();
 });
 
 test("the interface group previews and saves density, corners and text scale", async () => {

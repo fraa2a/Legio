@@ -66,5 +66,53 @@
       "text": "#1d1a16", "muted": "#57524c", "accent": "#8a4f0f"
     },
     "tint": { "hue": 80, "chroma": 0.012 }
+  },
+  {
+    "id": "midnight",
+    "name": "Notte",
+    "scheme": "dark",
+    "palette": {
+      "background": "#050816", "surface": "#0c1226", "raised": "#151d38",
+      "text": "#e6ebf8", "muted": "#8e9bbd", "accent": "#6d8cff"
+    },
+    "tint": { "hue": 265, "chroma": 0.02 }
+  },
+  {
+    "id": "violet",
+    "name": "Viola",
+    "scheme": "dark",
+    "palette": {
+      "background": "#0a0710", "surface": "#151020", "raised": "#211a30",
+      "text": "#f1ecf8", "muted": "#a99bc0", "accent": "#a67cf0"
+    },
+    "tint": { "hue": 300, "chroma": 0.016 }
+  },
+  {
+    "id": "contrast",
+    "name": "Alto contrasto",
+    "scheme": "dark",
+    "palette": {
+      "background": "#000000", "surface": "#0a0a0a", "raised": "#1a1a1a",
+      "text": "#ffffff", "muted": "#d4d4d8", "accent": "#ffd60a"
+    }
+  },
+  {
+    "id": "oled",
+    "name": "OLED",
+    "scheme": "dark",
+    "palette": {
+      "background": "#000000", "surface": "#09090b", "raised": "#131316",
+      "text": "#f4f4f5", "muted": "#a1a1aa", "accent": "#2dd4bf"
+    }
+  },
+  {
+    "id": "frost",
+    "name": "Ghiaccio",
+    "scheme": "light",
+    "palette": {
+      "background": "#e3e9f0", "surface": "#f2f5f9", "raised": "#fbfcfe",
+      "text": "#14181f", "muted": "#4a5565", "accent": "#1d5fc4"
+    },
+    "tint": { "hue": 250, "chroma": 0.012 }
   }
 ]

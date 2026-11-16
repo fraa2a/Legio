@@ -2,7 +2,7 @@
   import { artworkDemand } from "../../utils/artwork-demand";
   const demand = artworkDemand();
   import { t, language } from "../../i18n";
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { startVisibleRefresh } from "../../stores/visible-refresh";
   import { formatBytes, formatDate, formatDateTime } from "../../utils/format";
   import { games } from "../../stores/games";
@@ -44,6 +44,7 @@
   import LibraryPickerDialog from "./LibraryPickerDialog.svelte";
   import GameModsPanel from "../modding/GameModsPanel.svelte";
   import { acquireGameArtwork, gameArtworkRevision } from "../../services/game-artwork";
+  import { keepArtColorFor, publishArtColor } from "../../stores/game-accent";
   import { toMessage } from "../../utils/errors";
   import { reachableReleases, releaseLinks, sourceNameFor, sourceReleaseId, sourceReleasesFor } from "../store/source-status";
   import { nextVersionAfterRemoval } from "./library-model";
@@ -172,6 +173,11 @@
     return () => { cancelled = true; banner.release(); icon.release(); };
   });
 
+  const artworkKey = $derived(customBannerUrl !== null ? `custom:${artworkGameId}` : steamAppId !== null ? `steam:${steamAppId}` : null);
+
+  $effect(() => { keepArtColorFor(artworkKey); });
+  onDestroy(() => keepArtColorFor(null));
+
   async function startDownload(downloadUrl: string, releaseVersion: string, acceptUnverified: boolean, preferredUri: string | null = selectedMirror === "auto" ? null : selectedMirror): Promise<void> {
     if (steamAppId === null) return;
     queueError = null;
@@ -248,7 +254,7 @@
     <section class="relative isolate z-20 aspect-[1920/620] min-h-80 w-full rounded-panel">
       <div class="absolute inset-0 overflow-hidden rounded-panel bg-zinc-800 light:bg-zinc-200 {launch?.status === 'launching' ? 'legio-cover-launching' : ''}">
         {#if customBannerUrl !== null}
-          <img src={customBannerUrl} alt={t("Banner personalizzato di {0}", $language, [name])} class="absolute inset-0 size-full object-cover" />
+          <img src={customBannerUrl} alt={t("Banner personalizzato di {0}", $language, [name])} class="absolute inset-0 size-full object-cover" onload={(event) => publishArtColor(`custom:${artworkGameId}`, artworkKey, event.currentTarget as HTMLImageElement)} />
         {:else if steamAppId !== null}
           <SteamArtwork
             {steamAppId}
@@ -256,6 +262,7 @@
             fallbackAsset="header"
             caption={false}
             class="absolute inset-0 size-full object-cover"
+            onLoad={(image, appId) => publishArtColor(`steam:${appId}`, artworkKey, image)}
           >
             {#snippet placeholder()}{@render backdrop()}{/snippet}
           </SteamArtwork>
