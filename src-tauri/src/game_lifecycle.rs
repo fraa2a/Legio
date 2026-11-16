@@ -774,17 +774,6 @@ impl GameLaunchManager {
         Err("Compatibility runner launches are supported on Linux only".to_owned())
     }
 
-    #[cfg(not(target_os = "linux"))]
-    #[allow(dead_code)]
-    pub(crate) fn launch_with_runner(
-        &self,
-        _app: AppHandle,
-        _game_id: String,
-        _runner_path: String,
-    ) -> Result<(), String> {
-        Err("Compatibility runner launches are supported on Linux only".to_owned())
-    }
-
     pub(crate) fn cancel(&self, game_id: &str) -> Result<(), String> {
         let entries = self.lock()?;
         let entry = entries
