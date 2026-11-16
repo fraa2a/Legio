@@ -30,6 +30,20 @@ The [CI workflow](../../.github/workflows/ci.yml) checks documentation on every 
 
 Native tests need platform dependencies, localhost sockets and access to their child processes. Run relevant ignored or interactive tests explicitly; a passing subset does not replace required CI checks.
 
+## Application smoke test
+
+The [application smoke test](../../tools/app-smoke/README.md) drives the built binary through `tauri-driver` with a temporary profile: startup, onboarding, adding a game, the main sections and every settings category, hiding to the tray and quitting. It also measures startup time, idle memory and hidden CPU against a performance budget and captures screenshots. CI runs it on Linux after the debug build. It is disabled on Windows while KI-003 is open.
+
+Linux needs `webkit2gtk-driver`, `xvfb` and `tauri-driver`:
+
+```sh
+corepack pnpm tauri build --debug --no-bundle
+cargo install tauri-driver --version 2.1.0 --locked
+xvfb-run -a -s "-screen 0 1920x1080x24" corepack pnpm smoke:app --output /tmp/legio-smoke
+```
+
+Windows needs `tauri-driver` and an `msedgedriver.exe` matching the installed WebView2 runtime, passed with `--native-driver`. On Windows the smoke test uses the real per-user application data folders, so run it only in a disposable account or VM; it refuses to start outside CI when a Legio profile exists.
+
 ## Desktop checklist
 
 Test development and installed builds. Back up production data before testing installers.
@@ -60,3 +74,5 @@ Keep build configuration, games, settings, scaling and network conditions consta
 - Same-volume and cross-volume transfer time.
 
 Separate queue wait, transfer, conversion and publication times. Queue tests alone do not prove a speedup.
+
+The smoke test records startup time, idle memory and hidden CPU for the debug build in CI; see its [performance budget](../../tools/app-smoke/README.md#performance-budget). Use those numbers to spot large regressions, not to judge release performance.

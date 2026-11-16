@@ -19,7 +19,7 @@ async function markdownFiles(directory) {
 test("documentation links and images reference existing local paths", async () => {
   const files = [
     "README.md", "CONTRIBUTING.md", "SECURITY.md", "THIRD_PARTY_NOTICES.md",
-    "scripts/README.md", "tools/linux-rendering/README.md",
+    "scripts/README.md", "tools/linux-rendering/README.md", "tools/app-smoke/README.md",
     ...await markdownFiles("_meta"),
     ...await markdownFiles("packaging"),
   ];
