@@ -22,13 +22,6 @@ export interface LaunchProfiles {
   lastUsed: Record<string, string>;
 }
 
-export const emptyLaunchOverrides: LaunchOverrides = {
-  arguments: null,
-  environment: null,
-  runnerPath: null,
-  linuxPerformance: null,
-};
-
 export function getLaunchProfiles(): Promise<LaunchProfiles> {
   return invoke<LaunchProfiles>("get_launch_profiles");
 }
