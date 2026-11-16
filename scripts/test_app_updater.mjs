@@ -24,9 +24,9 @@ test("update checks share demand, close superseded resources and serialize insta
   const second = updater.checkForAppUpdate();
   await Promise.resolve();
   assert.equal(checks, 1);
-  response.resolve({ version: "1", close: async () => { closes++; } });
+  response.resolve({ update: { version: "1", close: async () => { closes++; } }, unavailable: false });
   await Promise.all([first, second]);
-  globalThis.updaterReview.check = async () => ({ version: "2", close: async () => { closes++; }, downloadAndInstall: async () => { installs++; await installation.promise; } });
+  globalThis.updaterReview.check = async () => ({ update: { version: "2", close: async () => { closes++; }, downloadAndInstall: async () => { installs++; await installation.promise; } }, unavailable: false });
   await updater.checkForAppUpdate();
   assert.equal(closes, 1);
   const a = updater.installAppUpdate();
@@ -41,12 +41,12 @@ test("update checks share demand, close superseded resources and serialize insta
 });
 
 test("release notes are trimmed, capped and remembered before installing", async () => {
-  globalThis.updaterReview = { check: async () => ({ version: "3", body: "  0123456789abcdef  ", close: async () => {}, downloadAndInstall: async () => {} }) };
+  globalThis.updaterReview = { check: async () => ({ update: { version: "3", body: "  0123456789abcdef  ", close: async () => {}, downloadAndInstall: async () => {} }, unavailable: false }) };
   await updater.checkForAppUpdate();
   assert.equal(get(updater.updateState).notes, "0123456789");
   await updater.installAppUpdate();
   assert.deepEqual(globalThis.updaterReview.remembered, ["3", "0123456789"]);
-  globalThis.updaterReview.check = async () => ({ version: "4", close: async () => {} });
+  globalThis.updaterReview.check = async () => ({ update: { version: "4", close: async () => {} }, unavailable: false });
   await updater.checkForAppUpdate();
   assert.equal(get(updater.updateState).notes, null);
 });

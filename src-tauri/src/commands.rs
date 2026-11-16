@@ -66,7 +66,7 @@ pub async fn get_app_info(app: AppHandle) -> Result<AppInfo, String> {
 pub async fn check_app_update(
     app: AppHandle,
     webview: tauri::Webview,
-) -> Result<Option<crate::app_update::UpdateMetadata>, String> {
+) -> Result<crate::app_update::UpdateCheck, String> {
     crate::app_update::check(&app, webview, is_aur_package()).await
 }
 

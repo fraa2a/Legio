@@ -47,8 +47,12 @@ async function performCheck(): Promise<void> {
     availableUpdate = null;
     if (previous !== null) await previous.close();
     const aur = await invoke<boolean>("is_aur_package");
-    const metadata = await invoke<ConstructorParameters<typeof Update>[0] | null>("check_app_update");
-    const update = metadata === null ? null : new Update(metadata);
+    const result = await invoke<{ update: ConstructorParameters<typeof Update>[0] | null; unavailable: boolean }>("check_app_update");
+    if (result.unavailable) {
+      updateState.update((state) => ({ ...state, checked: true, unavailable: true, nativeNotified: false, error: null }));
+      return;
+    }
+    const update = result.update === null ? null : new Update(result.update);
     availableUpdate = update;
     let nativeNotified = update !== null && notifiedVersion === update.version;
     let notificationError: string | null = null;
@@ -63,9 +67,7 @@ async function performCheck(): Promise<void> {
     }
     updateState.update((state) => ({ ...state, version: update?.version ?? null, notes: releaseNotes(update), aur, checked: true, nativeNotified, error: notificationError }));
   } catch (error) {
-    const message = toMessage(error);
-    const unavailable = /^(?:None of the fallback platforms `[^`]+` were|the platform `[^`]+` was not) found in the response `platforms` object$/.test(message);
-    updateState.update((state) => ({ ...state, checked: unavailable, unavailable, nativeNotified: false, error: unavailable ? null : message }));
+    updateState.update((state) => ({ ...state, checked: false, unavailable: false, nativeNotified: false, error: toMessage(error) }));
   } finally {
     updateState.update((state) => ({ ...state, checking: false }));
   }

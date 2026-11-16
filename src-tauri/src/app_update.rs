@@ -20,11 +20,18 @@ pub(crate) struct UpdateMetadata {
     raw_json: serde_json::Value,
 }
 
+#[derive(Serialize)]
+pub(crate) struct UpdateCheck {
+    update: Option<UpdateMetadata>,
+    /// The manifest has no build for this platform.
+    unavailable: bool,
+}
+
 pub(crate) async fn check(
     app: &AppHandle,
     webview: Webview,
     aur: bool,
-) -> Result<Option<UpdateMetadata>, String> {
+) -> Result<UpdateCheck, String> {
     let preview = !aur && preview_updates_enabled(app).await?;
     let mut builder = webview.updater_builder();
     if preview {
@@ -34,14 +41,26 @@ pub(crate) async fn check(
             .map_err(|error| error.to_string())?;
     }
     let updater = builder.build().map_err(|error| error.to_string())?;
-    let update = updater.check().await.map_err(|error| error.to_string())?;
-    Ok(update.map(|update| UpdateMetadata {
-        current_version: update.current_version.clone(),
-        version: update.version.clone(),
-        body: update.body.clone(),
-        raw_json: update.raw_json.clone(),
-        rid: webview.resources_table().add(update),
-    }))
+    match updater.check().await {
+        Ok(update) => Ok(UpdateCheck {
+            update: update.map(|update| UpdateMetadata {
+                current_version: update.current_version.clone(),
+                version: update.version.clone(),
+                body: update.body.clone(),
+                raw_json: update.raw_json.clone(),
+                rid: webview.resources_table().add(update),
+            }),
+            unavailable: false,
+        }),
+        Err(
+            tauri_plugin_updater::Error::TargetNotFound(_)
+            | tauri_plugin_updater::Error::TargetsNotFound(_),
+        ) => Ok(UpdateCheck {
+            update: None,
+            unavailable: true,
+        }),
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 async fn preview_updates_enabled(app: &AppHandle) -> Result<bool, String> {
