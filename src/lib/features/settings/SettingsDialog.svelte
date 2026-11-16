@@ -8,6 +8,7 @@
   import DownloadSettings from "./DownloadSettings.svelte";
   import CompatibilitySettings from "./CompatibilitySettings.svelte";
   import AdvancedSettings from "./AdvancedSettings.svelte";
+  import PrivacySettings from "./PrivacySettings.svelte";
   import ModCacheSettings from "../modding/ModCacheSettings.svelte";
   import ThemeSettings from "./ThemeSettings.svelte";
   import GeneralSettings from "./GeneralSettings.svelte";
@@ -53,6 +54,8 @@
         <LibrarySourcesSettings />
       {:else if active === "compatibility" && $appInfo.data.platform === "linux"}
         <CompatibilitySettings />
+      {:else if active === "privacy"}
+        <PrivacySettings />
       {:else}
         <div class="flex flex-col gap-6">
           <AdvancedSettings />

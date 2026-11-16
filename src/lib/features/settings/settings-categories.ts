@@ -14,6 +14,7 @@ export function settingsCategories(platform: string): SettingsCategory[] {
     { id: "downloads", label: "Download", icon: "downloads" },
     { id: "libraries", label: "Librerie e sorgenti", icon: "library" },
     ...(platform === "linux" ? [{ id: "compatibility", label: "Compatibilità", icon: "wrench" } as const] : []),
+    { id: "privacy", label: "Privacy e rete", icon: "globe" },
     { id: "advanced", label: "Avanzate", icon: "sliders" },
   ];
 }

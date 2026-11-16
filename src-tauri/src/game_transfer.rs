@@ -20,13 +20,153 @@ pub struct TransferResult {
     warning: Option<String>,
 }
 
-fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
-    fs::create_dir(destination)
-        .map_err(|error| format!("Could not create transfer directory: {error}"))?;
-    copy_contents(source, destination)
+/// Linux's limit on links followed while resolving one path.
+#[cfg(unix)]
+const MAX_LINK_HOPS: usize = 40;
+
+#[cfg(unix)]
+enum LinkStep {
+    Up,
+    Into(std::ffi::OsString),
 }
 
-fn copy_contents(source: &Path, destination: &Path) -> Result<(), String> {
+/// Returns the steps of a relative link target, or None when the target is absolute.
+#[cfg(unix)]
+fn link_steps(target: &Path) -> Option<Vec<LinkStep>> {
+    use std::path::Component;
+    target
+        .components()
+        .filter(|component| *component != Component::CurDir)
+        .map(|component| match component {
+            Component::ParentDir => Some(LinkStep::Up),
+            Component::Normal(name) => Some(LinkStep::Into(name.to_owned())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Returns a link's target after proving that it resolves inside `root`.
+///
+/// Resolution mirrors the kernel's, but intermediate links are read from the source tree and
+/// expanded in place instead of being followed, so every directory the walk enters is a real
+/// directory below `root`. Climbing above `root` or meeting an absolute target anywhere in the
+/// chain is refused. The final component is not followed: a link there is validated as its own
+/// entry, which keeps cyclic links finite. Steps after a missing component stay lexical, so a
+/// dangling link is kept only when even its lexical target is contained.
+#[cfg(unix)]
+fn contained_link_target(root: &Path, link: &Path) -> Result<PathBuf, String> {
+    use std::collections::VecDeque;
+    let escapes = || {
+        format!(
+            "Transfer source contains a symbolic link that points outside the game folder: {}",
+            link.display()
+        )
+    };
+    let read = |path: &Path| {
+        fs::read_link(path)
+            .map_err(|error| format!("Could not read symbolic link {}: {error}", path.display()))
+    };
+    let target = read(link)?;
+    let mut resolved: Vec<std::ffi::OsString> = link
+        .parent()
+        .and_then(|parent| parent.strip_prefix(root).ok())
+        .ok_or_else(escapes)?
+        .iter()
+        .map(ToOwned::to_owned)
+        .collect();
+    let mut pending = VecDeque::from(link_steps(&target).ok_or_else(escapes)?);
+    let mut hops = 0;
+    while let Some(step) = pending.pop_front() {
+        let name = match step {
+            LinkStep::Up => {
+                resolved.pop().ok_or_else(escapes)?;
+                continue;
+            }
+            LinkStep::Into(name) => name,
+        };
+        resolved.push(name);
+        if pending.is_empty() {
+            break;
+        }
+        let current = root.join(resolved.iter().collect::<PathBuf>());
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                hops += 1;
+                if hops > MAX_LINK_HOPS {
+                    return Err(format!(
+                        "Transfer source contains a symbolic link loop: {}",
+                        link.display()
+                    ));
+                }
+                resolved.pop();
+                for step in link_steps(&read(&current)?)
+                    .ok_or_else(escapes)?
+                    .into_iter()
+                    .rev()
+                {
+                    pending.push_front(step);
+                }
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(format!(
+                    "Could not inspect symbolic link target {}: {error}",
+                    current.display()
+                ));
+            }
+        }
+    }
+    Ok(target)
+}
+
+#[cfg(not(unix))]
+fn contained_link_target(_root: &Path, link: &Path) -> Result<PathBuf, String> {
+    Err(format!(
+        "Transfer source contains a symbolic link: {}",
+        link.display()
+    ))
+}
+
+/// Checks every link below `directory` before anything is copied, without following links.
+fn validate_links(root: &Path, directory: &Path) -> Result<(), String> {
+    for entry in fs::read_dir(directory)
+        .map_err(|error| format!("Could not read source directory: {error}"))?
+    {
+        let entry = entry.map_err(|error| format!("Could not read source entry: {error}"))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("Could not inspect source entry: {error}"))?;
+        if file_type.is_symlink() {
+            contained_link_target(root, &entry.path())?;
+        } else if file_type.is_dir() {
+            validate_links(root, &entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+/// Recreates a contained link with its original relative target.
+#[cfg(unix)]
+fn copy_link(root: &Path, from: &Path, to: &Path) -> Result<(), String> {
+    let target = contained_link_target(root, from)?;
+    std::os::unix::fs::symlink(target, to)
+        .map_err(|error| format!("Could not create symbolic link: {error}"))
+}
+
+#[cfg(not(unix))]
+fn copy_link(root: &Path, from: &Path, _to: &Path) -> Result<(), String> {
+    // Every link is refused on this platform, so this always returns the error.
+    contained_link_target(root, from).map(|_| ())
+}
+
+fn copy_directory(root: &Path, source: &Path, destination: &Path) -> Result<(), String> {
+    fs::create_dir(destination)
+        .map_err(|error| format!("Could not create transfer directory: {error}"))?;
+    copy_contents(root, source, destination)
+}
+
+fn copy_contents(root: &Path, source: &Path, destination: &Path) -> Result<(), String> {
     for entry in
         fs::read_dir(source).map_err(|error| format!("Could not read source directory: {error}"))?
     {
@@ -42,10 +182,12 @@ fn copy_contents(source: &Path, destination: &Path) -> Result<(), String> {
         let metadata = fs::symlink_metadata(&from)
             .map_err(|error| format!("Could not inspect source entry: {error}"))?;
         if metadata.file_type().is_symlink() {
-            return Err("Transfer source contains a symbolic link".to_owned());
+            // Link permissions are not meaningful, and setting them would follow the link.
+            copy_link(root, &from, &to)?;
+            continue;
         }
         if metadata.is_dir() {
-            copy_directory(&from, &to)?;
+            copy_directory(root, &from, &to)?;
         } else if metadata.is_file() {
             let mut options = fs::OpenOptions::new();
             options.read(true);
@@ -505,13 +647,14 @@ fn prepare_transfer(database: &Database, intent: &TransferIntent) -> Result<(), 
     let mut temporary_created = false;
     let mut source_reserved = false;
     let result = (|| {
+        validate_links(&intent.source, &intent.source)?;
         fs::create_dir(&intent.temporary)
             .map_err(|error| format!("Could not reserve transfer directory: {error}"))?;
         temporary_created = true;
         // Keep the source until both publication and the database transaction succeed.
         reserve_source(intent)?;
         source_reserved = true;
-        copy_contents(&intent.source, &intent.temporary)?;
+        copy_contents(&intent.source, &intent.source, &intent.temporary)?;
         fs::write(
             intent.temporary.join(MARKER),
             intent.temporary.to_string_lossy().as_bytes(),
@@ -803,7 +946,7 @@ mod tests {
     #[test]
     fn recovers_published_copy_after_database_reopen() {
         let (root, database, intent) = fixture("copied");
-        copy_directory(&intent.source, &intent.temporary).unwrap();
+        copy_directory(&intent.source, &intent.source, &intent.temporary).unwrap();
         fs::write(
             intent.temporary.join(MARKER),
             intent.temporary.to_string_lossy().as_bytes(),
@@ -843,7 +986,7 @@ mod tests {
     #[test]
     fn recovery_finishes_after_marker_cleanup_without_requiring_a_game_marker() {
         let (root, database, intent) = fixture("copied");
-        copy_directory(&intent.source, &intent.temporary).unwrap();
+        copy_directory(&intent.source, &intent.source, &intent.temporary).unwrap();
         fs::write(
             intent.temporary.join(MARKER),
             intent.temporary.to_string_lossy().as_bytes(),
@@ -864,7 +1007,7 @@ mod tests {
     #[test]
     fn committed_transfer_unblocks_despite_leftover_source() {
         let (root, database, intent) = fixture("copied");
-        copy_directory(&intent.source, &intent.temporary).unwrap();
+        copy_directory(&intent.source, &intent.source, &intent.temporary).unwrap();
         fs::write(
             intent.temporary.join(MARKER),
             intent.temporary.to_string_lossy().as_bytes(),
@@ -885,7 +1028,7 @@ mod tests {
     #[test]
     fn leftover_source_is_reported() {
         let (root, database, intent) = fixture("copied");
-        copy_directory(&intent.source, &intent.temporary).unwrap();
+        copy_directory(&intent.source, &intent.source, &intent.temporary).unwrap();
         fs::write(
             intent.temporary.join(MARKER),
             intent.temporary.to_string_lossy().as_bytes(),
@@ -903,7 +1046,7 @@ mod tests {
     #[test]
     fn failed_copy_releases_reservation_without_restart() {
         let (root, database, intent) = fixture("prepared");
-        std::os::unix::fs::symlink("missing", intent.source.join("bad-link")).unwrap();
+        std::os::unix::fs::symlink("../outside", intent.source.join("bad-link")).unwrap();
         // A new transfer starts without a source marker.
         fs::remove_file(intent.source.join(MARKER)).unwrap();
         assert!(prepare_transfer(&database, &intent).is_err());
@@ -1099,7 +1242,7 @@ mod tests {
     #[test]
     fn database_failure_preserves_source_and_all_old_paths() {
         let (root, database, intent) = fixture("copied");
-        copy_directory(&intent.source, &intent.temporary).unwrap();
+        copy_directory(&intent.source, &intent.source, &intent.temporary).unwrap();
         fs::write(
             intent.temporary.join(MARKER),
             intent.temporary.to_string_lossy().as_bytes(),
@@ -1232,6 +1375,138 @@ mod tests {
             .map(PathBuf::from),
             Some(destination.join("bin"))
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn pending_count(database: &Database) -> usize {
+        pending_transfers(database, None).unwrap().len()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn contained_links_survive_copy_fallback() {
+        use std::os::unix::fs::symlink;
+        let (root, database, intent) = fixture("prepared");
+        fs::remove_file(intent.source.join(MARKER)).unwrap();
+        symlink("game.exe", intent.source.join("bin/launcher")).unwrap();
+        symlink("bin", intent.source.join("current")).unwrap();
+        symlink("missing.so", intent.source.join("bin/dangling")).unwrap();
+        // A cycle and a link to an ancestor are kept as links, never walked.
+        symlink("b", intent.source.join("a")).unwrap();
+        symlink("a", intent.source.join("b")).unwrap();
+        symlink("..", intent.source.join("bin/up")).unwrap();
+        symlink("current/game.exe", intent.source.join("through")).unwrap();
+        assert!(
+            !move_transfer(&database, &intent, |_, _| Err(io::Error::from(
+                io::ErrorKind::CrossesDevices
+            )))
+            .unwrap()
+        );
+        prepare_transfer(&database, &intent).unwrap();
+        commit_transfer(&database, &intent).unwrap();
+        cleanup_transfer(&database, &intent).unwrap();
+        assert!(!intent.source.exists());
+        for (link, target) in [
+            ("bin/launcher", "game.exe"),
+            ("current", "bin"),
+            ("bin/dangling", "missing.so"),
+            ("a", "b"),
+            ("b", "a"),
+            ("bin/up", ".."),
+            ("through", "current/game.exe"),
+        ] {
+            assert_eq!(
+                fs::read_link(intent.destination.join(link)).unwrap(),
+                Path::new(target)
+            );
+        }
+        assert!(
+            fs::metadata(intent.destination.join("current"))
+                .unwrap()
+                .is_dir()
+        );
+        assert_eq!(
+            fs::read(intent.destination.join("current/game.exe")).unwrap(),
+            b"game"
+        );
+        assert_eq!(
+            fs::read(intent.destination.join("through")).unwrap(),
+            b"game"
+        );
+        assert_eq!(pending_count(&database), 0);
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn escaping_links_are_refused_before_copying() {
+        for (link, target) in [
+            ("bin/out", "../../outside"),
+            ("bin/deep", "../bin/../../../../outside"),
+            ("absolute", "/etc/passwd"),
+            // `bin/up` is contained, but following it before `..` climbs out of the root.
+            ("via", "bin/up/../outside"),
+            ("loop", "loop/inner"),
+        ] {
+            let (root, database, intent) = fixture("prepared");
+            fs::remove_file(intent.source.join(MARKER)).unwrap();
+            std::os::unix::fs::symlink("..", intent.source.join("bin/up")).unwrap();
+            std::os::unix::fs::symlink(target, intent.source.join(link)).unwrap();
+            let error = prepare_transfer(&database, &intent).unwrap_err();
+            assert!(error.contains(link), "{error}");
+            assert!(!intent.temporary.exists());
+            assert!(!intent.source.join(MARKER).exists());
+            assert_eq!(pending_count(&database), 0);
+            drop(database);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn interrupted_copy_with_links_rolls_back() {
+        use std::os::unix::fs::symlink;
+        let (root, database, intent) = fixture("prepared");
+        fs::create_dir(&intent.temporary).unwrap();
+        symlink("bin", intent.temporary.join("current")).unwrap();
+        // Cleanup must remove a partial link without following it into the source.
+        symlink(
+            intent.source.join("bin"),
+            intent.temporary.join("source-bin"),
+        )
+        .unwrap();
+        recover(&database).unwrap();
+        assert!(!intent.temporary.exists());
+        assert_eq!(
+            fs::read(intent.source.join(&intent.relative)).unwrap(),
+            b"game"
+        );
+        assert_eq!(pending_count(&database), 0);
+        drop(database);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn interrupted_publication_with_links_rolls_forward() {
+        let (root, database, intent) = fixture("copied");
+        std::os::unix::fs::symlink("bin", intent.source.join("current")).unwrap();
+        copy_directory(&intent.source, &intent.source, &intent.temporary).unwrap();
+        fs::write(
+            intent.temporary.join(MARKER),
+            intent.temporary.to_string_lossy().as_bytes(),
+        )
+        .unwrap();
+        recover(&database).unwrap();
+        assert!(!intent.source.exists());
+        assert_eq!(
+            fs::read_link(intent.destination.join("current")).unwrap(),
+            Path::new("bin")
+        );
+        assert_eq!(pending_count(&database), 0);
+        drop(database);
         fs::remove_dir_all(root).unwrap();
     }
 }

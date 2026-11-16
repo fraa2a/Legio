@@ -81,7 +81,10 @@ pub struct CompatibilityDefaults {
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct LinuxPerformance {
     pub game_mode: bool,
+    pub mangohud: bool,
     pub gamescope: Option<GamescopeConfig>,
+    /// Command prefix placed directly before the game command.
+    pub wrapper: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -94,6 +97,20 @@ pub struct GamescopeConfig {
 
 impl LinuxPerformance {
     pub(crate) fn validate(&self) -> Result<(), String> {
+        if self
+            .wrapper
+            .first()
+            .is_some_and(|program| program.trim().is_empty())
+        {
+            return Err("Custom wrapper command needs a program name".to_owned());
+        }
+        if self
+            .wrapper
+            .iter()
+            .any(|argument| argument.chars().any(char::is_control))
+        {
+            return Err("Custom wrapper command cannot contain control characters".to_owned());
+        }
         if let Some(config) = &self.gamescope {
             if config.width.is_some() != config.height.is_some()
                 || config
@@ -270,6 +287,10 @@ pub struct Settings {
     pub defer_extraction_while_playing: bool,
     #[serde(default)]
     pub thunderstore_links_enabled: bool,
+    #[serde(default = "default_true")]
+    pub news_enabled: bool,
+    #[serde(default = "default_true")]
+    pub automatic_update_check: bool,
 }
 
 fn default_true() -> bool {
@@ -326,6 +347,8 @@ impl Default for Settings {
             application_logging_enabled: false,
             defer_extraction_while_playing: false,
             thunderstore_links_enabled: false,
+            news_enabled: true,
+            automatic_update_check: true,
         }
     }
 }
@@ -406,11 +429,32 @@ pub struct Database {
     settings_cache: Mutex<Option<Settings>>,
     pub(crate) source_cache: Mutex<Option<crate::legio_source_cache::CachedSource>>,
     downloads_changed: tokio::sync::watch::Sender<()>,
+    library_changed: tokio::sync::watch::Sender<()>,
 }
 
 impl Database {
     pub(crate) fn subscribe_downloads_changes(&self) -> tokio::sync::watch::Receiver<()> {
         self.downloads_changed.subscribe()
+    }
+
+    pub(crate) fn subscribe_library_changes(&self) -> tokio::sync::watch::Receiver<()> {
+        self.library_changed.subscribe()
+    }
+
+    /// Opens an existing database without migrating or writing to it.
+    pub(crate) fn open_read_only(data_dir: &Path) -> Result<Self, String> {
+        let connection = Connection::open_with_flags(
+            data_dir.join("legio.sqlite3"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(|error| format!("could not open the local database: {error}"))?;
+        Ok(Self {
+            connection: Mutex::new(connection),
+            settings_cache: Mutex::new(None),
+            source_cache: Mutex::new(None),
+            downloads_changed: tokio::sync::watch::channel(()).0,
+            library_changed: tokio::sync::watch::channel(()).0,
+        })
     }
 
     pub(crate) fn storage_root(&self, data_dir: &Path) -> Result<std::path::PathBuf, String> {
@@ -563,12 +607,19 @@ impl Database {
         let downloads_changed = tokio::sync::watch::channel(()).0;
         // Covers every write to the table, whichever code path performs it.
         let notifier = downloads_changed.clone();
+        let library_changed = tokio::sync::watch::channel(()).0;
+        let library_notifier = library_changed.clone();
         connection
             .update_hook(Some(
-                move |_: rusqlite::hooks::Action, _: &str, table: &str, _: i64| {
-                    if table == "downloads" {
+                move |_: rusqlite::hooks::Action, _: &str, table: &str, _: i64| match table {
+                    "downloads" => {
                         notifier.send_replace(());
                     }
+                    // The tray menu lists recent games and is labelled in the saved language.
+                    "games" | "game_sessions" | "hidden_games" | "settings" => {
+                        library_notifier.send_replace(());
+                    }
+                    _ => {}
                 },
             ))
             .map_err(|error| format!("could not watch the local database: {error}"))?;
@@ -577,6 +628,7 @@ impl Database {
             settings_cache: Mutex::new(None),
             source_cache: Mutex::new(None),
             downloads_changed,
+            library_changed,
         };
         database.recover_open_game_sessions(now_milliseconds()?)?;
         Ok(database)
@@ -1542,6 +1594,17 @@ mod tests {
     }
 
     #[test]
+    fn network_features_stay_enabled_for_legacy_settings() {
+        for settings in [
+            Settings::default(),
+            serde_json::from_str(r#"{"theme":"system"}"#).unwrap(),
+        ] {
+            assert!(settings.news_enabled);
+            assert!(settings.automatic_update_check);
+        }
+    }
+
+    #[test]
     fn application_and_network_logging_preferences_persist_independently() {
         let directory = temporary_directory();
         for (application, network) in [(true, false), (false, true), (false, false)] {
@@ -2229,6 +2292,7 @@ mod tests {
             settings_cache: Mutex::new(None),
             source_cache: Mutex::new(None),
             downloads_changed: tokio::sync::watch::channel(()).0,
+            library_changed: tokio::sync::watch::channel(()).0,
         };
         assert_eq!(database.settings().unwrap().theme, Theme::Dark);
         assert_eq!(
@@ -3054,11 +3118,13 @@ mod tests {
         assert_eq!(overrides.linux_performance, LinuxPerformance::default());
         overrides.linux_performance = LinuxPerformance {
             game_mode: true,
+            mangohud: true,
             gamescope: Some(GamescopeConfig {
                 width: Some(1280),
                 height: Some(720),
                 fps: Some(123),
             }),
+            wrapper: vec!["taskset".to_owned(), "-c".to_owned(), "0-7".to_owned()],
         };
         database
             .save_game_compatibility_overrides(&game.id, overrides.clone())

@@ -3,7 +3,6 @@ compile_error!("Legio supports Linux and Windows only");
 
 use tauri::{
     Emitter, Manager,
-    menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 
@@ -18,6 +17,7 @@ mod atomic_file;
 mod background_process;
 mod buzzheavier;
 mod catalog;
+mod cli;
 mod commands;
 #[cfg(target_os = "linux")]
 mod compatibility_logs;
@@ -83,6 +83,7 @@ mod source_matching;
 mod source_search;
 mod startup;
 mod startup_recovery;
+mod support_bundle;
 #[cfg(target_os = "linux")]
 mod webkit_features;
 mod window_scale;
@@ -95,6 +96,7 @@ use modding::{
 
 struct TrayAvailable(bool);
 struct LaunchEvents(tauri::async_runtime::JoinHandle<()>);
+struct TrayMenuUpdates(tauri::async_runtime::JoinHandle<()>);
 struct DownloadEvents(tauri::async_runtime::JoinHandle<()>);
 #[derive(Default)]
 pub(crate) struct StartupLaunch {
@@ -109,15 +111,23 @@ mod steam_pics;
 mod steam_process;
 mod steam_switch;
 mod steam_vdf;
+mod tray_menu;
 #[cfg(any(windows, test))]
 mod webview_diagnostics;
 
 pub fn run() -> tauri::Result<()> {
     let mut context = tauri::generate_context!();
     app_profile::configure(context.config_mut(), tauri::is_dev());
+    let command = match cli::requested_command(std::env::args_os().skip(1)) {
+        Ok(command) => command,
+        Err(error) => std::process::exit(cli::report_error(&error)),
+    };
+    if command == Some(cli::Command::List) {
+        std::process::exit(cli::run_list(&context.config().identifier));
+    }
     let log = application_log::initialize(context.config());
     log.record("info", "startup", None, None, true);
-    let result = run_application(context, log.clone());
+    let result = run_application(context, command, log.clone());
     if let Err(error) = &result {
         log.record(
             "error",
@@ -132,10 +142,14 @@ pub fn run() -> tauri::Result<()> {
 
 fn run_application(
     mut context: tauri::Context<tauri::Wry>,
+    command: Option<cli::Command>,
     log: application_log::ApplicationLog,
 ) -> tauri::Result<()> {
-    let shortcut_game_id = desktop_shortcuts::requested_game_id(std::env::args_os().skip(1))
-        .map_err(std::io::Error::other)?;
+    let stop_requested = matches!(command, Some(cli::Command::Stop(_)));
+    let shortcut_game_id = match command {
+        Some(cli::Command::Launch(id)) => Some(id),
+        _ => None,
+    };
     if let Some(window) = context
         .config_mut()
         .app
@@ -151,21 +165,22 @@ fn run_application(
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             let handle = app.clone();
             if let Err(error) = app.run_on_main_thread(move || {
-                show_main_window(&handle);
+                let command =
+                    cli::requested_command(args.iter().skip(1).map(std::ffi::OsString::from));
+                if !matches!(command, Ok(Some(cli::Command::Stop(_)))) {
+                    show_main_window(&handle);
+                }
                 if let Err(error) = source_links::forward(&handle, &args) {
                     application_log::failure("forward_source_link", error);
                 }
                 if let Err(error) = mod_links::forward(&handle, &args) {
                     application_log::failure("forward_mod_link", error);
                 }
-                match desktop_shortcuts::requested_game_id(
-                    args.into_iter().skip(1).map(std::ffi::OsString::from),
-                ) {
-                    Ok(Some(id)) => {
-                        launch_shortcut(&handle, id);
-                    }
-                    Ok(None) => {}
-                    Err(error) => application_log::failure("forward_shortcut", error),
+                match command {
+                    Ok(Some(cli::Command::Launch(id))) => launch_shortcut(&handle, id),
+                    Ok(Some(cli::Command::Stop(id))) => stop_game(&handle, id),
+                    Ok(Some(cli::Command::List) | None) => {}
+                    Err(error) => application_log::failure("forward_command", error),
                 }
             }) {
                 application_log::failure("forward_instance", error);
@@ -177,6 +192,10 @@ fn run_application(
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(move |app| {
+            if stop_requested {
+                // Reaching setup means no other instance is running, so no game can be stopped.
+                std::process::exit(cli::report_error("Legio is not running"));
+            }
             let source_links = source_links::SourceLinks::default();
             source_links
                 .enqueue(std::env::args_os().skip(1))
@@ -365,22 +384,8 @@ fn run_application(
             if app.state::<database::DatabaseState>().database().is_ok() {
                 app.manage(discord_presence::PresenceService::start(app.handle())?);
             }
-            let language = initial_settings.language;
-            let open = MenuItem::with_id(
-                app,
-                "open",
-                language.text("Apri", "Open"),
-                true,
-                None::<&str>,
-            )?;
-            let quit = MenuItem::with_id(
-                app,
-                "quit",
-                language.text("Chiudi", "Quit"),
-                true,
-                None::<&str>,
-            )?;
-            let menu = Menu::with_items(app, &[&open, &quit])?;
+            let tray_model = tray_menu::TrayMenuModel::initial(initial_settings.language);
+            let menu = tray_menu::build(app.handle(), &tray_model)?;
             let icon = image::load_from_memory(include_bytes!("../icons/tray.png"))
                 .map_err(std::io::Error::other)?
                 .to_rgba8();
@@ -391,11 +396,9 @@ fn run_application(
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
-                    "open" => {
-                        show_main_window(app);
-                    }
+                    "open" => show_main_window(app),
                     "quit" => app.exit(0),
-                    _ => {}
+                    id => tray_menu::handle_event(app, id),
                 })
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
@@ -412,6 +415,11 @@ fn run_application(
                 application_log::failure("create_tray", error);
             }
             app.manage(TrayAvailable(tray_result.is_ok()));
+            if tray_result.is_ok() {
+                app.manage(TrayMenuUpdates(
+                    tray_menu::start(app.handle(), tray_model).map_err(std::io::Error::other)?,
+                ));
+            }
             if std::env::args_os().any(|argument| argument == "--minimized") {
                 let minimized = initial_settings.onboarding_completed
                     && initial_settings.launch_on_system_start
@@ -527,6 +535,7 @@ fn run_application(
             commands::get_network_status,
             commands::get_network_log_status,
             commands::get_application_log_status,
+            support_bundle::create_support_bundle,
             commands::report_application_event,
             commands::get_legio_source,
             commands::check_game_links,
@@ -628,6 +637,9 @@ fn run_application(
                 }
                 app.state::<LaunchEvents>().0.abort();
                 app.state::<DownloadEvents>().0.abort();
+                if let Some(updates) = app.try_state::<TrayMenuUpdates>() {
+                    updates.0.abort();
+                }
             }
         });
     Ok(())
@@ -663,6 +675,18 @@ fn launch_shortcut(app: &tauri::AppHandle, game_id: String) {
             if let Err(event_error) = app.emit("legio:shortcut-launch-failed", error) {
                 application_log::failure("publish_shortcut_failure", event_error);
             }
+        }
+    });
+}
+
+fn stop_game(app: &tauri::AppHandle, game_id: String) {
+    let manager = app
+        .state::<game_lifecycle::GameLaunchManager>()
+        .inner()
+        .clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Err(error) = manager.stop(&game_id) {
+            application_log::failure("stop_game_command", error);
         }
     });
 }
