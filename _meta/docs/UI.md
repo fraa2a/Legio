@@ -17,13 +17,36 @@ heights in `.svelte` files.
 | Text color | fg, fg-muted, fg-subtle | `text-legio-fg`, `text-legio-fg-muted`, `text-legio-fg-subtle` |
 | Lines | subtle 10%, default 15%, strong 30% of the text color | `border-legio-line-subtle`, `border-legio-line`, `border-legio-line-strong` |
 | Fills | fill 5%, hover 10%, active 15% of the text color | `bg-legio-fill`, `bg-legio-fill-hover`, `bg-legio-fill-active` |
-| Container padding | compact 16, wide 24 px | `p-4`, `p-6` |
-| Vertical rhythm | related 8, row 16, group 24 px | `gap-2`, `gap-4`, `gap-6` |
+| Container padding | compact 16, wide 24 px | `p-inset-compact`, `p-inset-wide` (`--spacing-inset-*`) |
+| Vertical rhythm | related 8, row 16, group 24 px | `gap-2`, `gap-rhythm-row`, `gap-rhythm-group` (`--spacing-rhythm-*`) |
 | Motion | fast 120, base 200, slow 320 ms, one curve | `--legio-motion-fast`, `--legio-motion`, `--legio-motion-slow`, `--legio-ease` |
 | Disabled | 50% opacity | `disabled:opacity-50` |
 | Focus | 2 px outline in `--legio-focus`, 2 px offset | global `:focus-visible` rule |
 
-Corner and density options change `--radius-*` and `--spacing-control-*` in one place.
+Corner, density and text scale options change these tokens in one place; see
+[Appearance scale](#appearance-scale).
+
+## Appearance scale
+
+`applyAppearance` in `src/lib/services/appearance.ts` sets four unitless multipliers on
+`:root` from the appearance settings, and `@theme` in `app.css` multiplies the tokens by
+them. Every default is 1, so the default look is the table above.
+
+| Option | Values | Variable | Scales |
+| --- | --- | --- | --- |
+| Corners | sharp 0.25, soft 1, round 1.75 | `--legio-corner-scale` | `--radius-control`, `--radius-card`, `--radius-panel` |
+| Density | compact, normal, wide | `--legio-control-scale` (0.875, 1, 1.125) | `--spacing-control-*` |
+| Density | compact, normal, wide | `--legio-space-scale` (0.75, 1, 1.25) | `--spacing-inset-*`, `--spacing-rhythm-*` |
+| Text size | 90 to 120 percent | `--legio-text-scale` | `--text-xs` to `--text-4xl` |
+
+- Container padding and rhythm are tokenized in the primitives of `components/ui` only; feature
+  views that still use `p-4`, `p-6` or `gap-4` keep their fixed spacing.
+- Text size scales font sizes only, never spacing or control heights. It is independent of the
+  window zoom of `window_scale.rs`, which scales the whole page on small windows, so the two multiply.
+- The three options live in the appearance settings JSON (`density`, `corners`, `textScale`), are
+  validated in `appearance.rs` and travel with theme export and import. Missing or unknown values
+  load as the defaults.
+- A new scaled token goes into `@theme` with a `var(--legio-*-scale, 1)` factor, not into a component.
 
 ## Radius
 
@@ -86,6 +109,11 @@ settings groups, dialogs, empty states) use 24 px. Half steps (`gap-1.5`, `gap-2
 only separate an icon from its text.
 
 ## Motion and states
+
+Pressing Play expands the cover once (`.legio-cover-launching`) while the single launch button
+moves its color from `legio-play` through `legio-launching` to `legio-danger` over `--legio-motion-slow`.
+Loading states use `Skeleton` blocks with the size of the real layout inside a `role="status"`
+`aria-busy` block with hidden text; the pulse stops under reduced motion.
 
 Transitions use `--legio-motion` and `--legio-ease` by default; zoom and layout changes
 use `--legio-motion-slow`. Dialogs, toasts and menus take 200 ms. Reduced motion

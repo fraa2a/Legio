@@ -7,6 +7,7 @@
   import { toMessage } from "../../utils/errors";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import Button from "../../components/ui/Button.svelte";
+  import CopyButton from "../../components/ui/CopyButton.svelte";
   import Badge from "../../components/ui/Badge.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
@@ -53,7 +54,7 @@
         <span class="shrink-0 text-legio-fg-muted"><Icon name="folder" /></span>
         <div class="flex min-w-0 flex-1 flex-col gap-0.5">
           <div class="flex min-w-0 items-center gap-2">
-            <p class="break-all text-sm text-legio-fg">{library.root}</p>
+            <div class="flex items-start gap-2"><p class="min-w-0 flex-1 select-text break-all text-sm text-legio-fg" data-selectable>{library.root}</p><CopyButton text={library.root} size="inline-sm" label={t("Copia il percorso", $language)} /></div>
             {#if library.isDefault}<Badge title={t("Predefinita", $language)} />{/if}
           </div>
           <p class="text-xs text-legio-fg-muted">{formatLibraryDetails(library, $language)}</p>

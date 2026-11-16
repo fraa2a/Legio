@@ -26,9 +26,11 @@ use crate::runner_discovery::RunnerKind;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
 
+#[cfg_attr(not(target_os = "linux"), allow(unused_imports))]
+use crate::runner_discovery;
 #[cfg(target_os = "linux")]
 use crate::steam_process;
-use crate::{game_process, runner_discovery, steam_local, steam_switch};
+use crate::{game_process, steam_local, steam_switch};
 
 const START_TIMEOUT: Duration = Duration::from_secs(120);
 #[cfg(target_os = "linux")]
@@ -748,6 +750,7 @@ impl GameLaunchManager {
     }
 
     #[cfg(not(target_os = "linux"))]
+    #[allow(dead_code)]
     pub(crate) fn launch_with_runner(
         &self,
         _app: AppHandle,

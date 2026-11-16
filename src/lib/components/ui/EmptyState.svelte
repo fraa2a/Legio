@@ -15,7 +15,7 @@
   } = $props();
 </script>
 
-<div class="flex flex-col items-center gap-3 rounded-panel legio-glass p-6 text-center">
+<div class="flex flex-col items-center gap-3 rounded-panel legio-glass p-inset-wide text-center">
   {#if icon}
     <span class="grid size-12 place-items-center rounded-full bg-legio-fill-hover text-legio-fg"><Icon name={icon} size="xl" /></span>
   {/if}

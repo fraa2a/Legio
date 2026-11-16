@@ -121,21 +121,26 @@ fn write_backup(
     path: &Path,
     directory: &Path,
 ) -> Result<(), String> {
-    let target = temporary
-        .to_str()
-        .ok_or_else(|| "database backup path is not valid UTF-8".to_owned())?;
-    // VACUUM INTO writes a consistent snapshot that includes committed WAL content.
-    connection
-        .execute("VACUUM INTO ?1", [target])
-        .map_err(|error| format!("could not back up the local database: {error}"))?;
-    sync_file(temporary).map_err(|error| format!("could not save the database backup: {error}"))?;
+    snapshot_database(connection, temporary)?;
     fs::rename(temporary, path)
         .map_err(|error| format!("could not save the database backup: {error}"))?;
     crate::finalize_install::sync_directory(directory)
 }
 
-/// Checks that a copied backup is an intact database this build can open.
-pub(crate) fn verify_database_copy(path: &Path) -> Result<(), String> {
+/// Writes a consistent copy of the open database to a new file at `target`.
+pub(crate) fn snapshot_database(connection: &Connection, target: &Path) -> Result<(), String> {
+    let path = target
+        .to_str()
+        .ok_or_else(|| "database backup path is not valid UTF-8".to_owned())?;
+    // VACUUM INTO writes a consistent snapshot that includes committed WAL content.
+    connection
+        .execute("VACUUM INTO ?1", [path])
+        .map_err(|error| format!("could not back up the local database: {error}"))?;
+    sync_file(target).map_err(|error| format!("could not save the database backup: {error}"))
+}
+
+/// Checks that a copied backup is an intact database this build can open and returns its schema version.
+pub(crate) fn verify_database_copy(path: &Path) -> Result<i64, String> {
     let connection = Connection::open(path)
         .map_err(|error| format!("could not open the database backup: {error}"))?;
     let integrity: String = connection
@@ -154,7 +159,8 @@ pub(crate) fn verify_database_copy(path: &Path) -> Result<(), String> {
     }
     connection
         .close()
-        .map_err(|(_, error)| format!("could not close the database backup: {error}"))
+        .map_err(|(_, error)| format!("could not close the database backup: {error}"))?;
+    Ok(version)
 }
 
 pub(crate) fn sync_file(path: &Path) -> io::Result<()> {

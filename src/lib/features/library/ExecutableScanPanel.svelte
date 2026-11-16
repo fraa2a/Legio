@@ -84,7 +84,7 @@
   </div>
 
   {#if $manualImport.directory !== null}
-    <p class="break-all text-xs text-legio-fg-subtle">{$manualImport.directory}</p>
+    <p class="select-text break-all text-xs text-legio-fg-subtle" data-selectable>{$manualImport.directory}</p>
   {/if}
 
   {#if pickedPath !== null}

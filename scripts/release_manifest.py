@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 
-def release_manifest(assets: Path, version: str, repository: str) -> dict:
+def release_manifest(assets: Path, version: str, repository: str, notes: str = "") -> dict:
     platforms = {}
     bundles = {
         "linux-x86_64-deb": ".deb",
@@ -27,7 +27,10 @@ def release_manifest(assets: Path, version: str, repository: str) -> dict:
             "url": f"https://github.com/{repository}/releases/download/v{quote(version)}/{quote(bundle.name)}",
             "signature": signature.read_text(encoding="utf-8").strip(),
         }
-    return {"version": version, "platforms": platforms}
+    manifest = {"version": version, "platforms": platforms}
+    if notes.strip():
+        manifest["notes"] = notes.strip()
+    return manifest
 
 
 if __name__ == "__main__":
@@ -35,8 +38,10 @@ if __name__ == "__main__":
     parser.add_argument("assets", type=Path)
     parser.add_argument("version")
     parser.add_argument("repository")
+    parser.add_argument("notes_file", type=Path, nargs="?")
     args = parser.parse_args()
+    notes = args.notes_file.read_text(encoding="utf-8") if args.notes_file else ""
     (args.assets / "latest.json").write_text(
-        json.dumps(release_manifest(args.assets, args.version, args.repository), indent=2) + "\n",
+        json.dumps(release_manifest(args.assets, args.version, args.repository, notes), indent=2) + "\n",
         encoding="utf-8",
     )

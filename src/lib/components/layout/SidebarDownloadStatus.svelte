@@ -131,7 +131,7 @@
       </div>
 
       {#if actionError}
-        <p class="relative text-xs text-legio-error" role="alert">{actionError}</p>
+        <p class="relative select-text text-xs text-legio-error" data-selectable role="alert">{actionError}</p>
       {/if}
     </div>
   {:else}
