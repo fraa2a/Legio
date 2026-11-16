@@ -15,6 +15,11 @@ html[data-motion-paused="true"] *::after {
   --color-legio-success: var(--legio-success);
   --color-legio-warning: var(--legio-warning);
   --color-legio-error: var(--legio-error);
+  --color-legio-tier-platinum: var(--legio-tier-platinum);
+  --color-legio-tier-gold: var(--legio-tier-gold);
+  --color-legio-tier-silver: var(--legio-tier-silver);
+  --color-legio-tier-bronze: var(--legio-tier-bronze);
+  --color-legio-tier-borked: var(--legio-tier-borked);
   --color-legio-fg: var(--legio-text);
   --color-legio-fg-muted: var(--legio-fg-muted);
   --color-legio-fg-subtle: var(--legio-fg-subtle);
@@ -113,6 +118,11 @@ html, body, #app { width: 100%; height: 100%; min-width: 0; min-height: 0; }
   --legio-success: #6ee7b7;
   --legio-warning: #fcd34d;
   --legio-error: #fca5a5;
+  --legio-tier-platinum: #67e8f9;
+  --legio-tier-gold: #fbbf24;
+  --legio-tier-silver: #d4d4d8;
+  --legio-tier-bronze: #fb923c;
+  --legio-tier-borked: #f87171;
   --legio-surface: #18181b;
   --legio-text: #fafafa;
   --legio-muted: #a1a1aa;
@@ -154,6 +164,11 @@ html, body, #app { width: 100%; height: 100%; min-width: 0; min-height: 0; }
   --legio-error: #991b1b;
   /* The light grounds are darker than their surfaces, so dim toward the background. */
   --legio-fg-subtle: color-mix(in srgb, var(--legio-muted) 90%, var(--legio-background));
+  --legio-tier-platinum: #0e7490;
+  --legio-tier-gold: #a16207;
+  --legio-tier-silver: #52525b;
+  --legio-tier-bronze: #9a3412;
+  --legio-tier-borked: #991b1b;
 }
 .legio-backdrop {
   position: fixed; inset: 0; overflow: hidden; pointer-events: none;

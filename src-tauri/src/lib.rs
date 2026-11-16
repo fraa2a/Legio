@@ -111,6 +111,7 @@ pub(crate) struct StartupLaunch {
     pub game_id: Option<String>,
     pub error: std::sync::Mutex<Option<String>>,
 }
+mod protondb;
 mod steam_assets;
 mod steam_details;
 mod steam_import;
@@ -612,6 +613,7 @@ fn run_application(
             commands::search_catalog,
             commands::refresh_catalog,
             commands::get_steam_details,
+            commands::get_protondb_summary,
             commands::get_steam_asset,
             commands::finish_steam_asset_update,
             commands::set_artwork_game,

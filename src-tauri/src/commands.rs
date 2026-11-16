@@ -1252,6 +1252,19 @@ pub async fn get_steam_details(
     .await
 }
 
+/// Linux only: Proton does not apply elsewhere, so no request is made there.
+#[tauri::command]
+pub async fn get_protondb_summary(
+    app: AppHandle,
+    state: State<'_, NetworkState>,
+    steam_app_id: u32,
+) -> Result<crate::protondb::ProtonDbResult, String> {
+    if !cfg!(target_os = "linux") {
+        return Err("ProtonDB is only available on Linux.".to_owned());
+    }
+    crate::protondb::get_summary(&app, state.inner(), steam_app_id).await
+}
+
 #[tauri::command]
 pub fn get_artwork_display_width(app: AppHandle) -> u32 {
     crate::artwork_display::refresh(&app)

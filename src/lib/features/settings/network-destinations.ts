@@ -35,6 +35,15 @@ export const networkDestinations: readonly NetworkDestination[] = [
     kind: "essential",
   },
   {
+    id: "protondb",
+    name: "ProtonDB",
+    hosts: "www.protondb.com",
+    purpose: "Valutazione di compatibilità su Linux mostrata nella pagina del gioco.",
+    when: "Solo su Linux, quando apri la pagina di un gioco. La risposta resta in cache per 7 giorni.",
+    sends: "ID del gioco.",
+    kind: "on-demand",
+  },
+  {
     id: "news",
     name: "Novità di Legio",
     hosts: "source.taxphobia.top",
