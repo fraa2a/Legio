@@ -32,7 +32,7 @@ Native tests need platform dependencies, localhost sockets and access to their c
 
 ## Application smoke test
 
-The [application smoke test](../../tools/app-smoke/README.md) drives the built binary through `tauri-driver` with a temporary profile: startup, onboarding, adding a game, the main sections and every settings category, hiding to the tray and quitting. It also measures startup time, idle memory and hidden CPU against a performance budget and captures screenshots. CI runs it on Linux and Windows after the debug build.
+The [application smoke test](../../tools/app-smoke/README.md) drives the built binary through `tauri-driver` with a temporary profile: startup, onboarding, adding a game, the main sections and every settings category, hiding to the tray and quitting. It also measures startup time, idle memory and hidden CPU against a performance budget and captures screenshots. CI runs it on Linux after the debug build. It is disabled on Windows while KI-003 is open.
 
 Linux needs `webkit2gtk-driver`, `xvfb` and `tauri-driver`:
 

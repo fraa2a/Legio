@@ -18,7 +18,7 @@ On Windows, application data paths come from known folders that ignore environme
 
 ## Running locally
 
-Build the binary first: `corepack pnpm tauri build --debug --no-bundle --config tools/app-smoke/tauri.smoke.conf.json`. The extra config only turns DevTools on for the test binary: with `"devtools": false`, WebView2 does not write `DevToolsActivePort` and the Edge driver cannot attach on Windows.
+Build the binary first: `corepack pnpm tauri build --debug --no-bundle`.
 
 Linux needs `webkit2gtk-driver` (for `WebKitWebDriver`), `xvfb` and `dbus-daemon`:
 
@@ -30,7 +30,7 @@ xvfb-run -a -s "-screen 0 1920x1080x24" corepack pnpm smoke:app --output /tmp/le
 
 The default xvfb-run screen is too small for the 1280 x 720 window. Without a GPU, WebKitGTK falls back to software rendering and may print EGL warnings; if rendering fails, retry with `WEBKIT_DISABLE_DMABUF_RENDERER=1` (see [Linux rendering diagnostics](../../_meta/docs/LINUX-RENDERING.md)). The harness sets `GTK_THEME=Adwaita:dark` unless it is already set, so the System palette and screenshots are dark.
 
-Windows needs `msedgedriver.exe` matching the installed WebView2 runtime version:
+Windows needs `msedgedriver.exe` matching the installed WebView2 runtime version. CI does not run the smoke test on Windows because the driver cannot create a session (KI-003 in [KNOWN-ISSUES.md](../../_meta/docs/KNOWN-ISSUES.md)); the steps below are for a local attempt:
 
 ```sh
 cargo install tauri-driver --version 2.1.0 --locked

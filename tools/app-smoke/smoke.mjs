@@ -1,6 +1,6 @@
 // Smoke test and performance budget for the built Legio binary, driven through tauri-driver.
 // See tools/app-smoke/README.md for usage.
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -472,13 +472,6 @@ async function main() {
   } catch (error) {
     failure = error;
     console.error(`[smoke] FAILED: ${error.stack ?? error.message}`);
-    // The driver log explains why the application could not be attached to.
-    console.error(`[smoke] driver log tail:\n${readFileSync(join(output, "driver.log"), "utf8").slice(-4000)}`);
-    if (process.platform === "win32" && driver === null) {
-      // If the driver cannot attach, show whether the application starts and what it prints.
-      const probe = spawnSync(application, [], { env, encoding: "utf8", timeout: 15000, windowsHide: true });
-      console.error(`[smoke] direct start: status=${probe.status} signal=${probe.signal} error=${probe.error?.message ?? "none"}\n${`${probe.stdout ?? ""}${probe.stderr ?? ""}`.slice(-3000)}`);
-    }
     if (driver !== null && !exited) {
       await driver.session.screenshot().then((image) => writeFileSync(join(output, "failure.png"), image)).catch((reason) => log(`no failure screenshot: ${reason.message}`));
       await saveConsole(driver);
