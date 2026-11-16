@@ -109,6 +109,7 @@ fn main() {
             "remove_download",
             "remove_finished_downloads",
             "reorder_downloads",
+            "forecast_download_space",
             "get_queue_shutdown",
             "set_queue_shutdown",
             "open_installed_folder",

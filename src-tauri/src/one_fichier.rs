@@ -84,8 +84,13 @@ pub(crate) async fn inspect(client: &Client, uri: &str) -> Result<u64, ResolveEr
     )
     .await?;
     let info = parse_file_info(&report, id)?;
-    if crate::archive_install::is_multipart_name(Path::new(&info.name)) {
-        return Err("Multipart archive files are not supported".into());
+    // A 1fichier link always holds one file, so it can never carry a whole set.
+    if crate::archive_parts::looks_like_part(&info.name) {
+        return Err(format!(
+            "The link provides only {} of a multipart archive; every part must be in the same link",
+            info.name
+        )
+        .into());
     }
     if !has_archive_extension(&info.name) {
         return Err("The link does not provide a supported ZIP, 7z or RAR archive".into());

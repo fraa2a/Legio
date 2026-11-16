@@ -62,7 +62,11 @@ pub(crate) fn install_root(database: &Database, data_dir: &Path) -> Result<PathB
 }
 
 /// New installs go to the library chosen for the download, or to the default one.
-fn download_root(database: &Database, data_dir: &Path, id: &str) -> Result<PathBuf, String> {
+pub(crate) fn download_root(
+    database: &Database,
+    data_dir: &Path,
+    id: &str,
+) -> Result<PathBuf, String> {
     let library: Option<String> = database
         .with_connection(|connection| {
             connection
@@ -75,8 +79,16 @@ fn download_root(database: &Database, data_dir: &Path, id: &str) -> Result<PathB
                 .map_err(database_error)
         })?
         .flatten();
+    library_root_for(database, data_dir, library.as_deref())
+}
+
+pub(crate) fn library_root_for(
+    database: &Database,
+    data_dir: &Path,
+    library: Option<&str>,
+) -> Result<PathBuf, String> {
     match library {
-        Some(library) => crate::game_library::library_root(database, &library),
+        Some(library) => crate::game_library::library_root(database, library),
         None => install_root(database, data_dir),
     }
 }
@@ -494,8 +506,18 @@ fn cleanup_stage(database: &Database, id: &str, stage: &Path) -> Result<(), Stri
 /// The installed game no longer needs its archive. A failure only wastes
 /// disk space, so it is logged and never fails the install.
 fn remove_download_files(download_root: &Path, id: &str) {
-    for extension in ["part", "archive"] {
-        let path = download_root.join(format!("{id}.{extension}"));
+    let parts = crate::download_queue::part_files(download_root, id).unwrap_or_else(|error| {
+        crate::application_log::failure(
+            "remove_download_archive",
+            format!("Could not list archive parts: {error}"),
+        );
+        Vec::new()
+    });
+    for (extension, path) in ["part", "archive"]
+        .into_iter()
+        .map(|extension| (extension, download_root.join(format!("{id}.{extension}"))))
+        .chain(parts.into_iter().map(|path| ("part", path)))
+    {
         match fs::remove_file(&path) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
