@@ -570,6 +570,25 @@ pub(crate) enum PlanChoice {
     Given(Option<crate::download_selection::MirrorPlan>),
 }
 
+/// Candidate links for a source entry and whether its source is a Hydra source.
+fn source_candidates(
+    source: Option<&crate::legio_source_cache::SourceRow>,
+    entry: &crate::legio_source::SourceEntry,
+) -> (Vec<String>, bool) {
+    let candidates = source
+        .and_then(|source| {
+            entry
+                .id
+                .as_ref()
+                .and_then(|id| source.catalog.candidates.get(id))
+        })
+        .cloned()
+        .unwrap_or_else(|| vec![entry.download.url.clone()]);
+    let hydra = source
+        .is_some_and(|source| source.catalog.format == crate::source_catalog::SourceFormat::Hydra);
+    (candidates, hydra)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn enqueue_prepared(
     database: &Database,
@@ -619,16 +638,7 @@ pub(crate) fn enqueue_prepared(
     let mirror_plan = match plan {
         PlanChoice::Given(plan) => plan,
         PlanChoice::Derived => {
-            let mut uris = source
-                .as_ref()
-                .and_then(|source| {
-                    entry
-                        .id
-                        .as_ref()
-                        .and_then(|id| source.catalog.candidates.get(id))
-                })
-                .cloned()
-                .unwrap_or_else(|| vec![entry.download.url.clone()]);
+            let (mut uris, hydra) = source_candidates(source, &entry);
             // Unsupported links can never be downloaded; keep them only when
             // nothing else is left so the job still fails with its own error.
             if uris
@@ -637,9 +647,6 @@ pub(crate) fn enqueue_prepared(
             {
                 uris.retain(|uri| crate::download_selection::supported(uri));
             }
-            let hydra = source.as_ref().is_some_and(|source| {
-                source.catalog.format == crate::source_catalog::SourceFormat::Hydra
-            });
             if uris.len() == 1 && !hydra && crate::download_selection::native_cdn(&uris[0]) {
                 None
             } else {
@@ -2127,27 +2134,12 @@ pub async fn queue_download(
                 return Err("Confirm the unverified source before downloading".to_owned());
             }
             let rows = crate::legio_source_cache::cached_rows(&read_database)?;
-            let candidates = rows
-                .iter()
-                .find(|row| row.id == origin)
-                .and_then(|row| {
-                    entry
-                        .id
-                        .as_ref()
-                        .and_then(|id| row.catalog.candidates.get(id))
-                })
-                .cloned()
-                .unwrap_or_else(|| vec![entry.download.url.clone()]);
-            let origin_catalog = rows
+            let row = rows
                 .iter()
                 .find(|row| row.id == origin)
                 .ok_or("Download source is unavailable")?;
-            Ok::<_, String>((
-                origin,
-                entry,
-                candidates,
-                origin_catalog.catalog.format == crate::source_catalog::SourceFormat::Hydra,
-            ))
+            let (candidates, hydra) = source_candidates(Some(row), &entry);
+            Ok::<_, String>((origin, entry, candidates, hydra))
         })
         .await
         .map_err(|error| error.to_string())??;
