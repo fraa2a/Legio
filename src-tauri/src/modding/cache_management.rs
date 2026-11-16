@@ -139,7 +139,7 @@ pub async fn clear_mod_cache(app: tauri::AppHandle, kind: ModCacheKind) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modding::{mod_exclusions::ModExclusions, test_support::TempDir};
+    use crate::{modding::mod_exclusions::ModExclusions, test_support::TempDir};
 
     fn write(path: &Path, bytes: usize) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();

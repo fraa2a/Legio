@@ -392,7 +392,10 @@ async fn cancellation(cancel: &mut watch::Receiver<bool>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modding::test_support::{Reply, TempDir, TestServer};
+    use crate::{
+        modding::test_support::{Reply, TestServer},
+        test_support::TempDir,
+    };
 
     fn http() -> ThunderstoreHttp {
         ThunderstoreHttp::new(

@@ -125,6 +125,8 @@ mod steam_shortcuts_export;
 mod steam_switch;
 mod steam_vdf;
 mod steamgriddb;
+#[cfg(test)]
+mod test_support;
 mod tray_menu;
 #[cfg(any(windows, test))]
 mod webview_diagnostics;
