@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
   import Panel from "../../components/ui/Panel.svelte";
+  import Skeleton from "../../components/ui/Skeleton.svelte";
   import { renderSteamDescription } from "./steam-description";
 
   let {
@@ -16,7 +17,13 @@
 
 <Panel title={t("Requisiti di sistema", $language)}>
   {#if loading && requirements === null}
-    <p class="text-sm text-legio-fg-muted" role="status">{t("Caricamento requisiti Steam...", $language)}</p>
+    <div class="flex flex-col gap-2" role="status" aria-busy="true">
+      <span class="sr-only">{t("Caricamento requisiti Steam...", $language)}</span>
+      <Skeleton class="h-4 w-1/3" />
+      <Skeleton class="h-4 w-full" />
+      <Skeleton class="h-4 w-5/6" />
+      <Skeleton class="h-4 w-2/3" />
+    </div>
   {:else if !hasSteamAppId}
     <p class="text-sm text-legio-fg-muted">{t("Associa uno Steam App ID al gioco per caricare i requisiti.", $language)}</p>
   {:else if requirements === null || (!requirements.minimum && !requirements.recommended)}

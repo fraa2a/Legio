@@ -193,7 +193,7 @@
         />
       </div><ResetSetting label={t("Ripristina runner predefinito", $language)} disabled={saving || defaults.runnerPath === null} onClick={() => { defaults = { ...defaults, runnerPath: null }; }} /></div>
       {#if logsDirectory !== null}
-        <p class="break-all text-xs text-legio-fg-muted">{t("Log compatibilità: {0}", $language, [logsDirectory])}</p>
+        <p class="select-text break-all text-xs text-legio-fg-muted" data-selectable>{t("Log compatibilità: {0}", $language, [logsDirectory])}</p>
       {/if}
     </SettingsGroup>
 

@@ -21,6 +21,24 @@ export interface DownloadJob {
   automaticUpdate?: boolean;
   sourceId?: string | null;
   sourceEntryId?: string | null;
+  /** Part being written and part count of a multipart archive. */
+  parts?: { current: number; total: number } | null;
+}
+
+export type SpaceVerdict = "enough" | "tight" | "insufficient" | "unknown";
+
+export interface VolumeSpace {
+  path: string;
+  freeBytes: number | null;
+  reservedBytes: number;
+  minimumBytes: number;
+  estimatedBytes: number;
+}
+
+export interface SpaceForecast {
+  verdict: SpaceVerdict;
+  sizeBytes: number | null;
+  volumes: VolumeSpace[];
 }
 
 export interface InstalledFolderInfo {
@@ -74,6 +92,10 @@ export function listDownloads(): Promise<DownloadJob[]> {
 
 export function queueDownload(steamAppId: number, downloadUrl: string, releaseVersion: string, acceptUnverified: boolean, sourceId?: string | null, preferredUri?: string | null, libraryId?: string | null): Promise<DownloadJob> {
   return invoke<DownloadJob>("queue_download", { steamAppId, downloadUrl, releaseVersion, acceptUnverified, ...(sourceId ? { sourceId } : {}), ...(preferredUri ? { preferredUri } : {}), ...(libraryId ? { libraryId } : {}) });
+}
+
+export function forecastDownloadSpace(sizeBytes: number | null, libraryId: string | null): Promise<SpaceForecast> {
+  return invoke<SpaceForecast>("forecast_download_space", { sizeBytes, libraryId });
 }
 
 export function pauseDownload(id: string): Promise<void> {

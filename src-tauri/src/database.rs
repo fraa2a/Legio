@@ -1,7 +1,11 @@
 pub(crate) mod backup;
+mod launch_profiles;
+mod library_organization;
 mod migrations;
 mod modding;
 mod sessions;
+pub(crate) use launch_profiles::{LaunchOverrides, LaunchProfiles};
+pub(crate) use library_organization::{LibraryOrganization, PlayStatus};
 use migrations::migrate;
 pub(crate) use modding::{GameModding, MAX_PROFILE_NAME_CHARS, ModProfile, ProfileMod};
 #[cfg(test)]
@@ -24,7 +28,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 39;
+pub(crate) const SCHEMA_VERSION: i64 = 41;
 pub(crate) const DATABASE_FILE_NAME: &str = "legio.sqlite3";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -205,6 +209,11 @@ pub enum Theme {
     Steel,
     Emerald,
     Sand,
+    Midnight,
+    Violet,
+    Contrast,
+    Oled,
+    Frost,
 }
 
 impl Theme {
@@ -218,6 +227,11 @@ impl Theme {
             "steel" => Ok(Self::Steel),
             "emerald" => Ok(Self::Emerald),
             "sand" => Ok(Self::Sand),
+            "midnight" => Ok(Self::Midnight),
+            "violet" => Ok(Self::Violet),
+            "contrast" => Ok(Self::Contrast),
+            "oled" => Ok(Self::Oled),
+            "frost" => Ok(Self::Frost),
             _ => Err(format!("stored theme is invalid: {value}")),
         }
     }
@@ -232,6 +246,11 @@ impl Theme {
             Self::Steel => "steel",
             Self::Emerald => "emerald",
             Self::Sand => "sand",
+            Self::Midnight => "midnight",
+            Self::Violet => "violet",
+            Self::Contrast => "contrast",
+            Self::Oled => "oled",
+            Self::Frost => "frost",
         }
     }
 }
@@ -273,6 +292,8 @@ pub struct Settings {
     #[serde(default)]
     pub library_portrait: bool,
     #[serde(default)]
+    pub library_view: LibraryViewPreferences,
+    #[serde(default)]
     pub automatic_game_updates: bool,
     #[serde(default = "default_true")]
     pub download_while_playing: bool,
@@ -292,10 +313,98 @@ pub struct Settings {
     pub news_enabled: bool,
     #[serde(default = "default_true")]
     pub automatic_update_check: bool,
+    #[serde(default)]
+    pub preview_updates: bool,
+    #[serde(default)]
+    pub last_seen_version: Option<String>,
+    #[serde(default)]
+    pub pending_update_notes: Option<PendingUpdateNotes>,
 }
+
+/// Release notes kept across the restart that installs their version.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingUpdateNotes {
+    pub version: String,
+    pub notes: String,
+}
+
+const MAX_UPDATE_NOTES_CHARS: usize = 20_000;
 
 fn default_true() -> bool {
     true
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum LibraryViewMode {
+    #[default]
+    Grid,
+    List,
+    Shelves,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum LibrarySortKey {
+    #[default]
+    Name,
+    Playtime,
+    LastPlayed,
+    Added,
+    Origin,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "id")]
+pub enum LibraryCollectionFilter {
+    #[default]
+    All,
+    Uncollected,
+    Collection(String),
+}
+
+pub const MIN_LIBRARY_COVER_SCALE: u8 = 70;
+pub const MAX_LIBRARY_COVER_SCALE: u8 = 150;
+
+/// Library layout, sort and filters. Unknown collection IDs filter nothing.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LibraryViewPreferences {
+    pub mode: LibraryViewMode,
+    pub sort: LibrarySortKey,
+    pub descending: bool,
+    /// Grid tile width as a percentage of the default width.
+    pub cover_scale: u8,
+    pub favorites_only: bool,
+    pub play_status: Option<PlayStatus>,
+    pub collection: LibraryCollectionFilter,
+}
+
+impl Default for LibraryViewPreferences {
+    fn default() -> Self {
+        Self {
+            mode: LibraryViewMode::default(),
+            sort: LibrarySortKey::default(),
+            descending: false,
+            cover_scale: 100,
+            favorites_only: false,
+            play_status: None,
+            collection: LibraryCollectionFilter::default(),
+        }
+    }
+}
+
+fn validate_library_view(preferences: &LibraryViewPreferences) -> Result<(), String> {
+    if !(MIN_LIBRARY_COVER_SCALE..=MAX_LIBRARY_COVER_SCALE).contains(&preferences.cover_scale) {
+        return Err(format!(
+            "Library cover size must be between {MIN_LIBRARY_COVER_SCALE} and {MAX_LIBRARY_COVER_SCALE} percent"
+        ));
+    }
+    if let LibraryCollectionFilter::Collection(id) = &preferences.collection {
+        Uuid::parse_str(id).map_err(|_| "Library collection filter is invalid".to_owned())?;
+    }
+    Ok(())
 }
 
 fn default_steam_library_poll_minutes() -> u32 {
@@ -340,6 +449,7 @@ impl Default for Settings {
             launch_in_library: false,
             sidebar_collapsed: true,
             library_portrait: false,
+            library_view: LibraryViewPreferences::default(),
             automatic_game_updates: false,
             download_while_playing: true,
             download_notifications: true,
@@ -350,6 +460,9 @@ impl Default for Settings {
             thunderstore_links_enabled: false,
             news_enabled: true,
             automatic_update_check: true,
+            preview_updates: false,
+            last_seen_version: None,
+            pending_update_notes: None,
         }
     }
 }
@@ -651,6 +764,7 @@ impl Database {
     pub fn save_settings(&self, settings: Settings) -> Result<Settings, String> {
         crate::appearance::validate(&settings.appearance)?;
         validate_steam_library_poll_minutes(settings.steam_library_poll_minutes)?;
+        validate_library_view(&settings.library_view)?;
         if !matches!(
             settings.store_sort.as_str(),
             "relevance" | "name_asc" | "name_desc"
@@ -662,6 +776,13 @@ impl Database {
             "all" | "available" | "verified"
         ) {
             return Err("Invalid Store availability preference".to_owned());
+        }
+        if settings
+            .pending_update_notes
+            .as_ref()
+            .is_some_and(|pending| pending.notes.chars().count() > MAX_UPDATE_NOTES_CHARS)
+        {
+            return Err("Update notes are too long".to_owned());
         }
         if settings.launch_minimized && !settings.launch_on_system_start {
             return Err("Launch minimized requires launch on system startup".to_owned());
@@ -1608,6 +1729,116 @@ mod tests {
     }
 
     #[test]
+    fn library_view_preferences_default_for_older_settings_and_are_validated() {
+        let legacy: Settings = serde_json::from_str(r#"{"theme":"system"}"#).unwrap();
+        assert_eq!(legacy.library_view, LibraryViewPreferences::default());
+        let value = serde_json::to_value(LibraryViewPreferences::default()).unwrap();
+        assert_eq!(value["collection"], serde_json::json!({ "kind": "all" }));
+        assert_eq!(value["playStatus"], serde_json::Value::Null);
+
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        for library_view in [
+            LibraryViewPreferences {
+                cover_scale: MIN_LIBRARY_COVER_SCALE - 1,
+                ..LibraryViewPreferences::default()
+            },
+            LibraryViewPreferences {
+                cover_scale: MAX_LIBRARY_COVER_SCALE + 1,
+                ..LibraryViewPreferences::default()
+            },
+            LibraryViewPreferences {
+                collection: LibraryCollectionFilter::Collection("../escape".to_owned()),
+                ..LibraryViewPreferences::default()
+            },
+        ] {
+            let settings = Settings {
+                library_view,
+                ..database.settings().unwrap()
+            };
+            assert!(database.save_settings(settings).is_err());
+        }
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn migration_40_adds_organization_and_keeps_games() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch("PRAGMA foreign_keys = ON;")
+            .unwrap();
+        migrate(&connection).unwrap();
+        connection
+            .execute_batch(
+                "DROP TABLE collection_games;
+                 DROP TABLE collections;
+                 DROP TRIGGER games_added_at;
+                 ALTER TABLE games DROP COLUMN added_at;
+                 ALTER TABLE games DROP COLUMN play_status;
+                 ALTER TABLE games DROP COLUMN favorite;
+                 INSERT INTO games (id, steam_app_id, automatic_name, name_override, steam_install_path)
+                 VALUES ('00000000-0000-0000-0000-000000000001', 400, 'Portal', 'My Portal', '/steam/Portal');
+                 INSERT INTO hidden_games (game_id) VALUES ('00000000-0000-0000-0000-000000000001');
+                 PRAGMA user_version = 39;",
+            )
+            .unwrap();
+        migrate(&connection).unwrap();
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        let row: (String, Option<String>, bool, String, Option<i64>, bool) = connection
+            .query_row(
+                "SELECT automatic_name, name_override, favorite, play_status, added_at,
+                        EXISTS(SELECT 1 FROM hidden_games WHERE game_id = games.id)
+                 FROM games",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            row,
+            (
+                "Portal".to_owned(),
+                Some("My Portal".to_owned()),
+                false,
+                "none".to_owned(),
+                None,
+                true
+            )
+        );
+        connection
+            .execute(
+                "INSERT INTO games (id, name_override) VALUES ('00000000-0000-0000-0000-000000000002', 'New')",
+                [],
+            )
+            .unwrap();
+        let added_at: Option<i64> = connection
+            .query_row(
+                "SELECT added_at FROM games WHERE name_override = 'New'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(added_at.is_some_and(|value| value > 1_600_000_000_000));
+        assert!(
+            connection
+                .execute("UPDATE games SET play_status = 'unknown'", [])
+                .is_err()
+        );
+    }
+
+    #[test]
     fn application_and_network_logging_preferences_persist_independently() {
         let directory = temporary_directory();
         for (application, network) in [(true, false), (false, true), (false, false)] {
@@ -1800,6 +2031,11 @@ mod tests {
             Theme::Steel,
             Theme::Emerald,
             Theme::Sand,
+            Theme::Midnight,
+            Theme::Violet,
+            Theme::Contrast,
+            Theme::Oled,
+            Theme::Frost,
         ] {
             assert_eq!(Theme::parse(theme.as_str()).unwrap(), theme);
             let encoded = serde_json::to_string(&theme).unwrap();
@@ -1823,6 +2059,9 @@ mod tests {
                 background_blur: 16,
                 background_opacity: 40,
                 transparent: true,
+                density: crate::appearance::Density::Wide,
+                corners: crate::appearance::Corners::Sharp,
+                text_scale: 110,
                 ..crate::appearance::Appearance::default()
             },
             ..Settings::default()
@@ -2601,6 +2840,31 @@ mod tests {
     }
 
     #[test]
+    fn update_preferences_default_off_and_cap_notes() {
+        let mut preferences = serde_json::to_value(Settings::default()).unwrap();
+        let object = preferences.as_object_mut().unwrap();
+        for key in ["previewUpdates", "lastSeenVersion", "pendingUpdateNotes"] {
+            object.remove(key);
+        }
+        let legacy = serde_json::from_value::<Settings>(preferences).unwrap();
+        assert!(!legacy.preview_updates);
+        assert!(legacy.last_seen_version.is_none() && legacy.pending_update_notes.is_none());
+
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let oversized = Settings {
+            pending_update_notes: Some(PendingUpdateNotes {
+                version: "1.0.0".to_owned(),
+                notes: "x".repeat(MAX_UPDATE_NOTES_CHARS + 1),
+            }),
+            ..Settings::default()
+        };
+        assert!(database.save_settings(oversized).is_err());
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn persists_settings_and_enriched_manual_games_after_reopen() {
         let directory = temporary_directory();
         let database = Database::open(&directory).unwrap();
@@ -2609,6 +2873,15 @@ mod tests {
             theme: Theme::Light,
             steam_library_poll_minutes: 15,
             library_portrait: true,
+            library_view: LibraryViewPreferences {
+                mode: LibraryViewMode::Shelves,
+                sort: LibrarySortKey::LastPlayed,
+                descending: true,
+                cover_scale: 130,
+                favorites_only: true,
+                play_status: Some(PlayStatus::Playing),
+                collection: LibraryCollectionFilter::Collection(Uuid::new_v4().to_string()),
+            },
             sidebar_collapsed: false,
             sync_steam_games: false,
             store_sort: "name_desc".to_owned(),

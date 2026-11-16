@@ -1,10 +1,9 @@
 import type { Snippet } from "svelte";
 import { writable, type Readable } from "svelte/store";
 
-// Page controls shown in the title bar: `title` replaces the page title,
-// `start` sits after the back button and `end` before the window controls.
+// Page controls shown in the title bar: `start` sits after the path and `end` before
+// the download status, the notifications and the window controls.
 export interface TitleBarContent {
-  title: string | null;
   start?: Snippet;
   end?: Snippet;
 }

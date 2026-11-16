@@ -5,10 +5,13 @@ use serde::Serialize;
 use tauri::{Emitter, Manager};
 use tauri_plugin_deep_link::DeepLinkExt;
 
+use crate::appearance::AppearanceProfile;
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceLink {
     url: Option<String>,
+    theme: Option<AppearanceProfile>,
     error: Option<String>,
 }
 
@@ -25,31 +28,51 @@ pub struct PendingLinks {
     registration_error: Option<String>,
 }
 
-pub fn parse(value: &str) -> Result<String, String> {
+fn parse_link(value: &str, host: &str) -> Result<reqwest::Url, String> {
     if value.len() > 8192 || value.chars().any(char::is_control) {
-        return Err("Invalid Legio source link".to_owned());
+        return Err("Invalid Legio link".to_owned());
     }
-    let link = reqwest::Url::parse(value).map_err(|_| "Invalid Legio source link".to_owned())?;
+    let link = reqwest::Url::parse(value).map_err(|_| "Invalid Legio link".to_owned())?;
     if link.scheme() != "legio"
-        || link.host_str() != Some("add-source")
+        || link.host_str() != Some(host)
         || !matches!(link.path(), "" | "/")
         || link.port().is_some()
         || !link.username().is_empty()
         || link.password().is_some()
         || link.fragment().is_some()
     {
-        return Err("Expected legio://add-source?url=<encoded HTTPS URL>".to_owned());
+        return Err(format!("Expected a legio://{host} link"));
     }
+    Ok(link)
+}
+
+fn single_parameter(link: &reqwest::Url, name: &str) -> Result<String, String> {
     let mut pairs = link.query_pairs();
     let Some((key, value)) = pairs.next() else {
-        return Err("The source link has no URL".to_owned());
+        return Err(format!("The link has no {name} parameter"));
     };
-    if key != "url" || pairs.next().is_some() {
-        return Err("The source link must contain exactly one URL parameter".to_owned());
+    if key != name || pairs.next().is_some() {
+        return Err(format!(
+            "The link must contain exactly one {name} parameter"
+        ));
     }
-    crate::legio_source::validate_manifest_url(&value)
+    Ok(value.into_owned())
+}
+
+pub fn parse(value: &str) -> Result<String, String> {
+    let link = parse_link(value, "add-source")?;
+    crate::legio_source::validate_manifest_url(&single_parameter(&link, "url")?)
         .map(|url| url.to_string())
         .map_err(|error| error.to_string())
+}
+
+pub fn parse_theme(value: &str) -> Result<AppearanceProfile, String> {
+    let link = parse_link(value, "theme")?;
+    AppearanceProfile::from_share_code(&single_parameter(&link, "code")?)
+}
+
+fn is_theme_link(value: &str) -> bool {
+    reqwest::Url::parse(value).is_ok_and(|link| link.host_str() == Some("theme"))
 }
 
 impl SourceLinks {
@@ -72,15 +95,32 @@ impl SourceLinks {
             if requests.len() >= 32 {
                 return Err("Too many pending source links".to_owned());
             }
-            let request = match parse(value) {
-                Ok(url) => SourceLink {
-                    url: Some(url),
-                    error: None,
-                },
-                Err(error) => SourceLink {
-                    url: None,
-                    error: Some(error),
-                },
+            let request = if is_theme_link(value) {
+                match parse_theme(value) {
+                    Ok(theme) => SourceLink {
+                        url: None,
+                        theme: Some(theme),
+                        error: None,
+                    },
+                    Err(error) => SourceLink {
+                        url: None,
+                        theme: None,
+                        error: Some(error),
+                    },
+                }
+            } else {
+                match parse(value) {
+                    Ok(url) => SourceLink {
+                        url: Some(url),
+                        theme: None,
+                        error: None,
+                    },
+                    Err(error) => SourceLink {
+                        url: None,
+                        theme: None,
+                        error: Some(error),
+                    },
+                }
             };
             requests.push(request);
             added = true;
@@ -181,6 +221,32 @@ mod tests {
         ] {
             assert!(parse(value).is_err(), "{value}");
         }
+    }
+
+    #[test]
+    fn theme_links_carry_a_validated_profile() {
+        let profile: AppearanceProfile =
+            serde_json::from_str(r#"{"version":1,"theme":"violet","appearance":{}}"#).unwrap();
+        let code = crate::appearance::create_theme_code(profile.clone()).unwrap();
+        let link = format!("legio://theme?code={code}");
+        assert_eq!(parse_theme(&link).unwrap(), profile);
+        for value in [
+            "legio://theme",
+            "legio://theme?code=",
+            "legio://theme?code=LT9.e30",
+            "legio://theme?code=nonsense",
+            "legio://theme?url=LT1.e30",
+            "legio://theme/path?code=LT1.e30",
+            "legio://theme?code=LT1.e30&code=LT1.e30",
+            "legio://add-source?url=https://example.invalid/a.json",
+        ] {
+            assert!(parse_theme(value).is_err(), "{value}");
+        }
+        let links = SourceLinks::default();
+        assert!(links.enqueue([OsString::from(link)]).unwrap());
+        let pending = links.take().unwrap();
+        assert_eq!(pending.requests[0].theme, Some(profile));
+        assert!(pending.requests[0].url.is_none() && pending.requests[0].error.is_none());
     }
 
     #[test]

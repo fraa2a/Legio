@@ -30,6 +30,7 @@
     caption = true,
     class: className = "",
     placeholder,
+    onLoad,
   }: {
     steamAppId: number;
     asset: SteamAssetKind;
@@ -42,6 +43,7 @@
     caption?: boolean;
     class?: string;
     placeholder?: Snippet;
+    onLoad?: (image: HTMLImageElement, steamAppId: number) => void;
   } = $props();
 
   const demand = artworkDemand();
@@ -96,7 +98,7 @@
 </script>
 
 {#if displayedUrl !== null}
-  <img draggable="false" src={displayedUrl} {alt} class={className} onerror={imageFailed} in:fade={{ duration: cached !== undefined || fromCache ? 0 : fadeDuration }} />
+  <img draggable="false" src={displayedUrl} {alt} class={className} onerror={imageFailed} onload={(event) => onLoad?.(event.currentTarget as HTMLImageElement, steamAppId)} in:fade={{ duration: cached !== undefined || fromCache ? 0 : fadeDuration }} />
 {:else if placeholder !== undefined}
   {@render placeholder()}
 {:else if error !== null || (candidateUrl !== null && candidateUrl === failedUrl)}

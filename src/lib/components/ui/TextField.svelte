@@ -54,7 +54,7 @@
   const describedBy = $derived([error ? `${id}-error` : "", hint ? `${id}-hint` : ""].filter(Boolean).join(" ") || undefined);
   const surfaceClass = $derived(variant === "toolbar"
     ? "rounded-card legio-glass"
-    : "rounded-control bg-legio-fill light:bg-white");
+    : "rounded-control border border-legio-line-control bg-legio-fill light:bg-white");
   const controlClass = $derived(`w-full px-3 text-sm text-legio-fg transition-colors placeholder:text-legio-fg-subtle disabled:cursor-not-allowed disabled:opacity-50 ${surfaceClass}`);
 
   function changed(event: Event & { currentTarget: HTMLInputElement | HTMLTextAreaElement }): void {
@@ -95,7 +95,7 @@
     </div>
   {/if}
   {#if error}
-    <p id={`${id}-error`} class="text-xs text-legio-error" role="alert">{error}</p>
+    <p id={`${id}-error`} class="select-text text-xs text-legio-error" data-selectable role="alert">{error}</p>
   {/if}
   {#if hint}
     <p id={`${id}-hint`} class="text-xs text-legio-fg-subtle">{hint}</p>

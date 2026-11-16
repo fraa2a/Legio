@@ -7,9 +7,11 @@ use tauri::{
 };
 
 mod app_profile;
+mod app_update;
 mod appearance;
 mod application_log;
 pub mod archive_install;
+mod archive_parts;
 mod artwork_display;
 mod artwork_publication;
 mod artwork_scheduler;
@@ -23,17 +25,21 @@ mod commands;
 mod compatibility_logs;
 #[cfg(target_os = "linux")]
 mod compatibility_options;
+mod data_transfer;
 mod database;
 mod database_recovery;
 mod desktop_shortcuts;
 mod diagnostics;
 mod discord_presence;
+mod disk_usage;
 mod download_policy;
 mod download_queue;
 mod download_resolver;
 mod download_selection;
+mod download_space;
 mod filesystem_copy;
 mod finalize_install;
+mod folder_size;
 mod game_artwork;
 mod game_library;
 mod game_lifecycle;
@@ -51,6 +57,7 @@ mod installed_folder;
 #[cfg(target_os = "linux")]
 mod launch_environment;
 mod launch_journal;
+mod launcher_import;
 pub mod legio_source;
 mod legio_source_cache;
 mod library_manifest;
@@ -69,6 +76,7 @@ mod one_fichier;
 mod online_fix;
 mod overlay_update;
 mod playtime_activity;
+mod playtime_recap;
 #[cfg(target_os = "linux")]
 mod process_output;
 #[cfg(target_os = "linux")]
@@ -216,6 +224,9 @@ fn run_application(
                 .map_err(std::io::Error::other)?;
             app.manage(mod_links);
             gofile::initialize(app.path().app_data_dir()?);
+            let import_failure =
+                data_transfer::apply_staged_import(&app.path().app_data_dir()?).err();
+            app.manage(data_transfer::ImportFailure(import_failure));
             let database = database::DatabaseState::new(app.path().app_data_dir());
             // A database that cannot open or migrate starts the recovery screen instead of failing.
             let open_database = match database.database() {
@@ -345,6 +356,7 @@ fn run_application(
             });
             app.manage(assets.scheduler.clone());
             app.manage(assets);
+            app.manage(disk_usage::DiskUsageState::new(app.path().app_cache_dir()));
             app.manage(steam_details::DetailsFetchState::default());
             app.manage(game_artwork::GameArtworkStore::new(
                 app.path().app_data_dir().map_err(|error| error.to_string()),
@@ -474,12 +486,15 @@ fn run_application(
         .invoke_handler(tauri::generate_handler![
             commands::is_aur_package,
             commands::get_app_info,
+            commands::check_app_update,
             commands::notify_update_available,
             commands::get_news,
             commands::refresh_news,
             commands::get_settings,
             commands::save_settings,
             appearance::import_theme_background,
+            appearance::create_theme_code,
+            appearance::read_theme_code,
             appearance::export_appearance,
             appearance::import_appearance,
             appearance::get_theme_background,
@@ -496,6 +511,14 @@ fn run_application(
             commands::list_games,
             commands::list_hidden_steam_games,
             commands::set_game_hidden,
+            commands::get_library_organization,
+            commands::set_games_favorite,
+            commands::set_games_play_status,
+            commands::set_games_collections,
+            commands::create_collection,
+            commands::rename_collection,
+            commands::delete_collection,
+            commands::reorder_collections,
             commands::get_playtime_summaries,
             commands::set_game_playtime,
             commands::get_game_libraries,
@@ -503,6 +526,9 @@ fn run_application(
             commands::remove_game_library,
             commands::repair_game_library,
             commands::get_playtime_activity,
+            commands::get_playtime_recap,
+            commands::get_playtime_recap_years,
+            commands::save_playtime_recap_image,
             commands::create_game,
             commands::create_game_shortcut,
             game_transfer::transfer_game,
@@ -519,6 +545,11 @@ fn run_application(
             commands::launch_steam_game,
             commands::launch_configured_game_with_runner,
             commands::launch_native_game,
+            commands::get_launch_profiles,
+            commands::create_launch_profile,
+            commands::update_launch_profile,
+            commands::duplicate_launch_profile,
+            commands::delete_launch_profile,
             commands::list_game_launch_states,
             commands::get_compatibility_logs_directory,
             commands::cancel_game_launch,
@@ -527,6 +558,8 @@ fn run_application(
             commands::list_saved_steam_accounts,
             commands::set_game_steam_account_preference,
             commands::import_steam_installations,
+            commands::scan_launcher_games,
+            commands::import_launcher_games,
             commands::scan_game_executables,
             commands::import_manual_game,
             commands::identify_manual_game_steam_app_id,
@@ -557,6 +590,7 @@ fn run_application(
             download_queue::remove_download,
             download_queue::remove_finished_downloads,
             download_queue::reorder_downloads,
+            download_space::forecast_download_space,
             queue_shutdown::get_queue_shutdown,
             queue_shutdown::set_queue_shutdown,
             installed_folder::open_installed_folder,
@@ -565,6 +599,13 @@ fn run_application(
             database_recovery::open_data_folder,
             database_recovery::restore_database_backup,
             database_recovery::reset_local_database,
+            installed_folder::open_game_folder,
+            disk_usage::get_disk_usage,
+            disk_usage::refresh_disk_usage,
+            disk_usage::cancel_disk_usage,
+            disk_usage::get_library_usage,
+            data_transfer::export_user_data,
+            data_transfer::stage_user_data_import,
             installed_folder::get_installed_folder_info,
             commands::refresh_legio_source,
             commands::check_steam_connectivity,
@@ -699,16 +740,16 @@ fn prepare_shortcut(app: &tauri::AppHandle, game_id: &str) -> Result<(), String>
     let manager = app.state::<game_lifecycle::GameLaunchManager>();
     if game.steam_install_path.is_some() {
         manager
-            .launch(app.clone(), game_id.to_owned(), false)
+            .launch(app.clone(), game_id.to_owned(), false, None)
             .map(|_| ())
     } else {
         #[cfg(target_os = "linux")]
         {
-            manager.launch_configured(app.clone(), game_id.to_owned())
+            manager.launch_configured(app.clone(), game_id.to_owned(), None)
         }
         #[cfg(windows)]
         {
-            manager.launch_native(app.clone(), game_id.to_owned())
+            manager.launch_native(app.clone(), game_id.to_owned(), None)
         }
     }
 }

@@ -589,9 +589,9 @@ test("the title bar gets the profile controls and an inactive profile is not act
   let bar = null;
   try {
     const content = get(titleBar.titleBarContent);
-    assert.equal(content.title, "Main", "the first profile by name is shown");
     bar = mount((await import(host)).default, { target, props: { content } });
     await settle();
+    assert.equal(target.querySelector("#mod-active-profile").textContent.trim(), "Main", "the first profile by name is shown");
     // jsdom has no popover or Web Animations API.
     dom.window.HTMLElement.prototype.showPopover ??= () => {};
     dom.window.HTMLElement.prototype.animate ??= () => ({ set onfinish(callback) { callback(); } });

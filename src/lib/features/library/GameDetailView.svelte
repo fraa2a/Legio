@@ -2,7 +2,7 @@
   import { artworkDemand } from "../../utils/artwork-demand";
   const demand = artworkDemand();
   import { t, language } from "../../i18n";
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { startVisibleRefresh } from "../../stores/visible-refresh";
   import { formatBytes, formatDate, formatDateTime } from "../../utils/format";
   import { games } from "../../stores/games";
@@ -18,7 +18,8 @@
   import { downloads, queueJob } from "../../stores/downloads";
   import { onlyUsableLibrary } from "../../stores/game-libraries";
   import { checkGameLinks, type SourceEntry } from "../../services/legio-source";
-  import { describeDownloadStatus, downloadProgressPercent } from "../../services/downloads";
+  import { describeDownloadStatus, downloadProgressPercent, forecastDownloadSpace } from "../../services/downloads";
+  import { spaceWarning, type SpaceWarning } from "../downloads/space-forecast";
   import { playtime } from "../../stores/playtime";
   import { refreshSource, source, sourceRefreshError } from "../../stores/source";
   import { refreshSteamDetailsOnOpen, steamDetails } from "../../stores/steam-details";
@@ -36,6 +37,7 @@
   import SteamMetadata from "./SteamMetadata.svelte";
   import SteamArtwork from "./SteamArtwork.svelte";
   import SystemRequirements from "./SystemRequirements.svelte";
+  import GameInstalledSize from "./GameInstalledSize.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import Callout from "../../components/ui/Callout.svelte";
   import ReleasePicker, { type ReleaseOption } from "./ReleasePicker.svelte";
@@ -43,6 +45,7 @@
   import LibraryPickerDialog from "./LibraryPickerDialog.svelte";
   import GameModsPanel from "../modding/GameModsPanel.svelte";
   import { acquireGameArtwork, gameArtworkRevision } from "../../services/game-artwork";
+  import { keepArtColorFor, publishArtColor } from "../../stores/game-accent";
   import { toMessage } from "../../utils/errors";
   import { reachableReleases, releaseLinks, sourceNameFor, sourceReleaseId, sourceReleasesFor } from "../store/source-status";
   import { nextVersionAfterRemoval } from "./library-model";
@@ -50,6 +53,9 @@
   import { busyProfiles, loadModdableGames, loadOnce, modProfiles, moddableGameById, profilesOfGames, selectProfile } from "../../stores/modding";
   import { describeModdingError } from "../modding/modding-model";
   import { showToast } from "../../stores/toast";
+  import { libraryOrganization, organizationByGame, setFavorite } from "../../stores/library-organization";
+  import OrganizeGameDialog from "./OrganizeGameDialog.svelte";
+  import { collectionMembership, libraryEntries } from "./library-organize";
 
   let { storeGame = null, gameId = null }: { storeGame?: StoreGameSelection | null; gameId?: string | null } = $props();
 
@@ -88,6 +94,13 @@
     }), modStates));
   const selectedVersionId = $derived(storeGame !== null ? (entry === null ? "" : sourceReleaseId(entry)) : (game === null ? "" : selectedInstanceId(game.id, modStates.get(game.id))));
 
+  const organization = $derived(game === null ? null : libraryEntries(
+    [{ game, group: libraryVersions, totalMilliseconds: 0 }],
+    new Map(),
+    $organizationByGame,
+    collectionMembership($libraryOrganization.data.collections),
+  )[0]);
+  let organizeOpen = $state(false);
   let artworkOpen = $state(false);
   let addVersionOpen = $state(false);
   let gameSettingsOpen = $state(false);
@@ -101,12 +114,14 @@
   let libraryPickerOpen = $state(false);
   let choosingLibrary = $state(false);
   let downloadLibraryId = $state<string | null>(null);
+  let spaceCheck = $state<SpaceWarning | null>(null);
   const downloadSize = $derived(versionOptions.find((option) => option.id === selectedVersionId)?.sizeBytes ?? null);
   let queueError = $state<string | null>(null);
 
   onMount(() => {
     if (storeGame !== null) return;
     void loadModdableGames();
+    void libraryOrganization.load();
     return startVisibleRefresh(() => void playtime.load(), 30000);
   });
 
@@ -160,6 +175,11 @@
     return () => { cancelled = true; banner.release(); icon.release(); };
   });
 
+  const artworkKey = $derived(customBannerUrl !== null ? `custom:${artworkGameId}` : steamAppId !== null ? `steam:${steamAppId}` : null);
+
+  $effect(() => { keepArtColorFor(artworkKey); });
+  onDestroy(() => keepArtColorFor(null));
+
   async function startDownload(downloadUrl: string, releaseVersion: string, acceptUnverified: boolean, preferredUri: string | null = selectedMirror === "auto" ? null : selectedMirror): Promise<void> {
     if (steamAppId === null) return;
     queueError = null;
@@ -179,15 +199,34 @@
     try {
       const library = await onlyUsableLibrary(downloadSize);
       if (library === null) libraryPickerOpen = true;
-      else downloadTo(library.id);
+      else void downloadTo(library.id);
     } finally {
       choosingLibrary = false;
     }
   }
 
-  function downloadTo(libraryId: string): void {
+  async function downloadTo(libraryId: string): Promise<void> {
     libraryPickerOpen = false;
     downloadLibraryId = libraryId;
+    if (entry === null) return;
+    queueing = true;
+    let warning: SpaceWarning | null;
+    try {
+      warning = spaceWarning(await forecastDownloadSpace(downloadSize, libraryId), $language);
+    } catch (error) {
+      warning = spaceWarning({ verdict: "unknown", sizeBytes: downloadSize, volumes: [] }, $language);
+      warning?.details.push(toMessage(error));
+    } finally {
+      queueing = false;
+    }
+    if (warning !== null) {
+      spaceCheck = warning;
+      return;
+    }
+    confirmTrust();
+  }
+
+  function confirmTrust(): void {
     if (entry === null) return;
     if (status?.availability === "unverified") {
       confirmEntry = entry;
@@ -234,9 +273,9 @@
       </div>
     {/if}
     <section class="relative isolate z-20 aspect-[1920/620] min-h-80 w-full rounded-panel">
-      <div class="absolute inset-0 overflow-hidden rounded-panel bg-zinc-800 light:bg-zinc-200">
+      <div class="absolute inset-0 overflow-hidden rounded-panel bg-zinc-800 light:bg-zinc-200 {launch?.status === 'launching' ? 'legio-cover-launching' : ''}">
         {#if customBannerUrl !== null}
-          <img src={customBannerUrl} alt={t("Banner personalizzato di {0}", $language, [name])} class="absolute inset-0 size-full object-cover" />
+          <img src={customBannerUrl} alt={t("Banner personalizzato di {0}", $language, [name])} class="absolute inset-0 size-full object-cover" onload={(event) => publishArtColor(`custom:${artworkGameId}`, artworkKey, event.currentTarget as HTMLImageElement)} />
         {:else if steamAppId !== null}
           <SteamArtwork
             {steamAppId}
@@ -244,6 +283,7 @@
             fallbackAsset="header"
             caption={false}
             class="absolute inset-0 size-full object-cover"
+            onLoad={(image, appId) => publishArtColor(`steam:${appId}`, artworkKey, image)}
           >
             {#snippet placeholder()}{@render backdrop()}{/snippet}
           </SteamArtwork>
@@ -296,8 +336,23 @@
             onAdd={game !== null && libraryVersions.length === 1 && steamAppId !== null ? () => { addVersionOpen = true; } : undefined}
             links={storeGame !== null && entry !== null ? mirrorUris : []}
             bind:link={selectedMirror}
-            linksDisabled={queueing || confirmOpen}
+            linksDisabled={queueing || confirmOpen || spaceCheck !== null}
           />
+        {/if}
+        {#if organization !== null}
+          <Button
+            label={organization.favorite ? t("Rimuovi dai preferiti", $language) : t("Aggiungi ai preferiti", $language)}
+            iconOnly
+            variant="overlay"
+            size="hero"
+            pressed={organization.favorite}
+            onClick={() => setFavorite(organization.gameIds, !organization.favorite).catch((error: unknown) => showToast(toMessage(error), "error"))}
+          >
+            <Icon name="star" size="xl" class={organization.favorite ? "fill-current text-legio-warning" : ""} />
+          </Button>
+          <Button label={t("Organizza {0}", $language, [name])} iconOnly variant="overlay" size="hero" onClick={() => (organizeOpen = true)}>
+            <Icon name="collection" size="xl" />
+          </Button>
         {/if}
         {#if game !== null}
           <Button label={t("Impostazioni del gioco", $language)} iconOnly variant="overlay" size="hero" onClick={() => (gameSettingsOpen = true)}>
@@ -328,13 +383,14 @@
       <ErrorBanner message={queueError} />
     {/if}
     {#if storeGame !== null && $sourceRefreshError !== null}
-      <ErrorBanner message={$sourceRefreshError} onRetry={() => void refreshSource()} retryLabel={t("Riprova", $language)} />
+      <ErrorBanner message={t("Impossibile aggiornare le sorgenti.", $language)} detail={$sourceRefreshError} onRetry={() => void refreshSource()} retryLabel={t("Riprova", $language)} />
     {/if}
     {#if storeGame === null && artworkError !== null}
       <ErrorBanner message={artworkError} />
     {/if}
 
 
+    {#if game !== null}<GameInstalledSize {game} />{/if}
     {#if game !== null}<GameUpdateButton gameId={game.id} />{/if}
 
     <div class="grid flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -353,7 +409,7 @@
             <dl class="grid gap-2 text-sm">
               <div class="flex flex-wrap gap-x-3">
                 <dt class="w-40 shrink-0 text-legio-fg-muted">{t("Versione", $language)}</dt>
-                <dd class="min-w-0 flex-1 break-words text-legio-fg">{entry?.release.version ?? t("non pubblicata", $language)}</dd>
+                <dd class="min-w-0 flex-1 select-text break-words text-legio-fg" data-selectable>{entry?.release.version ?? t("non pubblicata", $language)}</dd>
               </div>
               <div class="flex flex-wrap gap-x-3">
                 <dt class="w-40 shrink-0 text-legio-fg-muted">{t("Pubblicato", $language)}</dt>
@@ -394,6 +450,15 @@
   />
 {/if}
 
+{#if organizeOpen && organization !== null}
+  <OrganizeGameDialog
+    {name}
+    gameIds={organization.gameIds}
+    playStatus={organization.playStatus}
+    onClose={() => (organizeOpen = false)}
+  />
+{/if}
+
 {#if artworkOpen && details !== null && steamAppId !== null}
   <ArtworkViewer
     {steamAppId}
@@ -414,9 +479,25 @@
     title={t("Installa {0}", $language, [name])}
     confirmLabel={t("Scarica", $language)}
     requiredBytes={downloadSize}
-    onSelect={(library) => downloadTo(library.id)}
+    onSelect={(library) => void downloadTo(library.id)}
     onClose={() => (libraryPickerOpen = false)}
   />
+  <ConfirmDialog
+    open={spaceCheck !== null}
+    title={spaceCheck?.title ?? ""}
+    message={spaceCheck?.message}
+    confirmLabel={spaceCheck?.confirmLabel ?? ""}
+    tone={spaceCheck?.tone}
+    confirmDisabled={queueing}
+    onConfirm={() => { spaceCheck = null; confirmTrust(); }}
+    onClose={() => (spaceCheck = null)}
+  >
+    {#if spaceCheck !== null && spaceCheck.details.length > 0}
+      <ul class="flex flex-col gap-1 text-xs text-legio-fg-muted">
+        {#each spaceCheck.details as line (line)}<li class="break-words">{line}</li>{/each}
+      </ul>
+    {/if}
+  </ConfirmDialog>
   <ConfirmDialog
     open={confirmOpen}
     title={t("Rilascio non verificato", $language)}

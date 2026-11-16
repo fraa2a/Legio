@@ -12,12 +12,16 @@
   import { compatibilityRunnerLabel } from "../../services/game-settings";
   import { onboarding, startOnboarding, changeOnboarding, changeCompatibility, chooseOnboardingDirectory, completeOnboarding, endOnboardingPreview } from "../../stores/onboarding";
   import { appInfo } from "../../stores/app-info";
-  let step = $state(0);
+  import { launcherImport, resetLauncherImport, scanLaunchers } from "../../stores/launcher-import";
+  import LauncherImportStep from "./LauncherImportStep.svelte";
+  let stepName = $state("Benvenuto in Legio");
   let appearanceBusy = $state(false);
   const linux = $derived($appInfo.data.platform === "linux");
-  const steps = $derived(["Benvenuto in Legio", "Personalizzazione / Aspetto", "I tuoi giochi", "Come vuoi usare Legio", ...(linux ? ["Compatibilità Linux"] : []), "Tutto pronto"]);
-  onMount(() => { void startOnboarding(); return endOnboardingPreview; });
-  async function moveStep(delta: number) { step += delta; await tick(); document.getElementById("onboarding-title")?.focus(); }
+  const offersImport = $derived($launcherImport.groups.length > 0);
+  const steps = $derived(["Benvenuto in Legio", "Personalizzazione / Aspetto", "I tuoi giochi", "Come vuoi usare Legio", ...(linux ? ["Compatibilità Linux"] : []), ...(offersImport ? ["Importa da altri launcher"] : []), "Tutto pronto"]);
+  const step = $derived(steps.indexOf(stepName));
+  onMount(() => { void startOnboarding(); void scanLaunchers(); return () => { endOnboardingPreview(); resetLauncherImport(); }; });
+  async function moveStep(delta: number) { stepName = steps[step + delta]; await tick(); document.getElementById("onboarding-title")?.focus(); }
 </script>
 
 <main class="legio-content min-h-0 flex-1 overflow-auto rounded-card bg-black p-6 light:bg-zinc-50" aria-labelledby="onboarding-title">
@@ -39,19 +43,19 @@
     </header>
     {#if $onboarding.error}<ErrorBanner message={$onboarding.error} />{/if}
     {#if $onboarding.draft}
-      {#if step === 0}
+      {#if stepName === "Benvenuto in Legio"}
         <p class="text-sm text-legio-fg">{t("Configuriamo insieme le impostazioni principali del launcher.", $language)}</p>
         <SelectField id="onboarding-language" label={t("Lingua dell'interfaccia", $language)} value={$onboarding.draft.language} disabled={$onboarding.saving}
           options={[{ value: "system", label: t("Sistema", $language) }, { value: "it", label: "Italiano" }, { value: "en", label: "English" }]}
           onChange={(value) => { if (value === "system" || value === "it" || value === "en") changeOnboarding({ language: value }); }} />
-      {:else if step === 1}
+      {:else if stepName === "Personalizzazione / Aspetto"}
         <ThemeSettings
           accent={activePalette($onboarding.draft.theme, document.documentElement.dataset.theme !== "light").palette.accent}
           preview={$onboarding.draft}
           onPreview={(value) => changeOnboarding(value)}
           onBusyChange={(busy) => { appearanceBusy = busy; }}
         />
-      {:else if step === 2}
+      {:else if stepName === "I tuoi giochi"}
         <p class="text-sm text-legio-fg">{t("Scegli dove salvare download e installazioni. Steam verrà rilevato automaticamente.", $language)}</p>
         <p class="break-all text-sm text-legio-fg-muted">{$onboarding.draft.downloadPath ?? t("Cartella predefinita di Legio", $language)}</p>
         <div class="flex flex-wrap gap-2">
@@ -59,7 +63,7 @@
           <Button label={t("Usa cartella predefinita", $language)} variant="secondary" onClick={() => changeOnboarding({ downloadPath: null })} />
         </div>
         <p class="text-sm text-legio-fg-muted">{t("La verifica aiuta a rilevare archivi corrotti o alterati. Ti consigliamo di lasciarla attiva.", $language)}</p>
-      {:else if step === 3}
+      {:else if stepName === "Come vuoi usare Legio"}
         {#if $appInfo.data.trayAvailable}
         <Toggle label={t("Riduci nell'area di notifica alla chiusura", $language)} checked={$onboarding.draft.closeToTray} onChange={(checked) => changeOnboarding({ closeToTray: checked })} />
         <Toggle label={t("Nascondi Legio nell'area di notifica quando avvii un gioco", $language)} checked={$onboarding.draft.hideOnGameStart} onChange={(checked) => changeOnboarding({ hideOnGameStart: checked })} />
@@ -67,7 +71,7 @@
         <Toggle label={t("Avvia Legio all'accesso al sistema", $language)} checked={$onboarding.draft.launchOnSystemStart} onChange={(checked) => changeOnboarding({ launchOnSystemStart: checked, ...(!checked ? { launchMinimized: false } : {}) })} />
         <Toggle label={t("Apri Legio sulla Libreria", $language)} checked={$onboarding.draft.launchInLibrary} onChange={(checked) => changeOnboarding({ launchInLibrary: checked })} />
         <Toggle label={t("Notifica di sistema al termine del download", $language)} checked={$onboarding.draft.downloadNotifications} onChange={(checked) => changeOnboarding({ downloadNotifications: checked })} />
-      {:else if linux && step === 4}
+      {:else if stepName === "Compatibilità Linux"}
         <p class="text-sm text-legio-fg">{t("Per i giochi Windows scegli Proton o Wine. Puoi mantenere la selezione automatica e configurare ogni gioco in seguito.", $language)}</p>
         {#if $onboarding.loading}<p role="status">{t("Caricamento...", $language)}</p>{/if}
         {#if $onboarding.compatibility}
@@ -83,6 +87,8 @@
         {/if}
         {#each $onboarding.diagnostics as diagnostic (diagnostic)}<p class="text-sm text-legio-fg-muted">{diagnostic}</p>{/each}
         {#if !$onboarding.loading && $onboarding.runners.length === 0}<p class="text-sm text-legio-fg-muted">{t("Nessun runner rilevato. Installa Proton tramite Steam o Wine per avviare giochi Windows.", $language)}</p>{/if}
+      {:else if stepName === "Importa da altri launcher"}
+        <LauncherImportStep />
       {:else}
         <p class="text-sm text-legio-fg">{t("Salva la configurazione e apri la tua libreria. Potrai aggiungere giochi manualmente o cercarli nello store.", $language)}</p>
         <dl class="grid grid-cols-2 gap-3 text-sm text-legio-fg">

@@ -1,14 +1,17 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import { get } from "svelte/store";
   import { t, language } from "../../i18n";
   import Dialog from "../../components/ui/Dialog.svelte";
   import Icon, { type IconName } from "../../components/ui/Icon.svelte";
   import TextField from "../../components/ui/TextField.svelte";
   import { appInfo } from "../../stores/app-info";
-  import { paletteOpen } from "../../stores/command-palette";
+  import { paletteOpen, paletteSeed } from "../../stores/command-palette";
+  import { diskUsageDialogOpen } from "../../stores/disk-usage";
+  import { shortcutsOpen } from "../../stores/shortcuts";
   import { games } from "../../stores/games";
   import { addGameDialogOpen, storeQuery } from "../../stores/library-ui";
-  import { openGame, openSettings, sectionLabels, sections, selectSection, type Section } from "../../stores/navigation";
+  import { openGame, openPlaytimeRecap, openSettings, sectionLabels, sections, selectSection, type Section } from "../../stores/navigation";
   import { settingsCategories } from "../settings/settings-categories";
   import { rankPaletteItems, type PaletteItem } from "./palette-model";
 
@@ -17,7 +20,8 @@
   const listId = $props.id();
   const sectionIcons: Record<Section, IconName> = { home: "home", library: "library", store: "store", mods: "mods", downloads: "downloads" };
 
-  let query = $state("");
+  let query = $state(get(paletteSeed));
+  paletteSeed.set("");
   let active = $state(0);
   let input = $state<HTMLInputElement | HTMLTextAreaElement>();
 
@@ -25,6 +29,9 @@
     ...sections.map((section): Entry => ({ id: `section:${section}`, kind: "section", label: t(sectionLabels[section], $language), hint: t("Pagina", $language), icon: sectionIcons[section], run: () => selectSection(section) })),
     ...$games.data.map((game): Entry => ({ id: `game:${game.id}`, kind: "game", label: game.name, hint: t("Libreria", $language), icon: "play", run: () => openGame(game.id) })),
     { id: "action:add-game", kind: "action", label: t("Aggiungi gioco", $language), hint: t("Libreria", $language), icon: "plus", run: () => { selectSection("library"); addGameDialogOpen.set(true); } },
+    { id: "action:disk-usage", kind: "action", label: t("Cosa occupa spazio", $language), hint: t("Libreria", $language), icon: "folder", keywords: "disco spazio dimensione pulizia disk space size cleanup", run: () => diskUsageDialogOpen.set(true) },
+    { id: "action:playtime-recap", kind: "action", label: t("Annata di gioco", $language), hint: t(sectionLabels.home, $language), icon: "calendar", keywords: "recap statistiche tempo di gioco", run: openPlaytimeRecap },
+    { id: "action:shortcuts", kind: "action", label: t("Scorciatoie", $language), hint: t("Aiuto", $language), icon: "keyboard", keywords: "tastiera shortcuts keyboard", run: () => shortcutsOpen.set(true) },
     ...settingsCategories($appInfo.data.platform).map((category): Entry => ({ id: `setting:${category.id}`, kind: "setting", label: t(category.label, $language), hint: t("Impostazioni", $language), icon: category.icon, run: () => openSettings(category.id) })),
   ]);
   const results: Entry[] = $derived([
@@ -70,6 +77,7 @@
         bind:value={query}
         role="combobox"
         aria-expanded="true"
+        aria-autocomplete="list"
         aria-controls={listId}
         aria-activedescendant={selected === undefined ? undefined : `${listId}-${selected.id}`}
         placeholder={t("Cerca giochi, pagine e impostazioni", $language)}

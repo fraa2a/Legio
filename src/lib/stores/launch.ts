@@ -42,6 +42,8 @@ export const launchError = writable<string | null>(null);
 export const pendingGameId = writable<string | null>(null);
 export const cancelPendingGameId = writable<string | null>(null);
 export const accountSwitchGame = writable<Game | null>(null);
+// The profile the pending account switch launches with.
+let accountSwitchProfileId: string | null = null;
 
 let eventsReady = false;
 let listening: Promise<void> | null = null;
@@ -50,7 +52,7 @@ const hiddenForSession = new Set<string>();
 const restoreOnExit = new Set<string>();
 const reportedErrors = new Map<string, string>();
 const reportedLogErrors = new Map<string, string>();
-launchError.subscribe((message) => { if (message) showToast(describeModdingError(message), "error"); });
+launchError.subscribe((message) => { if (message) showToast(t("Impossibile avviare il gioco.", undefined), "error", { detail: describeModdingError(message) }); });
 
 launchStates.subscribe((state) => {
   for (const launch of state.data) {
@@ -58,7 +60,7 @@ launchStates.subscribe((state) => {
       reportedErrors.set(launch.gameId, launch.error);
       const logPath = launch.compatibilityLogPath;
       const message = describeModdingError(launch.error);
-      showToast(logPath ? `${message} ${t("Log degli avvii: {0}", undefined, [logPath])}` : message, "error");
+      showToast(t("Impossibile avviare il gioco.", undefined), "error", { detail: logPath ? `${message} ${t("Log degli avvii: {0}", undefined, [logPath])}` : message });
     } else if (!launch.error) reportedErrors.delete(launch.gameId);
     if (launch.compatibilityLogError && reportedLogErrors.get(launch.gameId) !== launch.compatibilityLogError) {
       reportedLogErrors.set(launch.gameId, launch.compatibilityLogError);
@@ -113,23 +115,25 @@ export function startLaunchEvents(): Promise<void> {
   return listening;
 }
 
-export async function playGame(game: Game): Promise<void> {
+// A null profile launches with the game's base settings.
+export async function playGame(game: Game, profileId: string | null = null): Promise<void> {
   launchError.set(null);
   pendingGameId.set(game.id);
   try {
     if (game.steamInstallPath !== null) {
       const inspection = await inspectSteamGameLaunch(game.id);
       if (inspection.status === "mismatch" || (inspection.status === "unknown" && inspection.steamRunning)) {
+        accountSwitchProfileId = profileId;
         accountSwitchGame.set(game);
         return;
       }
-      await launchSteamGame(game.id, false);
+      await launchSteamGame(game.id, false, profileId);
     } else if (game.executablePath !== null) {
       const platform = get(appInfo).data.platform;
       if (platform === "linux") {
-        await launchConfiguredGameWithRunner(game.id);
+        await launchConfiguredGameWithRunner(game.id, profileId);
       } else if (platform === "windows") {
-        await launchNativeGame(game.id);
+        await launchNativeGame(game.id, profileId);
       } else {
         throw new Error(t("L'avvio di giochi manuali non è disponibile su questa piattaforma.", undefined));
       }
@@ -160,10 +164,11 @@ export async function confirmAccountSwitch(): Promise<void> {
   const game = get(accountSwitchGame);
   accountSwitchGame.set(null);
   if (game === null) return;
+  const profileId = accountSwitchProfileId;
   launchError.set(null);
   pendingGameId.set(game.id);
   try {
-    await launchSteamGame(game.id, true);
+    await launchSteamGame(game.id, true, profileId);
     await launchStates.load();
   } catch (error) {
     launchError.set(toMessage(error));

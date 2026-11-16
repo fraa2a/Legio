@@ -4,6 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
@@ -13,6 +14,10 @@ use crate::database::{DatabaseState, Theme};
 const MAX_IMAGE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_PROFILE_BYTES: u64 = 64 * 1024;
 const PROFILE_VERSION: u8 = 1;
+const SHARE_CODE_PREFIX: &str = "LT";
+const SHARE_CODE_VERSION: u8 = 1;
+const MAX_SHARE_CODE_CHARS: usize = 4096;
+const MAX_SHARE_JSON_BYTES: usize = 3 * MAX_SHARE_CODE_CHARS / 4;
 
 #[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -21,7 +26,11 @@ pub enum AnimatedBackground {
     None,
     Particles,
     Dither,
+    Scanlines,
     Aurora,
+    Ambient,
+    Starfield,
+    Seasonal,
 }
 
 impl<'de> Deserialize<'de> for AnimatedBackground {
@@ -33,7 +42,11 @@ impl<'de> Deserialize<'de> for AnimatedBackground {
         Ok(match value.as_str() {
             "particles" => Self::Particles,
             "dither" => Self::Dither,
+            "scanlines" => Self::Scanlines,
             "aurora" => Self::Aurora,
+            "ambient" => Self::Ambient,
+            "starfield" => Self::Starfield,
+            "seasonal" => Self::Seasonal,
             _ => Self::None,
         })
     }
@@ -41,6 +54,54 @@ impl<'de> Deserialize<'de> for AnimatedBackground {
 
 fn default_animated_opacity() -> u8 {
     65
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Density {
+    Compact,
+    Wide,
+    // Unknown values from newer versions fall back to the default.
+    #[default]
+    #[serde(other)]
+    Normal,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Corners {
+    Sharp,
+    Round,
+    #[default]
+    #[serde(other)]
+    Soft,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Season {
+    Rain,
+    Leaves,
+    #[default]
+    #[serde(other)]
+    Snow,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StarDensity {
+    Low,
+    High,
+    #[default]
+    #[serde(other)]
+    Medium,
+}
+
+const MIN_TEXT_SCALE: u8 = 90;
+const MAX_TEXT_SCALE: u8 = 120;
+
+fn default_text_scale() -> u8 {
+    100
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -85,11 +146,19 @@ pub struct Appearance {
     pub animated_background: AnimatedBackground,
     pub animated_opacity: u8,
     pub dither: DitherSettings,
+    pub season: Season,
+    pub star_density: StarDensity,
+    // Noise overlay over any background, 0 is off.
+    pub grain: u8,
     pub surface_opacity: u8,
     pub surface_blur: u8,
     pub dialog_opacity: u8,
     pub dialog_blur: u8,
     pub transparent: bool,
+    pub density: Density,
+    pub corners: Corners,
+    pub text_scale: u8,
+    pub game_accent: bool,
 }
 
 impl Default for Appearance {
@@ -102,11 +171,18 @@ impl Default for Appearance {
             animated_background: AnimatedBackground::None,
             animated_opacity: default_animated_opacity(),
             dither: DitherSettings::default(),
+            season: Season::Snow,
+            star_density: StarDensity::Medium,
+            grain: 0,
             surface_opacity: 45,
             surface_blur: 24,
             dialog_opacity: 45,
             dialog_blur: 35,
             transparent: false,
+            density: Density::Normal,
+            corners: Corners::Soft,
+            text_scale: default_text_scale(),
+            game_accent: false,
         }
     }
 }
@@ -119,8 +195,14 @@ pub(crate) fn validate(appearance: &Appearance) -> Result<(), String> {
         || appearance.animated_opacity > 100
         || appearance.surface_opacity > 100
         || appearance.dialog_opacity > 100
+        || appearance.grain > 100
     {
-        return Err("Blur values must be 0-40 and opacity values must be 0-100".to_owned());
+        return Err(
+            "Blur values must be 0-40 and opacity and grain values must be 0-100".to_owned(),
+        );
+    }
+    if !(MIN_TEXT_SCALE..=MAX_TEXT_SCALE).contains(&appearance.text_scale) {
+        return Err("Text scale must be between 90 and 120 percent".to_owned());
     }
     if let Some(id) = &appearance.background {
         validate_id(id)?;
@@ -369,6 +451,62 @@ impl AppearanceProfile {
     }
 }
 
+fn share_code_header() -> String {
+    format!("{SHARE_CODE_PREFIX}{SHARE_CODE_VERSION}.")
+}
+
+impl AppearanceProfile {
+    fn share_code(self) -> Result<String, String> {
+        let json = serde_json::to_vec(&self.checked()?).map_err(|error| error.to_string())?;
+        if json.len() > MAX_SHARE_JSON_BYTES {
+            return Err("The theme is too large to be shared as a code".to_owned());
+        }
+        Ok(share_code_header() + &URL_SAFE_NO_PAD.encode(json))
+    }
+
+    // Codes arrive from the clipboard or a link, so they are validated like an imported file.
+    pub(crate) fn from_share_code(code: &str) -> Result<Self, String> {
+        let code = code.trim();
+        if code.len() > MAX_SHARE_CODE_CHARS {
+            return Err("The theme code is too long".to_owned());
+        }
+        let header = share_code_header();
+        let Some(encoded) = code.strip_prefix(&header) else {
+            let version = code
+                .split_once('.')
+                .and_then(|(head, _)| head.strip_prefix(SHARE_CODE_PREFIX));
+            return Err(
+                if version.is_some_and(|digits| {
+                    !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+                }) {
+                    "Unsupported theme code version".to_owned()
+                } else {
+                    "The text is not a Legio theme code".to_owned()
+                },
+            );
+        };
+        let json = URL_SAFE_NO_PAD
+            .decode(encoded)
+            .map_err(|_| "The theme code is corrupted".to_owned())?;
+        if json.len() > MAX_SHARE_JSON_BYTES {
+            return Err("The theme code is too long".to_owned());
+        }
+        serde_json::from_slice::<Self>(&json)
+            .map_err(|_| "The theme code is corrupted".to_owned())?
+            .checked()
+    }
+}
+
+#[tauri::command]
+pub fn create_theme_code(profile: AppearanceProfile) -> Result<String, String> {
+    profile.share_code()
+}
+
+#[tauri::command]
+pub fn read_theme_code(code: String) -> Result<AppearanceProfile, String> {
+    AppearanceProfile::from_share_code(&code)
+}
+
 #[tauri::command]
 pub async fn export_appearance(path: String, profile: AppearanceProfile) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -446,6 +584,42 @@ mod tests {
     }
 
     #[test]
+    fn interface_options_default_and_tolerate_unknown_values() {
+        let missing: Appearance = serde_json::from_str("{}").unwrap();
+        assert_eq!(missing.density, Density::Normal);
+        assert_eq!(missing.corners, Corners::Soft);
+        assert_eq!(missing.text_scale, 100);
+        let chosen: Appearance =
+            serde_json::from_str(r#"{"density": "compact", "corners": "round", "textScale": 110}"#)
+                .unwrap();
+        assert_eq!(chosen.density, Density::Compact);
+        assert_eq!(chosen.corners, Corners::Round);
+        assert_eq!(chosen.text_scale, 110);
+        let unknown: Appearance =
+            serde_json::from_str(r#"{"density": "huge", "corners": "blob"}"#).unwrap();
+        assert_eq!(unknown.density, Density::Normal);
+        assert_eq!(unknown.corners, Corners::Soft);
+    }
+
+    #[test]
+    fn rejects_out_of_range_text_scale() {
+        for text_scale in [89, 121] {
+            let scale = Appearance {
+                text_scale,
+                ..Appearance::default()
+            };
+            assert!(validate(&scale).is_err());
+        }
+        for text_scale in [90, 120] {
+            let scale = Appearance {
+                text_scale,
+                ..Appearance::default()
+            };
+            assert!(validate(&scale).is_ok());
+        }
+    }
+
+    #[test]
     fn unknown_animated_background_falls_back_to_none() {
         let unknown: Appearance =
             serde_json::from_str(r#"{"animatedBackground": "retro-glow"}"#).unwrap();
@@ -454,7 +628,11 @@ mod tests {
             AnimatedBackground::None,
             AnimatedBackground::Particles,
             AnimatedBackground::Dither,
+            AnimatedBackground::Scanlines,
             AnimatedBackground::Aurora,
+            AnimatedBackground::Ambient,
+            AnimatedBackground::Starfield,
+            AnimatedBackground::Seasonal,
         ] {
             let encoded = serde_json::to_string(&background).unwrap();
             assert_eq!(
@@ -462,6 +640,58 @@ mod tests {
                 background
             );
         }
+    }
+
+    #[test]
+    fn background_options_round_trip_and_default_for_older_appearances() {
+        let legacy: Appearance = serde_json::from_str(
+            r#"{"animatedBackground": "aurora", "animatedOpacity": 40, "dither": {}}"#,
+        )
+        .unwrap();
+        assert_eq!(legacy.animated_background, AnimatedBackground::Aurora);
+        assert_eq!(legacy.season, Season::Snow);
+        assert_eq!(legacy.star_density, StarDensity::Medium);
+        assert_eq!(legacy.grain, 0);
+        assert!(validate(&legacy).is_ok());
+        let chosen = Appearance {
+            animated_background: AnimatedBackground::Seasonal,
+            season: Season::Leaves,
+            star_density: StarDensity::High,
+            grain: 30,
+            ..Appearance::default()
+        };
+        let json = serde_json::to_string(&chosen).unwrap();
+        assert!(json.contains(r#""animatedBackground":"seasonal""#));
+        assert!(json.contains(r#""season":"leaves""#));
+        assert!(json.contains(r#""starDensity":"high""#));
+        assert_eq!(serde_json::from_str::<Appearance>(&json).unwrap(), chosen);
+        let unknown: Appearance =
+            serde_json::from_str(r#"{"season": "monsoon", "starDensity": "galaxy"}"#).unwrap();
+        assert_eq!(unknown.season, Season::Snow);
+        assert_eq!(unknown.star_density, StarDensity::Medium);
+        let loud = Appearance {
+            grain: 101,
+            ..Appearance::default()
+        };
+        assert!(validate(&loud).is_err());
+    }
+
+    #[test]
+    fn share_code_carries_the_background_options() {
+        let mut profile = shared_profile();
+        profile.appearance.animated_background = AnimatedBackground::Starfield;
+        profile.appearance.star_density = StarDensity::Low;
+        profile.appearance.season = Season::Rain;
+        profile.appearance.grain = 25;
+        let decoded = AppearanceProfile::from_share_code(&profile.share_code().unwrap()).unwrap();
+        assert_eq!(
+            decoded.appearance.animated_background,
+            AnimatedBackground::Starfield
+        );
+        assert_eq!(decoded.appearance.star_density, StarDensity::Low);
+        assert_eq!(decoded.appearance.season, Season::Rain);
+        assert_eq!(decoded.appearance.grain, 25);
+        assert_eq!(decoded.appearance.background, None);
     }
 
     #[test]
@@ -622,5 +852,70 @@ mod tests {
         let mut loud = profile;
         loud.appearance.dialog_blur = 41;
         assert!(loud.checked().is_err());
+    }
+
+    fn shared_profile() -> AppearanceProfile {
+        AppearanceProfile {
+            version: PROFILE_VERSION,
+            theme: Theme::Violet,
+            appearance: Appearance {
+                background: Some("a".repeat(32)),
+                accent: Some("#a67cf0".to_owned()),
+                game_accent: true,
+                ..Appearance::default()
+            },
+        }
+    }
+
+    #[test]
+    fn share_code_round_trips_without_the_background() {
+        let code = shared_profile().share_code().unwrap();
+        assert!(code.starts_with("LT1."));
+        assert!(code.len() < 1024);
+        assert!(
+            code[4..]
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        );
+        let decoded = AppearanceProfile::from_share_code(&format!("  {code}\n")).unwrap();
+        assert_eq!(decoded.theme, Theme::Violet);
+        assert_eq!(decoded.appearance.background, None);
+        assert!(decoded.appearance.game_accent);
+        assert_eq!(decoded.appearance.accent.as_deref(), Some("#a67cf0"));
+    }
+
+    #[test]
+    fn share_code_rejects_oversized_garbled_and_unknown_codes() {
+        let code = shared_profile().share_code().unwrap();
+        let oversized = format!("LT1.{}", "A".repeat(MAX_SHARE_CODE_CHARS));
+        assert!(AppearanceProfile::from_share_code(&oversized).is_err());
+        let long_json = URL_SAFE_NO_PAD.encode(vec![b' '; MAX_SHARE_JSON_BYTES + 1]);
+        assert!(AppearanceProfile::from_share_code(&format!("LT1.{long_json}")).is_err());
+        for garbled in [
+            "",
+            "LT1.",
+            "LT1.@@@",
+            "LT1.e30",
+            "hello",
+            &code[..code.len() - 7],
+        ] {
+            assert!(
+                AppearanceProfile::from_share_code(garbled).is_err(),
+                "{garbled}"
+            );
+        }
+        let future = code.replacen("LT1.", "LT2.", 1);
+        assert_eq!(
+            AppearanceProfile::from_share_code(&future).unwrap_err(),
+            "Unsupported theme code version"
+        );
+        let mut loud = shared_profile();
+        loud.appearance.dialog_blur = 41;
+        let json = serde_json::to_vec(&loud).unwrap();
+        let invalid = format!("LT1.{}", URL_SAFE_NO_PAD.encode(json));
+        assert!(AppearanceProfile::from_share_code(&invalid).is_err());
+        let mut old = shared_profile();
+        old.version = PROFILE_VERSION + 1;
+        assert!(old.share_code().is_err());
     }
 }

@@ -201,7 +201,21 @@ The URL must point directly to the file: the download client does not follow red
 
 SHA-256 verification, when enabled for a verified release, precedes extraction. A hash mismatch removes the corrupt archive and requires a retry.
 
-Single ZIP, 7z, and RAR archives are supported and identified by their content signatures. The extractor rejects unsupported formats, multipart archives, unsafe paths, links and special files, and duplicate paths even when capitalization differs. There is no password field for encrypted archives. Limits are 100,000 entries and an expanded size no greater than the smaller of 64 GiB and 200 times the archive size. Incomplete staging is cleaned up on error.
+ZIP, 7z, and RAR archives are supported and identified by their content signatures. The extractor rejects unsupported formats, lone volumes of a multipart archive, unsafe paths, links and special files, and duplicate paths even when capitalization differs. There is no password field for encrypted archives. Limits are 100,000 entries and an expanded size no greater than the smaller of 64 GiB and 200 times the archive size. Incomplete staging is cleaned up on error.
+
+### Multipart archives
+
+A link that resolves to several files (a GoFile folder) may hold one multipart archive. `archive_parts.rs` recognizes the volumes by name, ignoring ASCII case: `name.part1.rar` (any zero padding), `name.rar` with `name.r00`, `name.r01`, and the byte splits `name.7z.001` and `name.zip.001`. The set must be complete and contiguous from its first volume and all volumes must come from the same link; otherwise the link fails with the name of the missing, repeated or unexpected part. A link to a single volume, a folder that mixes a set with other archives, split ZIP archives (`name.z01` plus `name.zip`) and other byte splits (`name.rar.001`) are rejected. Without any volume the first file of the folder is downloaded, as before.
+
+The whole set is one job. Before the first byte each part is probed for its exact size, the first part must start with the signature its name announces, and the total is checked against the source like a single archive. Parts are downloaded in order to `<id>.<n>.part` and renamed to `<id>.<n>.archive`; progress, speed, pause, cancel and the bandwidth limit cover the whole job, and the list shows "part 2 of 5". A failed part does not touch the finished ones: the retry resumes that part with `Range`, and each part has its own three retries before the next link is tried. A new link keeps finished parts only when it serves the same files with the same sizes. After a restart the job continues from the first incomplete part. The parts layout is saved inside `downloads.mirror_plan` (format 2); plans saved before it (no `format` field) are migrated on load, so no schema change is involved.
+
+Sources publish at most one SHA-256 per release. For a multipart release it must match the parts joined in order, which for `.001` splits is the hash of the original archive; a mismatch removes every part. Extraction reads the parts as one stream (`JoinedParts`), as libarchive reads RAR4 and RAR5 volumes and byte splits; every path, link, size and staging rule above applies unchanged, and the parts are removed only after a successful install.
+
+### Disk space
+
+Before queueing, `forecast_download_space` estimates the space a download needs: the archive plus its extracted copy staged beside it in the download directory, and the extracted size again in the library. Before an archive can be read the extracted size is taken as one to two times the archive size (`ESTIMATED_EXPANSION`). When the download directory and the library share a volume the needs add up. Jobs already in the queue reserve what they will still write on each volume. The verdict is `enough` (the estimate fits with a 512 MiB margin), `tight` (the lower bound fits), `insufficient` (even the lower bound does not fit) or `unknown` (size or free space unknown). The game page asks for confirmation for anything but `enough`; an insufficient forecast explains why the download would fail and still offers an explicit override, since downloads were never blocked by space before.
+
+Before extraction the space is checked again with the size a ZIP declares in its central directory, or the archive size for other formats, so a job that cannot fit fails with a clear error instead of filling the disk. The extraction limit keeps applying while files are written.
 
 ### Executable selection and installation
 
@@ -305,6 +319,47 @@ This contract covers the Legio application rather than game archives. The pipeli
 ```
 
 The version comes from `src-tauri/Cargo.toml`. The generator requires exactly one bundle for each format and its corresponding `.sig` file. Tauri verifies the signature against the configured public key before installation. Prereleases do not replace the stable channel. For releases, AUR packages, and update management, see [UPDATING.md](UPDATING.md).
+
+## Library organization in the local database
+
+Schema version 40 adds per-game organization to SQLite. It stays local: library
+manifests (`library.ldf`) do not carry it.
+
+| Storage | Column or rule |
+| --- | --- |
+| `games.favorite` | `0` or `1`, default `0` |
+| `games.play_status` | `none`, `backlog`, `playing`, `completed`, `on_hold` or `dropped`, default `none`; the frontend contract uses `onHold` |
+| `games.added_at` | Milliseconds since the Unix epoch, set by the `games_added_at` trigger on insert; `NULL` for games that existed before version 40 |
+| `collections` | `id` (UUID), `name` (1 to 64 characters, unique ignoring case), `position` (display order) |
+| `collection_games` | `(collection_id, game_id)` primary key and `position` (order of addition); both foreign keys cascade on delete |
+
+Commands validate names after trimming, reject control characters and duplicates
+(compared case-insensitively), accept at most 256 collections and 256 game IDs per
+call, and require a reorder to list every collection exactly once.
+`get_library_organization` and every organization command return the whole
+snapshot `{ games: [{ gameId, favorite, playStatus, addedAt }], collections: [{ id, name, gameIds }] }`.
+
+Removing a game removes its memberships. Steam re-sync updates rows in place, and
+its cleanup of reclassified non-game rows skips favorites, rows with a status and
+collection members, as it already skips renamed rows and selected Steam accounts.
+
+## Launch profiles in the local database
+
+Schema version 41 adds launch profiles. They stay local: library manifests
+(`library.ldf`) do not carry them. See [LIBRARY.md](LIBRARY.md#launch-profiles) for
+behavior.
+
+| Storage | Column or rule |
+| --- | --- |
+| `launch_profiles` | `id` (UUID), `game_id` (foreign key, cascades on delete), `name` (1 to 48 characters, unique per game ignoring case), `position` (creation order), `overrides` (JSON) |
+| `game_last_launch_profile` | `game_id` (primary key, cascades on delete) and `profile_id` (cascades on delete); no row means the base settings |
+
+`overrides` is `{ arguments, environment, runnerPath, linuxPerformance }` with every
+field optional; a missing field inherits. Commands trim names, reject control
+characters and duplicates (compared case-insensitively), and accept at most 12
+profiles per game. Profiles of Steam-managed games can only override `arguments`.
+`get_launch_profiles` and every profile command return the whole snapshot
+`{ profiles: [{ id, gameId, name, overrides }], lastUsed: { gameId: profileId } }`.
 
 ## Code references
 

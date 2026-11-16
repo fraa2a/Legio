@@ -6,6 +6,7 @@
   import Icon from "../../components/ui/Icon.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
+  import { openPlaytimeRecap } from "../../stores/navigation";
   import { getPlaytimeActivity } from "../../services/playtime";
   import { createResource } from "../../stores/resource";
   import { formatDate } from "../../utils/format";
@@ -33,7 +34,8 @@
 
 <Panel title={t("Attività di gioco", $language)} description={monthLabel.charAt(0).toLocaleUpperCase() + monthLabel.slice(1)} class="min-h-0">
   {#snippet actions()}
-    <div class="flex gap-1">
+    <div class="flex items-center gap-1">
+      <Button label={t("Annata di gioco", $language)} variant="secondary" size="sm" onClick={openPlaytimeRecap} />
       <Button label={t("Mese precedente", $language)} variant="secondary" size="sm" iconOnly onClick={() => monthOffset--}><Icon name="previous" /></Button>
       <Button label={t("Mese successivo", $language)} variant="secondary" size="sm" iconOnly disabled={monthOffset >= 0} onClick={() => monthOffset++}><Icon name="next" /></Button>
     </div>

@@ -14,7 +14,7 @@ FlexSearch is pinned to upstream commit `4c3966709f855c6980c21035cf230b2f9150d06
 
 ## Supported downloads
 
-Supported downloads resolve to a single ZIP, 7z or RAR archive with a known exact host size. Standalone installers, unknown-length responses, grouped/multipart archives, torrent/magnet links and paid/private Hydra backend integrations are not supported.
+Supported downloads resolve to a single ZIP, 7z or RAR archive, or to one complete multipart set behind a single folder link, with a known exact host size. Each `uris` entry is a mirror of the whole release, so volumes listed as separate entries are not joined. Standalone installers, unknown-length responses, torrent/magnet links and paid/private Hydra backend integrations are not supported.
 
 | Provider | Resolution |
 | --- | --- |

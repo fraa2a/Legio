@@ -56,9 +56,18 @@ export function phaseLabel(job: DownloadJob, selected?: Language): string | null
   if (job.pauseReason === "game_running") return t("Gioco aperto: aggiornamento bloccato", selected);
   if (job.pauseReason === "playing") return t("In pausa mentre giochi", selected);
   if (job.pauseReason === "automatic_disabled") return t("Aggiornamenti automatici disattivati", selected);
-  if (job.status === "downloading") return `Download ${Math.round(progressOf(job))}%`;
+  const part = partLabel(job, selected);
+  if (job.status === "downloading") return `Download ${Math.round(progressOf(job))}%${part === null ? "" : ` · ${part}`}`;
   const phase = downloadState(job.status)?.phase;
-  return phase === null ? null : t(phase ?? job.status, selected);
+  const label = phase === null ? null : t(phase ?? job.status, selected);
+  return part === null ? label : label === null ? part : `${label} · ${part}`;
+}
+
+/** "part 2 of 5" while the parts of a multipart archive are still being downloaded. */
+export function partLabel(job: DownloadJob, selected?: Language): string | null {
+  const parts = job.parts;
+  if (parts == null || parts.total < 2 || !["downloading", "paused", "waiting"].includes(job.status)) return null;
+  return t("parte {0} di {1}", selected, [String(parts.current), String(parts.total)]);
 }
 
 export function progressOf(job: DownloadJob): number {

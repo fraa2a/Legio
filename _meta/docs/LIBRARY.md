@@ -101,6 +101,75 @@ legacy installation does not change how future update archives are overlaid.
 Filesystem/database journals remain necessary because copying games and updating
 multiple manifests cannot be one ordinary file replacement transaction.
 
+## Organization and views
+
+Games can be marked as favorites, given a play status (backlog, playing, completed,
+on hold, dropped) and added to any number of named collections. Versions of one
+game share a library card, so the card and the game page change all of them at once
+and read them together: a favorite or membership on any version counts, the status
+comes from the shown version or else the first version that has one. Storage and
+validation are described in [SCHEMA.md](SCHEMA.md#library-organization-in-the-local-database).
+
+The star on a card toggles the favorite. The collection button on a card, in the
+list and on the game page opens a dialog with the status and a switch per
+collection, plus a field to create one. The library toolbar manages collections
+(create, rename, reorder and delete with confirmation; games stay in the library).
+
+The toolbar switches between three views:
+
+- Grid: the cover grid, with a slider from 70% to 150% of the default tile width.
+- List: a table with sortable name, playtime, last played and source columns, plus
+  status. Clicking the current column flips the direction; a new column starts
+  descending for numbers and dates and ascending for text.
+- Shelves: one horizontal row per collection in collection order, then the games
+  without a collection.
+
+Every view applies the same sort (name, playtime, last played, recently added or
+source) and filters (favorites only, status, collection or games without one).
+Unknown dates sort last in both directions; games added before organization was
+stored have no known addition date. View, sort, direction, cover size and filters
+are saved in the application preferences under `libraryView`. A filter on a
+deleted collection shows every game. Sorting, filtering and resizing glide the
+grid cards near the viewport to their new places, without motion when reduced
+motion is preferred. Disk usage is not part of the list yet.
+
+## Launch profiles
+
+A game can have up to 12 named launch profiles, such as "with mods", "vanilla" or
+"windowed". A profile is a set of overrides of the game's launch settings; every
+field it leaves out inherits the base settings, which stay the implicit
+"Predefinito" profile. A game without profiles launches exactly as before and its
+Play button is unchanged. Storage and validation are described in
+[SCHEMA.md](SCHEMA.md#launch-profiles-in-the-local-database).
+
+| Override | Applies to | Replaces |
+| --- | --- | --- |
+| Arguments | every game | Steam launch arguments, native launch arguments, or the arguments after the executable of a compatibility launch |
+| Environment variables | manual games | The whole environment of the base settings (an empty map clears it) |
+| Runner | Linux games run through a compatibility runner | The runner of the game or of the global default |
+| GameMode and Gamescope | Linux games run through a compatibility runner | The whole Linux performance block |
+
+Resolution happens in the Rust launch paths, once, before the mod loader arguments
+are appended and before the final validation of arguments, environment and DLL
+overrides. Overrides are checked with the same validators as the base settings when
+saved and again at launch. A launch that names an unknown profile, or a profile of
+another game, fails instead of falling back to the base settings. The backend
+remembers the profile of the last launch that started; deleting that profile makes
+the game return to the base settings, and removing a game removes its profiles.
+
+Mod profiles are not part of a launch profile. A launch always uses the game's
+active mod profile, because deploying another profile rewrites files in the game
+folder and changes the active profile. Several executables per game do not exist
+either, so there is no executable override.
+
+Profiles are managed in the "Profili di avvio" section of the game settings, with
+the same fields as the base settings and a switch per field that returns it to
+inheriting. When a game has profiles, the Play button becomes a split control: the
+main part launches the last used profile and the arrow opens a menu, expanding from
+the button into one surface, to pick another one. Picking an entry launches it and
+makes it the last used. Desktop shortcuts and `--launch-game=` always launch the
+base settings, and library manifests do not carry profiles.
+
 ## Advanced playtime editing
 
 The per-game danger section can set Legio's local playtime total in hours and
@@ -108,3 +177,54 @@ minutes, with explicit confirmation. A persisted adjustment preserves real sessi
 history and calendar activity. Future sessions add time normally. Active sessions,
 invalid totals and externally detected running games are rejected by the backend.
 Steam account playtime is not modified.
+
+
+
+## Import from other launchers
+
+The initial setup (onboarding) offers games installed with Heroic, Lutris, itch and
+Bottles, only when at least one is found. Detection is read-only: Legio never writes
+to, locks or modifies another launcher's folders. Each launcher is read on its own, so
+one unreadable launcher does not hide the others.
+
+| Launcher | Platform | Read |
+| --- | --- | --- |
+| Heroic | Linux, Flatpak, Windows | In `~/.config/heroic`, the Flatpak config or `%APPDATA%/heroic`: `legendaryConfig/legendary/installed.json`, `gog_store/installed.json` (plus `goggame-<id>.info` in the game folder), `nile_config/nile/installed.json`, `sideload_apps/library.json`, `store_cache/*_library.json` for titles and `GamesConfig/<app>.json` for the Wine prefix and runner name |
+| Lutris | Linux, Flatpak | `pga.db` (table `games`, runners `wine` and `linux`) and `games/<configpath>.yml` for `game.exe`, `game.prefix` and `wine.version` |
+| itch | Linux, Flatpak, Windows | `db/butler.db` tables `caves`, `games` and `install_locations`; the executable comes from the `verdict` candidates only when unambiguous |
+| Bottles | Linux, Flatpak | `bottles/<bottle>/bottle.yml`: `Runner` and `External_Programs`; the bottle folder is the Wine prefix |
+
+SQLite databases are opened read-only and immutable. Files have size caps, entry
+counts are bounded, symbolic links leaving the launcher folder are not followed and
+every path is checked to exist before it is offered. The YAML files are read with a
+tolerant scalar extractor that skips any value it cannot read with certainty.
+
+Selected games go through the manual import path: the same executable validation and
+duplicate detection as adding a game by hand. Games whose executable is already in
+the library, or whose folder is already used by a library entry (including Steam
+installs), are skipped. A game without a known executable is listed as not
+importable, because the library cannot hold an entry without one. On Linux, the
+detected Wine prefix of a Windows game becomes its prefix in the compatibility
+settings; the runner name is shown but not applied. No database migration is needed.
+
+## Disk usage
+
+`folder_size.rs` walks an installation off the async executor. It never follows
+links, counts only regular files, and marks the result partial when an entry cannot
+be read. On Linux it sums allocated blocks (the stat call already reports them); on
+Windows it sums apparent length. The walk checks a cancel flag per entry and pauses
+briefly every 1024 entries and between games.
+
+`disk_usage.rs` measures only when a view asks (`refresh_disk_usage`): library
+settings, the "Cosa occupa spazio" dialog, or the game page for that single game.
+Games are Legio installations plus Steam games whose install folder is already
+recorded. Results are cached in `disk-usage.json` in the app cache folder, keyed by
+game ID with folder path, folder modification time and measurement time. An entry
+is dropped when the path or folder mtime differs or it is older than seven days,
+and explicitly after install, update, transfer and uninstall. No database schema is
+involved. `legio:disk-usage-changed` tells the UI to read the cache again.
+
+`get_library_usage` reports per library the total and free bytes of its disk, the
+bytes of its measured games and the remaining used space as "other". The figure is
+flagged as an estimate while any game is unmeasured or partial. Uninstalling from
+the usage dialog reuses the regular uninstall dialog and its backend path.

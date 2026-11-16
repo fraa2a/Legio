@@ -36,8 +36,9 @@ export function inspectSteamGameLaunch(gameId: string): Promise<SteamGameLaunchI
   return invoke<SteamGameLaunchInspection>("inspect_steam_game_launch", { gameId });
 }
 
-export function launchSteamGame(gameId: string, confirmAccountSwitch: boolean): Promise<SteamLaunchResult> {
-  return invoke<SteamLaunchResult>("launch_steam_game", { gameId, confirmAccountSwitch });
+// A null profile launches with the game's base settings.
+export function launchSteamGame(gameId: string, confirmAccountSwitch: boolean, profileId: string | null): Promise<SteamLaunchResult> {
+  return invoke<SteamLaunchResult>("launch_steam_game", { gameId, confirmAccountSwitch, profileId });
 }
 
 export interface GameLaunchState {
