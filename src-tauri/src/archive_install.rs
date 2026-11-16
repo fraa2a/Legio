@@ -299,7 +299,7 @@ fn decode_entry_name(bytes: &[u8]) -> compress_tools::Result<String> {
 
 pub(crate) fn safe_relative_path(name: &str) -> Result<PathBuf, String> {
     if name.is_empty() || name.contains('\\') || name.contains(':') || name.contains('\0') {
-        return Err(format!("Archive has an unsafe path: {name:?}"));
+        return Err(format!("Archive has an unsafe path: '{name}'"));
     }
     let name = name.strip_suffix('/').unwrap_or(name);
     let path = Path::new(name);
@@ -307,12 +307,12 @@ pub(crate) fn safe_relative_path(name: &str) -> Result<PathBuf, String> {
         .components()
         .any(|part| !matches!(part, Component::Normal(_)))
     {
-        return Err(format!("Archive has an unsafe path: {name:?}"));
+        return Err(format!("Archive has an unsafe path: '{name}'"));
     }
     if name.split('/').any(|part| {
         part.is_empty() || part == "." || part == ".." || part.ends_with('.') || part.ends_with(' ')
     }) {
-        return Err(format!("Archive has an unsafe path: {name:?}"));
+        return Err(format!("Archive has an unsafe path: '{name}'"));
     }
     if name.split('/').any(|part| {
         let stem = part.split('.').next().unwrap_or("").to_ascii_uppercase();
@@ -342,7 +342,7 @@ pub(crate) fn safe_relative_path(name: &str) -> Result<PathBuf, String> {
                 | "LPT9"
         )
     }) {
-        return Err(format!("Archive has a reserved path: {name:?}"));
+        return Err(format!("Archive has a reserved path: '{name}'"));
     }
     Ok(path.to_path_buf())
 }

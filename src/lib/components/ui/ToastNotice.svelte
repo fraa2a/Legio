@@ -9,6 +9,8 @@
   import Button from "./Button.svelte";
   import Icon, { type IconName } from "./Icon.svelte";
   import IconButton from "./IconButton.svelte";
+  import CopyButton from "./CopyButton.svelte";
+  import { failureReport, technicalDetail } from "../../utils/error-message";
 
   const tones: Record<ToastTone, { icon: IconName; text: string; line: string }> = {
     info: { icon: "info", text: "text-legio-info", line: "inset-ring-legio-info/25" },
@@ -69,13 +71,26 @@
 >
   {#each $toast as notification (notification.id)}
     {@const tone = tones[notification.tone]}
+    {@const technical = technicalDetail(notification.message, notification.detail)}
     <div
       transition:fly={{ y: 16, duration: reducedMotion ? 0 : 200 }}
       role={notification.tone === "error" ? "alert" : "status"}
       class="legio-popover pointer-events-auto flex items-start gap-3 rounded-card p-4 text-sm text-legio-fg shadow-xl shadow-black/30 inset-ring light:shadow-zinc-900/15 {tone.line}"
     >
       <span class="mt-0.5 shrink-0 {tone.text}"><Icon name={tone.icon} /></span>
-      <p class="min-w-0 flex-1 break-words">{notification.message}</p>
+      <div class="min-w-0 flex-1 select-text break-words" data-selectable>
+        <p>{notification.message}</p>
+        {#if technical !== null}
+          <details class="group mt-1">
+            <summary class="flex w-fit cursor-pointer list-none items-center gap-1 text-xs text-legio-fg-muted transition-colors hover:text-legio-fg">
+              {t("Dettagli tecnici", $language)}
+              <span class="transition-transform group-open:rotate-180 motion-reduce:transition-none"><Icon name="chevron-down" size="sm" /></span>
+            </summary>
+            <pre class="mt-1 whitespace-pre-wrap break-words font-mono text-xs text-legio-fg-muted">{technical}</pre>
+          </details>
+        {/if}
+      </div>
+      {#if technical !== null}<CopyButton text={failureReport(notification.message, notification.detail)} size="inline-sm" label={t("Copia l'errore", $language)} />{/if}
       {#if notification.onRetry}<Button label={notification.retryLabel ?? t("Riprova", $language)} variant="link" class="shrink-0" onClick={() => { dismissToast(notification.id); notification.onRetry?.(); }} />{/if}
       <IconButton size="inline-sm" variant="plain" label={t("Chiudi notifica", $language)} onClick={() => dismissToast(notification.id)}><Icon name="close" /></IconButton>
     </div>

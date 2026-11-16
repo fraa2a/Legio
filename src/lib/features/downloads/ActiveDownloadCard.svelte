@@ -94,7 +94,7 @@
       </div>
 
       {#if job.error !== null}
-        <div class="mt-4"><ErrorBanner message={job.error} /></div>
+        <div class="mt-4"><ErrorBanner message={t("Download non riuscito.", $language)} detail={job.error} /></div>
       {/if}
 
       <div class="mt-4 flex flex-wrap gap-2">

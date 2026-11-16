@@ -49,7 +49,7 @@
 
 <Dialog open title={t("Rimuovi libreria", $language)} dismissible={!pending} {onClose}>
   {#snippet children(close)}
-    <p class="break-all rounded-control bg-legio-fill p-3 font-mono text-xs text-legio-fg">{shown.root}</p>
+    <p class="select-text break-all rounded-control bg-legio-fill p-3 font-mono text-xs text-legio-fg" data-selectable>{shown.root}</p>
     {#if total === 0}
       <p class="text-sm text-legio-fg">{t("La libreria verrà tolta dall'elenco. La cartella e il suo catalogo restano sul disco: potrai aggiungerla di nuovo in seguito.", $language)}</p>
     {:else}

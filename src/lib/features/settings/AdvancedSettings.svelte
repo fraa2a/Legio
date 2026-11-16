@@ -71,13 +71,13 @@
     {#if applicationStatus?.directory ?? status?.directory}
       <div class="pt-3">
         <p class="text-xs text-legio-fg-muted">{t("Cartella dei log", $language)}</p>
-        <p class="mt-1 break-all font-mono text-xs text-legio-fg">{applicationStatus?.directory ?? status?.directory}</p>
+        <p class="mt-1 select-text break-all font-mono text-xs text-legio-fg" data-selectable>{applicationStatus?.directory ?? status?.directory}</p>
         <p class="mt-2 text-xs text-legio-fg-muted">{t("Registro degli avvii: game-launches.jsonl. Include fasi, errori e codici di uscita senza argomenti o valori delle variabili d'ambiente.", $language)}</p>
       </div>
     {/if}
     {#if launchDirectory}
       <p class="text-xs text-legio-fg-muted">{t("Ogni gioco manuale salva launch.json, launch.log, stdout.log, stderr.log e runner-exit-code.txt nella propria cartella. Il debug aggiunge i dettagli di Proton o Wine.", $language)}</p>
-      <p class="break-all font-mono text-xs text-legio-fg">{launchDirectory}</p>
+      <p class="select-text break-all font-mono text-xs text-legio-fg" data-selectable>{launchDirectory}</p>
     {/if}
     <SettingsRow label={t("Crea pacchetto di supporto", $language)} description={t("Salva uno zip con versione, sistema, impostazioni non sensibili e log redatti da allegare a una segnalazione. Il contenuto è elencato in README.txt.", $language)}>
       <Button label={t("Crea pacchetto", $language)} variant="secondary" disabled={creatingBundle} onClick={() => void createBundle()} />
