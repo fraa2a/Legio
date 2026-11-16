@@ -190,7 +190,10 @@ test("live_blur_targets_surface_not_foreground", async () => {
     assert.ok(!foreground.getPropertyValue("backdrop-filter") || foreground.getPropertyValue("backdrop-filter") === "none");
     assert.notEqual(foreground.willChange, "opacity");
     assert.equal(dom.window.getComputedStyle(dialog).getPropertyValue("backdrop-filter"), "none");
-    assert.equal(dom.window.getComputedStyle(surface).getPropertyValue("backdrop-filter"), "var(--legio-dialog-blur)");
+    // jsdom resolves var() in computed styles, so compare against the resolved theme value.
+    const blur = dom.window.getComputedStyle(surface).getPropertyValue("--legio-dialog-blur").trim();
+    assert.ok(blur, "the dialog blur variable is defined");
+    assert.equal(dom.window.getComputedStyle(surface).getPropertyValue("backdrop-filter"), blur);
     assert.equal(dom.window.getComputedStyle(surface).pointerEvents, "none");
   } finally { await unmount(instance); }
 });
