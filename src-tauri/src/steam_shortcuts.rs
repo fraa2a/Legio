@@ -1150,9 +1150,12 @@ mod tests {
         let Value::Map(fields) = &file.shortcuts()[0].value else {
             panic!("entry is a map");
         };
+        // The separator is the platform's own, as in the path Steam expects on that system.
         assert_eq!(
             text_field(fields, "icon").unwrap(),
-            format!("/grid/{}_icon.png", changes[0].app_id)
+            grid.join(format!("{}_icon.png", changes[0].app_id))
+                .to_str()
+                .unwrap()
         );
     }
 
