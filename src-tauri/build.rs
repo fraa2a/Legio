@@ -77,6 +77,8 @@ fn main() {
             "inspect_steam_game_launch",
             "list_saved_steam_accounts",
             "set_game_steam_account_preference",
+            "get_game_start_steam",
+            "set_game_start_steam",
             "list_steam_shortcut_accounts",
             "preview_steam_shortcuts",
             "export_steam_shortcuts",

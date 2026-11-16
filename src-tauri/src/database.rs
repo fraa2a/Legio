@@ -28,7 +28,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-pub(crate) const SCHEMA_VERSION: i64 = 41;
+pub(crate) const SCHEMA_VERSION: i64 = 42;
 pub(crate) const DATABASE_FILE_NAME: &str = "legio.sqlite3";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -1183,6 +1183,42 @@ impl Database {
                  RETURNING id, steam_app_id, automatic_name, name_override, steam_install_path, steam_account_id, executable_path, installation_root",
                 params![game_id, steam_id], game_from_row,
             ).optional().map_err(database_error)?.ok_or_else(|| "game was not found or has no Steam App ID".to_owned())
+        })
+    }
+
+    /// Whether Steam is started, and signed in, before launching this game outside Steam.
+    pub fn start_steam_before_launch(&self, game_id: &str) -> Result<bool, String> {
+        let game_id = parse_game_id(game_id)?;
+        self.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT start_steam FROM games WHERE id = ?1",
+                    [&game_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(database_error)?
+                .ok_or_else(|| "game was not found".to_owned())
+        })
+    }
+
+    pub fn set_start_steam_before_launch(
+        &self,
+        game_id: &str,
+        enabled: bool,
+    ) -> Result<(), String> {
+        let game_id = parse_game_id(game_id)?;
+        self.with_connection(|connection| {
+            let changed = connection
+                .execute(
+                    "UPDATE games SET start_steam = ?2 WHERE id = ?1",
+                    params![game_id, enabled],
+                )
+                .map_err(database_error)?;
+            if changed == 0 {
+                return Err("game was not found".to_owned());
+            }
+            Ok(())
         })
     }
 
@@ -3472,6 +3508,31 @@ mod tests {
             .unwrap_err();
         assert_eq!(error, "a game needs an automatic name or a name override");
         drop(database);
+    }
+
+    #[test]
+    fn steam_start_preference_defaults_on_and_persists() {
+        let directory = TempDir::new();
+        let database = Database::open(&directory).unwrap();
+        let game = database
+            .create_game(CreateGameInput {
+                name: "Test game".to_owned(),
+                steam_app_id: Some(400),
+            })
+            .unwrap();
+        assert!(database.start_steam_before_launch(&game.id).unwrap());
+
+        database
+            .set_start_steam_before_launch(&game.id, false)
+            .unwrap();
+        drop(database);
+        let reopened = Database::open(&directory).unwrap();
+        assert!(!reopened.start_steam_before_launch(&game.id).unwrap());
+        assert!(
+            reopened
+                .set_start_steam_before_launch(&uuid::Uuid::new_v4().to_string(), true)
+                .is_err()
+        );
     }
 
     #[test]

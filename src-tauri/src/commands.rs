@@ -987,6 +987,32 @@ pub async fn set_game_steam_account_preference(
 }
 
 #[tauri::command]
+pub async fn get_game_start_steam(app: AppHandle, game_id: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<DatabaseState>()
+            .database()?
+            .start_steam_before_launch(&game_id)
+    })
+    .await
+    .map_err(|error| format!("Steam start preference task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn set_game_start_steam(
+    app: AppHandle,
+    game_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<DatabaseState>()
+            .database()?
+            .set_start_steam_before_launch(&game_id, enabled)
+    })
+    .await
+    .map_err(|error| format!("Steam start preference task failed: {error}"))?
+}
+
+#[tauri::command]
 pub async fn list_steam_shortcut_accounts()
 -> Result<crate::steam_shortcuts_export::ShortcutAccounts, String> {
     tauri::async_runtime::spawn_blocking(crate::steam_shortcuts_export::list_accounts)

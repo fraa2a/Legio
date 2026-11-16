@@ -28,13 +28,11 @@ use tauri::{AppHandle, Manager, Runtime};
 
 #[cfg_attr(not(target_os = "linux"), allow(unused_imports))]
 use crate::runner_discovery;
-#[cfg(target_os = "linux")]
-use crate::steam_process;
-use crate::{game_process, steam_local, steam_switch};
+use crate::{game_process, steam_local, steam_process, steam_switch};
 
 const START_TIMEOUT: Duration = Duration::from_secs(120);
-#[cfg(target_os = "linux")]
-const STEAM_START_TIMEOUT: Duration = Duration::from_secs(60);
+// Covers starting Steam and signing in, which can wait for the user to enter credentials.
+const STEAM_READY_TIMEOUT: Duration = Duration::from_secs(180);
 #[cfg(target_os = "linux")]
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 #[cfg(windows)]
@@ -44,19 +42,22 @@ const SESSION_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 const LOG_READ_LIMIT: u64 = 128 * 1024;
 const LOG_LINE_LIMIT: usize = 8 * 1024;
 
-#[cfg(target_os = "linux")]
-fn ensure_steam_for_launch(
-    launch_via_steam: bool,
-    online_fix: bool,
-    steam_root: Option<&Path>,
-    ensure_running: impl FnOnce(&Path) -> Result<(), String>,
-) -> Result<(), String> {
-    if !launch_via_steam && !online_fix {
-        return Ok(());
+/// The Steam client to start before a game with a Steam App ID, when the game's setting asks for it.
+/// Without a local Steam client the game starts on its own, as there is nothing to open.
+fn steam_root_to_start(
+    database: &Database,
+    game: &crate::database::Game,
+) -> Result<Option<PathBuf>, String> {
+    if game.steam_app_id.is_none() || !database.start_steam_before_launch(&game.id)? {
+        return Ok(None);
     }
-    let steam_root = steam_root
-        .ok_or_else(|| "Steam launch and Online Fix require a Steam installation".to_owned())?;
-    ensure_running(steam_root)
+    match steam_client_root() {
+        Ok(root) => Ok(Some(root)),
+        Err(error) => {
+            crate::application_log::failure("start_steam_before_launch", error);
+            Ok(None)
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -447,6 +448,7 @@ impl GameLaunchManager {
         }
         validate_launch_arguments(&config.arguments)?;
         game_process::validate_environment_variables(&config.environment, "Launch environment")?;
+        let steam_root = steam_root_to_start(&database, &game)?;
         let working_directory =
             game_working_directory(config.working_directory.as_deref(), parent)?;
         let mut command = crate::background_process::command(&executable);
@@ -490,7 +492,13 @@ impl GameLaunchManager {
                         session_database: Some(database),
                         ..LaunchContext::default()
                     },
-                    move |_| {
+                    move |cancel| {
+                        if let Some(root) = steam_root.as_deref() {
+                            steam_process::ensure_signed_in(root, STEAM_READY_TIMEOUT, cancel)?;
+                        }
+                        if cancel.load(Ordering::Acquire) {
+                            return Err("Launch cancelled".to_owned());
+                        }
                         command
                             .spawn()
                             .map(Some)
@@ -638,6 +646,11 @@ impl GameLaunchManager {
         } else {
             None
         };
+        // Launch via Steam and Online Fix always need Steam; otherwise the game's setting decides.
+        let steam_root_to_start = match &steam_root {
+            Some(root) => Some(root.clone()),
+            None => steam_root_to_start(&database, &game)?,
+        };
         let mut command = compatibility_command::prepare(
             &app,
             &game.id,
@@ -742,12 +755,9 @@ impl GameLaunchManager {
                         ..LaunchContext::default()
                     },
                     move |cancel| {
-                        ensure_steam_for_launch(
-                            launch_via_steam,
-                            config.online_fix,
-                            steam_root.as_deref(),
-                            |root| steam_process::ensure_running(root, STEAM_START_TIMEOUT, cancel),
-                        )?;
+                        if let Some(root) = steam_root_to_start.as_deref() {
+                            steam_process::ensure_signed_in(root, STEAM_READY_TIMEOUT, cancel)?;
+                        }
                         if cancel.load(Ordering::Acquire) {
                             return Err("Launch cancelled".to_owned());
                         }
@@ -1627,6 +1637,16 @@ fn format_dll_overrides(overrides: &std::collections::BTreeMap<String, String>) 
         .join(";")
 }
 
+#[cfg(windows)]
+fn steam_client_root() -> Result<PathBuf, String> {
+    steam_local::default_steam_roots()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|root| dunce::canonicalize(root).ok())
+        .find(|root| root.join("steam.exe").is_file())
+        .ok_or_else(|| "No local Steam client installation was found".to_owned())
+}
+
 #[cfg(target_os = "linux")]
 fn steam_client_root() -> Result<PathBuf, String> {
     steam_local::default_steam_roots()
@@ -2196,55 +2216,6 @@ mod tests {
         assert!(manager.require_idle("game").is_err());
         manager.set_state("game", GameStatus::Idle, None);
         manager.require_idle("game").unwrap();
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn steam_starts_for_steam_launch_or_online_fix() {
-        let steam_root = Path::new("/steam");
-        let mut started = false;
-
-        ensure_steam_for_launch(false, false, None, |_| {
-            started = true;
-            Ok(())
-        })
-        .unwrap();
-        assert!(!started);
-
-        ensure_steam_for_launch(true, false, Some(steam_root), |root| {
-            assert_eq!(root, steam_root);
-            started = true;
-            Ok(())
-        })
-        .unwrap();
-        assert!(started);
-
-        started = false;
-        ensure_steam_for_launch(false, true, Some(steam_root), |_| {
-            started = true;
-            Ok(())
-        })
-        .unwrap();
-        assert!(started);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn launch_via_steam_requires_a_steam_installation() {
-        let error = ensure_steam_for_launch(true, false, None, |_| Ok(())).unwrap_err();
-        assert!(error.contains("require a Steam installation"));
-        assert!(ensure_steam_for_launch(false, true, None, |_| Ok(())).is_err());
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn steam_start_failure_is_reported_before_runner_launch() {
-        let error = ensure_steam_for_launch(true, false, Some(Path::new("/steam")), |_| {
-            Err("Could not start Steam: permission denied".to_owned())
-        })
-        .unwrap_err();
-
-        assert!(error.contains("Could not start Steam: permission denied"));
     }
 
     fn test_dir(label: &str) -> PathBuf {

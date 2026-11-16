@@ -915,5 +915,25 @@ pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
             )
             .map_err(database_error)?;
     }
+    if version < 42 {
+        // Whether Legio starts Steam and waits for sign-in before a non-Steam game with a Steam App ID.
+        let exists: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('games') WHERE name = 'start_steam')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(database_error)?;
+        if !exists {
+            transaction
+                .execute_batch(
+                    "ALTER TABLE games ADD COLUMN start_steam INTEGER NOT NULL DEFAULT 1 CHECK (start_steam IN (0, 1));",
+                )
+                .map_err(database_error)?;
+        }
+        transaction
+            .execute_batch("PRAGMA user_version = 42;")
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }

@@ -6,7 +6,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
-#[cfg(windows)]
 const STEAM_ID64_BASE: u64 = 76_561_197_960_265_728;
 
 pub(crate) fn steam_executable(steam_root: &Path) -> Result<PathBuf, String> {
@@ -82,6 +81,83 @@ pub(crate) fn ensure_running(
         )
     };
     wait_for_client_interface(timeout, cancel, running_processes, request)
+}
+
+/// Starts Steam when needed and waits until it is signed in to an account, so a game
+/// that needs Steam starts only after the client can serve it.
+pub(crate) fn ensure_signed_in(
+    steam_root: &Path,
+    timeout: Duration,
+    cancel: &AtomicBool,
+) -> Result<(), String> {
+    let start = Instant::now();
+    ensure_running(steam_root, timeout, cancel)?;
+    wait_for_sign_in(timeout.saturating_sub(start.elapsed()), cancel, || {
+        Ok((client_is_running()?, signed_in_account_id(steam_root)?))
+    })
+}
+
+fn wait_for_sign_in(
+    timeout: Duration,
+    cancel: &AtomicBool,
+    mut inspect: impl FnMut() -> Result<(bool, Option<String>), String>,
+) -> Result<(), String> {
+    let start = Instant::now();
+    loop {
+        check_cancelled(cancel)?;
+        let (client_running, account) = inspect()?;
+        if !client_running {
+            return Err("Steam closed before signing in".to_owned());
+        }
+        if account.is_some() {
+            check_cancelled(cancel)?;
+            return Ok(());
+        }
+        if start.elapsed() >= timeout {
+            return Err("Timed out while waiting for Steam to sign in".to_owned());
+        }
+        thread::sleep(POLL_INTERVAL.min(timeout.saturating_sub(start.elapsed())));
+    }
+}
+
+/// The account Steam is signed in to right now, or `None` while it is signed out or still starting.
+fn signed_in_account_id(steam_root: &Path) -> Result<Option<String>, String> {
+    #[cfg(windows)]
+    {
+        let _ = steam_root;
+        windows_active_account_id()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let Ok(path) = crate::steam_local::steam_registry_path(steam_root) else {
+            // Steam creates registry.vdf on its first start.
+            return Ok(None);
+        };
+        match std::fs::read(path) {
+            Ok(bytes) => Ok(active_user_from_registry(&bytes)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(format!("Could not read Steam's active account: {error}")),
+        }
+    }
+}
+
+/// Steam rewrites registry.vdf while it signs in, so an unreadable document counts as signed out.
+#[cfg(target_os = "linux")]
+fn active_user_from_registry(bytes: &[u8]) -> Option<String> {
+    let value = crate::steam_vdf::keyvalues_scalar(
+        bytes,
+        &[
+            "HKCU",
+            "Software",
+            "Valve",
+            "Steam",
+            "ActiveProcess",
+            "ActiveUser",
+        ],
+    )
+    .ok()?;
+    let account_id = value.parse::<u32>().ok().filter(|id| *id != 0)?;
+    Some((STEAM_ID64_BASE + u64::from(account_id)).to_string())
 }
 
 fn wait_for_client_interface(
@@ -516,6 +592,90 @@ mod tests {
             error,
             "Timed out while waiting for the Steam client and interface to start"
         );
+    }
+
+    #[test]
+    fn sign_in_wait_returns_once_an_account_is_active() {
+        let cancel = AtomicBool::new(false);
+        let mut calls = 0;
+        wait_for_sign_in(Duration::from_secs(1), &cancel, || {
+            calls += 1;
+            Ok((true, (calls > 2).then(|| "76561197960265729".to_owned())))
+        })
+        .unwrap();
+
+        assert_eq!(calls, 3);
+    }
+
+    #[test]
+    fn sign_in_wait_stops_when_steam_closes() {
+        let cancel = AtomicBool::new(false);
+        let error =
+            wait_for_sign_in(Duration::from_secs(1), &cancel, || Ok((false, None))).unwrap_err();
+
+        assert_eq!(error, "Steam closed before signing in");
+    }
+
+    #[test]
+    fn sign_in_wait_times_out_while_signed_out() {
+        let cancel = AtomicBool::new(false);
+        let error = wait_for_sign_in(Duration::ZERO, &cancel, || Ok((true, None))).unwrap_err();
+
+        assert_eq!(error, "Timed out while waiting for Steam to sign in");
+    }
+
+    #[test]
+    fn cancelled_sign_in_wait_does_not_inspect_steam() {
+        let cancel = AtomicBool::new(true);
+        let error = wait_for_sign_in(Duration::from_secs(1), &cancel, || {
+            unreachable!("a cancelled wait must not inspect Steam")
+        })
+        .unwrap_err();
+
+        assert_eq!(error, "Launch cancelled");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn registry_active_user_is_the_signed_in_account() {
+        let registry = br#""Registry"
+{
+	"HKCU"
+	{
+		"Software"
+		{
+			"Valve"
+			{
+				"Steam"
+				{
+					"AutoLoginUser"		"player"
+					"ActiveProcess"
+					{
+						"pid"		"4242"
+						"ActiveUser"		"1"
+					}
+				}
+			}
+		}
+	}
+}
+"#;
+        assert_eq!(
+            active_user_from_registry(registry).as_deref(),
+            Some("76561197960265729")
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn registry_without_an_active_user_is_signed_out() {
+        // Steam writes 0 while signed out; a half-written file has no closing braces.
+        let signed_out = br#""Registry" { "HKCU" { "Software" { "Valve" { "Steam" { "ActiveProcess" { "ActiveUser" "0" } } } } } }"#;
+        let partial = br#""Registry" { "HKCU" { "Software" { "Valve" { "Steam" { "ActiveProcess" { "ActiveUser" "1""#;
+
+        assert_eq!(active_user_from_registry(signed_out), None);
+        assert_eq!(active_user_from_registry(partial), None);
+        assert_eq!(active_user_from_registry(b""), None);
     }
 
     #[cfg(target_os = "linux")]
