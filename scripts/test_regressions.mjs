@@ -362,7 +362,7 @@ test("hydration waits for startup recovery before loading games and displays fai
     "src/lib/stores/steam-library": dataModule("export const importSteamLibrary = async () => { globalThis.legioBootstrap.calls.push('steamImport'); };"),
     "src/lib/stores/navigation": dataModule("export const activeSection = globalThis.legioBootstrap.activeSection; export const openGame = () => {};"),
     "src/lib/stores/toast": dataModule("export const showToast = (message, tone) => globalThis.legioBootstrap.toasts.push([message, tone]);"),
-    "src/lib/stores/update-notes": dataModule("export const announceInstalledVersion = async () => {};"),
+    "src/lib/stores/update-notes": dataModule("export const MAX_NOTES_CHARS = 100; export const rememberPendingNotes = async () => {}; export const announceInstalledVersion = async () => {};"),
     "src/lib/i18n": dataModule('export const t = (value, _language, args = []) => value.replace(/\\{(\\d+)\\}/g, (_, index) => args[index]);'),
   });
   const originalInterval = globalThis.setInterval;
