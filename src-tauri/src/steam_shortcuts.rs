@@ -834,18 +834,12 @@ pub(crate) fn modify_shortcuts<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::TempDir;
     use std::cell::Cell;
 
     const LAUNCHER: &str = "/opt/legio/legio-launcher";
     const ID_ONE: &str = "00000000-0000-4000-8000-000000000001";
     const ID_TWO: &str = "00000000-0000-4000-8000-000000000002";
-
-    fn temp_dir() -> PathBuf {
-        let directory =
-            std::env::temp_dir().join(format!("legio-shortcuts-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&directory).unwrap();
-        directory
-    }
 
     fn context(grid: &Path) -> ExportContext<'_> {
         ExportContext {
@@ -1173,19 +1167,18 @@ mod tests {
 
     #[test]
     fn modify_creates_the_file_and_verifies_it() {
-        let root = temp_dir();
+        let root = TempDir::new();
         let config = root.join("config");
         assert_eq!(export_to(&config, &not_running), Ok(1));
         let (file, bytes) = read_shortcuts(&config).unwrap();
         assert!(bytes.is_some());
         assert_eq!(file.owned_game_ids(LAUNCHER), [ID_ONE]);
         assert_eq!(fs::read_dir(&config).unwrap().count(), 1);
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn modify_backs_up_the_previous_file_and_prunes_old_backups() {
-        let root = temp_dir();
+        let root = TempDir::new();
         let config = root.join("config");
         fs::create_dir_all(&config).unwrap();
         let original = file_with(|output| foreign_lowercase(output, "0"));
@@ -1206,24 +1199,22 @@ mod tests {
         assert_eq!(backups.len(), KEPT_BACKUPS);
         let newest = backups.iter().max().unwrap();
         assert_eq!(fs::read(config.join(newest)).unwrap(), original);
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn modify_writes_nothing_when_nothing_changes() {
-        let root = temp_dir();
+        let root = TempDir::new();
         let config = root.join("config");
         export_to(&config, &not_running).unwrap();
         let before = fs::read(config.join(FILE_NAME)).unwrap();
         export_to(&config, &not_running).unwrap();
         assert_eq!(fs::read(config.join(FILE_NAME)).unwrap(), before);
         assert_eq!(fs::read_dir(&config).unwrap().count(), 1);
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn modify_refuses_while_steam_runs() {
-        let root = temp_dir();
+        let root = TempDir::new();
         let config = root.join("config");
         let checked = Cell::new(false);
         let running = || {
@@ -1235,12 +1226,11 @@ mod tests {
         assert!(error.contains("Close Steam"));
         assert!(!config.exists());
         assert!(export_to(&config, &|| Err("probe failed".to_owned())).is_err());
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn modify_leaves_an_unreadable_file_untouched() {
-        let root = temp_dir();
+        let root = TempDir::new();
         let config = root.join("config");
         fs::create_dir_all(&config).unwrap();
         let broken = b"\x00shortcuts\x00\x07nope".to_vec();
@@ -1248,21 +1238,20 @@ mod tests {
         assert!(export_to(&config, &not_running).is_err());
         assert_eq!(fs::read(config.join(FILE_NAME)).unwrap(), broken);
         assert_eq!(fs::read_dir(&config).unwrap().count(), 1);
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(unix)]
     #[test]
     fn symlinks_inside_userdata_are_refused() {
-        let root = temp_dir();
-        let outside = temp_dir();
+        let root = TempDir::new();
+        let outside = TempDir::new();
         fs::create_dir_all(root.join("userdata")).unwrap();
-        std::os::unix::fs::symlink(&outside, root.join("userdata/42")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.join("userdata/42")).unwrap();
         assert!(config_directory(&root, 42).is_err());
 
         fs::remove_file(root.join("userdata/42")).unwrap();
         fs::create_dir_all(root.join("userdata/42")).unwrap();
-        std::os::unix::fs::symlink(&outside, root.join("userdata/42/config")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.join("userdata/42/config")).unwrap();
         assert!(config_directory(&root, 42).is_err());
 
         fs::remove_file(root.join("userdata/42/config")).unwrap();
@@ -1270,7 +1259,5 @@ mod tests {
         let config = config_directory(&root, 42).unwrap();
         std::os::unix::fs::symlink(outside.join("target"), config.join(FILE_NAME)).unwrap();
         assert!(read_shortcuts(&config).is_err());
-        fs::remove_dir_all(root).unwrap();
-        fs::remove_dir_all(outside).unwrap();
     }
 }

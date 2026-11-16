@@ -459,6 +459,7 @@ fn write_artwork(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::TempDir;
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
@@ -475,16 +476,10 @@ mod tests {
         output.into_inner()
     }
 
-    fn test_dir() -> PathBuf {
-        let path = std::env::temp_dir().join(format!("legio-game-icons-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&path).unwrap();
-        path
-    }
-
     #[test]
     fn custom_artwork_rejects_compressed_images_with_excessive_dimensions() {
-        let root = test_dir();
-        let store = GameArtworkStore::new(Ok(root.clone()));
+        let root = TempDir::new();
+        let store = GameArtworkStore::new(Ok(root.to_path_buf()));
         let mut bytes = std::io::Cursor::new(Vec::new());
         image::DynamicImage::ImageRgba8(image::RgbaImage::new(8193, 1))
             .write_to(&mut bytes, image::ImageFormat::Png)
@@ -501,7 +496,6 @@ mod tests {
                 .unwrap_err()
                 .contains("dimension")
         );
-        fs::remove_dir_all(root).unwrap();
     }
 
     fn manual_game() -> Game {
@@ -520,7 +514,7 @@ mod tests {
 
     #[test]
     fn shortcut_uses_custom_icon_without_reading_the_executable() {
-        let root = test_dir();
+        let root = TempDir::new();
         let source = root.join("selected.png");
         fs::write(&source, PNG).unwrap();
         let store = GameArtworkStore::new(Ok(root.join("app-data")));
@@ -539,12 +533,11 @@ mod tests {
             Some(expected.clone())
         );
         assert_eq!(fs::read(expected).unwrap(), PNG);
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn shortcut_ico_is_found_by_path() {
-        let root = test_dir();
+        let root = TempDir::new();
         let store = GameArtworkStore::new(Ok(root.join("app-data")));
         let id = "00000000-0000-0000-0000-000000000001";
         let icon = crate::image_trim::shortcut_ico(&jpeg_image()).unwrap();
@@ -557,12 +550,11 @@ mod tests {
         );
         store.remove(id, ArtworkKind::ShortcutIcon).unwrap();
         assert_eq!(store.path(id, ArtworkKind::ShortcutIcon).unwrap(), None);
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn icon_is_persisted_and_returned_with_its_content_type() {
-        let root = test_dir();
+        let root = TempDir::new();
         let source = root.join("selected.png");
         let app_data = root.join("app-data");
         fs::write(&source, PNG).unwrap();
@@ -585,12 +577,11 @@ mod tests {
                 .bytes,
             PNG
         );
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn unsupported_images_are_rejected_without_creating_storage() {
-        let root = test_dir();
+        let root = TempDir::new();
         let source = root.join("selected.exe");
         fs::write(&source, b"MZ").unwrap();
         let store = GameArtworkStore::new(Ok(root.join("app-data")));
@@ -604,12 +595,11 @@ mod tests {
             .unwrap_err();
         assert!(error.contains("PNG, JPEG, or WebP"));
         assert!(!root.join("app-data/game-icons").exists());
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn oversized_icon_is_rejected_before_it_is_stored() {
-        let root = test_dir();
+        let root = TempDir::new();
         let source = root.join("large.png");
         fs::write(&source, vec![0; MAX_ARTWORK_BYTES + 1]).unwrap();
         let store = GameArtworkStore::new(Ok(root.join("app-data")));
@@ -622,7 +612,6 @@ mod tests {
             )
             .unwrap_err();
         assert!(error.contains("2 MiB size limit"));
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -631,7 +620,7 @@ mod tests {
             (ArtworkKind::Icon, ArtworkKind::Banner),
             (ArtworkKind::Banner, ArtworkKind::Icon),
         ] {
-            let root = test_dir();
+            let root = TempDir::new();
             let source = root.join("selected.png");
             fs::write(&source, PNG).unwrap();
             let store = GameArtworkStore::new(Ok(root.join("app-data")));
@@ -645,13 +634,12 @@ mod tests {
             store.remove(game_id, kind).unwrap();
             assert!(store.get(game_id, kind).unwrap().is_none());
             assert_eq!(store.get(game_id, other).unwrap().unwrap().bytes, PNG);
-            fs::remove_dir_all(root).unwrap();
         }
     }
 
     #[test]
     fn replacing_an_icon_updates_its_format_and_removes_the_old_file() {
-        let root = test_dir();
+        let root = TempDir::new();
         let png = root.join("selected.png");
         let jpeg = root.join("selected.jpg");
         let app_data = root.join("app-data");
@@ -675,12 +663,11 @@ mod tests {
                 .bytes,
             fs::read(&jpeg).unwrap()
         );
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn custom_artwork_paths_are_confined_to_the_game_id_and_format() {
-        let root = test_dir();
+        let root = TempDir::new();
         let source = root.join("selected.png");
         fs::write(&source, PNG).unwrap();
         let store = GameArtworkStore::new(Ok(root.join("app-data")));
@@ -704,13 +691,12 @@ mod tests {
                 .unwrap_err()
                 .contains("invalid game ID")
         );
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     #[cfg(unix)]
     fn selected_icon_symlinks_are_rejected() {
-        let root = test_dir();
+        let root = TempDir::new();
         let target = root.join("icon.png");
         let source = root.join("selected.png");
         fs::write(&target, PNG).unwrap();
@@ -725,12 +711,11 @@ mod tests {
                 )
                 .is_err()
         );
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn banner_is_persisted_separately_from_the_icon() {
-        let root = test_dir();
+        let root = TempDir::new();
         let icon_source = root.join("icon.png");
         let banner_source = root.join("banner.jpg");
         let app_data = root.join("app-data");
@@ -758,12 +743,11 @@ mod tests {
             jpeg_image()
         );
         assert!(reopened.get(game_id, ArtworkKind::Icon).unwrap().is_some());
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn removing_game_artwork_cleans_all_kinds_without_touching_other_games() {
-        let root = test_dir();
+        let root = TempDir::new();
         let source = root.join("selected.png");
         let app_data = root.join("app-data");
         let game_id = "00000000-0000-0000-0000-000000000001";
@@ -799,13 +783,12 @@ mod tests {
         );
         assert!(app_data.join("game-icons").is_dir());
         assert!(app_data.join("game-banners").is_dir());
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     #[cfg(unix)]
     fn removing_game_artwork_reports_symlink_cleanup_failure_and_preserves_target() {
-        let root = test_dir();
+        let root = TempDir::new();
         let icon_source = root.join("icon.png");
         let target = root.join("outside.png");
         let banner_directory = root.join("app-data/game-banners");
@@ -822,13 +805,12 @@ mod tests {
         assert!(error.contains("game banner path is not a regular file"));
         assert!(store.get(game_id, ArtworkKind::Icon).unwrap().is_none());
         assert_eq!(fs::read(target).unwrap(), jpeg_image());
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     #[cfg(unix)]
     fn reset_refuses_a_symlink_in_the_managed_icon_directory() {
-        let root = test_dir();
+        let root = TempDir::new();
         let target = root.join("outside.png");
         let directory = root.join("app-data/game-icons");
         let game_id = "00000000-0000-0000-0000-000000000001";
@@ -839,7 +821,6 @@ mod tests {
 
         assert!(store.remove(game_id, ArtworkKind::Icon).is_err());
         assert_eq!(fs::read(target).unwrap(), PNG);
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -853,7 +834,7 @@ mod tests {
 
     #[test]
     fn corrupt_stored_icons_report_an_error_and_can_be_reset() {
-        let root = test_dir();
+        let root = TempDir::new();
         let source = root.join("selected.png");
         fs::write(&source, PNG).unwrap();
         let store = GameArtworkStore::new(Ok(root.join("app-data")));
@@ -873,6 +854,5 @@ mod tests {
         );
         store.remove(game_id, ArtworkKind::Icon).unwrap();
         assert!(store.get(game_id, ArtworkKind::Icon).unwrap().is_none());
-        fs::remove_dir_all(root).unwrap();
     }
 }

@@ -551,16 +551,10 @@ pub async fn stage_user_data_import(app: AppHandle, source_path: String) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::TempDir;
     use std::io::Write;
 
     const GAME_ID: &str = "0f8fad5b-d9cb-469f-a165-70867728950e";
-
-    fn temporary_directory() -> PathBuf {
-        let directory =
-            std::env::temp_dir().join(format!("legio-data-transfer-test-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&directory).unwrap();
-        directory
-    }
 
     fn manifest(schema_version: i64) -> Manifest {
         Manifest {
@@ -676,7 +670,7 @@ mod tests {
 
     #[test]
     fn traversal_archive_is_rejected_without_leftovers() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let archive = directory.join("export.zip");
         write_zip(
             &archive,
@@ -691,12 +685,11 @@ mod tests {
         assert!(error.contains("unexpected entry"), "{error}");
         assert!(!directory.join("escaped.png").exists());
         assert!(!data_dir.join(IMPORT_DIRECTORY).exists());
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn newer_schema_is_rejected() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let archive = directory.join("export.zip");
         // The manifest claims a supported version, but the database is newer.
         write_zip(
@@ -713,24 +706,22 @@ mod tests {
         let error = stage_import(&data_dir, &archive).unwrap_err();
         assert!(error.contains("unsupported schema version"), "{error}");
         assert!(!data_dir.join(IMPORT_DIRECTORY).exists());
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn missing_database_is_rejected() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let archive = directory.join("export.zip");
         write_zip(
             &archive,
             &[(MANIFEST_ENTRY, serde_json::to_vec(&manifest(1)).unwrap())],
         );
         assert!(stage_import(&directory.join("data"), &archive).is_err());
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn round_trip_replaces_the_data_and_keeps_the_previous_copy() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let source_dir = directory.join("source");
         let target_dir = directory.join("target");
         let icon = format!("{GAME_ID}.png");
@@ -808,12 +799,11 @@ mod tests {
             ["Exported"]
         );
         Database::open(&target_dir).unwrap();
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn damaged_staged_database_keeps_the_current_one() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         drop(database_with_game(&directory, "Current"));
         let ready = directory.join(IMPORT_DIRECTORY).join(READY_DIRECTORY);
         fs::create_dir_all(&ready).unwrap();
@@ -823,6 +813,5 @@ mod tests {
 
         assert_eq!(game_names(&directory.join(DATABASE_FILE_NAME)), ["Current"]);
         assert!(!directory.join(IMPORT_DIRECTORY).exists());
-        fs::remove_dir_all(directory).unwrap();
     }
 }

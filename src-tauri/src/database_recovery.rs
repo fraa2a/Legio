@@ -184,16 +184,8 @@ pub async fn reset_local_database(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::TempDir;
     use rusqlite::Connection;
-
-    fn temporary_directory() -> PathBuf {
-        let directory = std::env::temp_dir().join(format!(
-            "legio-database-recovery-test-{}",
-            uuid::Uuid::new_v4()
-        ));
-        fs::create_dir_all(&directory).unwrap();
-        directory
-    }
 
     fn write_database(path: &Path, version: i64, name: &str) {
         let connection = Connection::open(path).unwrap();
@@ -225,7 +217,7 @@ mod tests {
 
     #[test]
     fn restore_replaces_the_database_and_keeps_the_broken_one() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let backups = backup::backup_directory(&directory);
         fs::create_dir_all(&backups).unwrap();
         write_database(&backups.join("legio-v30-5.sqlite3"), 30, "backup");
@@ -244,12 +236,11 @@ mod tests {
         );
         assert!(broken[1].ends_with(".sqlite3-wal"));
         assert!(backups.join("legio-v30-5.sqlite3").exists());
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn damaged_or_unknown_backup_leaves_the_database_in_place() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let backups = backup::backup_directory(&directory);
         fs::create_dir_all(&backups).unwrap();
         fs::write(backups.join("legio-v30-5.sqlite3"), b"garbage").unwrap();
@@ -263,18 +254,17 @@ mod tests {
             b"current"
         );
         assert!(broken_files(&directory).is_empty());
-        let leftovers: Vec<_> = fs::read_dir(&directory)
+        let leftovers: Vec<_> = fs::read_dir(directory.path())
             .unwrap()
             .map(|entry| entry.unwrap().file_name())
             .filter(|name| name.to_string_lossy().ends_with(".tmp"))
             .collect();
         assert!(leftovers.is_empty());
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn reset_keeps_the_old_database() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         write_database(&directory.join(DATABASE_FILE_NAME), 39, "old");
 
         reset_database(&directory).unwrap();
@@ -283,13 +273,11 @@ mod tests {
         let broken = broken_files(&directory);
         assert_eq!(broken.len(), 1);
         assert_eq!(marker(&directory.join(&broken[0])), "old");
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn reset_without_a_database_fails() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         assert!(reset_database(&directory).is_err());
-        fs::remove_dir_all(directory).unwrap();
     }
 }

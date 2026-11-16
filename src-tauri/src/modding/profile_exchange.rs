@@ -413,13 +413,7 @@ pub(crate) fn apply_import_files(import: &ProfileImport, profile_dir: &Path) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn temp_dir() -> PathBuf {
-        let directory =
-            std::env::temp_dir().join(format!("legio-exchange-test-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&directory).unwrap();
-        directory
-    }
+    use crate::test_support::TempDir;
 
     fn write(root: &Path, relative: &str, contents: &str) {
         let path = root.join(relative);
@@ -460,7 +454,7 @@ mod tests {
 
     #[test]
     fn exports_expected_files() {
-        let root = temp_dir();
+        let root = TempDir::new();
         write(&root, "BepInEx/config/a.cfg", "a");
         write(&root, "BepInEx/config/sub/b.json", "b");
         write(&root, "BepInEx/config/lib.dll", "binary");
@@ -490,19 +484,19 @@ mod tests {
                 "export.r2x",
             ]
         );
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn exports_missing_profile_directory_as_empty() {
-        let root = temp_dir().join("missing");
+        let directory = TempDir::new();
+        let root = directory.join("missing");
         let bytes = export_profile(&root, "Empty", &[]).unwrap();
         assert_eq!(entry_names(&bytes), ["export.r2x"]);
     }
 
     #[test]
     fn round_trips_through_import() {
-        let source = temp_dir();
+        let source = TempDir::new();
         write(&source, "BepInEx/config/a.cfg", "[x]\nkey = 1\n");
         write(&source, "BepInEx/plugins/Mod/settings.json", "{}");
         let mods = [sample_mod(true), sample_mod(false)];
@@ -519,7 +513,7 @@ mod tests {
         assert!(import.mods[0].enabled);
         assert!(!read_r2z(&disabled).unwrap().mods[0].enabled);
 
-        let target = temp_dir();
+        let target = TempDir::new();
         apply_import_files(&import, &target).unwrap();
         assert_eq!(
             fs::read_to_string(target.join("BepInEx/config/a.cfg")).unwrap(),
@@ -527,13 +521,12 @@ mod tests {
         );
         assert_eq!(import.skipped, ["BepInEx/plugins/Mod/settings.json"]);
         assert!(!target.join("BepInEx/plugins").exists());
-        fs::remove_dir_all(source).unwrap();
-        fs::remove_dir_all(target).unwrap();
     }
 
     #[test]
     fn writes_r2modman_manifest_shape() {
-        let bytes = export_profile(&temp_dir(), "P", &[sample_mod(true)]).unwrap();
+        let directory = TempDir::new();
+        let bytes = export_profile(&directory, "P", &[sample_mod(true)]).unwrap();
         let mut archive = ZipArchive::new(Cursor::new(bytes)).unwrap();
         let mut text = String::new();
         archive
@@ -761,10 +754,9 @@ mod tests {
 
     #[test]
     fn exports_to_file() {
-        let root = temp_dir();
+        let root = TempDir::new();
         let destination = root.join("out.r2z");
         export_profile_to_file(&root.join("none"), "P", &[], &destination).unwrap();
         assert_eq!(read_r2z_file(&destination).unwrap().profile_name, "P");
-        fs::remove_dir_all(root).unwrap();
     }
 }
