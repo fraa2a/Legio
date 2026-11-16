@@ -129,6 +129,14 @@ test("toasts are recorded once and share their retry with the history", async ()
   assert.equal(get(history.notifications)[0].retry, null, "the history cannot retry what the toast already retried");
 });
 
+test("a toast with a technical detail keeps it in the history and stays until dismissed", async () => {
+  const { notifications: history, toast } = await notificationStores();
+  toast.showToast("Could not save", "error", { detail: "disk full (os error 28)" });
+  toast.showToast("Plain", "info", { persistent: true });
+  assert.deepEqual(get(history.notifications).map(entry => [entry.message, entry.detail]), [["Plain", null], ["Could not save", "disk full (os error 28)"]]);
+  assert.equal(get(toast.toast)[0].detail, "disk full (os error 28)");
+});
+
 test("background downloads, updates and source failures enter the history", async () => {
   const downloads = writable({ status: "idle", data: [], error: null });
   const updateState = writable({ version: null });
