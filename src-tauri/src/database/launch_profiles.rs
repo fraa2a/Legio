@@ -428,7 +428,9 @@ mod tests {
             graphics_renderer: GraphicsRenderer::WineD3d,
             linux_performance: LinuxPerformance {
                 game_mode: true,
+                mangohud: false,
                 gamescope: None,
+                wrapper: Vec::new(),
             },
             ..EffectiveCompatibilityConfig::default()
         }
@@ -610,6 +612,8 @@ mod tests {
             LaunchOverrides {
                 linux_performance: Some(LinuxPerformance {
                     game_mode: false,
+                    mangohud: false,
+                    wrapper: Vec::new(),
                     gamescope: Some(crate::database::GamescopeConfig {
                         width: Some(1920),
                         height: None,

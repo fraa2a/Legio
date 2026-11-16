@@ -27,7 +27,7 @@ export interface ProfileDraft {
   performance: LinuxPerformance;
 }
 
-export const emptyPerformance: LinuxPerformance = { gameMode: false, gamescope: null };
+export const emptyPerformance: LinuxPerformance = { gameMode: false, mangohud: false, gamescope: null, wrapper: [] };
 
 export function profilesOf(state: LaunchProfiles, gameId: string): LaunchProfile[] {
   return state.profiles.filter((profile) => profile.gameId === gameId);

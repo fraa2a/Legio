@@ -26,7 +26,6 @@
   import TextField from "../../components/ui/TextField.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
   import Callout from "../../components/ui/Callout.svelte";
-  import LinuxPerformanceFields from "./LinuxPerformanceFields.svelte";
   import { createSaveQueue } from "../../services/save-queue";
   import { toMessage } from "../../utils/errors";
   import { pickGameDirectory } from "../../services/dialog";
@@ -297,6 +296,28 @@
     } finally {
       saving = false;
     }
+  }
+
+  function setPerformance(changes: Partial<GameCompatibilityOverrides["linuxPerformance"]>): void {
+    setOverride("linuxPerformance", { ...overrides.linuxPerformance, ...changes });
+  }
+
+  function setGamescopeResolution(value: string): void {
+    const config = overrides.linuxPerformance.gamescope;
+    if (config === null) return;
+    if (value === "native") {
+      setPerformance({ gamescope: { ...config, width: null, height: null } });
+    } else {
+      const [width, height] = value.split("x").map(Number);
+      if (Number.isInteger(width) && Number.isInteger(height)) setPerformance({ gamescope: { ...config, width, height } });
+    }
+  }
+
+  function setGamescopeFps(value: string): void {
+    const config = overrides.linuxPerformance.gamescope;
+    if (config === null) return;
+    const fps = value === "uncapped" ? null : Number(value);
+    if (fps === null || (Number.isInteger(fps) && fps >= 1 && fps <= 360)) setPerformance({ gamescope: { ...config, fps } });
   }
 </script>
 
