@@ -24,7 +24,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 39;
+pub(crate) const SCHEMA_VERSION: i64 = 39;
 pub(crate) const DATABASE_FILE_NAME: &str = "legio.sqlite3";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

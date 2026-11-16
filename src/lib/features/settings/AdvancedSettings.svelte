@@ -11,6 +11,7 @@
   import Callout from "../../components/ui/Callout.svelte";
   import { appInfo } from "../../stores/app-info";
   import { getCompatibilityLogsDirectory } from "../../services/game-settings";
+  import DataTransferSettings from "./DataTransferSettings.svelte";
   import { createSupportBundle } from "../../services/support-bundle";
   import { showToast } from "../../stores/toast";
   import SettingsRow from "../../components/ui/SettingsRow.svelte";
@@ -84,4 +85,5 @@
     {#if status?.lastError}<Callout tone="warning" message={status.lastError} />{/if}
     {#if applicationStatus?.lastError}<Callout tone="warning" message={applicationStatus.lastError} />{/if}
   </SettingsGroup>
+  <DataTransferSettings />
 </section>
