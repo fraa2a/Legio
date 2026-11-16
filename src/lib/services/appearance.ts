@@ -48,7 +48,25 @@ export interface Appearance {
   dialogOpacity: number;
   dialogBlur: number;
   transparent: boolean;
+  density: Density;
+  corners: Corners;
+  textScale: number;
 }
+
+export type Density = "compact" | "normal" | "wide";
+export type Corners = "sharp" | "soft" | "round";
+
+export const textScaleRange = { min: 90, max: 120 } as const;
+
+// Multipliers on the control heights and on container padding and rhythm.
+export const densityScales: Record<Density, { control: number; space: number }> = {
+  compact: { control: 0.875, space: 0.75 },
+  normal: { control: 1, space: 1 },
+  wide: { control: 1.125, space: 1.25 },
+};
+
+// Multiplier on the control, card and panel radii.
+export const cornerScales: Record<Corners, number> = { sharp: 0.25, soft: 1, round: 1.75 };
 
 export const themePresets = presets as ThemePreset[];
 
@@ -80,6 +98,7 @@ export function defaultAppearance(): Appearance {
     accent: null, background: null, backgroundBlur: 0, backgroundOpacity: 60,
     animatedBackground: "none", animatedOpacity: 65, dither: defaultDither(),
     ...panelStyles.glass, transparent: false,
+    density: "normal", corners: "soft", textScale: 100,
   };
 }
 
@@ -131,6 +150,18 @@ export function paletteVariables(preset: ThemePreset, accent: string = preset.pa
   return variables;
 }
 
+// The scale tokens in app.css multiply these variables. Unknown values fall back to the defaults.
+export function interfaceVariables(appearance: Pick<Appearance, "density" | "corners" | "textScale">): Record<string, string> {
+  const density = densityScales[appearance.density] ?? densityScales.normal;
+  const textScale = Math.min(textScaleRange.max, Math.max(textScaleRange.min, appearance.textScale || 100));
+  return {
+    "--legio-control-scale": String(density.control),
+    "--legio-space-scale": String(density.space),
+    "--legio-corner-scale": String(cornerScales[appearance.corners] ?? cornerScales.soft),
+    "--legio-text-scale": String(textScale / 100),
+  };
+}
+
 function blurFilter(pixels: number): string {
   return pixels === 0 ? "none" : `blur(${pixels}px)`;
 }
@@ -145,6 +176,7 @@ export function applyAppearance(
   root.dataset.transparent = String(windowTransparent);
   root.style.colorScheme = palette.scheme;
   for (const [key, value] of Object.entries(paletteVariables(palette, resolvedAccent(palette, appearance)))) root.style.setProperty(key, value);
+  for (const [key, value] of Object.entries(interfaceVariables(appearance))) root.style.setProperty(key, value);
   root.style.setProperty("--legio-image-blur", appearance.backgroundBlur + "px");
   root.style.setProperty("--legio-image-opacity", String(appearance.backgroundOpacity / 100));
   root.style.setProperty("--legio-surface-opacity", String(appearance.surfaceOpacity / 100));

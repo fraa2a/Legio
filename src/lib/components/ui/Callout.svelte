@@ -60,7 +60,7 @@
 
 <div
   role={tone === "danger" ? "alert" : "status"}
-  class="flex items-start gap-3 {banner ? `rounded-card border p-4 text-sm ${style.box}` : 'text-xs'} {className}"
+  class="flex items-start gap-3 {banner ? `rounded-card border p-inset-compact text-sm ${style.box}` : 'text-xs'} {className}"
 >
   <span class="mt-0.5 shrink-0 {style.text}"><Icon name={style.icon} size={banner ? "md" : "sm"} /></span>
   <div class="min-w-0 flex-1 select-text break-words text-legio-fg" data-selectable>

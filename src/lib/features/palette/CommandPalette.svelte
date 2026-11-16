@@ -6,6 +6,7 @@
   import TextField from "../../components/ui/TextField.svelte";
   import { appInfo } from "../../stores/app-info";
   import { paletteOpen } from "../../stores/command-palette";
+  import { shortcutsOpen } from "../../stores/shortcuts";
   import { games } from "../../stores/games";
   import { addGameDialogOpen, storeQuery } from "../../stores/library-ui";
   import { openGame, openSettings, sectionLabels, sections, selectSection, type Section } from "../../stores/navigation";
@@ -25,6 +26,7 @@
     ...sections.map((section): Entry => ({ id: `section:${section}`, kind: "section", label: t(sectionLabels[section], $language), hint: t("Pagina", $language), icon: sectionIcons[section], run: () => selectSection(section) })),
     ...$games.data.map((game): Entry => ({ id: `game:${game.id}`, kind: "game", label: game.name, hint: t("Libreria", $language), icon: "play", run: () => openGame(game.id) })),
     { id: "action:add-game", kind: "action", label: t("Aggiungi gioco", $language), hint: t("Libreria", $language), icon: "plus", run: () => { selectSection("library"); addGameDialogOpen.set(true); } },
+    { id: "action:shortcuts", kind: "action", label: t("Scorciatoie", $language), hint: t("Aiuto", $language), icon: "keyboard", keywords: "tastiera shortcuts keyboard", run: () => shortcutsOpen.set(true) },
     ...settingsCategories($appInfo.data.platform).map((category): Entry => ({ id: `setting:${category.id}`, kind: "setting", label: t(category.label, $language), hint: t("Impostazioni", $language), icon: category.icon, run: () => openSettings(category.id) })),
   ]);
   const results: Entry[] = $derived([

@@ -4,6 +4,7 @@
   import Badge from "../../components/ui/Badge.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
+  import Skeleton from "../../components/ui/Skeleton.svelte";
   import ScreenshotGallery from "./ScreenshotGallery.svelte";
   import { renderSteamDescription } from "./steam-description";
 
@@ -12,6 +13,7 @@
   const detailsState = $derived($steamDetails[steamAppId] ?? null);
   const details = $derived(detailsState?.details ?? null);
   const screenshots = $derived(details?.assets.screenshots.slice(0, 6) ?? []);
+  const loading = $derived(detailsState?.status === "loading" && details === null);
   const description = $derived(details?.detailedDescription ?? details?.shortDescription ?? null);
 
   function refresh(): void {
@@ -28,8 +30,16 @@
     </div>
   {/snippet}
 
-  {#if detailsState !== null && detailsState.status === "loading"}
-    <p class="text-sm text-legio-fg-muted" role="status">{t("Caricamento dettagli...", $language)}</p>
+  {#if loading}
+    <div class="flex flex-col gap-rhythm-row" role="status" aria-busy="true">
+      <span class="sr-only">{t("Caricamento dettagli...", $language)}</span>
+      <Skeleton class="aspect-video w-full" />
+      <div class="flex flex-col gap-2">
+        <Skeleton class="h-4 w-full" />
+        <Skeleton class="h-4 w-11/12" />
+        <Skeleton class="h-4 w-2/3" />
+      </div>
+    </div>
   {/if}
 
   {#if detailsState !== null && detailsState.status === "error" && detailsState.error !== null}
@@ -37,7 +47,7 @@
   {/if}
 
   {#if details === null}
-    <p class="text-sm text-legio-fg-subtle">{t("Nessun dato Steam disponibile per questo titolo.", $language)}</p>
+    {#if !loading}<p class="text-sm text-legio-fg-subtle">{t("Nessun dato Steam disponibile per questo titolo.", $language)}</p>{/if}
   {:else}
     {#if screenshots.length > 0 || (details.assets.movies?.length ?? 0) > 0}
       <ScreenshotGallery {steamAppId} name={details.name} {screenshots} movies={details.assets.movies ?? []} />

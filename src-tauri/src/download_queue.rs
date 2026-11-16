@@ -3756,6 +3756,8 @@ mod tests {
                         Err(error) => panic!("download request {index} was not received: {error}"),
                     }
                 };
+                // Windows sockets inherit the listener's non-blocking mode.
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(3)))
                     .unwrap();

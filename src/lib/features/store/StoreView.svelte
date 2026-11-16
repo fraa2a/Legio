@@ -172,7 +172,7 @@
       hasData={entries.length > 0}
       loadingMessage={t("Ricerca in corso...", $language)}
       skeletonRows={4}
-      skeletonClass="h-28"
+      skeletonClass="h-28 sm:h-32"
       emptyIcon="search"
       {emptyMessage}
       error={$catalog.error}
