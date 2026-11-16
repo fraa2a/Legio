@@ -1,13 +1,12 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::source_catalog::{self, SourceCatalog, SourceFormat};
 use serde::Serialize;
 use tauri::{Emitter, Manager, Runtime};
 
 use crate::{
-    database::{Database, DatabaseState},
+    database::{Database, DatabaseState, now_seconds},
     identification_control::IdentificationControl,
     legio_source::{self, Manifest},
     network::NetworkState,
@@ -323,21 +322,13 @@ fn db_error(error: rusqlite::Error) -> String {
     format!("Could not access installed sources: {error}")
 }
 
-fn now() -> Result<i64, String> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
-        .ok_or_else(|| "System clock is outside the supported date range".to_owned())
-}
-
 pub(crate) fn is_stale(fetched_at: i64, current_time: i64) -> bool {
     fetched_at > current_time || current_time.saturating_sub(fetched_at) >= STALE_SECONDS
 }
 
 pub async fn cached_source<R: Runtime>(app: tauri::AppHandle<R>) -> Result<SourceSnapshot, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        snapshot(app.state::<DatabaseState>().database()?, now()?)
+        snapshot(app.state::<DatabaseState>().database()?, now_seconds()?)
     })
     .await
     .map_err(|error| format!("Source cache task failed: {error}"))?
@@ -554,7 +545,7 @@ async fn install_source(
     }
     let manifest = fetch_catalog(&app, network, database.clone(), &url, None).await?;
     tauri::async_runtime::spawn_blocking(move || {
-        let current_time = now()?;
+        let current_time = now_seconds()?;
         insert_catalog(&database, &url, manifest, current_time)?;
         snapshot(&database, current_time)
     })
@@ -566,7 +557,7 @@ pub async fn remove_source(app: tauri::AppHandle, id: String) -> Result<SourceSn
     tauri::async_runtime::spawn_blocking(move || {
         let database = app.state::<DatabaseState>();
         remove(database.database()?, &id)?;
-        snapshot(database.database()?, now()?)
+        snapshot(database.database()?, now_seconds()?)
     })
     .await
     .map_err(|error| format!("Source removal task failed: {error}"))?
@@ -597,7 +588,7 @@ pub async fn refresh_source(
             )
             .await;
             tauri::async_runtime::spawn_blocking(move || {
-                update_catalog(&database, &row.id, fetched, now()?)
+                update_catalog(&database, &row.id, fetched, now_seconds()?)
             })
             .await
             .map_err(|error| format!("Source refresh task failed: {error}"))?

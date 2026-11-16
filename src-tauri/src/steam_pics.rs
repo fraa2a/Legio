@@ -168,17 +168,12 @@ async fn write_cache(path: &Path, assets: &PicsAssets) -> Result<(), String> {
         .map_err(|error| format!("Could not create Steam PICS cache: {error}"))?;
     let bytes = serde_json::to_vec(assets)
         .map_err(|error| format!("Could not encode Steam PICS cache: {error}"))?;
-    let temporary = directory.join(format!("{}.tmp", uuid::Uuid::new_v4()));
-    tokio::fs::write(&temporary, bytes)
+    let path = path.to_path_buf();
+    tauri::async_runtime::spawn_blocking(move || crate::atomic_file::write_atomic(&path, &bytes))
         .await
-        .map_err(|error| format!("Could not write Steam PICS cache: {error}"))?;
-    if let Err(error) = tokio::fs::rename(&temporary, path).await {
-        if let Err(cleanup) = tokio::fs::remove_file(&temporary).await {
-            crate::application_log::failure("remove_temporary_metadata_cache", cleanup);
-        }
-        return Err(format!("Could not save Steam PICS cache: {error}"));
-    }
-    Ok(())
+        .map_err(std::io::Error::other)
+        .and_then(|written| written)
+        .map_err(|error| format!("Could not save Steam PICS cache: {error}"))
 }
 
 #[derive(Default)]

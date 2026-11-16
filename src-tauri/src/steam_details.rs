@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{collections::HashMap, sync::Arc};
 
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -379,16 +375,12 @@ fn decode(bytes: &[u8], app_id: u32) -> Result<SteamDetails, DetailsError> {
 }
 
 fn now() -> Result<i64, DetailsError> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
-        .ok_or_else(|| {
-            DetailsError::new(
-                DetailsErrorKind::Internal,
-                "System clock is outside the supported date range.",
-            )
-        })
+    crate::database::now_seconds().map_err(|_| {
+        DetailsError::new(
+            DetailsErrorKind::Internal,
+            "System clock is outside the supported date range.",
+        )
+    })
 }
 
 fn store_localized(
