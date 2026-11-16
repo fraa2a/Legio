@@ -8,8 +8,8 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBe
 for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputElement", "HTMLTextAreaElement", "Element", "Node", "Text", "Comment", "Event", "KeyboardEvent", "MouseEvent", "FocusEvent", "MutationObserver", "HTMLMediaElement"]) {
   Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
 }
-// jsdom has no popover API.
-HTMLElement.prototype.showPopover = function () {};
+// jsdom has no popover API and keeps a closed [popover] hidden, where nothing can take focus.
+HTMLElement.prototype.showPopover = function () { this.style.display = "block"; };
 globalThis.matchMedia = () => ({ matches: true });
 const { mount, unmount, flushSync } = await import("svelte");
 const { get, writable } = await import("svelte/store");
