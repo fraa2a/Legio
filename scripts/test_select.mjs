@@ -8,7 +8,8 @@ for (const key of ["window", "document", "navigator", "Node", "Text", "Comment",
   Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
 }
 const popovers = new Set();
-HTMLElement.prototype.showPopover = function () { popovers.add(this); };
+// jsdom has no popover API and keeps a closed [popover] hidden, where nothing can take focus.
+HTMLElement.prototype.showPopover = function () { popovers.add(this); this.style.display = "block"; };
 const animations = [];
 HTMLElement.prototype.animate = function (keyframes, options) {
   const animation = { keyframes, options, onfinish: null };
