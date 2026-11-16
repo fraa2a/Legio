@@ -472,6 +472,8 @@ async function main() {
   } catch (error) {
     failure = error;
     console.error(`[smoke] FAILED: ${error.stack ?? error.message}`);
+    // The driver log explains why the application could not be attached to.
+    console.error(`[smoke] driver log tail:\n${readFileSync(join(output, "driver.log"), "utf8").slice(-4000)}`);
     if (driver !== null && !exited) {
       await driver.session.screenshot().then((image) => writeFileSync(join(output, "failure.png"), image)).catch((reason) => log(`no failure screenshot: ${reason.message}`));
       await saveConsole(driver);
