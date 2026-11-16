@@ -44,6 +44,15 @@ export const networkDestinations: readonly NetworkDestination[] = [
     kind: "on-demand",
   },
   {
+    id: "steamgriddb",
+    name: "SteamGridDB",
+    hosts: "www.steamgriddb.com, cdn.steamgriddb.com, cdn2.steamgriddb.com",
+    purpose: "Scelta di copertine e icone personalizzate per un gioco.",
+    when: "Solo quando apri il selettore di SteamGridDB, con una chiave API che hai inserito tu.",
+    sends: "Nome o ID Steam del gioco. La chiave API va solo a www.steamgriddb.com.",
+    kind: "on-demand",
+  },
+  {
     id: "news",
     name: "Novità di Legio",
     hosts: "source.taxphobia.top",

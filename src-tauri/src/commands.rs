@@ -1266,6 +1266,157 @@ pub async fn get_protondb_summary(
 }
 
 #[tauri::command]
+pub async fn has_steamgriddb_key(
+    state: State<'_, crate::steamgriddb::SteamGridDb>,
+) -> Result<bool, String> {
+    let service = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || service.has_key())
+        .await
+        .map_err(|error| format!("SteamGridDB key task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn set_steamgriddb_key(
+    state: State<'_, crate::steamgriddb::SteamGridDb>,
+    key: String,
+) -> Result<(), String> {
+    let service = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || service.save_key(&key))
+        .await
+        .map_err(|error| format!("SteamGridDB key task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn clear_steamgriddb_key(
+    state: State<'_, crate::steamgriddb::SteamGridDb>,
+) -> Result<(), String> {
+    let service = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || service.clear_key())
+        .await
+        .map_err(|error| format!("SteamGridDB key task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn search_steamgriddb_games(
+    state: State<'_, crate::steamgriddb::SteamGridDb>,
+    network: State<'_, NetworkState>,
+    query: Option<String>,
+    steam_app_id: Option<u32>,
+) -> Result<Vec<crate::steamgriddb::SgdbGame>, String> {
+    state
+        .search_games(network.inner(), query, steam_app_id)
+        .await
+}
+
+#[tauri::command]
+pub async fn list_steamgriddb_artwork(
+    state: State<'_, crate::steamgriddb::SteamGridDb>,
+    network: State<'_, NetworkState>,
+    game_id: u64,
+    kind: crate::steamgriddb::ListingKind,
+) -> Result<Vec<crate::steamgriddb::SgdbImage>, String> {
+    state.list_images(network.inner(), game_id, kind).await
+}
+
+#[tauri::command]
+pub async fn apply_steamgriddb_artwork(
+    app: AppHandle,
+    network: State<'_, NetworkState>,
+    game_id: String,
+    slot: crate::steamgriddb::Slot,
+    url: String,
+) -> Result<(), String> {
+    let known = app.clone();
+    let id = game_id.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        known
+            .state::<DatabaseState>()
+            .database()?
+            .game(&id)
+            .map(|_| ())
+    })
+    .await
+    .map_err(|error| format!("Game artwork task failed: {error}"))??;
+    let bytes = crate::steamgriddb::download_image(network.inner(), &url).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<crate::game_artwork::GameArtworkStore>()
+            .set_downloaded(&game_id, slot.artwork_kind(), bytes)
+    })
+    .await
+    .map_err(|error| format!("Game artwork task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn list_game_screenshots(
+    app: AppHandle,
+    game_id: String,
+    offset: usize,
+) -> Result<crate::game_screenshots::ScreenshotPage, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::game_screenshots::list_page(&app, &game_id, offset)
+    })
+    .await
+    .map_err(|error| format!("Screenshot task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn get_game_screenshot(
+    app: AppHandle,
+    game_id: String,
+    screenshot_id: String,
+    thumbnail: bool,
+) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::game_screenshots::image_response(&app, &game_id, &screenshot_id, thumbnail)
+    })
+    .await
+    .map_err(|error| format!("Screenshot task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn open_game_screenshots_folder(
+    app: AppHandle,
+    game_id: String,
+    screenshot_id: Option<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let folder =
+            crate::game_screenshots::folder_to_open(&app, &game_id, screenshot_id.as_deref())?;
+        crate::installed_folder::open_directory(&folder)
+    })
+    .await
+    .map_err(|error| format!("Screenshot task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn set_game_screenshots_folder(
+    app: AppHandle,
+    game_id: String,
+    folder: Option<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::game_screenshots::set_folder(&app, &game_id, folder.as_deref())
+    })
+    .await
+    .map_err(|error| format!("Screenshot task failed: {error}"))?
+}
+
+/// Imports a screenshot as an app wallpaper and returns the background id to select.
+#[tauri::command]
+pub async fn import_game_screenshot_background(
+    app: AppHandle,
+    game_id: String,
+    screenshot_id: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = crate::game_screenshots::screenshot_path(&app, &game_id, &screenshot_id)?;
+        crate::appearance::import_background_file(&app, &path)
+    })
+    .await
+    .map_err(|error| format!("Screenshot task failed: {error}"))?
+}
+
+#[tauri::command]
 pub fn get_artwork_display_width(app: AppHandle) -> u32 {
     crate::artwork_display::refresh(&app)
 }

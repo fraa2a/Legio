@@ -6,7 +6,7 @@ export const gameArtworkRevision = writable<Record<string, number>>({});
 
 export type ArtworkKind = "icon" | "banner";
 
-function artworkChanged(gameId: string, kind: ArtworkKind): void {
+export function notifyArtworkChanged(gameId: string, kind: ArtworkKind): void {
   const key = `${gameId}:${kind}`;
   gameArtworkRevision.update((revisions) => ({ ...revisions, [key]: (revisions[key] ?? 0) + 1 }));
   const entry = cache.get(key);
@@ -90,13 +90,13 @@ export function getGameIcon(gameId: string): Promise<GameArtwork | null> {
 
 export function setGameIcon(gameId: string, filePath: string): Promise<GameArtwork> {
   return invoke<ArrayBuffer>("set_game_icon", { gameId, filePath }).then(decodeImageResponse<GameArtwork>).then((result) => {
-    artworkChanged(gameId, "icon");
+    notifyArtworkChanged(gameId, "icon");
     return result;
   });
 }
 
 export function resetGameIcon(gameId: string): Promise<void> {
-  return invoke<void>("reset_game_icon", { gameId }).then(() => artworkChanged(gameId, "icon"));
+  return invoke<void>("reset_game_icon", { gameId }).then(() => notifyArtworkChanged(gameId, "icon"));
 }
 
 export function getGameBanner(gameId: string): Promise<GameArtwork | null> {
@@ -105,11 +105,11 @@ export function getGameBanner(gameId: string): Promise<GameArtwork | null> {
 
 export function setGameBanner(gameId: string, filePath: string): Promise<GameArtwork> {
   return invoke<ArrayBuffer>("set_game_banner", { gameId, filePath }).then(decodeImageResponse<GameArtwork>).then((result) => {
-    artworkChanged(gameId, "banner");
+    notifyArtworkChanged(gameId, "banner");
     return result;
   });
 }
 
 export function resetGameBanner(gameId: string): Promise<void> {
-  return invoke<void>("reset_game_banner", { gameId }).then(() => artworkChanged(gameId, "banner"));
+  return invoke<void>("reset_game_banner", { gameId }).then(() => notifyArtworkChanged(gameId, "banner"));
 }

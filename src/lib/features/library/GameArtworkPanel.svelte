@@ -17,6 +17,7 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import Callout from "../../components/ui/Callout.svelte";
+  import SteamGridDbPicker from "./SteamGridDbPicker.svelte";
   import { refreshSteamImages } from "../../services/steam-details";
   import { loadSteamDetails } from "../../stores/steam-details";
   import { showToast } from "../../stores/toast";
@@ -29,6 +30,7 @@
   let refreshingImages = $state(false);
   let error = $state<string | null>(null);
   let saved = $state(false);
+  let pickerOpen = $state(false);
 
   let destroyed = false;
   let requestId = 0;
@@ -122,6 +124,10 @@
     <Button label={t("Aggiorna immagini", $language)} variant="secondary" disabled={pending || game.steamAppId === null} onClick={() => void refreshImages()}><RefreshIcon spinning={refreshingImages} /></Button>
     <p class="text-xs text-legio-fg-muted">{t("Riscarica le immagini Steam senza modificare quelle personalizzate.", $language)}</p>
   </div>
+  <div class="flex flex-wrap items-center gap-3">
+    <Button label={t("Scegli da SteamGridDB", $language)} variant="secondary" disabled={pending} onClick={() => { pickerOpen = true; }} />
+    <p class="text-xs text-legio-fg-muted">{t("Cerca hero, copertine e icone online. Richiede una chiave API nelle impostazioni.", $language)}</p>
+  </div>
   {#if error !== null}<ErrorBanner message={error} onRetry={() => void load()} />{/if}
   {#if loading}
     <p class="text-sm text-legio-fg-muted" role="status">{t("Caricamento delle immagini...", $language)}</p>
@@ -145,5 +151,6 @@
       </section>
     </div>
   {/if}
+  {#if pickerOpen}<SteamGridDbPicker {game} onClose={() => { pickerOpen = false; }} />{/if}
   {#if saved}<Callout tone="success" variant="inline" message={t("Immagine salvata.", $language)} />{/if}
 </Panel>
