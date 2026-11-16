@@ -6,7 +6,7 @@
   import AppBackground from "./lib/components/layout/AppBackground.svelte";
   import { startArtworkSelectionTracking } from "./lib/services/artwork-work";
   import { onMount } from "svelte";
-  import { derived } from "svelte/store";
+  import { derived, get } from "svelte/store";
   import Sidebar from "./lib/components/layout/Sidebar.svelte";
   import OnboardingView from "./lib/features/onboarding/OnboardingView.svelte";
   import DatabaseRecoveryView from "./lib/features/recovery/DatabaseRecoveryView.svelte";
@@ -28,6 +28,9 @@
   import { settings } from "./lib/stores/settings";
   import { databaseFailure } from "./lib/stores/database-recovery";
   import { installAppUpdate, updateState } from "./lib/services/app-updater";
+  import { startPeriodicChecks } from "./lib/services/update-schedule";
+  import { openReleaseNotes } from "./lib/stores/update-notes";
+  import ReleaseNotesDialog from "./lib/features/updates/ReleaseNotesDialog.svelte";
   import { windowVisible } from "./lib/stores/window-activity";
   import { hasRunningGame } from "./lib/stores/launch";
   import { observeMediaPlayback } from "./lib/services/media-playback";
@@ -60,6 +63,10 @@
       logApplicationEvent("error", "bootstrap_error", describeApplicationError(reason), applicationErrorStack(reason));
       console.error("Application resource initialization failed", reason);
     });
+    // Both the first and the periodic checks honor the automatic update check switch.
+    const stopUpdateChecks = import.meta.env.PROD
+      ? startPeriodicChecks(checkForAppUpdateWhenEnabled, () => get(hasRunningGame) || get(updateState).installing)
+      : () => {};
     if (import.meta.env.PROD) void checkForAppUpdateWhenEnabled();
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -73,6 +80,7 @@
       stopArtworkSelection();
       stopArtworkDisplays();
       stopMedia();
+      stopUpdateChecks();
       media.removeEventListener("change", updateSystemTheme);
     };
   });
@@ -136,12 +144,16 @@
   <ModLinkDialog />
 {/if}
 <SourceLinkDialog />
+<ReleaseNotesDialog />
 <ToastNotice />
 
 {#if $updateState.version && !updateDismissed && ($appInfo.data.platform !== "linux" || !$updateState.nativeNotified)}
   <div class="legio-popover fixed right-5 bottom-5 z-50 flex max-w-sm items-center gap-3 rounded-card p-4 text-sm text-legio-fg shadow-xl shadow-black/30 inset-ring inset-ring-legio-info/25 light:shadow-zinc-900/15" role="status">
     <span class="shrink-0 text-legio-info"><Icon name="info" /></span>
     <span>{t("Legio {0} disponibile.", $language, [$updateState.version])}{#if $updateState.aur} {t("Aggiorna tramite AUR.", $language)}{/if}</span>
+    {#if $updateState.notes !== null}
+      <Button label={t("Cosa c'è di nuovo", $language)} variant="link" onClick={() => openReleaseNotes({ version: $updateState.version ?? "", notes: $updateState.notes ?? "" })} />
+    {/if}
     {#if $appInfo.data.platform !== "linux" && !$updateState.aur}
       <Button label={$updateState.installing ? t("Installazione...", $language) : t("Aggiorna", $language)} size="sm" disabled={$updateState.installing} onClick={() => void installAppUpdate()} />
     {/if}

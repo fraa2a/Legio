@@ -12,6 +12,7 @@
   import type { Settings } from "../../services/local-state";
   import { closeSettings } from "../../stores/navigation";
   import { defaultSettings, settings, settingsError, updateSettings } from "../../stores/settings";
+  import { openReleaseNotes } from "../../stores/update-notes";
   import { toMessage } from "../../utils/errors";
   import { checkForAppUpdate, installAppUpdate, updateState } from "../../services/app-updater";
 
@@ -87,6 +88,9 @@
       <Button label={$updateState.checking ? t("Controllo...", $language) : t("Controlla aggiornamenti", $language)} variant="secondary" disabled={$updateState.checking || $updateState.installing} onClick={() => void checkForAppUpdate()} />
       {#if $updateState.version}
         <span class="text-sm text-legio-fg">{t("Versione {0} disponibile.", $language, [$updateState.version])}{#if $updateState.aur} {t("Aggiorna tramite AUR.", $language)}{/if}</span>
+        {#if $updateState.notes !== null}
+          <Button label={t("Cosa c'è di nuovo", $language)} variant="secondary" onClick={() => openReleaseNotes({ version: $updateState.version ?? "", notes: $updateState.notes ?? "" })} />
+        {/if}
         {#if !$updateState.aur}
           <Button label={$updateState.installing ? t("Installazione...", $language) : t("Installa e riavvia", $language)} disabled={$updateState.installing} onClick={() => void installAppUpdate()} />
         {/if}
@@ -96,6 +100,10 @@
         <span class="text-sm text-legio-fg">{t("Legio è aggiornato.", $language)}</span>
       {/if}
     </div>
+    {#if !$updateState.aur}
+      <ToggleSetting label={t("Ricevi versioni di anteprima", $language)} checked={$settings.data.previewUpdates} defaultValue={defaultSettings.previewUpdates}
+        disabled={saving || $settings.status !== "ready"} onChange={(checked) => void update({ previewUpdates: checked })} />
+    {/if}
     {#if $updateState.error}<ErrorBanner message={$updateState.error} />{/if}
   </SettingsGroup>
 

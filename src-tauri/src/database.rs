@@ -292,7 +292,23 @@ pub struct Settings {
     pub news_enabled: bool,
     #[serde(default = "default_true")]
     pub automatic_update_check: bool,
+    #[serde(default)]
+    pub preview_updates: bool,
+    #[serde(default)]
+    pub last_seen_version: Option<String>,
+    #[serde(default)]
+    pub pending_update_notes: Option<PendingUpdateNotes>,
 }
+
+/// Release notes kept across the restart that installs their version.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingUpdateNotes {
+    pub version: String,
+    pub notes: String,
+}
+
+const MAX_UPDATE_NOTES_CHARS: usize = 20_000;
 
 fn default_true() -> bool {
     true
@@ -350,6 +366,9 @@ impl Default for Settings {
             thunderstore_links_enabled: false,
             news_enabled: true,
             automatic_update_check: true,
+            preview_updates: false,
+            last_seen_version: None,
+            pending_update_notes: None,
         }
     }
 }
@@ -662,6 +681,13 @@ impl Database {
             "all" | "available" | "verified"
         ) {
             return Err("Invalid Store availability preference".to_owned());
+        }
+        if settings
+            .pending_update_notes
+            .as_ref()
+            .is_some_and(|pending| pending.notes.chars().count() > MAX_UPDATE_NOTES_CHARS)
+        {
+            return Err("Update notes are too long".to_owned());
         }
         if settings.launch_minimized && !settings.launch_on_system_start {
             return Err("Launch minimized requires launch on system startup".to_owned());
@@ -2598,6 +2624,31 @@ mod tests {
                 .unwrap()
                 .verify_verified_downloads
         );
+    }
+
+    #[test]
+    fn update_preferences_default_off_and_cap_notes() {
+        let mut preferences = serde_json::to_value(Settings::default()).unwrap();
+        let object = preferences.as_object_mut().unwrap();
+        for key in ["previewUpdates", "lastSeenVersion", "pendingUpdateNotes"] {
+            object.remove(key);
+        }
+        let legacy = serde_json::from_value::<Settings>(preferences).unwrap();
+        assert!(!legacy.preview_updates);
+        assert!(legacy.last_seen_version.is_none() && legacy.pending_update_notes.is_none());
+
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let oversized = Settings {
+            pending_update_notes: Some(PendingUpdateNotes {
+                version: "1.0.0".to_owned(),
+                notes: "x".repeat(MAX_UPDATE_NOTES_CHARS + 1),
+            }),
+            ..Settings::default()
+        };
+        assert!(database.save_settings(oversized).is_err());
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

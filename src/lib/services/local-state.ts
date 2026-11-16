@@ -32,6 +32,9 @@ export interface Settings {
   thunderstoreLinksEnabled: boolean;
   newsEnabled: boolean;
   automaticUpdateCheck: boolean;
+  previewUpdates: boolean;
+  lastSeenVersion: string | null;
+  pendingUpdateNotes: { version: string; notes: string } | null;
 }
 
 export interface Game {
