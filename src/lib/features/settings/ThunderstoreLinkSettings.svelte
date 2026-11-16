@@ -32,7 +32,7 @@
   }
 </script>
 
-<SettingsGroup icon="globe" title={t("Link di Thunderstore", $language)}>
+<SettingsGroup icon="link" title={t("Link di Thunderstore", $language)}>
   <ToggleSetting label={t("Apri i link Mod Manager di Thunderstore con Legio", $language)}
     checked={$settings.data.thunderstoreLinksEnabled}
     defaultValue={defaultSettings.thunderstoreLinksEnabled}

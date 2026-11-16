@@ -19,13 +19,13 @@
   let open = $state(untrack(() => defaultOpen));
 </script>
 
-<section class="flex flex-col gap-4 rounded-2xl legio-glass p-5">
+<section class="flex flex-col gap-4 rounded-panel legio-glass p-6">
   {#snippet iconBadge()}
     {#if icon}
       <span
-        class="grid size-8 shrink-0 place-items-center rounded-lg bg-legio-fill-hover text-legio-fg"
+        class="grid size-8 shrink-0 place-items-center rounded-control bg-legio-fill-hover text-legio-fg"
       >
-        <Icon name={icon} size="size-4" />
+        <Icon name={icon} />
       </span>
     {/if}
   {/snippet}
@@ -38,7 +38,7 @@
         onclick={() => { open = !open; }}
       >
         <span
-          class="flex min-w-0 items-center gap-3 rounded-lg transition-colors hover:bg-legio-fill"
+          class="flex min-w-0 items-center gap-3 rounded-control transition-colors hover:bg-legio-fill"
         >
           {@render iconBadge()}
           <span class="min-w-0">{title}</span>
@@ -47,7 +47,7 @@
           class="ml-auto shrink-0 text-legio-fg-subtle transition-transform motion-reduce:transition-none {open ? 'rotate-180' : ''}"
           aria-hidden="true"
         >
-          <Icon name="chevron-down" size="size-4" />
+          <Icon name="chevron-down" />
         </span>
       </button>
     </h3>

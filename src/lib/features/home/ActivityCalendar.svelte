@@ -34,8 +34,8 @@
 <Panel title={t("Attività di gioco", $language)} description={monthLabel.charAt(0).toLocaleUpperCase() + monthLabel.slice(1)} class="min-h-0">
   {#snippet actions()}
     <div class="flex gap-1">
-      <Button label={t("Mese precedente", $language)} variant="secondary" size="sm" circle onClick={() => monthOffset--}><Icon name="previous" /></Button>
-      <Button label={t("Mese successivo", $language)} variant="secondary" size="sm" circle disabled={monthOffset >= 0} onClick={() => monthOffset++}><Icon name="next" /></Button>
+      <Button label={t("Mese precedente", $language)} variant="secondary" size="sm" iconOnly onClick={() => monthOffset--}><Icon name="previous" /></Button>
+      <Button label={t("Mese successivo", $language)} variant="secondary" size="sm" iconOnly disabled={monthOffset >= 0} onClick={() => monthOffset++}><Icon name="next" /></Button>
     </div>
   {/snippet}
 
@@ -62,7 +62,7 @@
           {@const today = new Date(calendar.boundaries[day - 1]).toDateString() === now.toDateString()}
           {@const label = `${day} ${monthLabel}: ${future ? t("giorno futuro", $language) : t("{0} giocati", $language, [formatPlaytime(milliseconds)])}`}
           <span
-            class="activity-cell flex aspect-square items-center justify-center rounded-lg text-xs font-medium tabular-nums text-legio-fg"
+            class="activity-cell flex aspect-square items-center justify-center rounded-control text-xs font-medium tabular-nums text-legio-fg"
             class:future
             class:today
             class:active={milliseconds >= 3 * 3600000}

@@ -20,10 +20,12 @@
     onWindowResized,
     toggleMaximizeWindow,
   } from "../../services/window";
+  import Button from "../ui/Button.svelte";
   import IconButton from "../ui/IconButton.svelte";
   import Icon from "../ui/Icon.svelte";
   import { addGameDialogOpen, libraryPortrait, libraryQuery, storeQuery } from "../../stores/library-ui";
   import RefreshIcon from "../ui/RefreshIcon.svelte";
+  import TextField from "../ui/TextField.svelte";
   import { catalog, runCatalogSearch } from "../../stores/catalog";
   import { refreshSource, sourceBusy } from "../../stores/source";
   import { settings, updateSettings } from "../../stores/settings";
@@ -46,7 +48,7 @@
 
   let maximized = $state(false);
   let heading: HTMLElement | undefined = $state();
-  let searchInput: HTMLInputElement | undefined = $state();
+  let searchInput: HTMLInputElement | HTMLTextAreaElement | undefined = $state();
   const showMaximize = $derived($appInfo.data.desktopEnvironment !== "hyprland");
   const game = $derived(
     $activeSection === "library" && $selectedGameId !== null
@@ -138,12 +140,11 @@
 <div class="my-1.5 grid shrink-0 grid-cols-[minmax(auto,1fr)_minmax(0,32rem)_minmax(auto,1fr)] items-center gap-2" data-tauri-drag-region>
   <div class="col-start-1 flex min-w-0 items-center gap-2">
     {#if libraryList}
-      <div class="legio-glass flex h-11 items-center rounded-xl p-1">
-        <IconButton size="lg" label={t("Aggiungi gioco", $language)} title={t("Aggiungi gioco", $language)} onClick={() => addGameDialogOpen.set(true)}>
+      <div class="legio-glass flex h-control-md items-center rounded-card p-1">
+        <IconButton label={t("Aggiungi gioco", $language)} title={t("Aggiungi gioco", $language)} onClick={() => addGameDialogOpen.set(true)}>
           <Icon name="plus" />
         </IconButton>
         <IconButton
-          size="lg"
           label={t("Copertine verticali", $language)}
           pressed={$libraryPortrait}
           title={$libraryPortrait ? t("Mostra copertine orizzontali", $language) : t("Mostra copertine verticali", $language)}
@@ -154,43 +155,39 @@
         </IconButton>
       </div>
     {:else if detail !== null}
-      <div class="legio-glass flex h-11 items-center rounded-xl p-1">
-        <button
-          type="button"
-          class="flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm text-legio-fg-muted transition-colors duration-200 hover:bg-legio-fill-hover hover:text-legio-fg"
-          onclick={navigateBack}
-        >
+      <div class="legio-glass flex h-control-md items-center rounded-card p-1">
+        <Button label={backLabel} variant="ghost" size="sm" onClick={navigateBack}>
           <Icon name="back" />
-          {backLabel}
-        </button>
+        </Button>
       </div>
     {/if}
     {#if pageContent?.start}{@render pageContent.start()}{/if}
   </div>
   {#if searchList}
-    <div class="legio-glass col-start-2 flex h-11 w-full min-w-0 max-w-lg justify-self-center items-center gap-2 rounded-xl px-3">
-      <Icon name="search" size="h-4 w-4 shrink-0 text-legio-fg-subtle" />
-      <input
-        bind:this={searchInput}
-        value={libraryList ? $libraryQuery : $storeQuery}
-        type="search"
-        aria-label={libraryList ? t("Cerca nella libreria", $language) : t("Cerca nello store", $language)}
-        placeholder={libraryList ? t("Cerca nella libreria", $language) : t("Cerca nello store", $language)}
-        oninput={(event) => libraryList ? libraryQuery.set(event.currentTarget.value) : storeQuery.set(event.currentTarget.value)}
-        class="h-full min-w-0 flex-1 bg-transparent text-sm text-legio-fg outline-none placeholder:text-legio-fg-subtle"
-      />
-      {#if storeList}
-        <IconButton
-          label={t("Aggiorna store", $language)}
-          title={t("Aggiorna store", $language)}
-          onClick={() => { void refreshSource(); void runCatalogSearch($storeQuery); }}
-        >
-          <RefreshIcon spinning={$sourceBusy || $catalog.status === "loading"} />
-        </IconButton>
-      {/if}
-    </div>
+    {#snippet refreshStore()}
+      <IconButton
+        label={t("Aggiorna store", $language)}
+        title={t("Aggiorna store", $language)}
+        onClick={() => { void refreshSource(); void runCatalogSearch($storeQuery); }}
+      >
+        <RefreshIcon spinning={$sourceBusy || $catalog.status === "loading"} />
+      </IconButton>
+    {/snippet}
+    <TextField
+      id="title-bar-search"
+      type="search"
+      variant="toolbar"
+      class="col-start-2 w-full min-w-0 max-w-lg justify-self-center"
+      label={libraryList ? t("Cerca nella libreria", $language) : t("Cerca nello store", $language)}
+      labelHidden
+      bind:element={searchInput}
+      value={libraryList ? $libraryQuery : $storeQuery}
+      placeholder={libraryList ? t("Cerca nella libreria", $language) : t("Cerca nello store", $language)}
+      oninput={(value) => libraryList ? libraryQuery.set(value) : storeQuery.set(value)}
+      trailing={storeList ? refreshStore : undefined}
+    />
   {:else}
-    <div class="legio-glass col-start-2 flex h-11 min-w-0 max-w-full items-center justify-self-center rounded-xl px-4">
+    <div class="legio-glass col-start-2 flex h-control-md min-w-0 max-w-full items-center justify-self-center rounded-card px-4">
       <h1
         bind:this={heading}
         data-page-heading
@@ -203,16 +200,16 @@
   {/if}
   <div class="col-start-3 flex min-w-0 items-center justify-end gap-2">
     {#if pageContent?.end}{@render pageContent.end()}{/if}
-    <div class="legio-glass flex h-11 items-center gap-1 rounded-xl p-1">
-      <IconButton size="lg" label={t("Riduci a icona", $language)} onClick={handleMinimize}>
+    <div class="legio-glass flex h-control-md items-center gap-1 rounded-card p-1">
+      <IconButton label={t("Riduci a icona", $language)} onClick={handleMinimize}>
         <Icon name="minimize" />
       </IconButton>
       {#if showMaximize}
-        <IconButton size="lg" label={maximized ? t("Ripristina finestra", $language) : t("Massimizza", $language)} onClick={handleToggleMaximize}>
+        <IconButton label={maximized ? t("Ripristina finestra", $language) : t("Massimizza", $language)} onClick={handleToggleMaximize}>
           <Icon name={maximized ? "restore" : "maximize"} />
         </IconButton>
       {/if}
-      <IconButton size="lg" variant="danger" label={t("Chiudi", $language)} onClick={handleClose}>
+      <IconButton variant="danger" label={t("Chiudi", $language)} onClick={handleClose}>
         <Icon name="close" />
       </IconButton>
     </div>

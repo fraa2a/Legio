@@ -51,7 +51,7 @@
 
 {#if $settingsError}<ErrorBanner message={$settingsError} />{/if}
   <SettingsGroup
-    icon="store"
+    icon="timer"
     title={t("Controllo Steam", $language)}
   >
     <ToggleSetting label={t("Sync Steam games", $language)} checked={$settings.data.syncSteamGames}

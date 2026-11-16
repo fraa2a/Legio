@@ -2,7 +2,7 @@
   import { reducedMotion } from "../../utils/motion";
   import Icon from "./Icon.svelte";
 
-  let { spinning, size = "size-4" }: { spinning: boolean; size?: string } = $props();
+  let { spinning }: { spinning: boolean } = $props();
 
   let turning = $state(false);
 
@@ -21,5 +21,5 @@
   class="inline-flex {turning ? 'animate-spin' : ''} {spinning && reducedMotion ? 'opacity-50' : ''}"
   onanimationiteration={finishTurn}
 >
-  <Icon name="reload" {size} />
+  <Icon name="reload" />
 </span>

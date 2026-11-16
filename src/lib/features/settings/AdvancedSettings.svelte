@@ -61,9 +61,9 @@
   }
 </script>
 
-<section class="flex flex-col gap-4">
+<section class="flex flex-col gap-6">
   {#if error !== null}<ErrorBanner message={error} onRetry={() => void refresh()} />{/if}
-  <SettingsGroup icon="info" title={t("Log e diagnostica", $language)}>
+  <SettingsGroup icon="logs" title={t("Log e diagnostica", $language)}>
     <ToggleSetting label={t("Salva log applicativi", $language)} defaultValue={defaultSettings.applicationLoggingEnabled} checked={$settings.data.applicationLoggingEnabled} disabled={saving} onChange={(enabled) => void setLogging("application", enabled)} />
     <p class="text-xs text-legio-fg-muted">{t("Registra avvio, navigazione, errori e panic in app.txt. Per diagnosticare un crash, attiva i log e riavvia Legio prima di riprodurlo.", $language)}</p>
     <ToggleSetting label={t("Salva log di rete", $language)} defaultValue={defaultSettings.diagnosticsEnabled} checked={$settings.data.diagnosticsEnabled} disabled={saving} onChange={(enabled) => void setLogging("network", enabled)} />

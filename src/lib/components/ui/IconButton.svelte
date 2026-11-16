@@ -5,7 +5,7 @@
   let {
     label,
     title,
-    size = "md",
+    size = "sm",
     variant = "ghost",
     pressed,
     disabled = false,
@@ -15,7 +15,8 @@
   }: {
     label: string;
     title?: string;
-    size?: "xs" | "sm" | "md" | "lg";
+    // Inline sizes only sit inside other controls, such as a tab or a banner.
+    size?: "inline-sm" | "inline-md" | "sm" | "md";
     variant?: "ghost" | "soft" | "plain" | "danger";
     pressed?: boolean;
     disabled?: boolean;
@@ -25,10 +26,10 @@
   } = $props();
 
   const sizeClass = $derived.by(() => {
-    if (size === "xs") return "size-5 rounded";
-    if (size === "sm") return "size-7 rounded-md";
-    if (size === "lg") return "size-9 rounded-lg";
-    return "size-8 rounded-lg";
+    if (size === "inline-sm") return "size-5";
+    if (size === "inline-md") return "size-7";
+    if (size === "md") return "size-control-md";
+    return "size-control-sm";
   });
 
   const variantClass = $derived.by(() => {
@@ -51,7 +52,7 @@
   aria-pressed={pressed}
   {disabled}
   onclick={onClick}
-  class="group inline-flex shrink-0 items-center justify-center transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent {sizeClass} {variantClass} {className}"
+  class="group inline-flex shrink-0 items-center justify-center rounded-control transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent {sizeClass} {variantClass} {className}"
 >
   {@render children()}
 </button>

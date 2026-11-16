@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { t, language } from "../../i18n";
+  import Button from "./Button.svelte";
   import Icon, { type IconName } from "./Icon.svelte";
   import IconButton from "./IconButton.svelte";
 
@@ -50,9 +51,9 @@
 
 <div
   role={tone === "danger" ? "alert" : "status"}
-  class="flex items-start gap-3 {banner ? `rounded-xl border px-4 py-3 text-sm ${style.box}` : 'text-xs'} {className}"
+  class="flex items-start gap-3 {banner ? `rounded-card border p-4 text-sm ${style.box}` : 'text-xs'} {className}"
 >
-  <span class="mt-0.5 shrink-0 {style.text}"><Icon name={style.icon} size={banner ? "size-4" : "size-3.5"} /></span>
+  <span class="mt-0.5 shrink-0 {style.text}"><Icon name={style.icon} size={banner ? "md" : "sm"} /></span>
   <div class="min-w-0 flex-1 break-words text-legio-fg">
     {#if title}<p class="font-medium text-legio-fg">{title}</p>{/if}
     {#if message}<p>{message}</p>{/if}
@@ -61,7 +62,7 @@
       <details class="group mt-1">
         <summary class="flex w-fit cursor-pointer list-none items-center gap-1 text-xs text-legio-fg-muted transition-colors hover:text-legio-fg">
           {t("Mostra i dettagli ({0})", $language, [items.length])}
-          <span class="transition-transform group-open:rotate-180 motion-reduce:transition-none"><Icon name="chevron-down" size="size-3.5" /></span>
+          <span class="transition-transform group-open:rotate-180 motion-reduce:transition-none"><Icon name="chevron-down" size="sm" /></span>
         </summary>
         {@render list()}
       </details>
@@ -69,6 +70,6 @@
       {@render list()}
     {/if}
   </div>
-  {#if onRetry}<button type="button" class="shrink-0 rounded px-2 py-0.5 font-semibold text-legio-fg hover:bg-legio-fill-hover" onclick={onRetry}>{retryLabel}</button>{/if}
-  {#if onDismiss}<IconButton size="xs" variant="plain" label={t("Chiudi avviso", $language)} onClick={onDismiss}><Icon name="close" size="size-3.5" /></IconButton>{/if}
+  {#if onRetry}<Button label={retryLabel} variant="link" size={banner ? "md" : "sm"} class="shrink-0" onClick={onRetry} />{/if}
+  {#if onDismiss}<IconButton size="inline-sm" variant="plain" label={t("Chiudi avviso", $language)} onClick={onDismiss}><Icon name="close" size="sm" /></IconButton>{/if}
 </div>

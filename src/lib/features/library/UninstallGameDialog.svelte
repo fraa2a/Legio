@@ -55,7 +55,7 @@
   {onClose}
 >
   {#if directory !== null}
-    <p class="break-all rounded-lg bg-legio-fill p-3 font-mono text-xs text-legio-fg">{directory}</p>
+    <p class="break-all rounded-control bg-legio-fill p-3 font-mono text-xs text-legio-fg">{directory}</p>
     <Callout tone="danger" message={t("Verranno eliminati anche eventuali salvataggi e mod presenti in questa cartella. L'operazione non può essere annullata.", $language)} />
   {:else if error === null}
     <p class="text-sm text-legio-fg-muted" role="status">{t("Verifica della cartella del gioco...", $language)}</p>

@@ -14,7 +14,7 @@
 
 <div class="flex items-center justify-between gap-6">
   <div class="min-w-0">
-    <p class="text-sm text-legio-fg">{label}</p>
+    <p class="text-sm font-medium text-legio-fg">{label}</p>
     {#if description}
       <p class="mt-0.5 break-words text-xs text-legio-fg-muted">{description}</p>
     {/if}

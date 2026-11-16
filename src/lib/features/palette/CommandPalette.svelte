@@ -3,6 +3,7 @@
   import { t, language } from "../../i18n";
   import Dialog from "../../components/ui/Dialog.svelte";
   import Icon, { type IconName } from "../../components/ui/Icon.svelte";
+  import TextField from "../../components/ui/TextField.svelte";
   import { appInfo } from "../../stores/app-info";
   import { paletteOpen } from "../../stores/command-palette";
   import { games } from "../../stores/games";
@@ -18,7 +19,7 @@
 
   let query = $state("");
   let active = $state(0);
-  let input = $state<HTMLInputElement>();
+  let input = $state<HTMLInputElement | HTMLTextAreaElement>();
 
   const entries: Entry[] = $derived([
     ...sections.map((section): Entry => ({ id: `section:${section}`, kind: "section", label: t(sectionLabels[section], $language), hint: t("Pagina", $language), icon: sectionIcons[section], run: () => selectSection(section) })),
@@ -60,25 +61,23 @@
 <Dialog open title={t("Cerca ovunque", $language)} onClose={() => paletteOpen.set(false)}>
   {#snippet children(close)}
     <div class="flex flex-col gap-3">
-      <div class="flex h-11 items-center gap-2 rounded-xl border border-legio-line-subtle bg-white/5 px-3 light:bg-white">
-        <Icon name="search" size="size-4 shrink-0 text-legio-fg-subtle" />
-        <input
-          bind:this={input}
-          bind:value={query}
-          type="text"
-          role="combobox"
-          aria-expanded="true"
-          aria-controls={listId}
-          aria-activedescendant={selected === undefined ? undefined : `${listId}-${selected.id}`}
-          aria-label={t("Cerca giochi, pagine e impostazioni", $language)}
-          placeholder={t("Cerca giochi, pagine e impostazioni", $language)}
-          autocomplete="off"
-          spellcheck="false"
-          oninput={() => { active = 0; }}
-          onkeydown={(event) => handleKeydown(event, close)}
-          class="h-full min-w-0 flex-1 bg-transparent text-sm text-legio-fg outline-none placeholder:text-legio-fg-subtle"
-        />
-      </div>
+      <TextField
+        id="{listId}-query"
+        type="search"
+        label={t("Cerca giochi, pagine e impostazioni", $language)}
+        labelHidden
+        bind:element={input}
+        bind:value={query}
+        role="combobox"
+        aria-expanded="true"
+        aria-controls={listId}
+        aria-activedescendant={selected === undefined ? undefined : `${listId}-${selected.id}`}
+        placeholder={t("Cerca giochi, pagine e impostazioni", $language)}
+        autocomplete="off"
+        spellcheck="false"
+        oninput={() => { active = 0; }}
+        onkeydown={(event) => handleKeydown(event, close)}
+      />
       <div id={listId} role="listbox" aria-label={t("Risultati", $language)} class="flex max-h-80 flex-col gap-0.5 overflow-y-auto">
         {#each results as entry, index (entry.id)}
           <button
@@ -89,9 +88,9 @@
             aria-selected={index === Math.min(active, results.length - 1)}
             onpointermove={() => { active = index; }}
             onclick={() => choose(entry, close)}
-            class="flex h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm text-legio-fg aria-selected:bg-legio-fill-hover aria-selected:text-legio-fg"
+            class="flex h-control-md w-full items-center gap-3 rounded-control px-3 text-left text-sm text-legio-fg aria-selected:bg-legio-fill-hover aria-selected:text-legio-fg"
           >
-            <span class="shrink-0 text-legio-fg-muted"><Icon name={entry.icon} size="size-4" /></span>
+            <span class="shrink-0 text-legio-fg-muted"><Icon name={entry.icon} /></span>
             <span class="min-w-0 flex-1 truncate">{entry.label}</span>
             {#if entry.hint}<span class="shrink-0 text-xs text-legio-fg-subtle">{entry.hint}</span>{/if}
           </button>

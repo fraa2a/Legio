@@ -16,6 +16,7 @@
 
 - [Contribution workflow](../../CONTRIBUTING.md)
 - [Development setup and repository layout](DEVELOPMENT.md)
+- [Legio UI scales and primitives](UI.md)
 - [Testing](TESTING.md)
 - [Linux rendering diagnostics](LINUX-RENDERING.md)
 - [Release and updater maintenance](UPDATING.md)

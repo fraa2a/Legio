@@ -41,7 +41,7 @@
 {:else if update !== undefined}
   <Button label={t("AGGIORNA", $language)} variant="download" size="hero" class="w-60" disabled={pending || running}
     onClick={() => { if (!update.verified) confirming = true; else void queue(); }}>
-    <Icon name="download" size="size-6" />
+    <Icon name="download" size="xl" />
   </Button>
 {/if}
 {#if error !== null}<ErrorBanner message={error} />{/if}

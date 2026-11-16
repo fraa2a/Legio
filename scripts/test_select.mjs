@@ -54,7 +54,7 @@ test("the list grows out of the trigger edge as one surface and supports the key
     assert.equal(list.style.top, "160px", "the list touches the trigger bottom edge");
     assert.equal(list.style.left, "130px");
     assert.equal(list.style.width, "240px");
-    assert.ok(trigger.classList.contains("rounded-t-lg") && list.classList.contains("rounded-b-lg"));
+    assert.ok(trigger.classList.contains("rounded-t-control") && list.classList.contains("rounded-b-control"));
     assert.ok(trigger.classList.contains("legio-popover") && list.classList.contains("legio-popover"), "trigger and list share the surface");
     assert.ok(!list.classList.contains("border-t"), "the trigger border is the only seam");
     assert.equal(document.activeElement.textContent.trim(), "English");
@@ -66,7 +66,7 @@ test("the list grows out of the trigger edge as one surface and supports the key
     assert.deepEqual(chosen, ["it"]);
     assert.equal(target.querySelector('[role="listbox"]'), null);
     assert.equal(document.activeElement, trigger);
-    assert.ok(trigger.classList.contains("rounded-lg"), "corners return once closed");
+    assert.ok(trigger.classList.contains("rounded-control"), "corners return once closed");
     assert.equal(animations.length, 0, "reduced motion skips the animation");
   } finally { await cleanup(); }
 });
@@ -79,7 +79,7 @@ test("a low trigger grows the list upwards and Escape closes it", async () => {
     const list = target.querySelector('[role="listbox"]');
     assert.equal(list.style.bottom, `${window.innerHeight - 700}px`);
     assert.equal(list.style.top, "auto");
-    assert.ok(trigger.classList.contains("rounded-b-lg") && list.classList.contains("rounded-t-lg"));
+    assert.ok(trigger.classList.contains("rounded-b-control") && list.classList.contains("rounded-t-control"));
     key("Escape"); await settle();
     assert.equal(trigger.getAttribute("aria-expanded"), "false");
     assert.equal(target.querySelector('[role="listbox"]'), null);

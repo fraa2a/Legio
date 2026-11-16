@@ -177,7 +177,7 @@
       {/if}
       <div class="flex justify-end"><Button label={t("Chiudi", $language)} onClick={close} /></div>
     {:else if pending && refreshingCatalog && catalogProgress !== null}
-      <section class="flex flex-wrap items-center gap-4 rounded-2xl legio-glass p-4" aria-label={t("Aggiornamento del catalogo mod", $language)}>
+      <section class="flex flex-wrap items-center gap-4 rounded-panel legio-glass p-4" aria-label={t("Aggiornamento del catalogo mod", $language)}>
         <Spinner />
         <div class="min-w-0 flex-1 basis-56" role="status" aria-live="polite">
           <p class="truncate text-sm font-medium text-legio-fg">{t("Aggiornamento del catalogo mod...", $language)}</p>

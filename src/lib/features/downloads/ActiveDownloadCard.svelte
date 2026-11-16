@@ -44,10 +44,10 @@
 </script>
 
 <section
-  class="rounded-2xl legio-glass p-5"
+  class="rounded-panel legio-glass p-5"
   aria-label={t("Download attivo di {0}", $language, [job.name])}
 >
-  <div class="flex flex-col gap-5 sm:flex-row sm:items-start">
+  <div class="flex flex-col gap-6 sm:flex-row sm:items-start">
     <DownloadCover
       steamAppId={job.steamAppId}
       name={job.name}
@@ -58,7 +58,7 @@
       <div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-2.5">
-            <h2 class="min-w-0 truncate text-xl font-semibold text-legio-fg">
+            <h2 class="min-w-0 truncate text-lg font-semibold text-legio-fg">
               {job.name}
             </h2>
             <Badge tone={statusTone(job.status)} title={statusBadge(job.status, $language)} />

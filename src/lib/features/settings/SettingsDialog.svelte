@@ -34,7 +34,7 @@
     <SettingsNavigation {categories} selected={active} label={t("Categorie delle impostazioni", $language)} onSelect={id => settingsCategory.set(id)}>
       {#snippet footer()}
         <div class="flex items-center gap-2 px-3 py-2">
-          <img src={logo} alt="" class="size-8 shrink-0 rounded-lg" />
+          <img src={logo} alt="" class="size-8 shrink-0 rounded-control" />
           <div class="flex min-w-0 flex-col leading-tight">
             <span class="truncate text-sm font-semibold text-legio-fg">Legio</span>
             {#if $appInfo.data.version !== ""}<span class="truncate text-xs text-legio-fg-muted">v.{$appInfo.data.version}</span>{/if}
@@ -57,7 +57,7 @@
       {:else if active === "privacy"}
         <PrivacySettings />
       {:else}
-        <div class="flex flex-col gap-4">
+        <div class="flex flex-col gap-6">
           <AdvancedSettings />
           <ModCacheSettings />
         </div>

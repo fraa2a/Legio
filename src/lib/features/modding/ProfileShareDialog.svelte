@@ -107,7 +107,7 @@
     </p>
     <Callout variant="inline" message={t("Le mod locali non sono incluse: chi importa il profilo riceve solo le mod di Thunderstore e i file di configurazione.", $language)} />
 
-    <section class="flex flex-col gap-3 rounded-lg bg-legio-fill p-3" aria-label={t("Esporta in un file", $language)}>
+    <section class="flex flex-col gap-3 rounded-control bg-legio-fill p-3" aria-label={t("Esporta in un file", $language)}>
       <div>
         <h3 class="text-sm font-semibold text-legio-fg">{t("Esporta in un file", $language)}</h3>
         <p class="mt-0.5 text-xs text-legio-fg-muted">{t("Crea un file .r2z compatibile con r2modman.", $language)}</p>
@@ -123,7 +123,7 @@
       </div>
     </section>
 
-    <section class="flex flex-col gap-3 rounded-lg bg-legio-fill p-3" aria-label={t("Codice di condivisione", $language)}>
+    <section class="flex flex-col gap-3 rounded-control bg-legio-fill p-3" aria-label={t("Codice di condivisione", $language)}>
       <div>
         <h3 class="text-sm font-semibold text-legio-fg">{t("Codice di condivisione", $language)}</h3>
         <p class="mt-0.5 text-xs text-legio-fg-muted">{t("Carica il profilo su Thunderstore e genera un codice da incollare. Il codice scade dopo un po' di tempo.", $language)}</p>
@@ -136,7 +136,7 @@
             <TextField id="mod-profile-share-code" label={t("Codice di condivisione", $language)} labelHidden readonly monospace value={code} />
           </div>
           <Button label={copied ? t("Copiato", $language) : t("Copia", $language)} variant="secondary" onClick={() => void copyCode()}>
-            {#if copied}<Icon name="check" size="size-4 text-legio-success" />{/if}
+            {#if copied}<Icon name="check" class="text-legio-success" />{/if}
           </Button>
         </div>
         {#if copyError !== null}<ErrorBanner message={copyError} />{/if}

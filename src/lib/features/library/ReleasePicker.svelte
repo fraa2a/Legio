@@ -136,7 +136,7 @@
 
 {#snippet icon(name: string, size: string)}
   {#if steamAppId !== null}
-    <SteamArtwork {steamAppId} asset="client_icon" caption={false} alt="" class="{size} shrink-0 rounded-md object-contain">
+    <SteamArtwork {steamAppId} asset="client_icon" caption={false} alt="" class="{size} shrink-0 rounded-control object-contain">
       {#snippet placeholder()}{@render monogram(name, size)}{/snippet}
     </SteamArtwork>
   {:else}
@@ -145,7 +145,7 @@
 {/snippet}
 
 {#snippet monogram(name: string, size: string)}
-  <span class="flex {size} shrink-0 items-center justify-center rounded-md bg-zinc-700/60 text-sm font-semibold text-legio-fg light:bg-zinc-200" aria-hidden="true">{name.trim().charAt(0).toUpperCase() || "?"}</span>
+  <span class="flex {size} shrink-0 items-center justify-center rounded-control bg-zinc-700/60 text-sm font-semibold text-legio-fg light:bg-zinc-200" aria-hidden="true">{name.trim().charAt(0).toUpperCase() || "?"}</span>
 {/snippet}
 
 {#snippet badges(option: ReleaseOption)}
@@ -157,7 +157,7 @@
 
 {#snippet connector(last: boolean)}
   <span class="relative -my-2 w-9 shrink-0 self-stretch" aria-hidden="true">
-    <span class="absolute left-1/2 -top-0.5 {last ? 'h-[calc(50%+2px)] rounded-bl-md border-b' : '-bottom-0.5'} w-4 border-l-2 border-legio-line-strong"></span>
+    <span class="absolute left-1/2 -top-0.5 {last ? 'h-[calc(50%+2px)] rounded-bl-control border-b' : '-bottom-0.5'} w-4 border-l-2 border-legio-line-strong"></span>
     {#if !last}<span class="absolute top-1/2 left-1/2 w-4 border-t-2 border-legio-line-strong"></span>{/if}
   </span>
 {/snippet}
@@ -167,8 +167,8 @@
   onpointerdown={(event) => { if (open && !root.contains(event.target as Node)) open = false; }}
 />
 
-<div bind:this={root} class="relative h-15 {className}">
-  <div class="absolute inset-x-0 top-0 z-20 flex flex-col overflow-hidden rounded-xl legio-glass text-legio-fg transition-shadow duration-200 {open ? 'shadow-xl shadow-black/30 light:shadow-zinc-900/15' : ''}">
+<div bind:this={root} class="relative h-control-hero {className}">
+  <div class="absolute inset-x-0 top-0 z-20 flex flex-col overflow-hidden rounded-card legio-glass text-legio-fg transition-shadow {open ? 'shadow-xl shadow-black/30 light:shadow-zinc-900/15' : ''}">
     <button
       bind:this={trigger}
       type="button"
@@ -179,7 +179,7 @@
       disabled={disabled || !hasChoices}
       onkeydown={handleKeydown}
       onclick={() => (open ? close() : void expand())}
-      class="flex h-15 w-full shrink-0 items-center gap-3 px-3 text-left transition-colors enabled:hover:bg-legio-fill-hover disabled:cursor-default"
+      class="flex h-control-hero w-full shrink-0 items-center gap-3 px-3 text-left transition-colors enabled:hover:bg-legio-fill-hover disabled:cursor-default"
     >
       {@render icon(selected.profileOf ?? selected.name, "size-10")}
       <span class="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -189,7 +189,7 @@
         </span>
         <span class="truncate text-xs leading-4 text-legio-fg-muted">{selected.profileOf === undefined ? "" : `${selected.profileOf} · `}{details(selected)}{chosenLink === null ? "" : ` · ${chosenLink}`}</span>
       </span>
-      {#if hasChoices}<span class="shrink-0 text-legio-fg-muted transition-transform duration-200 {open ? 'rotate-180' : ''}"><Icon name="chevron-down" size="size-4" /></span>{/if}
+      {#if hasChoices}<span class="shrink-0 text-legio-fg-muted transition-transform {open ? 'rotate-180' : ''}"><Icon name="chevron-down" /></span>{/if}
     </button>
 
     {#if open}
@@ -212,7 +212,7 @@
                   tabindex={option.id === selectedId ? 0 : -1}
                   disabled={option.disabled}
                   onclick={() => choose(option.id)}
-                  class="flex min-h-14 items-center gap-3 rounded-lg px-2 py-2 text-left outline-none enabled:hover:bg-legio-fill-hover focus-visible:bg-legio-fill-hover disabled:cursor-not-allowed disabled:opacity-50 aria-selected:bg-legio-fill-hover "
+                  class="flex min-h-control-lg items-center gap-3 rounded-control px-2 py-2 text-left outline-none enabled:hover:bg-legio-fill-hover focus-visible:bg-legio-fill-hover disabled:cursor-not-allowed disabled:opacity-50 aria-selected:bg-legio-fill-hover "
                 >
                   {#if option.profileOf !== undefined}{@render connector(option.lastProfile === true)}{/if}
                   {@render icon(option.profileOf ?? option.name, "size-9")}
@@ -223,13 +223,13 @@
                     </span>
                     <span class="truncate text-xs text-legio-fg-muted">{details(option)}</span>
                   </span>
-                  {#if option.id === selectedId}<Icon name="check" size="size-4 shrink-0 text-legio-success" />{/if}
+                  {#if option.id === selectedId}<Icon name="check" class="shrink-0 text-legio-success" />{/if}
                 </button>
               {/each}
             </div>
             {#if onAdd}
-              <button type="button" class="mt-1 flex h-11 w-full items-center gap-3 rounded-lg px-2 text-left text-sm text-legio-fg outline-none hover:bg-legio-fill-hover focus-visible:bg-legio-fill-hover" onclick={() => { open = false; onAdd(); }}>
-                <span class="flex size-9 shrink-0 items-center justify-center"><Icon name="plus" size="size-5" /></span>{t("Aggiungi un'altra versione", $language)}
+              <button type="button" class="mt-1 flex h-control-md w-full items-center gap-3 rounded-control px-2 text-left text-sm text-legio-fg outline-none hover:bg-legio-fill-hover focus-visible:bg-legio-fill-hover" onclick={() => { open = false; onAdd(); }}>
+                <span class="flex size-9 shrink-0 items-center justify-center"><Icon name="plus" size="lg" /></span>{t("Aggiungi un'altra versione", $language)}
               </button>
             {/if}
           </div>
@@ -246,9 +246,9 @@
                     tabindex={option.value === link ? 0 : -1}
                     disabled={linksDisabled}
                     onclick={() => { link = option.value; close(); }}
-                    class="flex h-8 max-w-full items-center gap-1.5 rounded-full border border-legio-line-subtle px-3 text-sm text-legio-fg outline-none transition-colors hover:bg-legio-fill-hover focus-visible:bg-legio-fill-hover disabled:cursor-not-allowed disabled:opacity-50 aria-checked:border-legio-line-strong aria-checked:bg-legio-fill-active aria-checked:text-legio-fg"
+                    class="flex h-control-sm max-w-full items-center gap-1.5 rounded-full border border-legio-line-subtle px-3 text-sm text-legio-fg outline-none transition-colors hover:bg-legio-fill-hover focus-visible:bg-legio-fill-hover disabled:cursor-not-allowed disabled:opacity-50 aria-checked:border-legio-line-strong aria-checked:bg-legio-fill-active aria-checked:text-legio-fg"
                   >
-                    {#if option.value === link}<Icon name="check" size="size-3.5 shrink-0 text-legio-success" />{/if}
+                    {#if option.value === link}<Icon name="check" size="sm" class="shrink-0 text-legio-success" />{/if}
                     <span class="min-w-0 truncate">{option.label}</span>
                   </button>
                 {/each}

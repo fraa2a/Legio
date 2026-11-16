@@ -100,11 +100,11 @@
 {:else if placeholder !== undefined}
   {@render placeholder()}
 {:else if error !== null || (candidateUrl !== null && candidateUrl === failedUrl)}
-  <div class="flex items-center justify-center rounded-lg text-xs text-zinc-500 {className}">
+  <div class="flex items-center justify-center rounded-control text-xs text-zinc-500 {className}">
     <span aria-hidden="true">{alt.trim().charAt(0).toUpperCase() || "?"}</span>
   </div>
 {:else}
-  <div class="flex items-center justify-center rounded-lg {className}">
+  <div class="flex items-center justify-center rounded-control {className}">
     <span role="status" class="sr-only">{t("Caricamento immagine...", $language)}</span>
   </div>
 {/if}

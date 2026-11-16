@@ -11,6 +11,7 @@
   } from "../../stores/manual-import";
   import Badge from "../../components/ui/Badge.svelte";
   import Button from "../../components/ui/Button.svelte";
+  import RadioCard from "../../components/ui/RadioCard.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Spinner from "../../components/ui/Spinner.svelte";
   import TextField from "../../components/ui/TextField.svelte";
@@ -88,7 +89,7 @@
 
   {#if pickedPath !== null}
     <div
-      class="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-sky-500/10 p-3 text-sm text-sky-200 light:text-sky-900"
+      class="flex flex-wrap items-center justify-between gap-2 rounded-control bg-legio-info/10 p-3 text-sm text-legio-info"
     >
       <span class="min-w-0 break-all">{t("Eseguibile scelto: {0}", $language, [pickedPath])}</span>
       <Button
@@ -120,16 +121,7 @@
     <fieldset class="flex flex-col gap-2" {disabled}>
       <legend class="sr-only">{t("Candidati trovati", $language)}</legend>
       {#each $manualImport.candidates as candidate (candidate.path)}
-        <label
-          class="flex cursor-pointer items-start gap-3 rounded-lg bg-legio-fill p-3 has-checked:bg-legio-fill-hover"
-        >
-          <input
-            type="radio"
-            name={group}
-            class="mt-1"
-            checked={$manualImport.selectedPath === candidate.path}
-            onchange={() => chooseCandidate(candidate.path)}
-          />
+        <RadioCard name={group} checked={$manualImport.selectedPath === candidate.path} onSelect={() => chooseCandidate(candidate.path)}>
           <span class="min-w-0 flex-1">
             <span class="block break-all text-sm text-legio-fg">
               {candidate.path}
@@ -141,7 +133,7 @@
               {/if}
             </span>
           </span>
-        </label>
+        </RadioCard>
       {/each}
     </fieldset>
   {/if}

@@ -20,21 +20,21 @@
   async function moveStep(delta: number) { step += delta; await tick(); document.getElementById("onboarding-title")?.focus(); }
 </script>
 
-<main class="legio-content min-h-0 flex-1 overflow-auto rounded-xl bg-black p-6 light:bg-zinc-50" aria-labelledby="onboarding-title">
+<main class="legio-content min-h-0 flex-1 overflow-auto rounded-card bg-black p-6 light:bg-zinc-50" aria-labelledby="onboarding-title">
   <div class="mx-auto flex max-w-2xl flex-col gap-6">
   <div class="flex items-center gap-3 px-6 text-legio-fg">
     <Logo size="size-9" />
     <span class="font-mono text-2xl font-bold tracking-[0.12em]">LEGIO</span>
   </div>
-  <section class="flex flex-col gap-6 rounded-2xl legio-glass p-6">
+  <section class="flex flex-col gap-6 rounded-panel legio-glass p-6">
     <header>
       <div class="mb-4 flex gap-1.5" aria-hidden="true">
         {#each steps as stepName, index (stepName)}
-          <span class="h-1 flex-1 rounded-full transition-colors duration-300 {index <= step ? 'bg-legio-accent' : 'bg-legio-fill-active'}"></span>
+          <span class="h-1 flex-1 rounded-full transition-colors duration-(--legio-motion-slow) {index <= step ? 'bg-legio-accent' : 'bg-legio-fill-active'}"></span>
         {/each}
       </div>
       <p class="text-sm text-legio-fg-muted">{t("Configurazione iniziale", $language)} · {step + 1} / {steps.length}</p>
-      <h1 tabindex="-1" id="onboarding-title" class="mt-2 text-3xl font-semibold text-legio-fg">{t(steps[step], $language)}</h1>
+      <h1 tabindex="-1" id="onboarding-title" class="mt-2 text-2xl font-semibold text-legio-fg">{t(steps[step], $language)}</h1>
       <p class="mt-2 text-sm text-legio-fg-muted">{t("Potrai cambiare tutte queste scelte nelle impostazioni.", $language)}</p>
     </header>
     {#if $onboarding.error}<ErrorBanner message={$onboarding.error} />{/if}

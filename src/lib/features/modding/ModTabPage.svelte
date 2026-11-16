@@ -135,7 +135,7 @@
   {#if minimal && installedMod !== null}
     {@const name = splitFullName(installedMod.fullName)}
     <div class="flex items-start gap-3">
-      <ModIcon source={null} class="size-16 rounded-xl" />
+      <ModIcon source={null} class="size-16 rounded-card" />
       <div class="min-w-0 flex-1">
         <h2 class="truncate text-base font-semibold text-legio-fg">{packageTitle(name.name)}</h2>
         {#if name.owner !== ""}<p class="text-sm text-legio-fg-muted">{t("di {0}", $language, [name.owner])}</p>{/if}
@@ -148,7 +148,7 @@
     </div>
     <p class="text-sm text-legio-fg">{isLocal ? t("Mod importata da un archivio locale: non è su Thunderstore.", $language) : t("Il pacchetto non è più nel catalogo. Aggiorna il catalogo e riprova.", $language)}</p>
     <section aria-label={t("Dipendenze", $language)}>
-      <h3 class="text-sm text-legio-fg-muted">{t("Dipendenze", $language)}</h3>
+      <h3 class="text-sm font-semibold text-legio-fg">{t("Dipendenze", $language)}</h3>
       {#if installedMod.dependencies.length === 0}
         <p class="mt-1.5 text-sm text-legio-fg">{t("Nessuna dipendenza.", $language)}</p>
       {:else}
@@ -158,14 +158,14 @@
             <li>
               <button
                 type="button"
-                class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-legio-fg transition-colors hover:bg-legio-fill-hover focus-visible:outline-2 focus-visible:outline-(--legio-focus)"
+                class="flex w-full items-center gap-2 rounded-control px-2 py-1 text-left text-sm text-legio-fg transition-colors hover:bg-legio-fill-hover"
                 aria-label={t("Apri {0}", $language, [title])}
                 onclick={() => onOpen(dependency)}
               >
                 <span class="min-w-0 flex-1 truncate">{title}</span>
                 {#if installed.has(modKey(dependency))}
                   <span class="sr-only">{t("Installata", $language)}</span>
-                  <Icon name="check" size="size-4 shrink-0 text-legio-success" />
+                  <Icon name="check" class="shrink-0 text-legio-success" />
                 {/if}
               </button>
             </li>
@@ -183,7 +183,7 @@
     {@const pageUrl = info.packageUrl}
     {@const tags = splitModTags(info.categories)}
     <div class="flex items-start gap-3">
-      <ModIcon source={info.icon} class="size-16 rounded-xl" />
+      <ModIcon source={info.icon} class="size-16 rounded-card" />
       <div class="min-w-0 flex-1">
         <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
           <h2 class="max-w-full truncate text-base font-semibold text-legio-fg">{packageTitle(info.name)}</h2>
@@ -196,7 +196,7 @@
         <ul class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums text-legio-fg">
           {#each stats as stat (stat.icon)}
             <li class="inline-flex items-center gap-1" title="{stat.label}: {stat.value}">
-              <Icon name={stat.icon} size="size-3.5 shrink-0 text-legio-fg-muted" />
+              <Icon name={stat.icon} size="sm" class="shrink-0 text-legio-fg-muted" />
               <span class="sr-only">{stat.label}</span>
               {stat.value}
             </li>
@@ -209,16 +209,16 @@
     <div class="flex flex-wrap gap-2">
       {#if websiteUrl !== null}
         <Button label={t("Sito web", $language)} variant="secondary" size="sm" onClick={() => void openLink(() => openModExternalLink(websiteUrl))}>
-          <Icon name="globe" size="size-4" />
+          <Icon name="globe" />
         </Button>
       {/if}
       {#if donationLink !== null}
         <Button label={t("Dona", $language)} variant="secondary" size="sm" onClick={() => void openLink(() => openModExternalLink(donationLink))}>
-          <Icon name="heart" size="size-4" />
+          <Icon name="heart" />
         </Button>
       {/if}
       <Button label={t("Apri su Thunderstore", $language)} variant="secondary" size="sm" onClick={() => void openLink(() => openModPackagePage(pageUrl))}>
-        <Icon name="external-link" size="size-4" />
+        <Icon name="external-link" />
       </Button>
     </div>
   {/if}
@@ -240,7 +240,7 @@
         disabled={disabled || installedVersion === versionNumber}
         onClick={() => onInstall(fullName, isLatest ? null : versionNumber)}
       >
-        <Icon name={installedVersion === versionNumber ? "check" : "download"} size="size-4" />
+        <Icon name={installedVersion === versionNumber ? "check" : "download"} />
       </Button>
     </div>
 
@@ -267,14 +267,14 @@
               <li>
                 <button
                   type="button"
-                  class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-legio-fg transition-colors hover:bg-legio-fill-hover focus-visible:outline-2 focus-visible:outline-(--legio-focus)"
+                  class="flex w-full items-center gap-2 rounded-control px-2 py-1 text-left text-sm text-legio-fg transition-colors hover:bg-legio-fill-hover"
                   aria-label={t("Apri {0}", $language, [displayPackageId(dependency)])}
                   onclick={() => onOpen(dependencyName)}
                 >
                   <span class="min-w-0 flex-1 truncate">{displayPackageId(dependency)}</span>
                   {#if installed.has(modKey(dependencyName))}
                     <span class="sr-only">{t("Installata", $language)}</span>
-                    <Icon name="check" size="size-4 shrink-0 text-legio-success" />
+                    <Icon name="check" class="shrink-0 text-legio-success" />
                   {/if}
                 </button>
               </li>

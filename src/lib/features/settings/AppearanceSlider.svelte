@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
+  import Slider from "../../components/ui/Slider.svelte";
 
   let {
     id,
@@ -27,7 +28,7 @@
   } = $props();
 </script>
 
-<div class="flex min-w-0 flex-col gap-3 rounded-xl bg-black/10 p-3 light:bg-white/70">
+<div class="flex min-w-0 flex-col gap-3 rounded-card bg-black/10 p-3 light:bg-white/70">
   <div class="flex items-center justify-between gap-2">
     <label for={id} class="min-w-0 truncate text-sm font-medium text-legio-fg">{label}</label>
     <div class="flex shrink-0 items-center gap-1">
@@ -35,16 +36,5 @@
       <ResetSetting label={t("Ripristina {0}", $language, [label])} {disabled} onClick={() => onChange(resetValue)} />
     </div>
   </div>
-  <input
-    {id}
-    type="range"
-    {min}
-    {max}
-    {step}
-    {value}
-    {disabled}
-    aria-label={label}
-    class="w-full disabled:cursor-not-allowed disabled:opacity-40"
-    oninput={(event) => onChange(Number(event.currentTarget.value))}
-  />
+  <Slider {id} {label} {value} {min} {max} {step} {disabled} class="w-full" onInput={onChange} />
 </div>
