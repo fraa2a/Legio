@@ -157,12 +157,10 @@ async fn write_cache(directory: &Path, app_id: u32, entry: &CacheEntry) -> Resul
         .await
         .map_err(|error| error.to_string())?;
     let path = cache_path(directory, app_id);
-    let temporary = path.with_extension("json.tmp");
-    tokio::fs::write(&temporary, bytes)
+    tauri::async_runtime::spawn_blocking(move || crate::atomic_file::write_atomic(&path, &bytes))
         .await
-        .map_err(|error| error.to_string())?;
-    tokio::fs::rename(&temporary, &path)
-        .await
+        .map_err(std::io::Error::other)
+        .and_then(|written| written)
         .map_err(|error| error.to_string())
 }
 
