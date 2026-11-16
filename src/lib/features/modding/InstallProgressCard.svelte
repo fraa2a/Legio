@@ -33,7 +33,7 @@
     : null);
 </script>
 
-<section class="flex flex-wrap items-center gap-4 rounded-2xl legio-glass p-4" aria-label={t("Installazione delle mod", $language)}>
+<section class="flex flex-wrap items-center gap-4 rounded-panel legio-glass p-4" aria-label={t("Installazione delle mod", $language)}>
   <Spinner />
   <div class="min-w-0 flex-1 basis-56" role="status" aria-live="polite">
     <p class="truncate text-sm font-medium text-legio-fg">

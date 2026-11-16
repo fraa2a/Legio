@@ -22,7 +22,7 @@
   }
 </script>
 
-<SettingsGroup icon="settings" title="Discord Rich Presence">
+<SettingsGroup title="Discord Rich Presence">
   <Toggle label={t("Mostra la tua attività su Discord", $language)}
     checked={$settings.data.discordPresence.enabled}
     disabled={saving || $settings.status !== "ready"}

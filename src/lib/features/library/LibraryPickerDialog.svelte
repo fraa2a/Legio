@@ -65,7 +65,7 @@
       {#each choices as library (library.id)}
         {@const checked = selected?.id === library.id}
         <button type="button" role="radio" aria-checked={checked} disabled={library.freeBytes === null} onclick={() => (selectedId = library.id)}
-          class="flex items-center gap-3 rounded-lg border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 {checked ? 'border-legio-line-strong bg-legio-fill-hover' : 'border-legio-line-subtle enabled:hover:bg-legio-fill'}">
+          class="flex items-center gap-3 rounded-control border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 {checked ? 'border-legio-line-strong bg-legio-fill-hover' : 'border-legio-line-subtle enabled:hover:bg-legio-fill'}">
           <span class="shrink-0 text-legio-fg-muted"><Icon name="folder" /></span>
           <span class="flex min-w-0 flex-1 flex-col gap-0.5">
             <span class="flex min-w-0 items-center gap-2">
@@ -74,7 +74,7 @@
             </span>
             <span class="text-xs text-legio-fg-muted">{formatLibraryDetails(library, $language)}</span>
           </span>
-          <span class="shrink-0 text-legio-fg {checked ? '' : 'invisible'}"><Icon name="check" size="size-4" /></span>
+          <span class="shrink-0 text-legio-fg {checked ? '' : 'invisible'}"><Icon name="check" /></span>
         </button>
       {:else}
         <p class="text-sm text-legio-fg-muted">{t("Nessun'altra libreria disponibile. Aggiungine una nuova.", $language)}</p>
@@ -82,11 +82,9 @@
     </div>
     <div class="flex flex-wrap items-center justify-between gap-2">
       <Button label={adding ? t("Aggiunta...", $language) : t("Aggiungi libreria...", $language)} variant="secondary" size="sm" disabled={adding} onClick={() => void add()}>
-        <Icon name="plus" size="size-4" />
+        <Icon name="plus" />
       </Button>
-      <button type="button" class="rounded text-xs text-legio-fg-muted underline-offset-2 hover:text-legio-fg hover:underline" onclick={manage}>
-        {t("Gestisci librerie", $language)}
-      </button>
+      <Button label={t("Gestisci librerie", $language)} variant="link" size="sm" onClick={manage} />
     </div>
     {#if short}<Callout tone="warning" variant="inline" message={t("Lo spazio libero potrebbe non bastare per questo gioco.", $language)} />{/if}
     <div class="flex justify-end gap-2">

@@ -138,7 +138,7 @@
       <div class="flex justify-end"><Button label={t("Chiudi", $language)} onClick={close} /></div>
     {:else if target !== null}
       <div class="flex items-start gap-3">
-        <ModIcon source={resolution?.package?.icon ?? null} class="size-14 rounded-xl" />
+        <ModIcon source={resolution?.package?.icon ?? null} class="size-14 rounded-card" />
         <div class="min-w-0 flex-1">
           <p class="truncate text-base font-semibold text-legio-fg">{packageTitle(target.name)}</p>
           <p class="text-sm text-legio-fg-muted">{t("di {0} · versione {1}", $language, [target.owner, target.version])}</p>

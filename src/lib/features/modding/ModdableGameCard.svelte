@@ -64,7 +64,7 @@
           class="flex items-center gap-1 rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium tabular-nums text-legio-fg light:bg-zinc-100/70"
           title={profileCount === 1 ? t("1 profilo mod", $language) : t("{0} profili mod", $language, [profileCount])}
         >
-          <Icon name="mods" size="h-3.5 w-3.5" />
+          <Icon name="mods" size="sm" />
           {profileCount}
         </span>
       {/if}

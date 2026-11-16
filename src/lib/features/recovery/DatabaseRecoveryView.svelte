@@ -32,18 +32,18 @@
   }
 </script>
 
-<main class="legio-content min-h-0 flex-1 overflow-auto rounded-xl bg-black p-6 light:bg-zinc-50" aria-labelledby="database-recovery-title">
+<main class="legio-content min-h-0 flex-1 overflow-auto rounded-card bg-black p-6 light:bg-zinc-50" aria-labelledby="database-recovery-title">
   <div class="mx-auto flex max-w-2xl flex-col gap-6">
     <div class="flex items-center gap-3 px-6 text-white light:text-zinc-900">
       <Logo size="size-9" />
       <span class="font-mono text-2xl font-bold tracking-[0.12em]">LEGIO</span>
     </div>
-    <section class="flex flex-col gap-4 rounded-2xl legio-glass p-6">
+    <section class="flex flex-col gap-4 rounded-panel legio-glass p-6">
       <header>
         <h1 id="database-recovery-title" class="text-xl font-semibold text-white light:text-zinc-900">{t("Impossibile aprire il database locale", $language)}</h1>
         <p class="mt-2 text-sm text-zinc-400 light:text-zinc-600">{t("Legio non riesce ad aprire o aggiornare il database della libreria. Nessun file è stato eliminato.", $language)}</p>
       </header>
-      <pre class="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-white/5 p-3 font-mono text-xs text-zinc-200 select-text light:bg-zinc-900/5 light:text-zinc-800">{failure}</pre>
+      <pre class="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-control bg-white/5 p-3 font-mono text-xs text-zinc-200 select-text light:bg-zinc-900/5 light:text-zinc-800">{failure}</pre>
       <div class="flex flex-wrap gap-2">
         <Button label={t("Copia", $language)} variant="secondary" size="sm" onClick={() => void copyFailure()} />
         <Button label={t("Apri cartella dati", $language)} variant="secondary" size="sm" onClick={() => void openDatabaseFolder()} />

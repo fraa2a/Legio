@@ -62,7 +62,7 @@
 
 <Dialog {open} {title} dismissible={!pending} {onClose}>
   {#snippet children(close)}
-    <form class="flex flex-col gap-5" onsubmit={(event) => void submit(event)}>
+    <form class="flex flex-col gap-6" onsubmit={(event) => void submit(event)}>
       <TextField
         id="mod-profile-name"
         label={t("Nome del profilo", $language)}

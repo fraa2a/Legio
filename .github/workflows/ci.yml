@@ -125,6 +125,9 @@ jobs:
       - name: Check translation catalog
         run: corepack pnpm test:i18n
 
+      - name: Check UI radius, color and control height scales
+        run: corepack pnpm test:ui-spec
+
       - name: Test library artwork on cold startup
         run: corepack pnpm test:artwork
 

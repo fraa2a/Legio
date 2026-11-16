@@ -23,7 +23,7 @@
   const range = $derived(rangeHint(entry, $language));
 </script>
 
-<div class="flex flex-col gap-2 rounded-lg bg-legio-fill p-3 [contain-intrinsic-size:auto_6rem] [content-visibility:auto]">
+<div class="flex flex-col gap-2 rounded-control bg-legio-fill p-3 [contain-intrinsic-size:auto_6rem] [content-visibility:auto]">
   <div class="flex items-center justify-between gap-3">
     <div class="min-w-0 flex-1">
       {#if control === "boolean"}
@@ -38,12 +38,12 @@
     <div class="flex shrink-0 items-center gap-2">
       {#if entry.settingType}<Badge title={entry.settingType} />{/if}
       <IconButton
-        size="sm"
+        size="inline-md"
         label={t("Ripristina il valore predefinito", $language)}
         title={t("Ripristina il valore predefinito", $language)}
         disabled={!canReset}
         onClick={() => entry.defaultValue !== null && onChange(entry.defaultValue)}
-      ><Icon name="reload" size="size-4" /></IconButton>
+      ><Icon name="reload" /></IconButton>
     </div>
   </div>
   {#if entry.description}

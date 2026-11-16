@@ -6,16 +6,14 @@
   let {
     steamAppId,
     name,
-    rounded = "xl",
+    radius = "card",
     class: className = "",
   }: {
     steamAppId: number | null;
     name: string;
-    rounded?: "md" | "lg" | "xl";
+    radius?: "control" | "card";
     class?: string;
   } = $props();
-
-  const roundedClass = $derived(rounded === "md" ? "rounded-md" : rounded === "lg" ? "rounded-lg" : "rounded-xl");
 
   const monogram = $derived(name.trim().charAt(0).toUpperCase() || "?");
   const detailsState = $derived(steamAppId === null ? null : ($steamDetails[steamAppId] ?? null));
@@ -27,7 +25,7 @@
 </script>
 
 <div
-  class="flex shrink-0 items-center justify-center overflow-hidden {roundedClass} bg-gradient-to-br from-zinc-700 to-zinc-950 light:from-zinc-300 light:to-zinc-100 {className}"
+  class="flex shrink-0 items-center justify-center overflow-hidden {radius === "control" ? "rounded-control" : "rounded-card"} bg-gradient-to-br from-zinc-700 to-zinc-950 light:from-zinc-300 light:to-zinc-100 {className}"
   aria-hidden="true"
 >
   {#if steamAppId !== null && details !== null}

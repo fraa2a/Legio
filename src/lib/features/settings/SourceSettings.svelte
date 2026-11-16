@@ -54,7 +54,7 @@
   }
 </script>
 
-<div class="flex flex-col gap-5">
+<div class="flex flex-col gap-6">
   <SettingsGroup title={t("Sorgenti dei giochi", $language)} icon="globe">
     <p class="text-sm text-legio-fg-muted">{t("Aggiungi un catalogo HTTPS o un file JSON locale in formato Legio o Hydra.", $language)}</p>
     <form class="flex flex-col gap-3" onsubmit={submit}>
@@ -75,13 +75,13 @@
     {#if $source.error}<ErrorBanner message={$source.error} onRetry={() => { void source.load(); }} />{/if}
   </SettingsGroup>
 
-  <SettingsGroup title={t("Sorgenti installate", $language)} icon="library">
+  <SettingsGroup title={t("Sorgenti installate", $language)}>
     {#if $source.data.sources.length === 0}
       <p class="text-sm text-legio-fg-muted">{t("Nessuna sorgente installata.", $language)}</p>
     {:else}
       <ul class="flex flex-col gap-3">
         {#each $source.data.sources as installed (installed.id)}
-          <li class="flex flex-col gap-3 rounded-lg bg-legio-fill p-3">
+          <li class="flex flex-col gap-3 rounded-control bg-legio-fill p-3">
             <p class="text-sm font-medium text-legio-fg">{installed.name ?? installed.url} {installed.format === "hydra" ? "(Hydra)" : ""} {installed.isLocal ? t("(file locale)", $language) : ""}</p>
             {#if installed.diagnostics}
               {@const problems = [

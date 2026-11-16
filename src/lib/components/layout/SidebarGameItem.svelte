@@ -31,7 +31,7 @@
     type="button"
     aria-label={t("Apri {0}", $language, [game.name])}
     aria-current={selected ? "true" : undefined}
-    class="group relative flex h-12 w-full items-center overflow-hidden rounded-lg border border-transparent transition-[border-color,background-color,box-shadow] duration-300 ease-out hover:shadow-md hover:shadow-black/30 focus-visible:-outline-offset-2 {selected
+    class="group relative flex h-control-lg w-full items-center overflow-hidden rounded-control border border-transparent transition-[border-color,background-color,box-shadow] duration-(--legio-motion-slow) hover:shadow-md hover:shadow-black/30 focus-visible:-outline-offset-2 {selected
       ? 'border-legio-line-strong'
       : ''}"
     onclick={() => openGame(game.id)}

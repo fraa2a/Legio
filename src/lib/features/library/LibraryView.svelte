@@ -63,7 +63,7 @@
       {/each}
     </ul>
   {:else if $games.data.length > 0}
-    <div class="rounded-xl legio-glass p-6 text-legio-fg-muted">
+    <div class="rounded-card legio-glass p-6 text-legio-fg-muted">
       <p>{t("Nessun gioco corrisponde alla ricerca.", $language)}</p>
     </div>
   {/if}

@@ -34,6 +34,16 @@ html[data-motion-paused="true"] *::after {
   --color-legio-launching-hover: #854d0e;
   --color-legio-danger: #b91c1c;
   --color-legio-danger-hover: #991b1b;
+  /* Legio UI scale, see _meta/docs/UI.md. Corner and density options scale these. */
+  --radius-control: 0.5rem;
+  --radius-card: 0.75rem;
+  --radius-panel: 1rem;
+  --spacing-control-sm: 2rem;
+  --spacing-control-md: 2.5rem;
+  --spacing-control-lg: 3rem;
+  --spacing-control-hero: 3.75rem;
+  --default-transition-duration: var(--legio-motion);
+  --default-transition-timing-function: var(--legio-ease);
 }
 
 @utility scrollbar-none {
@@ -105,6 +115,10 @@ html, body, #app { width: 100%; height: 100%; min-width: 0; min-height: 0; }
   --legio-surface-blur: blur(40px);
   --legio-dialog-opacity: 0;
   --legio-dialog-blur: blur(40px);
+  --legio-motion-fast: 120ms;
+  --legio-motion: 200ms;
+  --legio-motion-slow: 320ms;
+  --legio-ease: cubic-bezier(0.2, 0, 0, 1);
 }
 :root[data-theme="light"] {
   --legio-info: #0369a1;
@@ -151,27 +165,27 @@ html, body, #app { width: 100%; height: 100%; min-width: 0; min-height: 0; }
 .legio-content { background-color: transparent; }
 .legio-artwork-zoom {
   transform: translateZ(0) scale(1);
-  transition: transform 300ms ease-out;
+  transition: transform var(--legio-motion-slow) var(--legio-ease);
 }
 .group:hover > .legio-artwork-zoom { transform: translateZ(0) scale(1.05); }
 dialog.legio-dialog {
   opacity: 1;
   box-shadow: none;
-  transition: box-shadow 180ms ease;
+  transition: box-shadow var(--legio-motion) var(--legio-ease);
 }
 dialog.legio-dialog[data-visible="true"] {
   box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.4);
 }
 dialog.legio-dialog > .legio-dialog-content {
   opacity: 0;
-  transition: opacity 180ms ease;
+  transition: opacity var(--legio-motion) var(--legio-ease);
 }
 dialog.legio-dialog[data-visible="true"] > .legio-dialog-content {
   opacity: 1;
 }
 dialog.legio-dialog::backdrop {
   opacity: 0;
-  transition: opacity 180ms ease;
+  transition: opacity var(--legio-motion) var(--legio-ease);
 }
 dialog.legio-dialog[data-visible="true"]::backdrop { opacity: 1; }
 .legio-toast {
@@ -195,7 +209,7 @@ dialog.legio-dialog > .legio-dialog-surface {
   border-radius: inherit;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 180ms ease;
+  transition: opacity var(--legio-motion) var(--legio-ease);
   background-color: color-mix(in srgb, var(--legio-surface) calc(var(--legio-dialog-opacity) * 100%), transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--legio-text) calc(var(--legio-dialog-opacity) * 18%), transparent);
   -webkit-backdrop-filter: var(--legio-dialog-blur);

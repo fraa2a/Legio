@@ -19,6 +19,7 @@
   } from "../../services/game-settings";
   import { appInfo } from "../../stores/app-info";
   import Button from "../../components/ui/Button.svelte";
+  import RadioCard from "../../components/ui/RadioCard.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
@@ -350,18 +351,17 @@
       <Callout tone="warning" title={t("Rilevamento runner", $language)} items={runnerDiagnostics} />
     {/if}
     <div class="flex flex-col gap-2">
-      <h3 class="text-lg font-semibold text-legio-fg">{t("Versione Proton", $language)}</h3>
+      <h3 class="text-sm font-semibold text-legio-fg">{t("Versione Proton", $language)}</h3>
       {#if runnerChoices.length === 0}
         <p class="text-sm text-legio-fg-muted">{t("Nessun runner compatibile installato.", $language)}</p>
       {:else}
         <fieldset class="flex flex-col gap-1">
           <legend class="sr-only">{t("Runner di compatibilità", $language)}</legend>
           {#each runnerChoices as runner (runner.path)}
-            <label class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-legio-fg transition-colors hover:bg-legio-fill has-checked:bg-legio-fill-hover">
-              <input type="radio" name="game-compat-runner" value={runner.path} checked={selectedRunnerPath === runner.path} onchange={() => selectRunner(runner.path)} class="size-4 accent-white" />
+            <RadioCard name="game-compat-runner" value={runner.path} checked={selectedRunnerPath === runner.path} onSelect={() => selectRunner(runner.path)}>
               <span class="min-w-0 truncate">{runner.name}{runner.kind === "wine" && runner.version ? ` ${runner.version}` : ""}</span>
               {#if runner.path === (defaults?.runnerPath ?? runners[0]?.path)}<span class="ml-auto shrink-0 text-xs text-legio-fg-subtle">{t("Predefinito", $language)}</span>{/if}
-            </label>
+            </RadioCard>
           {/each}
         </fieldset>
       {/if}

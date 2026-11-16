@@ -50,7 +50,7 @@
 
 </script>
 
-<section class="flex flex-col gap-4">
+<section class="flex flex-col gap-6">
   {#if $settingsError}
     <ErrorBanner message={$settingsError} />
   {/if}
@@ -62,7 +62,7 @@
       <ResetSetting label={t("Ripristina lingua", $language)} disabled={saving || $settings.data.language === defaultSettings.language} onClick={() => void update({ language: defaultSettings.language })} />
     </div>
   </SettingsGroup>
-  <SettingsGroup icon="settings" title={t("Comportamento", $language)}>
+  <SettingsGroup icon="power" title={t("Comportamento", $language)}>
     {#each behaviors as option (option.key)}
       <ToggleSetting label={option.label} checked={Boolean($settings.data[option.key])}
         defaultValue={Boolean(defaultSettings[option.key])}
@@ -78,11 +78,11 @@
 
 
 
-  <SettingsGroup icon="settings" title={t("Configurazione iniziale", $language)}>
+  <SettingsGroup title={t("Configurazione iniziale", $language)}>
     <Button label={t("Ripeti configurazione iniziale", $language)} variant="secondary" disabled={saving} onClick={() => void update({ onboardingCompleted: false })} />
   </SettingsGroup>
 
-  <SettingsGroup icon="reload" title={t("Aggiornamenti", $language)}>
+  <SettingsGroup icon="update" title={t("Aggiornamenti", $language)}>
     <div class="flex flex-wrap items-center gap-3">
       <Button label={$updateState.checking ? t("Controllo...", $language) : t("Controlla aggiornamenti", $language)} variant="secondary" disabled={$updateState.checking || $updateState.installing} onClick={() => void checkForAppUpdate()} />
       {#if $updateState.version}

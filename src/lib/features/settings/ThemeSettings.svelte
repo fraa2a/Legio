@@ -12,6 +12,7 @@
   import { appInfo } from "../../stores/app-info";
   import { settings, updateSettings } from "../../stores/settings";
   import Icon from "../../components/ui/Icon.svelte";
+  import RadioCard from "../../components/ui/RadioCard.svelte";
   import { toMessage } from "../../utils/errors";
   import Button from "../../components/ui/Button.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
@@ -213,16 +214,15 @@
   onpointercancel={() => { adjusting = false; }}
 />
 
-<section class="appearance-settings flex flex-col gap-4">
+<section class="appearance-settings flex flex-col gap-6">
   {#if error}<ErrorBanner message={error} />{/if}
 
   <SettingsGroup title={t("Tema", $language)} icon="palette" collapsible defaultOpen>
     <fieldset disabled={busy} class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       <legend class="sr-only">{t("Palette predefinite", $language)}</legend>
       {#each themeOptions as option (option.id)}
-        <label class="flex cursor-pointer flex-col gap-2 rounded-xl border p-2 transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-legio-accent {theme === option.id ? 'border-legio-accent bg-legio-accent/10' : 'border-legio-line-subtle hover:bg-legio-fill'}">
-          <input class="sr-only" type="radio" name="theme" value={option.id} checked={theme === option.id} onchange={() => { theme = option.id; }} />
-          <span class="relative block h-20 overflow-hidden rounded-lg border border-legio-line-subtle" aria-hidden="true">
+        <RadioCard variant="tile" name="theme" value={option.id} checked={theme === option.id} onSelect={() => { theme = option.id; }}>
+          <span class="relative block h-20 overflow-hidden rounded-control border border-legio-line-subtle" aria-hidden="true">
             {#if option.preset}
               {@render paletteMock(option.preset.palette, "inset-0")}
             {:else if darkPalette && lightPalette}
@@ -232,13 +232,13 @@
           </span>
           <span class="flex items-center justify-between gap-2 px-1">
             <span class="truncate text-sm text-legio-fg">{option.label}</span>
-            {#if theme === option.id}<span class="shrink-0 text-legio-accent"><Icon name="check" size="size-4" /></span>{/if}
+            {#if theme === option.id}<span class="shrink-0 text-legio-accent"><Icon name="check" /></span>{/if}
           </span>
-        </label>
+        </RadioCard>
       {/each}
     </fieldset>
     <div class="flex items-center gap-1">
-      <label for="theme-accent" class="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-legio-fg"><span>{t("Colore di accento", $language)}</span><input id="theme-accent" type="color" disabled={busy} value={draft.accent ?? paletteAccent} class="h-9 w-12 cursor-pointer rounded border border-legio-line bg-transparent" oninput={(event) => { draft.accent = event.currentTarget.value; }} /></label>
+      <label for="theme-accent" class="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-legio-fg"><span>{t("Colore di accento", $language)}</span><input id="theme-accent" type="color" disabled={busy} value={draft.accent ?? paletteAccent} class="h-control-md w-12 cursor-pointer rounded-control border border-legio-line bg-transparent" oninput={(event) => { draft.accent = event.currentTarget.value; }} /></label>
       <ResetSetting label={t("Ripristina {0}", $language, [t("Colore di accento", $language)])} disabled={busy || draft.accent === null} onClick={() => { draft.accent = null; }} />
     </div>
   </SettingsGroup>
@@ -268,11 +268,11 @@
           <AppearanceSlider id={"theme-dither-" + effect.key} label={effect.label} value={draft.dither[effect.key]} min={effect.min} max={effect.max} step={effect.step} unit="" resetValue={defaultDither()[effect.key]} disabled={busy} onChange={(value) => setDitherValue(effect.key, value, effect.decimals)} />
         {/each}
         <div class="flex items-center gap-1">
-          <label for="theme-dither-waveColor" class="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-legio-fg"><span>{t("Colore dell'onda", $language)}</span><input id="theme-dither-waveColor" type="color" value={draft.dither.waveColor ?? accent} class="h-9 w-12 cursor-pointer rounded border border-legio-line bg-transparent" oninput={(event) => { draft.dither.waveColor = event.currentTarget.value; }} /></label>
+          <label for="theme-dither-waveColor" class="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-legio-fg"><span>{t("Colore dell'onda", $language)}</span><input id="theme-dither-waveColor" type="color" value={draft.dither.waveColor ?? accent} class="h-control-md w-12 cursor-pointer rounded-control border border-legio-line bg-transparent" oninput={(event) => { draft.dither.waveColor = event.currentTarget.value; }} /></label>
           <ResetSetting label={t("Ripristina {0}", $language, [t("Colore dell'onda", $language)])} disabled={busy || draft.dither.waveColor === null} onClick={() => { draft.dither.waveColor = null; }} />
         </div>
         <div class="flex items-center gap-1">
-          <label for="theme-dither-backgroundColor" class="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-legio-fg"><span>{t("Colore di fondo", $language)}</span><input id="theme-dither-backgroundColor" type="color" value={draft.dither.backgroundColor} class="h-9 w-12 cursor-pointer rounded border border-legio-line bg-transparent" oninput={(event) => { draft.dither.backgroundColor = event.currentTarget.value; }} /></label>
+          <label for="theme-dither-backgroundColor" class="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-legio-fg"><span>{t("Colore di fondo", $language)}</span><input id="theme-dither-backgroundColor" type="color" value={draft.dither.backgroundColor} class="h-control-md w-12 cursor-pointer rounded-control border border-legio-line bg-transparent" oninput={(event) => { draft.dither.backgroundColor = event.currentTarget.value; }} /></label>
           <ResetSetting label={t("Ripristina {0}", $language, [t("Colore di fondo", $language)])} disabled={busy || draft.dither.backgroundColor === defaultDither().backgroundColor} onClick={() => { draft.dither.backgroundColor = defaultDither().backgroundColor; }} />
         </div>
         {#each ditherToggles as toggle (toggle.key)}
@@ -282,7 +282,7 @@
     {/if}
   </SettingsGroup>
 
-  <SettingsGroup title={t("Pannelli e dialoghi", $language)} icon="landscape" collapsible>
+  <SettingsGroup title={t("Pannelli e dialoghi", $language)} icon="panels" collapsible>
     <SegmentedControl name="panel-style" label={t("Stile dei pannelli", $language)} options={panelStyleOptions} value={panelStyle} disabled={busy} onChange={selectPanelStyle} />
     <div class="grid gap-3 sm:grid-cols-2">
       {#each surfaceEffects as effect (effect.key)}
@@ -292,7 +292,7 @@
   </SettingsGroup>
 
   {#if hyprland}
-    <SettingsGroup title={t("Trasparenza della finestra", $language)} icon="image" collapsible>
+    <SettingsGroup title={t("Trasparenza della finestra", $language)} icon="window" collapsible>
       <div class="flex items-center gap-2"><div class="min-w-0 flex-1"><Toggle label={t("Trasparenza della finestra su Hyprland", $language)} checked={draft.transparent} disabled={busy} onChange={(checked) => { draft.transparent = checked; }} /></div><ResetSetting label={t("Ripristina trasparenza", $language)} disabled={busy || !draft.transparent} onClick={() => { draft.transparent = false; }} /></div>
     </SettingsGroup>
   {/if}
@@ -310,8 +310,8 @@
   <span class="absolute {frame}" style:background-color={palette.background}>
     <span class="absolute inset-y-0 left-0 w-1/5" style:background-color={palette.surface}></span>
     <span class="absolute top-2.5 right-3 left-[28%] h-1.5 rounded-full opacity-70" style:background-color={palette.text}></span>
-    <span class="absolute top-6 left-[28%] h-3 w-[22%] rounded" style:background-color={palette.raised}></span>
-    <span class="absolute top-6 left-[54%] h-3 w-[22%] rounded" style:background-color={palette.raised}></span>
+    <span class="absolute top-6 left-[28%] h-3 w-[22%] rounded-full" style:background-color={palette.raised}></span>
+    <span class="absolute top-6 left-[54%] h-3 w-[22%] rounded-full" style:background-color={palette.raised}></span>
     <span class="absolute bottom-2.5 left-[28%] h-2.5 w-[26%] rounded-full" style:background-color={palette.accent}></span>
   </span>
 {/snippet}

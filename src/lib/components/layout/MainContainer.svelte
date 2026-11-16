@@ -83,7 +83,7 @@
 </script>
 
 <main
-  class="legio-content relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl scrollbar-none"
+  class="legio-content relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-card scrollbar-none"
 >
   {#key displayedTarget}
     <ArtworkScope active={displayedTarget === target}>

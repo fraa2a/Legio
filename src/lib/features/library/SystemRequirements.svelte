@@ -24,13 +24,13 @@
   {/if}
   {#if requirements?.minimum}
     <div class="space-y-2">
-      <h4 class="text-sm font-medium text-legio-fg">{t("Minimi", $language)}</h4>
+      <h4 class="text-sm font-semibold text-legio-fg">{t("Minimi", $language)}</h4>
       <div use:renderSteamDescription={requirements.minimum} class="space-y-2 text-sm leading-relaxed text-legio-fg-muted [&_li]:ml-4 [&_ul]:list-disc"></div>
     </div>
   {/if}
   {#if requirements?.recommended}
     <div class="space-y-2">
-      <h4 class="text-sm font-medium text-legio-fg">{t("Consigliati", $language)}</h4>
+      <h4 class="text-sm font-semibold text-legio-fg">{t("Consigliati", $language)}</h4>
       <div use:renderSteamDescription={requirements.recommended} class="space-y-2 text-sm leading-relaxed text-legio-fg-muted [&_li]:ml-4 [&_ul]:list-disc"></div>
     </div>
   {/if}

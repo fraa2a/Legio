@@ -17,6 +17,7 @@
   import SteamGameSearch from "./SteamGameSearch.svelte";
   import { previewManualGameSteamAppId, type SteamIdentificationPreview } from "../../services/manual-import";
   import Button from "../../components/ui/Button.svelte";
+  import RadioCard from "../../components/ui/RadioCard.svelte";
   import Dialog from "../../components/ui/Dialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import TextField from "../../components/ui/TextField.svelte";
@@ -144,7 +145,7 @@
 
 <Dialog open title={t("Aggiungi un gioco", $language)} size="wide" onClose={close}>
   {#snippet children(dismiss)}
-  <div class="flex flex-col gap-5">
+  <div class="flex flex-col gap-6">
     <div class="flex flex-col gap-2">
         <p class="text-xs text-legio-fg-muted">{t("Associa il gioco corretto su Steam se il rilevamento automatico è errato o non trova il gioco.", $language)}</p>
         <SteamGameSearch id="add-steam-game-search" bind:value={steamQuery} disabled={pending}
@@ -169,8 +170,8 @@
           </div>
         {/if}
         {#if parsedAppId !== null}
-          <div class="flex items-center gap-3 rounded-xl border border-legio-line-subtle bg-white/5 p-2 light:bg-white">
-            <div class="h-16 w-32 shrink-0 overflow-hidden rounded-lg bg-zinc-800 light:bg-zinc-200">
+          <div class="flex items-center gap-3 rounded-card border border-legio-line-subtle bg-white/5 p-2 light:bg-white">
+            <div class="h-16 w-32 shrink-0 overflow-hidden rounded-control bg-zinc-800 light:bg-zinc-200">
               <SteamArtwork steamAppId={parsedAppId} asset="header" caption={false} alt="" class="size-full object-cover" />
             </div>
             <div class="min-w-0">
@@ -211,13 +212,12 @@
         <ErrorBanner message={$manualImport.error} onRetry={() => void rescanCurrentDirectory()} />
       {/if}
       {#if $manualImport.candidates.length > 0}
-        <fieldset class="max-h-40 space-y-1 overflow-y-auto rounded-lg bg-legio-fill p-2" disabled={pending}>
+        <fieldset class="max-h-40 space-y-1 overflow-y-auto rounded-control bg-legio-fill p-2" disabled={pending}>
           <legend class="sr-only">{t("Eseguibili trovati", $language)}</legend>
           {#each $manualImport.candidates as candidate (candidate.path)}
-            <label class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-legio-fg hover:bg-legio-fill-hover">
-              <input type="radio" name="add-game-executable" checked={selectedPath === candidate.path} onchange={() => chooseCandidate(candidate.path)} class="size-4 accent-white" />
+            <RadioCard name="add-game-executable" checked={selectedPath === candidate.path} onSelect={() => chooseCandidate(candidate.path)}>
               <span class="min-w-0 truncate" title={candidate.path}>{candidate.path}</span>
-            </label>
+            </RadioCard>
           {/each}
         </fieldset>
       {/if}

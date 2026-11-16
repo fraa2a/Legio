@@ -3,7 +3,7 @@
   import { acquireGameArtwork, gameArtworkRevision } from "../../services/game-artwork";
   import SteamArtwork from "./SteamArtwork.svelte";
 
-  let { game, class: className = "size-8 rounded object-contain" }: { game: Game; class?: string } = $props();
+  let { game, class: className = "size-8 rounded-control object-contain" }: { game: Game; class?: string } = $props();
   let url = $state<string | null>(null);
   let loading = $state(true);
   const gameId = $derived(game.id);
