@@ -273,6 +273,7 @@ pub mod tests {
                     .get::<_, i64>(0))
                 .is_err()
         );
+        drop(garbage);
         fs::remove_dir_all(parent).unwrap();
     }
 }

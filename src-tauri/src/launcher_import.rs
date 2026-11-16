@@ -375,6 +375,7 @@ mod tests {
             ImportOutcome::Duplicate
         );
         assert_eq!(database.games().unwrap().len(), 1);
+        drop(database);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -441,6 +442,7 @@ mod tests {
             conclude(true, Vec::new(), vec!["bad".to_owned()]),
             LauncherOutcome::Unreadable { .. }
         ));
+        drop(database);
         fs::remove_dir_all(root).unwrap();
     }
 }
