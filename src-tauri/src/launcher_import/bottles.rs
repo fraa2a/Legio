@@ -129,6 +129,8 @@ mod tests {
     use super::super::fs_guard::tests::temp;
     use super::*;
 
+    // Bottles runs on Linux only; the fixture mixes Windows drive paths with host paths.
+    #[cfg(unix)]
     #[test]
     fn lists_external_programs_with_bottle_as_prefix() {
         let root = temp();
