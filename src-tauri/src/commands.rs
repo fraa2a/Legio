@@ -71,11 +71,7 @@ pub async fn check_app_update(
 }
 
 #[tauri::command]
-pub async fn notify_update_available(
-    app: AppHandle,
-    version: String,
-    aur: bool,
-) -> Result<(), String> {
+pub async fn notify_update_available(app: AppHandle, version: String) -> Result<(), String> {
     if !cfg!(target_os = "linux") {
         return Ok(());
     }
@@ -90,7 +86,7 @@ pub async fn notify_update_available(
         .await
         .map_err(|error| format!("Settings load task failed: {error}"))??
     };
-    let body = if aur {
+    let body = if is_aur_package() {
         format!(
             "Legio {version}. {}",
             settings

@@ -54,7 +54,7 @@ async function performCheck(): Promise<void> {
     let notificationError: string | null = null;
     if (update !== null && !nativeNotified) {
       try {
-        await invoke("notify_update_available", { version: update.version, aur });
+        await invoke("notify_update_available", { version: update.version });
         notifiedVersion = update.version;
         nativeNotified = true;
       } catch (error) {
