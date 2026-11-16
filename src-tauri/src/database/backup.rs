@@ -187,15 +187,7 @@ fn prune_backups(data_dir: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn temporary_directory() -> PathBuf {
-        let directory = std::env::temp_dir().join(format!(
-            "legio-database-backup-test-{}",
-            uuid::Uuid::new_v4()
-        ));
-        fs::create_dir_all(&directory).unwrap();
-        directory
-    }
+    use crate::test_support::TempDir;
 
     // A fully migrated schema rolled back to version 34 leaves migration 35 pending.
     fn pending_database(data_dir: &Path) -> Connection {
@@ -222,7 +214,7 @@ mod tests {
 
     #[test]
     fn pending_migration_writes_a_readable_backup() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let connection = pending_database(&directory);
         let path = backup_before_migration(&connection, &directory)
             .unwrap()
@@ -245,12 +237,11 @@ mod tests {
             .unwrap();
         assert_eq!(name, "Portal");
         drop((copy, connection));
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn current_or_new_database_is_not_backed_up() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let connection = Connection::open(directory.join("legio.sqlite3")).unwrap();
         assert_eq!(
             backup_before_migration(&connection, &directory).unwrap(),
@@ -263,12 +254,11 @@ mod tests {
         );
         assert!(!backup_directory(&directory).exists());
         drop(connection);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn only_the_newest_backups_are_kept() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let backups = backup_directory(&directory);
         fs::create_dir_all(&backups).unwrap();
         for created_at in [1, 2, 3, 4] {
@@ -293,7 +283,6 @@ mod tests {
         );
         assert!(backups.join("notes.txt").exists());
         drop(connection);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

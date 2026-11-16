@@ -134,7 +134,8 @@ mod tests {
     use super::*;
     use crate::{
         diagnostics::Diagnostics,
-        modding::test_support::{Reply, TempDir, TestServer},
+        modding::test_support::{Reply, TestServer},
+        test_support::TempDir,
     };
 
     use std::time::Duration;

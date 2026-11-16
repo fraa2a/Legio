@@ -213,7 +213,7 @@ pub async fn build_mod_support_report(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modding::test_support::TempDir;
+    use crate::test_support::TempDir;
 
     fn write_log(profile: &Path, name: &str, content: &[u8]) {
         let directory = profile.join("BepInEx");

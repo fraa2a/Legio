@@ -49,35 +49,28 @@ fn write_temporary(path: &Path, temporary: &Path, bytes: &[u8]) -> io::Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn temp_dir() -> std::path::PathBuf {
-        let directory = std::env::temp_dir().join(format!("legio-atomic-{}", Uuid::new_v4()));
-        fs::create_dir_all(&directory).unwrap();
-        directory
-    }
+    use crate::test_support::TempDir;
 
     #[test]
     fn creates_and_replaces_files_without_leftovers() {
-        let directory = temp_dir();
+        let directory = TempDir::new();
         let target = directory.join("data.txt");
         write_atomic(&target, b"first").unwrap();
         assert_eq!(fs::read(&target).unwrap(), b"first");
         write_atomic(&target, b"second").unwrap();
         assert_eq!(fs::read(&target).unwrap(), b"second");
-        assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
-        fs::remove_dir_all(directory).unwrap();
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
     }
 
     #[test]
     fn keeps_the_old_file_and_cleans_up_when_the_replace_fails() {
-        let directory = temp_dir();
+        let directory = TempDir::new();
         // A folder cannot be replaced by a file.
         let target = directory.join("folder");
         fs::create_dir(&target).unwrap();
         assert!(write_atomic(&target, b"x").is_err());
         assert!(target.is_dir());
-        assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
-        fs::remove_dir_all(directory).unwrap();
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
     }
 
     #[test]

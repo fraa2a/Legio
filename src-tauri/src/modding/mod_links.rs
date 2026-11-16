@@ -353,7 +353,7 @@ pub async fn resolve_mod_link(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{database::CreateGameInput, modding::test_support::TempDir};
+    use crate::{database::CreateGameInput, test_support::TempDir};
 
     const FIXTURE: &str = include_str!("../../test-fixtures/modding/ecosystem-schema.json");
 

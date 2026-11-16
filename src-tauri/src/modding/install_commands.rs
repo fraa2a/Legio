@@ -618,8 +618,9 @@ pub fn cancel_mod_install(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modding::{
-        dependencies::resolve_plan, mod_exclusions::ModExclusions, test_support::TempDir,
+    use crate::{
+        modding::{dependencies::resolve_plan, mod_exclusions::ModExclusions},
+        test_support::TempDir,
     };
 
     #[test]

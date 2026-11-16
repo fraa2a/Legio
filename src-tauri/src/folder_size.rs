@@ -94,14 +94,7 @@ fn measure_with(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uuid::Uuid;
-
-    fn temporary_directory() -> PathBuf {
-        let directory =
-            std::env::temp_dir().join(format!("legio-folder-size-test-{}", Uuid::new_v4()));
-        fs::create_dir_all(&directory).unwrap();
-        directory
-    }
+    use crate::test_support::TempDir;
 
     fn run(root: &Path) -> Measurement {
         measure_with(
@@ -115,39 +108,36 @@ mod tests {
 
     #[test]
     fn sums_nested_files() {
-        let root = temporary_directory();
+        let root = TempDir::new();
         fs::create_dir_all(root.join("a/b")).unwrap();
         fs::write(root.join("one.bin"), vec![1; 10_000]).unwrap();
         fs::write(root.join("a/b/two.bin"), vec![2; 20_000]).unwrap();
         let measured = run(&root);
         assert!(!measured.partial);
         assert!(measured.bytes >= 30_000);
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(unix)]
     #[test]
     fn links_are_not_followed() {
-        let root = temporary_directory();
-        let outside = temporary_directory();
+        let root = TempDir::new();
+        let outside = TempDir::new();
         fs::write(outside.join("big.bin"), vec![0; 1_000_000]).unwrap();
         fs::write(root.join("small.bin"), b"x").unwrap();
-        std::os::unix::fs::symlink(&outside, root.join("dir-link")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.join("dir-link")).unwrap();
         std::os::unix::fs::symlink(outside.join("big.bin"), root.join("file-link")).unwrap();
         let measured = run(&root);
         assert!(!measured.partial);
         assert!(measured.bytes < 100_000);
-        fs::remove_dir_all(root).unwrap();
-        fs::remove_dir_all(outside).unwrap();
     }
 
     #[cfg(unix)]
     #[test]
     fn root_link_is_partial_and_empty() {
-        let target = temporary_directory();
+        let target = TempDir::new();
         fs::write(target.join("big.bin"), vec![0; 100_000]).unwrap();
-        let parent = temporary_directory();
-        std::os::unix::fs::symlink(&target, parent.join("link")).unwrap();
+        let parent = TempDir::new();
+        std::os::unix::fs::symlink(target.path(), parent.join("link")).unwrap();
         let measured = run(&parent.join("link"));
         assert_eq!(
             measured,
@@ -156,13 +146,11 @@ mod tests {
                 partial: true
             }
         );
-        fs::remove_dir_all(parent).unwrap();
-        fs::remove_dir_all(target).unwrap();
     }
 
     #[test]
     fn unreadable_directory_marks_partial() {
-        let root = temporary_directory();
+        let root = TempDir::new();
         fs::create_dir_all(root.join("locked")).unwrap();
         fs::write(root.join("locked/hidden.bin"), vec![0; 50_000]).unwrap();
         fs::write(root.join("seen.bin"), vec![0; 10_000]).unwrap();
@@ -178,24 +166,23 @@ mod tests {
         let measured = measure_with(&root, &AtomicBool::new(false), Duration::ZERO, &read).unwrap();
         assert!(measured.partial);
         assert!(measured.bytes >= 10_000 && measured.bytes < 50_000);
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn missing_root_is_partial() {
-        let root = temporary_directory().join("missing");
+        let directory = TempDir::new();
+        let root = directory.join("missing");
         assert!(run(&root).partial);
     }
 
     #[test]
     fn cancellation_stops_the_walk() {
-        let root = temporary_directory();
+        let root = TempDir::new();
         fs::write(root.join("file.bin"), b"data").unwrap();
         let cancel = AtomicBool::new(true);
         assert_eq!(
             measure_with(&root, &cancel, Duration::ZERO, &read_directory),
             None
         );
-        fs::remove_dir_all(root).unwrap();
     }
 }

@@ -1267,7 +1267,8 @@ mod tests {
     use super::*;
     use crate::{
         diagnostics::Diagnostics,
-        modding::test_support::{Reply, TempDir, TestServer},
+        modding::test_support::{Reply, TestServer},
+        test_support::TempDir,
     };
     use flate2::{Compression, write::GzEncoder};
     use serde_json::{Value as Json, json};

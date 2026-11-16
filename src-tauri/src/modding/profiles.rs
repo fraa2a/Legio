@@ -338,6 +338,7 @@ fn remove_profile_data(
 mod tests {
     use super::*;
     use crate::database::{CreateGameInput, ProfileMod};
+    use crate::test_support::TempDir;
     use std::sync::Arc;
     use uuid::Uuid;
 
@@ -346,7 +347,7 @@ mod tests {
         paths: ModdingPaths,
         locks: ProfileLocks,
         game_id: String,
-        _directory: crate::modding::test_support::TempDir,
+        _directory: TempDir,
     }
 
     impl Fixture {
@@ -369,7 +370,7 @@ mod tests {
                 database,
                 locks: ProfileLocks::default(),
                 game_id,
-                _directory: crate::modding::test_support::TempDir(directory),
+                _directory: TempDir(directory),
             }
         }
 

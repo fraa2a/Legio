@@ -194,7 +194,8 @@ mod tests {
     use super::*;
     use crate::{
         diagnostics::Diagnostics,
-        modding::test_support::{Reply, TempDir, TestServer},
+        modding::test_support::{Reply, TestServer},
+        test_support::TempDir,
     };
 
     // Blank lines between entries, as in the published file.

@@ -1754,6 +1754,7 @@ pub(crate) fn database_error(error: rusqlite::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::TempDir;
 
     #[test]
     fn logging_requires_explicit_opt_in_for_fresh_and_legacy_settings() {
@@ -1786,7 +1787,7 @@ mod tests {
         assert_eq!(value["collection"], serde_json::json!({ "kind": "all" }));
         assert_eq!(value["playStatus"], serde_json::Value::Null);
 
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         for library_view in [
             LibraryViewPreferences {
@@ -1809,7 +1810,6 @@ mod tests {
             assert!(database.save_settings(settings).is_err());
         }
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -1890,7 +1890,7 @@ mod tests {
 
     #[test]
     fn application_and_network_logging_preferences_persist_independently() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         for (application, network) in [(true, false), (false, true), (false, false)] {
             let database = Database::open(&directory).unwrap();
             let mut settings = serde_json::to_value(database.settings().unwrap()).unwrap();
@@ -1905,7 +1905,6 @@ mod tests {
             assert_eq!(settings["applicationLoggingEnabled"], application);
             assert_eq!(settings["diagnosticsEnabled"], network);
         }
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -1924,8 +1923,8 @@ mod tests {
 
     #[test]
     fn incomplete_onboarding_survives_steam_import_and_restart() {
-        let root = temporary_directory();
-        let state = DatabaseState::new(Ok(root.clone()));
+        let root = TempDir::new();
+        let state = DatabaseState::new(Ok(root.to_path_buf()));
         let database = state.database().unwrap();
         assert!(!database.settings().unwrap().onboarding_completed);
         database.with_connection(|connection| {
@@ -1933,14 +1932,14 @@ mod tests {
                 .map(|_| ()).map_err(database_error)
         }).unwrap();
         drop(state);
-        let state = DatabaseState::new(Ok(root.clone()));
+        let state = DatabaseState::new(Ok(root.to_path_buf()));
         let database = state.database().unwrap();
         assert!(!database.settings().unwrap().onboarding_completed);
         let mut settings = database.settings().unwrap();
         settings.onboarding_completed = true;
         database.save_settings(settings).unwrap();
         drop(state);
-        let state = DatabaseState::new(Ok(root.clone()));
+        let state = DatabaseState::new(Ok(root.to_path_buf()));
         assert!(
             state
                 .database()
@@ -1950,12 +1949,11 @@ mod tests {
                 .onboarding_completed
         );
         drop(state);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn open_initializes_preferences_before_the_first_read() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let stored: bool = database
             .with_connection(|connection| {
@@ -1970,12 +1968,11 @@ mod tests {
             .unwrap();
         assert!(stored);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn failed_backup_blocks_the_pending_migration() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let connection = Connection::open(directory.join(DATABASE_FILE_NAME)).unwrap();
         migrate(&connection).unwrap();
         connection
@@ -1995,12 +1992,11 @@ mod tests {
             .unwrap();
         assert_eq!(version, 34);
         drop(connection);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn cached_settings_follow_save_settings() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let mut settings = database.settings().unwrap();
         settings.theme = Theme::Light;
@@ -2012,12 +2008,11 @@ mod tests {
         let reopened = Database::open(&directory).unwrap();
         assert_eq!(reopened.settings().unwrap(), settings);
         drop(reopened);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn cached_settings_follow_direct_writes() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let write = |sql: &str| {
             database
@@ -2039,12 +2034,11 @@ mod tests {
         write("UPDATE settings SET value = 'invalid JSON' WHERE key = 'app_preferences'");
         assert!(database.settings().is_err());
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn failed_save_keeps_cached_settings() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let original = database.settings().unwrap();
         database
@@ -2067,7 +2061,6 @@ mod tests {
         );
         assert_eq!(database.settings().unwrap(), original);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -2101,7 +2094,7 @@ mod tests {
     fn appearance_defaults_and_background_effects_survive_reopen() {
         let old: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
         assert_eq!(old.appearance, crate::appearance::Appearance::default());
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let settings = Settings {
             theme: Theme::Dark,
@@ -2121,7 +2114,6 @@ mod tests {
         let reopened = Database::open(&directory).unwrap();
         assert_eq!(reopened.settings().unwrap(), settings);
         drop(reopened);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -2132,7 +2124,7 @@ mod tests {
             old.discord_presence,
             crate::discord_presence::PresenceSettings::default()
         );
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         assert!(database.settings().unwrap().discord_presence.enabled);
         database
@@ -2180,12 +2172,11 @@ mod tests {
         let reopened = Database::open(&directory).unwrap();
         assert_eq!(reopened.settings().unwrap(), settings);
         drop(reopened);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn manual_steam_launch_respects_platform_support_without_a_catalog_app_id() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let game = database
             .create_game(CreateGameInput {
@@ -2209,7 +2200,6 @@ mod tests {
         );
         assert_eq!(database.game(&game.id).unwrap().steam_app_id, None);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -2616,16 +2606,9 @@ mod tests {
         );
     }
 
-    fn temporary_directory() -> std::path::PathBuf {
-        let directory =
-            std::env::temp_dir().join(format!("legio-database-test-{}", Uuid::new_v4()));
-        fs::create_dir_all(&directory).unwrap();
-        directory
-    }
-
     #[test]
     fn prefix_paths_are_normalized_and_invalid_values_are_rejected_on_save() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let prefix = format!("{}/./", directory.display());
         let saved = database
@@ -2634,7 +2617,7 @@ mod tests {
                 ..CompatibilityDefaults::default()
             })
             .unwrap();
-        let canonical = fs::canonicalize(&directory).unwrap();
+        let canonical = fs::canonicalize(directory.path()).unwrap();
         assert_eq!(saved.prefix_root.as_deref(), canonical.to_str());
         assert!(
             database
@@ -2646,12 +2629,11 @@ mod tests {
         );
         assert_eq!(database.compatibility_defaults().unwrap(), saved);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn rejects_duplicate_name_for_the_same_steam_app_id() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let first = database
             .create_game(CreateGameInput {
@@ -2684,12 +2666,11 @@ mod tests {
         assert!(error.contains("nome è già usato"));
         assert_eq!(database.game(&first.id).unwrap().name, "Portal");
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn shared_app_id_keeps_names_settings_and_playtime_separate() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let first = database
             .create_game(CreateGameInput {
@@ -2772,12 +2753,11 @@ mod tests {
         );
 
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn native_launch_config_persists_and_rejects_null_arguments() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         assert_eq!(
             database
@@ -2819,12 +2799,11 @@ mod tests {
         let database = Database::open(&directory).unwrap();
         assert_eq!(database.native_launch_config(&game.id).unwrap(), config);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn native_launch_config_rejects_invalid_environment() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let game = database
             .create_game(CreateGameInput {
@@ -2856,12 +2835,11 @@ mod tests {
             NativeLaunchConfig::default()
         );
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn game_lookup_rejects_invalid_and_missing_ids() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         assert_eq!(database.game("invalid").unwrap_err(), "game id is invalid");
         assert_eq!(
@@ -2871,7 +2849,6 @@ mod tests {
             "game was not found"
         );
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -2900,7 +2877,7 @@ mod tests {
         assert!(!legacy.preview_updates);
         assert!(legacy.last_seen_version.is_none() && legacy.pending_update_notes.is_none());
 
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let oversized = Settings {
             pending_update_notes: Some(PendingUpdateNotes {
@@ -2911,12 +2888,11 @@ mod tests {
         };
         assert!(database.save_settings(oversized).is_err());
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn persists_settings_and_enriched_manual_games_after_reopen() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         assert_eq!(database.settings().unwrap(), Settings::default());
         let settings = Settings {
@@ -2961,12 +2937,11 @@ mod tests {
         assert_eq!(reopened.settings().unwrap(), settings);
         assert_eq!(reopened.games().unwrap(), vec![enriched]);
         drop(reopened);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn download_bandwidth_limit_defaults_to_unlimited_and_survives_reopen() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         assert_eq!(database.download_bandwidth_limit().unwrap(), 0);
 
@@ -2984,7 +2959,6 @@ mod tests {
         reopened.save_download_bandwidth_limit(0).unwrap();
         assert_eq!(reopened.download_bandwidth_limit().unwrap(), 0);
         drop(reopened);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -3031,7 +3005,7 @@ mod tests {
 
     #[test]
     fn playtime_summaries_include_active_and_finished_sessions_per_game() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let first = database
             .create_game(CreateGameInput {
@@ -3082,12 +3056,11 @@ mod tests {
         assert_eq!(untouched_summary.last_played_at, None);
 
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn reopening_recovers_open_sessions_at_the_last_heartbeat() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let game = database
             .create_game(CreateGameInput {
@@ -3116,12 +3089,11 @@ mod tests {
             .unwrap();
         assert_eq!(reason, "interrupted");
         drop(reopened);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn compatibility_defaults_and_explicit_overrides_survive_reopen() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let game = database
             .create_game(CreateGameInput {
@@ -3172,12 +3144,11 @@ mod tests {
         let stored = reopened.game_compatibility_overrides(&game.id).unwrap();
         assert_eq!(stored, overrides);
         drop(reopened);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn compatibility_override_save_rejects_unknown_game() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         assert_eq!(
             database
@@ -3195,12 +3166,11 @@ mod tests {
             "game was not found"
         );
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn effective_compatibility_config_merges_defaults_and_game_values() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let game = database
             .create_game(CreateGameInput {
@@ -3291,12 +3261,11 @@ mod tests {
         assert_eq!(effective.graphics_renderer, GraphicsRenderer::WineD3d);
         assert_eq!(effective.wayland, WaylandMode::Disabled);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn effective_compatibility_config_empty_values_clear_defaults() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let game = database
             .create_game(CreateGameInput {
@@ -3355,12 +3324,11 @@ mod tests {
             }
         );
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn typed_compatibility_options_inherit_override_and_reset() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let game = database
             .create_game(CreateGameInput {
@@ -3418,13 +3386,12 @@ mod tests {
         assert!(reset.debug_logging);
         assert!(!reset.online_fix);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_performance_migration_preserves_overrides_and_validates_persisted_options() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let game = database
             .create_game(CreateGameInput {
@@ -3483,12 +3450,11 @@ mod tests {
             overrides.linux_performance
         );
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn rejects_updates_without_an_effective_name() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let game = database
             .create_game(CreateGameInput {
@@ -3506,12 +3472,11 @@ mod tests {
             .unwrap_err();
         assert_eq!(error, "a game needs an automatic name or a name override");
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn account_selection_persists_and_app_id_change_clears_it() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let game = database
             .create_game(CreateGameInput {
@@ -3557,12 +3522,11 @@ mod tests {
             None
         );
         drop(reopened);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn account_selection_rejects_invalid_ids_and_games_without_steam_app_id() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let game = database
             .create_game(CreateGameInput {
@@ -3585,12 +3549,11 @@ mod tests {
             "game was not found or has no Steam App ID"
         );
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn preserves_an_unsupported_newer_schema_for_recovery() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         database
             .save_settings(Settings {
@@ -3624,12 +3587,11 @@ mod tests {
             .unwrap();
         assert_eq!(theme, "light");
         drop(connection);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn hidden_steam_games_stay_hidden_after_reopen_and_can_be_restored() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let steam = database
             .create_game(CreateGameInput {
@@ -3671,12 +3633,11 @@ mod tests {
         assert!(reopened.hidden_steam_games().unwrap().is_empty());
         assert_eq!(reopened.visible_games().unwrap(), vec![manual, steam]);
         drop(reopened);
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn synced_steam_games_cannot_be_removed_until_sync_is_disabled() {
-        let directory = temporary_directory();
+        let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
         let metadata_only = database
             .create_game(CreateGameInput {
@@ -3711,6 +3672,5 @@ mod tests {
         database.remove_game(&steam.id).unwrap();
         assert!(database.game(&steam.id).is_err());
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
     }
 }

@@ -3,7 +3,6 @@
 use std::{
     cell::Cell,
     collections::{BTreeMap, HashMap},
-    fs,
     io::{Cursor, Read, Write},
     net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
@@ -26,6 +25,7 @@ use super::package_id::{PackageName, PackageVersionId};
 use super::paths::ModdingPaths;
 use super::profiles::ProfileLocks;
 use crate::database::{CreateGameInput, Database, ModProfile, ProfileMod};
+use crate::test_support::TempDir;
 
 const FIXTURE: &str = include_str!("../../test-fixtures/modding/ecosystem-schema.json");
 
@@ -221,37 +221,6 @@ impl Env {
 
     pub(super) fn exists(&self, relative: &str) -> bool {
         self.profile_dir().join(relative).exists()
-    }
-}
-
-/// Removes the directory when dropped. Declared after the database in
-/// [`Env`] so the database file is closed first.
-pub(crate) struct TempDir(pub(crate) PathBuf);
-
-impl TempDir {
-    pub(crate) fn new() -> Self {
-        let path =
-            std::env::temp_dir().join(format!("legio-modding-test-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&path).unwrap();
-        Self(path)
-    }
-
-    pub(crate) fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl std::ops::Deref for TempDir {
-    type Target = Path;
-
-    fn deref(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
     }
 }
 
