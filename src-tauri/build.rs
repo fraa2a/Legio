@@ -71,6 +71,8 @@ fn main() {
             "list_saved_steam_accounts",
             "set_game_steam_account_preference",
             "import_steam_installations",
+            "scan_launcher_games",
+            "import_launcher_games",
             "scan_game_executables",
             "import_manual_game",
             "identify_manual_game_steam_app_id",

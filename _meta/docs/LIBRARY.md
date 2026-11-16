@@ -141,6 +141,35 @@ history and calendar activity. Future sessions add time normally. Active session
 invalid totals and externally detected running games are rejected by the backend.
 Steam account playtime is not modified.
 
+
+
+## Import from other launchers
+
+The initial setup (onboarding) offers games installed with Heroic, Lutris, itch and
+Bottles, only when at least one is found. Detection is read-only: Legio never writes
+to, locks or modifies another launcher's folders. Each launcher is read on its own, so
+one unreadable launcher does not hide the others.
+
+| Launcher | Platform | Read |
+| --- | --- | --- |
+| Heroic | Linux, Flatpak, Windows | In `~/.config/heroic`, the Flatpak config or `%APPDATA%/heroic`: `legendaryConfig/legendary/installed.json`, `gog_store/installed.json` (plus `goggame-<id>.info` in the game folder), `nile_config/nile/installed.json`, `sideload_apps/library.json`, `store_cache/*_library.json` for titles and `GamesConfig/<app>.json` for the Wine prefix and runner name |
+| Lutris | Linux, Flatpak | `pga.db` (table `games`, runners `wine` and `linux`) and `games/<configpath>.yml` for `game.exe`, `game.prefix` and `wine.version` |
+| itch | Linux, Flatpak, Windows | `db/butler.db` tables `caves`, `games` and `install_locations`; the executable comes from the `verdict` candidates only when unambiguous |
+| Bottles | Linux, Flatpak | `bottles/<bottle>/bottle.yml`: `Runner` and `External_Programs`; the bottle folder is the Wine prefix |
+
+SQLite databases are opened read-only and immutable. Files have size caps, entry
+counts are bounded, symbolic links leaving the launcher folder are not followed and
+every path is checked to exist before it is offered. The YAML files are read with a
+tolerant scalar extractor that skips any value it cannot read with certainty.
+
+Selected games go through the manual import path: the same executable validation and
+duplicate detection as adding a game by hand. Games whose executable is already in
+the library, or whose folder is already used by a library entry (including Steam
+installs), are skipped. A game without a known executable is listed as not
+importable, because the library cannot hold an entry without one. On Linux, the
+detected Wine prefix of a Windows game becomes its prefix in the compatibility
+settings; the runner name is shown but not applied. No database migration is needed.
+
 ## Disk usage
 
 `folder_size.rs` walks an installation off the async executor. It never follows

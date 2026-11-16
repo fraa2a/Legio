@@ -17,6 +17,7 @@ const mocks = {
   "src/lib/stores/settings": data("export const settings = globalThis.setupSettings; export const updateSettings = async patch => { let current; settings.subscribe(value => {current = value.data;})(); const saved = await globalThis.setupInvoke(\"save_settings\", {settings:{...current,...patch}}); settings.set(saved); return saved; };"),
   "src/lib/stores/app-info": data("export const appInfo = globalThis.setupAppInfo;"),
   "src/lib/stores/appearance": data("export const appearancePreview = globalThis.setupPreview;"),
+  "src/lib/stores/games": data("export const games = { reload: async () => { globalThis.setupReloads = (globalThis.setupReloads ?? 0) + 1; } };"),
   "src/lib/stores/navigation": data("export const activeSection = globalThis.setupSection;"),
 };
 const { load } = createModuleLoader(mocks);
@@ -104,4 +105,65 @@ test("news retains the persistent feed while refreshing and when offline", async
   await pending;
   assert.deepEqual(get(api.news).data.feed, cached.feed);
   assert.match(get(api.news).data.warning, /offline/);
+});
+
+const found = (launcher, games) => ({ launcher, status: "found", games, warnings: [] });
+const game = (launcher, key, executable = "/games/" + key + ".exe") => ({ key, launcher, title: key, installDir: "/games", executable, kind: "windows", prefix: null, runnerHint: null, storeId: null });
+
+test("launcher import offers only launchers with games and selects per launcher", async () => {
+  const api = await import(await load("src/lib/stores/launcher-import.ts"));
+  globalThis.setupInvoke = async command => {
+    assert.equal(command, "scan_launcher_games");
+    return [found("heroic", [game("heroic", "a"), game("heroic", "b"), game("heroic", "c", null)]), found("lutris", []), { launcher: "itch", status: "notInstalled" }, { launcher: "bottles", status: "unreadable", reason: "bad" }];
+  };
+  await api.scanLaunchers();
+  const state = get(api.launcherImport);
+  assert.deepEqual(state.groups.map(group => group.launcher), ["heroic"]);
+  const [group] = state.groups;
+  api.toggleLauncher("heroic");
+  assert.deepEqual(get(api.launcherImport).selected, ["a", "b"]);
+  assert.deepEqual(api.launcherSelection(group, get(api.launcherImport).selected), { count: 2, total: 2, all: true });
+  api.toggleGame("a");
+  assert.equal(api.launcherSelection(group, get(api.launcherImport).selected).all, false);
+  api.toggleLauncher("heroic");
+  assert.deepEqual(get(api.launcherImport).selected.sort(), ["a", "b"]);
+  api.toggleLauncher("heroic");
+  assert.deepEqual(get(api.launcherImport).selected, []);
+  assert.equal(api.isImportable(group.games[2]), false);
+  api.resetLauncherImport();
+  assert.deepEqual(get(api.launcherImport).groups, []);
+});
+
+test("launcher import reports per-game results and keeps failures selected", async () => {
+  const api = await import(await load("src/lib/stores/launcher-import.ts"));
+  const calls = [];
+  globalThis.setupInvoke = async (command, args) => {
+    calls.push(command);
+    if (command === "scan_launcher_games") return [found("heroic", [game("heroic", "a"), game("heroic", "b"), game("heroic", "c")])];
+    assert.deepEqual(args.selection.map(item => item.key), ["a", "b", "c"]);
+    return [{ launcher: "heroic", key: "a", title: "a", status: "imported", warning: null }, { launcher: "heroic", key: "b", title: "b", status: "duplicate" }, { launcher: "heroic", key: "c", title: "c", status: "failed", reason: "nope" }];
+  };
+  globalThis.setupReloads = 0;
+  await api.scanLaunchers();
+  api.toggleLauncher("heroic");
+  await api.runLauncherImport();
+  const state = get(api.launcherImport);
+  assert.deepEqual(state.results.map(item => item.status), ["imported", "duplicate", "failed"]);
+  assert.deepEqual(state.selected, ["c"]);
+  assert.equal(state.importing, false);
+  assert.equal(globalThis.setupReloads, 1);
+  globalThis.setupInvoke = async () => { throw new Error("backend down"); };
+  await api.runLauncherImport();
+  assert.match(get(api.launcherImport).error, /backend down/);
+  assert.equal(get(api.launcherImport).importing, false);
+  api.resetLauncherImport();
+});
+
+test("a failed launcher scan leaves the import step hidden", async () => {
+  const api = await import(await load("src/lib/stores/launcher-import.ts"));
+  globalThis.setupInvoke = async () => { throw new Error("scan failed"); };
+  const original = console.error;
+  console.error = () => {};
+  try { await api.scanLaunchers(); } finally { console.error = original; }
+  assert.deepEqual(get(api.launcherImport).groups, []);
 });

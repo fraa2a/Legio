@@ -932,6 +932,40 @@ pub async fn import_steam_installations(
 }
 
 #[tauri::command]
+pub async fn scan_launcher_games() -> Result<Vec<crate::launcher_import::LauncherReport>, String> {
+    tauri::async_runtime::spawn_blocking(crate::launcher_import::scan_all)
+        .await
+        .map_err(|error| format!("Launcher scan task failed: {error}"))
+}
+
+#[tauri::command]
+pub async fn import_launcher_games(
+    app: AppHandle,
+    selection: Vec<crate::launcher_import::ImportSelection>,
+) -> Result<Vec<crate::launcher_import::ImportItem>, String> {
+    crate::startup_recovery::wait(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let items = crate::launcher_import::import_selected(
+            app.state::<DatabaseState>().database()?,
+            selection,
+            |game| {
+                crate::desktop_shortcuts::create_application_menu(&app, game).unwrap_or_else(
+                    |error| {
+                        Some(format!(
+                            "Could not create application-menu shortcut: {error}"
+                        ))
+                    },
+                )
+            },
+        )?;
+        crate::game_library::sync_default(&app)?;
+        Ok(items)
+    })
+    .await
+    .map_err(|error| format!("Launcher import task failed: {error}"))?
+}
+
+#[tauri::command]
 pub async fn scan_game_executables(
     directory: String,
     game_name: Option<String>,

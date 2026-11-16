@@ -32,6 +32,8 @@ const mocks = {
   "src/lib/stores/appearance": dataModule("export const appearancePreview = globalThis.themePreview;"),
   "src/lib/stores/app-info": dataModule('import { writable } from "' + import.meta.resolve("svelte/store") + '"; export const appInfo = writable({data:{platform:"linux",desktopEnvironment:"hyprland"}});'),
   "src/lib/services/local-state": dataModule("export const saveSettings = value => globalThis.themeSave(value);"),
+  // The launcher import step is not under test; its store would otherwise pull in the game services.
+  "src/lib/stores/launcher-import": dataModule('import { writable } from "' + import.meta.resolve("svelte/store") + '"; export const launcherImport = writable({ status: "idle", groups: [], selected: [], error: null }); export const resetLauncherImport = () => {}; export const scanLaunchers = async () => {}; export const isImportable = () => true; export const launcherSelection = () => ({ count: 0, total: 0, all: false }); export const runLauncherImport = async () => {}; export const toggleGame = () => {}; export const toggleLauncher = () => {};'),
 };
 
 const { load } = createModuleLoader(mocks);
