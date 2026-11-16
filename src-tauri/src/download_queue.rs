@@ -2677,9 +2677,10 @@ mod tests {
             server.join().unwrap(),
             [vec!["/first"; 4], vec!["/second"; 4]].concat()
         );
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
+        remove_directory(directory);
     }
 
     #[test]
@@ -3503,9 +3504,10 @@ mod tests {
         );
         assert_eq!(status_of(&database, &queued.id).as_deref(), Some("queued"));
         assert_eq!(status_of(&database, &failed.id).as_deref(), Some("failed"));
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
+        remove_directory(directory);
     }
 
     #[test]
@@ -3652,9 +3654,10 @@ mod tests {
         wait_for_installation(&app, &database, &job.id);
         server.join().unwrap();
 
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
+        remove_directory(directory);
     }
 
     #[tokio::test]
@@ -3709,9 +3712,10 @@ mod tests {
         assert!(database.game(&job.id).unwrap().executable_path.is_some());
         server.join().unwrap();
 
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
+        remove_directory(directory);
     }
 
     #[tokio::test(start_paused = true)]
@@ -3822,9 +3826,10 @@ mod tests {
         assert_eq!(status(&database, &job.id).unwrap(), "installed");
         server.join().unwrap();
 
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
+        remove_directory(directory);
     }
 
     #[tokio::test]
