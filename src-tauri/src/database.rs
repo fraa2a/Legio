@@ -26,7 +26,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-const SCHEMA_VERSION: i64 = 40;
+pub(crate) const SCHEMA_VERSION: i64 = 40;
 pub(crate) const DATABASE_FILE_NAME: &str = "legio.sqlite3";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -161,6 +161,7 @@ pub struct GameCompatibilityOverrides {
 /// Prefixes use the global root unless `prefix_path` names a game-specific path.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub struct EffectiveCompatibilityConfig {
     pub runner_path: Option<String>,
     pub prefix_root: Option<String>,
@@ -295,7 +296,23 @@ pub struct Settings {
     pub news_enabled: bool,
     #[serde(default = "default_true")]
     pub automatic_update_check: bool,
+    #[serde(default)]
+    pub preview_updates: bool,
+    #[serde(default)]
+    pub last_seen_version: Option<String>,
+    #[serde(default)]
+    pub pending_update_notes: Option<PendingUpdateNotes>,
 }
+
+/// Release notes kept across the restart that installs their version.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingUpdateNotes {
+    pub version: String,
+    pub notes: String,
+}
+
+const MAX_UPDATE_NOTES_CHARS: usize = 20_000;
 
 fn default_true() -> bool {
     true
@@ -426,6 +443,9 @@ impl Default for Settings {
             thunderstore_links_enabled: false,
             news_enabled: true,
             automatic_update_check: true,
+            preview_updates: false,
+            last_seen_version: None,
+            pending_update_notes: None,
         }
     }
 }
@@ -740,6 +760,13 @@ impl Database {
         ) {
             return Err("Invalid Store availability preference".to_owned());
         }
+        if settings
+            .pending_update_notes
+            .as_ref()
+            .is_some_and(|pending| pending.notes.chars().count() > MAX_UPDATE_NOTES_CHARS)
+        {
+            return Err("Update notes are too long".to_owned());
+        }
         if settings.launch_minimized && !settings.launch_on_system_start {
             return Err("Launch minimized requires launch on system startup".to_owned());
         }
@@ -824,6 +851,7 @@ impl Database {
     }
 
     /// Resolves global defaults and per-game overrides in one database read.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn effective_compatibility_config(
         &self,
         game_id: &str,
@@ -1453,6 +1481,7 @@ fn load_game_compatibility_overrides(
     })
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn merge_compatibility_config(
     defaults: CompatibilityDefaults,
     overrides: GameCompatibilityOverrides,
@@ -2008,6 +2037,9 @@ mod tests {
                 background_blur: 16,
                 background_opacity: 40,
                 transparent: true,
+                density: crate::appearance::Density::Wide,
+                corners: crate::appearance::Corners::Sharp,
+                text_scale: 110,
                 ..crate::appearance::Appearance::default()
             },
             ..Settings::default()
@@ -2579,6 +2611,7 @@ mod tests {
             .unwrap_err();
         assert!(error.contains("nome è già usato"));
         assert_eq!(database.game(&first.id).unwrap().name, "Portal");
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -2785,6 +2818,31 @@ mod tests {
     }
 
     #[test]
+    fn update_preferences_default_off_and_cap_notes() {
+        let mut preferences = serde_json::to_value(Settings::default()).unwrap();
+        let object = preferences.as_object_mut().unwrap();
+        for key in ["previewUpdates", "lastSeenVersion", "pendingUpdateNotes"] {
+            object.remove(key);
+        }
+        let legacy = serde_json::from_value::<Settings>(preferences).unwrap();
+        assert!(!legacy.preview_updates);
+        assert!(legacy.last_seen_version.is_none() && legacy.pending_update_notes.is_none());
+
+        let directory = temporary_directory();
+        let database = Database::open(&directory).unwrap();
+        let oversized = Settings {
+            pending_update_notes: Some(PendingUpdateNotes {
+                version: "1.0.0".to_owned(),
+                notes: "x".repeat(MAX_UPDATE_NOTES_CHARS + 1),
+            }),
+            ..Settings::default()
+        };
+        assert!(database.save_settings(oversized).is_err());
+        drop(database);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn persists_settings_and_enriched_manual_games_after_reopen() {
         let directory = temporary_directory();
         let database = Database::open(&directory).unwrap();
@@ -2830,6 +2888,7 @@ mod tests {
         let reopened = Database::open(&directory).unwrap();
         assert_eq!(reopened.settings().unwrap(), settings);
         assert_eq!(reopened.games().unwrap(), vec![enriched]);
+        drop(reopened);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3040,6 +3099,7 @@ mod tests {
         assert_eq!(reopened.compatibility_defaults().unwrap(), defaults);
         let stored = reopened.game_compatibility_overrides(&game.id).unwrap();
         assert_eq!(stored, overrides);
+        drop(reopened);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3062,6 +3122,7 @@ mod tests {
                 .unwrap_err(),
             "game was not found"
         );
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3157,6 +3218,7 @@ mod tests {
         );
         assert_eq!(effective.graphics_renderer, GraphicsRenderer::WineD3d);
         assert_eq!(effective.wayland, WaylandMode::Disabled);
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3220,6 +3282,7 @@ mod tests {
                 linux_performance: LinuxPerformance::default(),
             }
         );
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3282,6 +3345,7 @@ mod tests {
         assert_eq!(reset.wayland, WaylandMode::Native);
         assert!(reset.debug_logging);
         assert!(!reset.online_fix);
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3369,6 +3433,7 @@ mod tests {
             })
             .unwrap_err();
         assert_eq!(error, "a game needs an automatic name or a name override");
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3419,6 +3484,7 @@ mod tests {
                 .steam_account_id,
             None
         );
+        drop(reopened);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3446,6 +3512,7 @@ mod tests {
                 .unwrap_err(),
             "game was not found or has no Steam App ID"
         );
+        drop(database);
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -3484,6 +3551,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(theme, "light");
+        drop(connection);
         fs::remove_dir_all(directory).unwrap();
     }
 

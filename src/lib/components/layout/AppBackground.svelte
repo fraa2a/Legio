@@ -78,5 +78,5 @@
   {/if}
 </div>
 {#if error}
-  <p class="fixed bottom-3 left-3 z-50 max-w-sm rounded-control bg-zinc-900 p-3 text-sm text-legio-error light:bg-zinc-50" role="alert">{error}</p>
+  <p class="fixed bottom-3 left-3 z-50 max-w-sm select-text rounded-control bg-zinc-900 p-3 text-sm text-legio-error light:bg-zinc-50" data-selectable role="alert">{error}</p>
 {/if}

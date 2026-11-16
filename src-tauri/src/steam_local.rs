@@ -375,6 +375,7 @@ pub(crate) fn parse_library_folders(bytes: &[u8]) -> Result<Vec<PathBuf>, Manife
     Ok(paths)
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) fn default_steam_library_paths() -> Vec<PathBuf> {
     let Some(roots) = default_steam_roots() else {
         return Vec::new();

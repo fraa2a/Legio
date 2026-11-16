@@ -34,6 +34,7 @@
   import ArrowDownWideNarrow from "@lucide/svelte/icons/arrow-down-wide-narrow";
   import ArrowUpNarrowWide from "@lucide/svelte/icons/arrow-up-narrow-wide";
   import FolderHeart from "@lucide/svelte/icons/folder-heart";
+  import Keyboard from "@lucide/svelte/icons/keyboard";
   import Link from "@lucide/svelte/icons/link";
   import Maximize2 from "@lucide/svelte/icons/maximize-2";
   import Minimize2 from "@lucide/svelte/icons/minimize-2";
@@ -129,6 +130,7 @@
     "speed": Gauge,
     "gamepad": Gamepad2,
     "power": Power,
+    "keyboard": Keyboard,
     "link": Link,
     "hidden": EyeOff,
     "logs": ScrollText,

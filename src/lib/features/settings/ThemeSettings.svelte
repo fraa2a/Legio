@@ -5,7 +5,7 @@
   import { t, language } from "../../i18n";
   import type { Theme } from "../../services/local-state";
   import {
-    activePalette, chooseBackground, cleanupBackgrounds, defaultAppearance, defaultDither, exportAppearance, importAppearance, panelStyleOf, panelStyles, themePresets,
+    activePalette, chooseBackground, textScaleRange, cleanupBackgrounds, defaultAppearance, defaultDither, exportAppearance, importAppearance, panelStyleOf, panelStyles, themePresets,
     type Appearance, type Palette, type PanelStyle,
   } from "../../services/appearance";
   import { appearancePreview } from "../../stores/appearance";
@@ -81,6 +81,16 @@
     { value: "glass", label: t("Vetro", $language) },
     { value: "solid", label: t("Solido", $language) },
     { value: "custom", label: t("Personalizzato", $language) },
+  ]);
+  const densityOptions = $derived([
+    { value: "compact", label: t("Compatta", $language) },
+    { value: "normal", label: t("Normale", $language) },
+    { value: "wide", label: t("Ampia", $language) },
+  ]);
+  const cornerOptions = $derived([
+    { value: "sharp", label: t("Squadrati", $language) },
+    { value: "soft", label: t("Morbidi", $language) },
+    { value: "round", label: t("Tondi", $language) },
   ]);
   const panelStyle = $derived(customPanels ? "custom" : (panelStyleOf(draft) ?? "custom"));
   const ditherEffects: DitherSliderConfig[] = $derived([
@@ -289,6 +299,12 @@
         <AppearanceSlider id={"theme-" + effect.key} label={effect.label} value={draft[effect.key]} min={effect.min} max={effect.max} unit={effect.unit} resetValue={defaultAppearance()[effect.key]} disabled={busy} onChange={(value) => setPanelValue(effect.key, value)} />
       {/each}
     </div>
+  </SettingsGroup>
+
+  <SettingsGroup title={t("Interfaccia", $language)} icon="sliders" collapsible>
+    <SegmentedControl name="density" label={t("Densità", $language)} options={densityOptions} value={draft.density} disabled={busy} onChange={(value) => { draft.density = value as Appearance["density"]; }} />
+    <SegmentedControl name="corners" label={t("Angoli", $language)} options={cornerOptions} value={draft.corners} disabled={busy} onChange={(value) => { draft.corners = value as Appearance["corners"]; }} />
+    <AppearanceSlider id="theme-textScale" label={t("Dimensione del testo", $language)} value={draft.textScale} min={textScaleRange.min} max={textScaleRange.max} step={5} unit="%" resetValue={defaultAppearance().textScale} disabled={busy} onChange={(value) => { draft.textScale = value; }} />
   </SettingsGroup>
 
   {#if hyprland}

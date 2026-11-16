@@ -15,6 +15,7 @@ export const defaultSettings: Settings = {
   libraryView: { mode: "grid", sort: "name", descending: false, coverScale: 100, favoritesOnly: false, playStatus: null, collection: { kind: "all" } },
   automaticGameUpdates: false, downloadWhilePlaying: true, deferExtractionWhilePlaying: false,
   thunderstoreLinksEnabled: false, newsEnabled: true, automaticUpdateCheck: true,
+  previewUpdates: false, lastSeenVersion: null, pendingUpdateNotes: null,
 };
 
 export const settings = createResource<Settings>(defaultSettings, getSettings);

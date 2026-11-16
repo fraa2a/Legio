@@ -117,11 +117,11 @@
 >
   <div class="legio-dialog-surface" aria-hidden="true"></div>
   <div
-    class={flush ? 'legio-dialog-content relative z-10 flex h-full min-h-0 flex-col' : 'legio-dialog-content relative z-10 flex flex-col gap-4 p-6'}
+    class={flush ? 'legio-dialog-content relative z-10 flex h-full min-h-0 flex-col' : 'legio-dialog-content relative z-10 flex flex-col gap-rhythm-row p-inset-wide'}
   >
     <div
-      class="flex items-center justify-between gap-4 {flush
-        ? 'shrink-0 border-b border-legio-line px-6 py-4'
+      class="flex items-center justify-between gap-rhythm-row {flush
+        ? 'shrink-0 border-b border-legio-line px-inset-wide py-inset-compact'
         : ''}"
     >
       <h2 id={titleId} class="text-lg font-semibold">{title}</h2>

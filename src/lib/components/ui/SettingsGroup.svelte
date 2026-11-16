@@ -19,7 +19,7 @@
   let open = $state(untrack(() => defaultOpen));
 </script>
 
-<section class="flex flex-col gap-4 rounded-panel legio-glass p-6">
+<section class="flex flex-col gap-rhythm-row rounded-panel legio-glass p-inset-wide">
   {#snippet iconBadge()}
     {#if icon}
       <span
@@ -60,7 +60,7 @@
     </div>
   {/if}
   {#if !collapsible || open}
-    <div class="flex flex-col gap-4">
+    <div class="flex flex-col gap-rhythm-row">
       {@render children()}
     </div>
   {/if}

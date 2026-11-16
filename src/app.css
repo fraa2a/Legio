@@ -34,14 +34,27 @@ html[data-motion-paused="true"] *::after {
   --color-legio-launching-hover: #854d0e;
   --color-legio-danger: #b91c1c;
   --color-legio-danger-hover: #991b1b;
-  /* Legio UI scale, see _meta/docs/UI.md. Corner and density options scale these. */
-  --radius-control: 0.5rem;
-  --radius-card: 0.75rem;
-  --radius-panel: 1rem;
-  --spacing-control-sm: 2rem;
-  --spacing-control-md: 2.5rem;
-  --spacing-control-lg: 3rem;
-  --spacing-control-hero: 3.75rem;
+  /* Legio UI scale, see _meta/docs/UI.md. The --legio-*-scale variables come from the
+     appearance options (corners, density, text scale) and default to 1. */
+  --radius-control: calc(0.5rem * var(--legio-corner-scale, 1));
+  --radius-card: calc(0.75rem * var(--legio-corner-scale, 1));
+  --radius-panel: calc(1rem * var(--legio-corner-scale, 1));
+  --spacing-control-sm: calc(2rem * var(--legio-control-scale, 1));
+  --spacing-control-md: calc(2.5rem * var(--legio-control-scale, 1));
+  --spacing-control-lg: calc(3rem * var(--legio-control-scale, 1));
+  --spacing-control-hero: calc(3.75rem * var(--legio-control-scale, 1));
+  --spacing-inset-compact: calc(1rem * var(--legio-space-scale, 1));
+  --spacing-inset-wide: calc(1.5rem * var(--legio-space-scale, 1));
+  --spacing-rhythm-row: calc(1rem * var(--legio-space-scale, 1));
+  --spacing-rhythm-group: calc(1.5rem * var(--legio-space-scale, 1));
+  --text-xs: calc(0.75rem * var(--legio-text-scale, 1));
+  --text-sm: calc(0.875rem * var(--legio-text-scale, 1));
+  --text-base: calc(1rem * var(--legio-text-scale, 1));
+  --text-lg: calc(1.125rem * var(--legio-text-scale, 1));
+  --text-xl: calc(1.25rem * var(--legio-text-scale, 1));
+  --text-2xl: calc(1.5rem * var(--legio-text-scale, 1));
+  --text-3xl: calc(1.875rem * var(--legio-text-scale, 1));
+  --text-4xl: calc(2.25rem * var(--legio-text-scale, 1));
   --default-transition-duration: var(--legio-motion);
   --default-transition-timing-function: var(--legio-ease);
 }
@@ -163,6 +176,16 @@ html, body, #app { width: 100%; height: 100%; min-width: 0; min-height: 0; }
   .legio-panel, .legio-glass, .legio-popover { box-shadow: var(--tw-inset-ring-shadow); }
 }
 .legio-content { background-color: transparent; }
+/* Played once when a launch starts; no animation under reduced motion. */
+@keyframes legio-cover-expand {
+  40% { transform: scale(1.03); }
+}
+.legio-cover-launching {
+  animation: legio-cover-expand calc(var(--legio-motion-slow) * 2) var(--legio-ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .legio-cover-launching { animation: none; }
+}
 .legio-artwork-zoom {
   transform: translateZ(0) scale(1);
   transition: transform var(--legio-motion-slow) var(--legio-ease);

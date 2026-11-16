@@ -43,35 +43,16 @@
 </script>
 
 {#if game.steamInstallPath !== null || game.executablePath !== null}
-  {#if status === "idle"}
-    <Button
-      label={playLabel}
-      variant={actionVariant}
-      {shape}
-      {size}
-      class={revealOnHover
-        ? "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-        : className}
-      disabled={actionPending}
-      onClick={() => onPlay(game)}
-    >
-      <Icon name="play" size={iconSize} />
-    </Button>
-  {:else if status === "launching"}
-    <Button
-      label={cancelPending ? t("ANNULLAMENTO...", $language) : t("AVVIO...", $language)}
-      variant={actionVariant}
-      {shape}
-      {size}
-      class={className}
-      disabled={cancelPending}
-      onClick={() => onCancel(game)}
-    >
-      <Icon name="close" size={iconSize} />
-    </Button>
-  {:else}
-    <Button label={t("FERMA", $language)} variant={actionVariant} {shape} {size} class={className} disabled={actionPending} onClick={() => onStop(game)}>
-      <Icon name="stop" size={iconSize} />
-    </Button>
-  {/if}
+  <!-- One button for every state, so the color transitions instead of switching. -->
+  <Button
+    label={status === "idle" ? playLabel : status === "launching" ? (cancelPending ? t("ANNULLAMENTO...", $language) : t("AVVIO...", $language)) : t("FERMA", $language)}
+    variant={actionVariant}
+    {shape}
+    {size}
+    class="duration-(--legio-motion-slow) {status === 'idle' && revealOnHover ? 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100' : className}"
+    disabled={status === "idle" ? actionPending : status === "launching" ? cancelPending : actionPending}
+    onClick={() => (status === "idle" ? onPlay(game) : status === "launching" ? onCancel(game) : onStop(game))}
+  >
+    <Icon name={status === "idle" ? "play" : status === "launching" ? "close" : "stop"} size={iconSize} />
+  </Button>
 {/if}
