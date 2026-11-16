@@ -745,6 +745,15 @@ fn status(database: &Database, id: &str) -> Result<String, String> {
     })
 }
 
+fn clear_error(database: &Database, id: &str) -> Result<(), String> {
+    database.with_connection(|connection| {
+        connection
+            .execute("UPDATE downloads SET error = NULL WHERE id = ?1", [id])
+            .map_err(db_error)?;
+        Ok(())
+    })
+}
+
 fn update_progress(
     database: &Database,
     id: &str,
@@ -2370,37 +2379,30 @@ pub async fn retry_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result
         let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
         let _operation = manager.operation()?;
         crate::download_policy::require_resumable(database, &manager, &id)?;
-        // Clearing the error lets schedule_installations stage the archive again.
-        if status(database, &id)? == "downloaded" {
-            return database.with_connection(|connection| {
-                connection
-                    .execute("UPDATE downloads SET error = NULL WHERE id = ?1", [&id])
-                    .map_err(db_error)?;
-                Ok(())
-            });
-        }
-        if status(database, &id)? == "staged" {
-            crate::overlay_update::recover(database)?;
-            if let Some(game) = crate::game_updates::target(database, &id)? {
-                crate::overlay_update::ensure_launchable(database, &game)?;
+        match status(database, &id)?.as_str() {
+            // Clearing the error lets schedule_installations stage the archive again.
+            "downloaded" => return clear_error(database, &id),
+            "staged" => {
+                crate::overlay_update::recover(database)?;
+                if let Some(game) = crate::game_updates::target(database, &id)? {
+                    crate::overlay_update::ensure_launchable(database, &game)?;
+                }
+                return clear_error(database, &id);
             }
-            database.with_connection(|connection| {
-                connection
-                    .execute("UPDATE downloads SET error = NULL WHERE id = ?1", [&id])
-                    .map_err(db_error)?;
-                Ok(())
-            })?;
-            return Ok(());
-        }
-        if status(database, &id)? == "finalizing" {
-            let data_dir = app
-                .path()
-                .app_data_dir()
-                .map_err(|error| format!("Could not locate app data: {error}"))?;
-            let result =
-                crate::finalize_install::retry(database, &database.storage_root(&data_dir)?, &id);
-            crate::disk_usage::invalidate(&app, &id);
-            return result;
+            "finalizing" => {
+                let data_dir = app
+                    .path()
+                    .app_data_dir()
+                    .map_err(|error| format!("Could not locate app data: {error}"))?;
+                let result = crate::finalize_install::retry(
+                    database,
+                    &database.storage_root(&data_dir)?,
+                    &id,
+                );
+                crate::disk_usage::invalidate(&app, &id);
+                return result;
+            }
+            _ => {}
         }
         change_status(
             database,
