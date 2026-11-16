@@ -256,7 +256,7 @@ test("command palette ranks games and pages, moves with the arrows and runs the 
   const CommandPalette = (await import(await loadPalette("src/lib/features/palette/CommandPalette.svelte"))).default;
   const target = document.createElement("div"); document.body.append(target);
   paletteOpen.set(true);
-  const instance = mount(CommandPalette, { target });
+  let instance = mount(CommandPalette, { target });
   const press = (key) => document.activeElement.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true }));
   const type = (value) => { const input = document.querySelector('input[role="combobox"]'); input.value = value; input.dispatchEvent(new window.Event("input", { bubbles: true })); };
   const labels = () => [...document.querySelectorAll('[role="option"]')].map(option => option.querySelector("span.truncate").textContent);
@@ -272,7 +272,10 @@ test("command palette ranks games and pages, moves with the arrows and runs the 
     assert.deepEqual(calls, [["section", "store"]]);
     assert.equal(get(globalThis.paletteFixture.query), "kni");
     assert.equal(get(paletteOpen), false, "choosing an entry closes the palette");
-    calls.length = 0; paletteOpen.set(true); await settle();
+    // App.svelte unmounts the palette once it closes and mounts a new one when it opens again.
+    await unmount(instance);
+    calls.length = 0; paletteOpen.set(true);
+    instance = mount(CommandPalette, { target }); await settle();
     type("aspetto"); await settle();
     press("Enter"); await settle();
     assert.deepEqual(calls, [["settings", "appearance"]]);
