@@ -1,4 +1,4 @@
-use crate::database::{Database, database_error};
+use crate::database::{Database, database_error, now_seconds};
 use crate::download_resolver::{PlainHttp, ResolveError};
 use rusqlite::{OptionalExtension, params};
 use std::{collections::BTreeMap, sync::Arc};
@@ -8,16 +8,12 @@ const CONCURRENCY: usize = 4;
 
 pub(crate) type LinkResults = BTreeMap<String, Result<u64, String>>;
 
-fn now() -> Result<i64, String> {
-    Ok(crate::database::now_milliseconds()? / 1000)
-}
-
 fn is_fresh(checked_at: i64, current_time: i64) -> bool {
     checked_at <= current_time && current_time - checked_at < TTL_SECONDS
 }
 
 fn load_fresh(database: &Database, uris: &[String]) -> Result<LinkResults, String> {
-    let current_time = now()?;
+    let current_time = now_seconds()?;
     database.with_connection(|connection| {
         let mut statement = connection
             .prepare("SELECT size_bytes, error, checked_at FROM link_checks WHERE url = ?1")
@@ -51,7 +47,7 @@ fn load_fresh(database: &Database, uris: &[String]) -> Result<LinkResults, Strin
 }
 
 fn store(database: &Database, results: &LinkResults) -> Result<(), String> {
-    let current_time = now()?;
+    let current_time = now_seconds()?;
     database.with_connection(|connection| {
         for (uri, result) in results {
             let (size, error) = match result {

@@ -1422,6 +1422,10 @@ pub(crate) fn now_milliseconds() -> Result<i64, String> {
     Ok(elapsed.as_millis().min(i64::MAX as u128) as i64)
 }
 
+pub(crate) fn now_seconds() -> Result<i64, String> {
+    Ok(now_milliseconds()? / 1000)
+}
+
 fn load_compatibility_defaults(connection: &Connection) -> Result<CompatibilityDefaults, String> {
     let (
         runner_path,

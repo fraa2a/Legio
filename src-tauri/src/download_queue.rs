@@ -2,7 +2,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 use reqwest::{
@@ -21,7 +21,7 @@ use uuid::Uuid;
 use crate::{
     archive_install,
     archive_parts::PartScheme,
-    database::{Database, DatabaseState},
+    database::{Database, DatabaseState, now_seconds},
     download_resolver::{PlainHttp, ResolveError, ResolvedDownload, ResolvedFile},
     download_selection::{Layout, MirrorPlan, PartLayout},
     finalize_install,
@@ -397,14 +397,6 @@ fn stored_layout(database: &Database, id: &str) -> Result<Option<PartLayout>, St
         .map(Option::flatten)
 }
 
-fn now() -> Result<i64, String> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .and_then(|elapsed| i64::try_from(elapsed.as_secs()).ok())
-        .ok_or_else(|| "System clock is outside the supported date range".to_owned())
-}
-
 fn db_error(error: rusqlite::Error) -> String {
     format!("Local download database error: {error}")
 }
@@ -484,7 +476,7 @@ fn change_status(
     let id = Uuid::parse_str(id)
         .map_err(|_| "Download ID is invalid".to_owned())?
         .to_string();
-    let updated = now()?;
+    let updated = now_seconds()?;
     database.with_connection(|connection| {
         let status: Option<String> = connection.query_row(
             "SELECT status FROM downloads WHERE id = ?1", [&id], |row| row.get(0),
@@ -614,7 +606,7 @@ pub(crate) fn enqueue_prepared(
         .transpose()
         .map_err(|_| "Published download size exceeds local storage limits".to_owned())?;
     let id = Uuid::new_v4().to_string();
-    let created = now()?;
+    let created = now_seconds()?;
 
     let mirror_plan = match plan {
         PlanChoice::Given(plan) => plan,
@@ -722,7 +714,7 @@ fn claim(database: &Database) -> Result<Option<Transfer>, String> {
         let Some((id, url, size, etag, hash)) = row else { return Ok(None); };
         connection.execute(
             "UPDATE downloads SET status = 'downloading', updated_at = ?2 WHERE id = ?1",
-            params![id, now()?],
+            params![id, now_seconds()?],
         ).map_err(db_error)?;
         Ok(Some(Transfer { id, url, size: u64::try_from(size).map_err(|_| "Invalid stored download size".to_owned())?, etag, plain_http: PlainHttp::for_hash(Some(&hash)) }))
     })
@@ -755,7 +747,7 @@ fn update_progress(
             .execute(
                 "UPDATE downloads SET downloaded_bytes = ?2, speed_bps = ?3, eta_seconds = ?4,
              etag = ?5, updated_at = ?6 WHERE id = ?1 AND status = 'downloading'",
-                params![id, bytes, speed, remaining, etag, now()?],
+                params![id, bytes, speed, remaining, etag, now_seconds()?],
             )
             .map_err(db_error)?;
         Ok(())
@@ -773,7 +765,7 @@ fn finish(
             .execute(
                 "UPDATE downloads SET status = ?2, error = ?3, speed_bps = 0, eta_seconds = NULL,
              updated_at = ?4 WHERE id = ?1 AND status = 'downloading'",
-                params![id, to.as_str(), error, now()?],
+                params![id, to.as_str(), error, now_seconds()?],
             )
             .map_err(db_error)?;
         Ok(())
@@ -849,7 +841,7 @@ fn stage_one(queue: &DownloadQueueState, database: &Database, id: &str) -> Resul
         }
         connection.execute(
             "UPDATE downloads SET status = 'staging', error = NULL, updated_at = ?2 WHERE id = ?1",
-            params![id, now()?],
+            params![id, now_seconds()?],
         ).map_err(db_error)?;
         Ok((hash, verified))
     })?;
@@ -885,7 +877,7 @@ fn stage_one(queue: &DownloadQueueState, database: &Database, id: &str) -> Resul
             let persisted = database.with_connection(|connection| {
                 connection.execute(
                     "UPDATE downloads SET status = 'staged', staged_path = ?2, updated_at = ?3 WHERE id = ?1 AND status = 'staging'",
-                    params![id, stage.to_string_lossy(), now()?],
+                    params![id, stage.to_string_lossy(), now_seconds()?],
                 ).map_err(db_error)?;
                 Ok(())
             });
@@ -905,7 +897,7 @@ fn stage_one(queue: &DownloadQueueState, database: &Database, id: &str) -> Resul
             database.with_connection(|connection| {
                 connection.execute(
                     "UPDATE downloads SET status = 'failed', error = ?2, staged_path = NULL, updated_at = ?3 WHERE id = ?1 AND status = 'staging'",
-                    params![id, error, now()?],
+                    params![id, error, now_seconds()?],
                 ).map_err(db_error)?;
                 Ok(())
             }).map_err(|db| format!("{error}; could not save failure: {db}"))?;
@@ -1109,7 +1101,7 @@ fn recover_staging(queue: &DownloadQueueState, database: &Database) -> Result<()
         database.with_connection(|connection| {
             connection.execute(
                 "UPDATE downloads SET status = ?2, error = ?3, staged_path = NULL, updated_at = ?4 WHERE id = ?1 AND status = 'staging'",
-                params![id, next, error, now()?],
+                params![id, next, error, now_seconds()?],
             ).map_err(db_error)?;
             Ok(())
         })?;
@@ -1129,7 +1121,7 @@ fn cancellation_error(database: &Database, id: &str, error: &str) -> Result<(), 
     database.with_connection(|connection| {
         connection.execute(
             "UPDATE downloads SET error = ?2, updated_at = ?3 WHERE id = ?1 AND status = 'cancelled'",
-            params![id, error, now()?],
+            params![id, error, now_seconds()?],
         ).map_err(db_error)?;
         Ok(())
     })
@@ -1213,7 +1205,7 @@ fn wake_waiting(database: &Database) -> Result<bool, String> {
     database.with_connection(|connection| {
         let count = connection.execute(
             "UPDATE downloads SET status = 'queued', error = NULL, updated_at = ?1 WHERE status = 'waiting'",
-            [now()?],
+            [now_seconds()?],
         ).map_err(db_error)?;
         Ok(count > 0)
     })
