@@ -6,7 +6,7 @@ export interface Tint {
 const toLinear = (value: number): number => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
 const fromLinear = (value: number): number => (value <= 0.0031308 ? value * 12.92 : 1.055 * value ** (1 / 2.4) - 0.055);
 
-function channelsOf(hex: string): number[] {
+export function channelsOf(hex: string): number[] {
   return [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16));
 }
 

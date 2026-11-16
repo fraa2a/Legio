@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { seedParticles, stepParticle, type Particle } from "./particle-engine";
 
   let { opacity, color, active = true }: {
     opacity: number;
@@ -20,7 +21,7 @@
     const context: CanvasRenderingContext2D = maybeContext;
 
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const particles: { x: number; y: number; vx: number; vy: number }[] = [];
+    let particles: Particle[] = [];
     const pointer = { x: -1000, y: -1000 };
     let width = 0;
     let height = 0;
@@ -36,14 +37,8 @@
       surface.width = Math.round(width * ratio);
       surface.height = Math.round(height * ratio);
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      particles.length = 0;
       const count = Math.max(12, Math.min(48, Math.round(width * height / 14000)));
-      for (let index = 0; index < count; index += 1) {
-        particles.push({
-          x: Math.random() * width, y: Math.random() * height,
-          vx: (Math.random() - 0.5) * 0.42, vy: (Math.random() - 0.5) * 0.42,
-        });
-      }
+      particles = seedParticles(count, width, height, Math.random, (random) => [(random() - 0.5) * 0.42, (random() - 0.5) * 0.42]);
       if (active && motion.matches) draw();
     }
 
@@ -53,12 +48,7 @@
       context.clearRect(0, 0, width, height);
       for (let index = 0; index < particles.length; index += 1) {
         const particle = particles[index];
-        if (!motion.matches) {
-          particle.x += particle.vx;
-          particle.y += particle.vy;
-          if (particle.x < 0 || particle.x > width) particle.vx *= -1;
-          if (particle.y < 0 || particle.y > height) particle.vy *= -1;
-        }
+        if (!motion.matches) stepParticle(particle, width, height, "bounce");
         for (let other = index + 1; other < particles.length; other += 1) {
           const next = particles[other];
           const squared = (particle.x - next.x) ** 2 + (particle.y - next.y) ** 2;
