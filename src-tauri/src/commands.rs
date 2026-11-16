@@ -990,6 +990,64 @@ pub async fn set_game_steam_account_preference(
     .map_err(|error| format!("Steam account preference task failed: {error}"))?
 }
 
+#[tauri::command]
+pub async fn list_steam_shortcut_accounts()
+-> Result<crate::steam_shortcuts_export::ShortcutAccounts, String> {
+    tauri::async_runtime::spawn_blocking(crate::steam_shortcuts_export::list_accounts)
+        .await
+        .map_err(|error| format!("Steam shortcut account task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn preview_steam_shortcuts(
+    app: AppHandle,
+    steam_id: String,
+    game_ids: Vec<String>,
+) -> Result<crate::steam_shortcuts_export::ExportPreview, String> {
+    crate::startup_recovery::wait(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::steam_shortcuts_export::preview(
+            app.state::<DatabaseState>().database()?,
+            &app.state::<crate::game_artwork::GameArtworkStore>(),
+            &steam_id,
+            &game_ids,
+        )
+    })
+    .await
+    .map_err(|error| format!("Steam shortcut preview task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn export_steam_shortcuts(
+    app: AppHandle,
+    steam_id: String,
+    game_ids: Vec<String>,
+) -> Result<crate::steam_shortcuts_export::ExportResult, String> {
+    crate::startup_recovery::wait(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::steam_shortcuts_export::export(
+            app.state::<DatabaseState>().database()?,
+            &app.state::<crate::game_artwork::GameArtworkStore>(),
+            &steam_id,
+            &game_ids,
+        )
+    })
+    .await
+    .map_err(|error| format!("Steam shortcut export task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn remove_exported_steam_shortcuts(
+    steam_id: String,
+    game_ids: Option<Vec<String>>,
+) -> Result<crate::steam_shortcuts_export::RemovalResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::steam_shortcuts_export::remove(&steam_id, game_ids.as_deref())
+    })
+    .await
+    .map_err(|error| format!("Steam shortcut removal task failed: {error}"))?
+}
+
 #[cfg(test)]
 mod desktop_environment_tests {
     use super::normalize_desktop_environment;

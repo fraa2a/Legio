@@ -262,3 +262,32 @@ URLs; the strip uses 480 px JPEG thumbnails made on demand and the full image lo
 the screenshot on display. "Open folder" opens the folder of the selected screenshot.
 "Set as wallpaper" imports the file through the appearance background pipeline
 (normalized PNG, up to 2560 px) and selects it as the app wallpaper.
+
+## Exporting games to Steam
+
+"Add to Steam" in a game's settings and "Export to Steam" in the Steam section of the
+library settings add Legio games to Steam as non-Steam shortcuts, so they appear on
+Steam Deck and in Big Picture. Each shortcut runs the Legio executable with
+`--launch-game=<id>`, the same command desktop shortcuts use, so playtime and launch
+settings still apply.
+
+This edits Steam's own files. Legio rewrites
+`<Steam>/userdata/<account>/config/shortcuts.vdf` (a binary VDF file) and refuses to
+do it while Steam is running, because Steam would overwrite the change on exit. Before
+every write Legio saves the previous file next to it as
+`shortcuts.vdf.legio-<timestamp>.bak` (the five newest are kept), writes the new file
+atomically and reads it back to verify it. Close Steam first, then restart it to see the
+games.
+
+- Legio marks its entries with the `Legio` tag and recognizes them by the
+  `--launch-game=<id>` launch option together with that tag or the Legio executable.
+  Re-exporting updates those entries; every other entry and every unknown key is kept
+  byte for byte. Removal only deletes entries Legio created.
+- The shortcut id is the CRC32 of the quoted executable path and the game name with the
+  top bit set. An existing entry keeps its id, so Steam artwork stays attached.
+- A custom game icon and banner are copied as PNG into `config/grid/`
+  (`<id>_icon.png`, `<id>_hero.png`, `<id>.png`). Existing files are never
+  overwritten, and artwork is left in place when shortcuts are removed.
+- A file that is too large, malformed, truncated or has value types Legio does not
+  know is never modified. Symlinks inside `userdata` are refused.
+- Steam's files are not versioned by Legio: the backup is the way back.

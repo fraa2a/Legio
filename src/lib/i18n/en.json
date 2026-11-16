@@ -1411,5 +1411,21 @@
   "Imposta come sfondo": "Set as wallpaper",
   "Scelta di copertine e icone personalizzate per un gioco.": "Choosing custom covers and icons for a game.",
   "Solo quando apri il selettore di SteamGridDB, con una chiave API che hai inserito tu.": "Only when you open the SteamGridDB picker, with an API key you entered.",
-  "Nome o ID Steam del gioco. La chiave API va solo a www.steamgriddb.com.": "Game name or Steam ID. The API key goes only to www.steamgriddb.com."
+  "Nome o ID Steam del gioco. La chiave API va solo a www.steamgriddb.com.": "Game name or Steam ID. The API key goes only to www.steamgriddb.com.",
+  "Aggiungi a Steam": "Add to Steam",
+  "Collegamenti Steam": "Steam shortcuts",
+  "Esporta in Steam": "Export to Steam",
+  "Aggiunge i giochi di Legio a Steam come giochi non Steam, per Steam Deck e Big Picture. Steam deve essere chiuso.": "Adds Legio games to Steam as non-Steam games, for Steam Deck and Big Picture. Steam must be closed.",
+  "I giochi compaiono in Steam come giochi non Steam e si avviano tramite Legio, quindi tempo di gioco e impostazioni restano quelli di Legio.": "Games appear in Steam as non-Steam games and start through Legio, so playtime and settings stay Legio's.",
+  "Nessun account Steam con dati locali trovato su questo dispositivo.": "No Steam account with local data was found on this device.",
+  "Account Steam: {0}": "Steam account: {0}",
+  "Chiudi Steam prima di continuare: lo riscriverebbe all'uscita annullando la modifica.": "Close Steam before continuing: it would rewrite the file on exit and undo the change.",
+  "Ricontrolla": "Check again",
+  "Deseleziona tutti": "Select none",
+  "{0} da aggiungere, {1} da aggiornare, {2} già presenti.": "{0} to add, {1} to update, {2} already present.",
+  "Aggiunti {0}, aggiornati {1}. Riavvia Steam per vedere i giochi.": "Added {0}, updated {1}. Restart Steam to see the games.",
+  "Rimossi {0} collegamenti. Riavvia Steam per aggiornare la libreria.": "Removed {0} shortcuts. Restart Steam to refresh the library.",
+  "Legio modifica il file dei collegamenti di Steam e ne conserva una copia di backup accanto al file.": "Legio edits Steam's shortcuts file and keeps a backup copy next to it.",
+  "Rimuovi i collegamenti di Legio": "Remove Legio shortcuts",
+  "Verranno rimossi da Steam solo i collegamenti creati da Legio ({0}). Gli altri restano al loro posto.": "Only the shortcuts created by Legio ({0}) are removed from Steam. All others stay in place."
 }

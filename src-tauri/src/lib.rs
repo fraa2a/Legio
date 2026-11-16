@@ -120,6 +120,8 @@ mod steam_import;
 mod steam_local;
 mod steam_pics;
 mod steam_process;
+mod steam_shortcuts;
+mod steam_shortcuts_export;
 mod steam_switch;
 mod steam_vdf;
 mod steamgriddb;
@@ -564,6 +566,10 @@ fn run_application(
             commands::inspect_steam_game_launch,
             commands::list_saved_steam_accounts,
             commands::set_game_steam_account_preference,
+            commands::list_steam_shortcut_accounts,
+            commands::preview_steam_shortcuts,
+            commands::export_steam_shortcuts,
+            commands::remove_exported_steam_shortcuts,
             commands::import_steam_installations,
             commands::scan_launcher_games,
             commands::import_launcher_games,
