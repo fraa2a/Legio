@@ -22,6 +22,7 @@
   import GameSettingsPanel from "./GameSettingsPanel.svelte";
   import LaunchProfilesPanel from "./LaunchProfilesPanel.svelte";
   import SteamAccountPanel from "./SteamAccountPanel.svelte";
+  import SteamStartSetting from "./SteamStartSetting.svelte";
   import SteamLaunchSettings from "./SteamLaunchSettings.svelte";
   import SteamExportDialog from "./SteamExportDialog.svelte";
   import { isSteamExportable } from "./steam-export";
@@ -123,6 +124,7 @@
             {#key game.id}<SteamAccountPanel {game} />{/key}
             {#key `${game.id}:${shortcutPath ?? ""}`}<SteamLaunchSettings {game} />{/key}
           {:else if game.executablePath !== null}
+            {#if game.steamAppId !== null}{#key game.id}<SteamStartSetting {game} />{/key}{/if}
             {#key game.id}<GameSettingsPanel {game} section="launch" />{/key}
           {:else}
             <Panel title={t("Opzioni di avvio", $language)}>

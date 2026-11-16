@@ -1417,5 +1417,7 @@
   "Rimossi {0} collegamenti. Riavvia Steam per aggiornare la libreria.": "Removed {0} shortcuts. Restart Steam to refresh the library.",
   "Legio modifica il file dei collegamenti di Steam e ne conserva una copia di backup accanto al file.": "Legio edits Steam's shortcuts file and keeps a backup copy next to it.",
   "Rimuovi i collegamenti di Legio": "Remove Legio shortcuts",
-  "Verranno rimossi da Steam solo i collegamenti creati da Legio ({0}). Gli altri restano al loro posto.": "Only the shortcuts created by Legio ({0}) are removed from Steam. All others stay in place."
+  "Verranno rimossi da Steam solo i collegamenti creati da Legio ({0}). Gli altri restano al loro posto.": "Only the shortcuts created by Legio ({0}) are removed from Steam. All others stay in place.",
+  "Apri Steam prima del gioco": "Open Steam before the game",
+  "Legio avvia Steam e attende l'accesso all'account prima di aprire il gioco.": "Legio starts Steam and waits for the account to sign in before opening the game."
 }

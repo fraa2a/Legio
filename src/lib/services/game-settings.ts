@@ -156,6 +156,15 @@ export function saveNativeLaunchConfig(
   return invoke<NativeLaunchConfig>("save_native_launch_config", { gameId, config });
 }
 
+// Whether Legio starts Steam and waits for sign-in before a non-Steam game with a Steam App ID.
+export function getGameStartSteam(gameId: string): Promise<boolean> {
+  return invoke<boolean>("get_game_start_steam", { gameId });
+}
+
+export function setGameStartSteam(gameId: string, enabled: boolean): Promise<void> {
+  return invoke<void>("set_game_start_steam", { gameId, enabled });
+}
+
 export function getSteamLaunchConfig(gameId: string): Promise<SteamLaunchConfig> {
   return invoke<SteamLaunchConfig>("get_steam_launch_config", { gameId });
 }
