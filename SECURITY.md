@@ -11,3 +11,7 @@ Include the affected version or revision, the operating system, reproduction ste
 Only the latest released version receives fixes, including security fixes. Older versions do not receive fixes: update to the latest release through the built-in updater, or through the package manager for the AUR package.
 
 The minimum supported database schema is the one created by any released version. Migrations start from schema version 0 and upgrade in sequence to the current version. Downgrading to an older version is not supported: Legio refuses to migrate a database whose schema is newer than its build supports.
+
+## Verifying releases
+
+Release files carry GitHub build provenance attestations, a `SHA256SUMS.txt` file and CycloneDX SBOMs. Verify a download with `gh attestation verify <file> --repo fraa2a/Legio` and compare checksums as described in [releases and updates](_meta/docs/UPDATING.md#verifying-a-download).
