@@ -18,7 +18,7 @@ On Windows, application data paths come from known folders that ignore environme
 
 ## Running locally
 
-Build the binary first: `corepack pnpm tauri build --debug --no-bundle`.
+Build the binary first: `corepack pnpm tauri build --debug --no-bundle --config tools/app-smoke/tauri.smoke.conf.json`. The extra config only turns DevTools on for the test binary: with `"devtools": false`, WebView2 does not write `DevToolsActivePort` and the Edge driver cannot attach on Windows.
 
 Linux needs `webkit2gtk-driver` (for `WebKitWebDriver`), `xvfb` and `dbus-daemon`:
 

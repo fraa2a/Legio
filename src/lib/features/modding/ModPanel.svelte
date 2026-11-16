@@ -90,7 +90,7 @@
 <div class="flex min-w-0 flex-col items-center lg:relative lg:overflow-hidden">
   {#if tabs.tabs.length > 0}
     <aside
-      class="absolute inset-y-0 right-0 z-20 flex w-full max-w-lg flex-col overflow-hidden rounded-2xl legio-glass shadow-2xl transition-opacity duration-200 motion-reduce:transition-none lg:w-md lg:max-w-none lg:shadow-none xl:w-lg {tabs.collapsed ? 'pointer-events-none opacity-0' : ''}"
+      class="absolute inset-y-0 right-0 z-20 flex w-full max-w-lg flex-col overflow-hidden rounded-panel legio-glass shadow-2xl transition-opacity motion-reduce:transition-none lg:w-md lg:max-w-none lg:shadow-none xl:w-lg {tabs.collapsed ? 'pointer-events-none opacity-0' : ''}"
       aria-label={t("Mod aperte", $language)}
       inert={tabs.collapsed}
       transition:fade={{ duration: reducedMotion ? 0 : 200 }}
@@ -100,7 +100,7 @@
           {#each tabs.tabs as tab (tab.key)}
             {@const selected = tab.key === tabs.active}
             {@const title = modTabTitle(tab)}
-            <div class="flex w-44 shrink-0 items-center gap-0.5 rounded-lg pr-1 transition-colors {selected ? 'bg-white/15 text-legio-fg light:bg-white light:shadow-sm' : 'text-legio-fg-muted hover:bg-legio-fill hover:text-legio-fg'}">
+            <div class="flex w-44 shrink-0 items-center gap-0.5 rounded-control pr-1 transition-colors {selected ? 'bg-white/15 text-legio-fg light:bg-white light:shadow-sm' : 'text-legio-fg-muted hover:bg-legio-fill hover:text-legio-fg'}">
               <button
                 type="button"
                 role="tab"
@@ -109,23 +109,23 @@
                 aria-controls="mod-tabpanel-{tab.key}"
                 tabindex={selected ? 0 : -1}
                 {title}
-                class="flex min-w-0 flex-1 items-center gap-2 rounded-lg py-1.5 pl-2 text-left text-sm focus-visible:outline-2 focus-visible:outline-(--legio-focus)"
+                class="flex min-w-0 flex-1 items-center gap-2 rounded-control py-1.5 pl-2 text-left text-sm"
                 onclick={() => onChange(focusModTab(tabs, tab.key))}
                 onmousedown={(event) => { if (event.button === 1) event.preventDefault(); }}
                 onauxclick={(event) => { if (event.button === 1) onChange(closeModTab(tabs, tab.key)); }}
                 onkeydown={(event) => onKeydown(event, tab.key)}
               >
-                <ModIcon source={tab.summary?.icon ?? null} class="size-5 rounded" />
+                <ModIcon source={tab.summary?.icon ?? null} class="size-5 rounded-control" />
                 <span class="min-w-0 flex-1 truncate">{title}</span>
               </button>
-              <IconButton size="xs" label={t("Chiudi {0}", $language, [title])} onClick={() => onChange(closeModTab(tabs, tab.key))}>
-                <Icon name="close" size="size-3.5" />
+              <IconButton size="inline-sm" label={t("Chiudi {0}", $language, [title])} onClick={() => onChange(closeModTab(tabs, tab.key))}>
+                <Icon name="close" size="sm" />
               </IconButton>
             </div>
           {/each}
         </div>
-        <IconButton size="sm" label={t("Comprimi le mod aperte", $language)} title={t("Comprimi le mod aperte", $language)} onClick={() => onChange(setModPanelCollapsed(tabs, true))}>
-          <Icon name="next" size="size-4" />
+        <IconButton size="inline-md" label={t("Comprimi le mod aperte", $language)} title={t("Comprimi le mod aperte", $language)} onClick={() => onChange(setModPanelCollapsed(tabs, true))}>
+          <Icon name="next" />
         </IconButton>
       </div>
       {#each tabs.tabs as tab (tab.key)}
@@ -153,11 +153,11 @@
   {/if}
   {#if tabs.collapsed}
     <div
-      class="flex w-full flex-1 flex-col items-center gap-1 rounded-2xl py-1.5 legio-glass"
+      class="flex w-full flex-1 flex-col items-center gap-1 rounded-panel py-1.5 legio-glass"
       transition:fade={{ duration: reducedMotion ? 0 : 200 }}
     >
-      <IconButton size="sm" label={t("Mostra le mod aperte", $language)} title={t("Mostra le mod aperte", $language)} onClick={() => onChange(setModPanelCollapsed(tabs, false))}>
-        <Icon name="previous" size="size-4" />
+      <IconButton size="inline-md" label={t("Mostra le mod aperte", $language)} title={t("Mostra le mod aperte", $language)} onClick={() => onChange(setModPanelCollapsed(tabs, false))}>
+        <Icon name="previous" />
       </IconButton>
       <span class="text-xs tabular-nums text-legio-fg-muted" aria-hidden="true">{tabs.tabs.length}</span>
     </div>

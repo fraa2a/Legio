@@ -160,13 +160,13 @@
   }
 </script>
 
-<section class="flex flex-col gap-4">
+<section class="flex flex-col gap-6">
   {#if loading}
     <p class="text-sm text-legio-fg-muted" role="status">{t("Caricamento dei runner e dei default...", $language)}</p>
   {:else if $appInfo.status === "error"}
     <ErrorBanner message={$appInfo.error ?? t("Impossibile rilevare la piattaforma.", $language)} onRetry={() => void load()} />
   {:else if $appInfo.data.platform !== "linux"}
-    <p class="rounded-xl bg-legio-fill p-4 text-sm text-legio-fg-muted">{t("I runner e i default di compatibilità sono disponibili su Linux. Le impostazioni di avvio native si configurano nella pagina di ogni gioco Windows.", $language)}</p>
+    <p class="rounded-card bg-legio-fill p-4 text-sm text-legio-fg-muted">{t("I runner e i default di compatibilità sono disponibili su Linux. Le impostazioni di avvio native si configurano nella pagina di ogni gioco Windows.", $language)}</p>
   {:else}
     {#if loadError !== null}
       <ErrorBanner message={loadError} onRetry={() => void load()} />
@@ -197,7 +197,7 @@
       {/if}
     </SettingsGroup>
 
-    <SettingsGroup icon="settings" title={t("Configurazione di avvio", $language)}>
+    <SettingsGroup icon="launch" title={t("Configurazione di avvio", $language)}>
       <div class="grid gap-4 md:grid-cols-2">
         <div class="flex items-end gap-2"><div class="min-w-0 flex-1"><TextField
           id="compat-prefix-root"
@@ -233,7 +233,7 @@
       </div>
     </SettingsGroup>
 
-    <SettingsGroup icon="info" title={t("Argomenti e ambiente", $language)}>
+    <SettingsGroup icon="terminal" title={t("Argomenti e ambiente", $language)}>
       <div class="grid gap-4 md:grid-cols-2">
         <div class="relative"><TextField id="compat-argumentsBefore" label={t("Argomenti prima dell'eseguibile", $language)} type="textarea" rows={4} bind:value={argumentsBefore} hint={t("Un argomento per riga. Le righe vuote rappresentano argomenti vuoti.", $language)} /><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina argomenti iniziali", $language)} disabled={saving || argumentsBefore === ""} onClick={() => { argumentsBefore = ""; }} /></span></div>
         <div class="relative"><TextField id="compat-argumentsAfter" label={t("Argomenti dopo l'eseguibile", $language)} type="textarea" rows={4} bind:value={argumentsAfter} hint={t("Un argomento per riga, passato senza interpretazione shell.", $language)} /><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina argomenti finali", $language)} disabled={saving || argumentsAfter === ""} onClick={() => { argumentsAfter = ""; }} /></span></div>

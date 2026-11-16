@@ -12,8 +12,7 @@
     cancelPending = false,
     variant = "secondary",
     playLabel = t("GIOCA", $language),
-    circle = false,
-    pill = false,
+    shape = "rect",
     size = "md",
     revealOnHover = false,
     class: className = "",
@@ -27,8 +26,7 @@
     cancelPending?: boolean;
     variant?: "primary" | "secondary";
     playLabel?: string;
-    circle?: boolean;
-    pill?: boolean;
+    shape?: "rect" | "pill";
     size?: "md" | "hero";
     revealOnHover?: boolean;
     class?: string;
@@ -38,6 +36,7 @@
   } = $props();
 
   const status = $derived(launch?.status ?? "idle");
+  const iconSize = $derived(size === "hero" ? "xl" : "md");
   const actionVariant = $derived(
     status === "launching" ? "launching" : status === "running" ? "running" : variant === "primary" ? "play" : "secondary",
   );
@@ -48,8 +47,7 @@
     <Button
       label={playLabel}
       variant={actionVariant}
-      {circle}
-      {pill}
+      {shape}
       {size}
       class={revealOnHover
         ? "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
@@ -57,23 +55,23 @@
       disabled={actionPending}
       onClick={() => onPlay(game)}
     >
-      <Icon name="play" size="h-6 w-6" />
+      <Icon name="play" size={iconSize} />
     </Button>
   {:else if status === "launching"}
     <Button
       label={cancelPending ? t("ANNULLAMENTO...", $language) : t("AVVIO...", $language)}
       variant={actionVariant}
-      {pill}
+      {shape}
       {size}
       class={className}
       disabled={cancelPending}
       onClick={() => onCancel(game)}
     >
-      <Icon name="close" size="h-6 w-6" />
+      <Icon name="close" size={iconSize} />
     </Button>
   {:else}
-    <Button label={t("FERMA", $language)} variant={actionVariant} {pill} {size} class={className} disabled={actionPending} onClick={() => onStop(game)}>
-      <Icon name="stop" size="h-6 w-6" />
+    <Button label={t("FERMA", $language)} variant={actionVariant} {shape} {size} class={className} disabled={actionPending} onClick={() => onStop(game)}>
+      <Icon name="stop" size={iconSize} />
     </Button>
   {/if}
 {/if}

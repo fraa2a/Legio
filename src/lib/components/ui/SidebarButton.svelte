@@ -41,7 +41,7 @@
   onclick={() => onClick?.()}
 >
   <span
-    class="flex h-12 items-center gap-2 overflow-hidden rounded-lg transition-colors duration-200 {pillClass}"
+    class="flex h-control-lg items-center gap-2 overflow-hidden rounded-control transition-colors {pillClass}"
   >
     {#if children}
       <span class="ml-2 flex size-8 shrink-0 items-center justify-center">{@render children()}</span>

@@ -42,14 +42,14 @@
 
 <Dialog {open} title={t("Filtri", $language)} size="wide" {onClose}>
   {#snippet children(close)}
-    <div class="flex flex-col gap-5">
+    <div class="flex flex-col gap-6">
       <div class="flex flex-col gap-3">
         <Toggle label={t("Mostra mod deprecate", $language)} checked={filters.includeDeprecated} onChange={(value) => onChange({ ...filters, includeDeprecated: value })} />
         <Toggle label={t("Mostra contenuti NSFW", $language)} checked={filters.includeNsfw} onChange={(value) => onChange({ ...filters, includeNsfw: value })} />
       </div>
 
       <div class="flex flex-col gap-2">
-        <h3 class="text-sm font-medium text-legio-fg">{t("Categorie", $language)}</h3>
+        <h3 class="text-sm font-semibold text-legio-fg">{t("Categorie", $language)}</h3>
         <p class="text-xs text-legio-fg-subtle">{t("Tocca una categoria per includerla, ancora per escluderla, una terza volta per rimuoverla.", $language)}</p>
         {#if filters.categories.length > 1}
           <SegmentedControl
@@ -69,12 +69,12 @@
               <li>
                 <button
                   type="button"
-                  class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--legio-focus) {chipClass(state)}"
+                  class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm transition-colors {chipClass(state)}"
                   aria-label={chipLabel(category, state)}
                   aria-pressed={state !== "neutral"}
                   onclick={() => onChange(cycleCategory(filters, category))}
                 >
-                  {#if state === "included"}<Icon name="check" size="size-3.5" />{:else if state === "excluded"}<Icon name="close" size="size-3.5" />{/if}
+                  {#if state === "included"}<Icon name="check" size="sm" />{:else if state === "excluded"}<Icon name="close" size="sm" />{/if}
                   {category}
                 </button>
               </li>

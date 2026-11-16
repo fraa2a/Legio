@@ -18,7 +18,7 @@
   import SelectField from "../../components/ui/SelectField.svelte";
   import SegmentedControl from "../../components/ui/SegmentedControl.svelte";
   import Spinner from "../../components/ui/Spinner.svelte";
-  import TextField, { textFieldClass } from "../../components/ui/TextField.svelte";
+  import TextField from "../../components/ui/TextField.svelte";
   import ModConfigEntry from "./ModConfigEntry.svelte";
   import { describeModdingError } from "./modding-model";
   import {
@@ -239,7 +239,7 @@
 </script>
 
 <div class="flex min-h-[26rem] min-w-0 flex-1 flex-col gap-4 lg:flex-row">
-  <aside class="flex max-h-80 min-h-0 shrink-0 flex-col gap-3 rounded-2xl legio-glass p-3 lg:max-h-none lg:w-72" aria-label={t("File di configurazione", $language)}>
+  <aside class="flex max-h-80 min-h-0 shrink-0 flex-col gap-3 rounded-panel legio-glass p-3 lg:max-h-none lg:w-72" aria-label={t("File di configurazione", $language)}>
     <TextField id="mod-config-filter" label={t("Filtra file", $language)} type="search" placeholder={t("Filtra file...", $language)} bind:value={query} />
     <SelectField id="mod-config-sort" label={t("Ordina file", $language)} labelHidden value={sort} options={configSortOptions($language)} onChange={(value) => (sort = value as ConfigSort)} />
     {#if listLoading && files.length === 0}
@@ -258,7 +258,7 @@
               type="button"
               aria-current={item.file.relativePath === selectedPath ? "true" : undefined}
               onclick={() => selectFile(item.file.relativePath)}
-              class="flex w-full flex-col gap-0.5 rounded-lg px-3 py-2 text-left text-sm text-legio-fg transition-colors hover:bg-legio-fill-hover aria-[current=true]:bg-legio-fill-active aria-[current=true]:text-legio-fg"
+              class="flex w-full flex-col gap-0.5 rounded-control px-3 py-2 text-left text-sm text-legio-fg transition-colors hover:bg-legio-fill-hover aria-[current=true]:bg-legio-fill-active aria-[current=true]:text-legio-fg"
             >
               <span class="truncate font-medium">{item.name}</span>
               {#if item.directory}<span class="truncate text-xs text-legio-fg-subtle">{item.directory}</span>{/if}
@@ -275,7 +275,7 @@
     {/if}
   </aside>
 
-  <section class="flex min-h-80 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl legio-glass lg:min-h-0" aria-label={t("Editor di configurazione", $language)}>
+  <section class="flex min-h-80 min-w-0 flex-1 flex-col overflow-hidden rounded-panel legio-glass lg:min-h-0" aria-label={t("Editor di configurazione", $language)}>
     {#if listLoading && files.length === 0}
       <div class="flex flex-1 items-center justify-center gap-3 text-sm text-legio-fg" role="status"><Spinner />{t("Caricamento...", $language)}</div>
     {:else if !listLoading && listError === null && files.length === 0}
@@ -306,10 +306,10 @@
           disabled={saving || dirty}
           onClick={() => void openExternally()}
         >
-          <Icon name="folder-open" size="size-4" />
+          <Icon name="folder-open" />
         </IconButton>
         <IconButton variant="danger" label={t("Elimina file", $language)} title={t("Elimina file", $language)} disabled={saving} onClick={() => { deleteError = null; deleteOpen = true; }}>
-          <Icon name="trash" size="size-4" />
+          <Icon name="trash" />
         </IconButton>
         <Button label={t("Annulla modifiche", $language)} variant="secondary" size="sm" disabled={!dirty || saving} onClick={discard} />
         <Button label={saving ? t("Salvataggio...", $language) : t("Salva", $language)} size="sm" disabled={!dirty || saving || invalid || sizeError !== null} onClick={() => void save()} />
@@ -325,15 +325,18 @@
         {#if sizeError !== null}<div class="px-4 pt-4"><ErrorBanner message={sizeError} tone="warning" /></div>{/if}
         {#if effectiveMode === "raw"}
           <div class="flex min-h-0 flex-1 p-4">
-            <textarea
-              aria-label={t("Contenuto del file", $language)}
+            <TextField
+              id="mod-config-raw"
+              type="textarea"
+              label={t("Contenuto del file", $language)}
+              labelHidden
+              fill
               spellcheck="false"
               wrap="off"
               value={rawText}
               disabled={saving}
-              oninput={(event) => (rawText = event.currentTarget.value)}
-              class="{textFieldClass} min-h-0 flex-1 resize-none font-mono"
-            ></textarea>
+              oninput={(value) => (rawText = value)}
+            />
           </div>
         {:else if config !== null}
           <div class="flex min-h-0 flex-1 flex-col gap-3 p-4">
@@ -347,9 +350,9 @@
                     type="button"
                     aria-expanded={expanded}
                     onclick={() => toggleSection(section.id)}
-                    class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm font-semibold text-legio-fg transition-colors hover:bg-legio-fill-hover"
+                    class="flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left text-sm font-semibold text-legio-fg transition-colors hover:bg-legio-fill-hover"
                   >
-                    <span class="shrink-0 text-legio-fg-muted transition-transform motion-reduce:transition-none {expanded ? '' : '-rotate-90'}"><Icon name="chevron-down" size="size-4" /></span>
+                    <span class="shrink-0 text-legio-fg-muted transition-transform motion-reduce:transition-none {expanded ? '' : '-rotate-90'}"><Icon name="chevron-down" /></span>
                     <span class="min-w-0 truncate">{section.name}</span>
                     <span class="text-xs font-normal text-legio-fg-subtle">{section.entries.length}</span>
                     {#if changedCount > 0}<Badge tone="info" title={t("{0} modificate", $language, [changedCount])} />{/if}

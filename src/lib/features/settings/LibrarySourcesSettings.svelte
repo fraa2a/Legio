@@ -31,7 +31,7 @@
     try { await browseInstalledFolder(); } finally { openingFolder = false; }
   }
 </script>
-<section class="flex flex-col gap-4">
+<section class="flex flex-col gap-6">
   {#if settingsError}<ErrorBanner message={settingsError} />{/if}
   {#if $installedFolderError}<ErrorBanner message={$installedFolderError} />{/if}
   <SettingsGroup icon="folder" title={t("Cartelle", $language)}>

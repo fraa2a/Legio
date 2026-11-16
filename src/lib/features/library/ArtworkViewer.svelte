@@ -85,8 +85,8 @@
 >
   <div class="flex shrink-0 items-center justify-between gap-3 p-4">
     <span class="text-sm text-zinc-300 tabular-nums">{position ?? ""}</span>
-    <Button label={t("Chiudi", $language)} variant="secondary" circle onClick={onClose} class="size-10">
-      <Icon name="close" size="h-5 w-5" />
+    <Button label={t("Chiudi", $language)} variant="secondary" shape="circle" onClick={onClose}>
+      <Icon name="close" />
     </Button>
   </div>
 
@@ -115,7 +115,7 @@
             full={asset === "screenshot"}
             {alt}
             caption={false}
-            class="h-full max-h-full w-auto max-w-full rounded-2xl object-contain"
+            class="h-full max-h-full w-auto max-w-full rounded-panel object-contain"
           />
         </div>
       {/key}
@@ -124,20 +124,20 @@
       <Button
         label={t("Immagine precedente", $language)}
         variant="secondary"
-        circle
+        shape="circle"
         onClick={previous}
-        class="absolute left-4 top-1/2 size-10 -translate-y-1/2"
+        class="absolute left-4 top-1/2 -translate-y-1/2"
       >
-        <Icon name="previous" size="h-6 w-6" />
+        <Icon name="previous" />
       </Button>
       <Button
         label={t("Immagine successiva", $language)}
         variant="secondary"
-        circle
+        shape="circle"
         onClick={next}
-        class="absolute right-4 top-1/2 size-10 -translate-y-1/2"
+        class="absolute right-4 top-1/2 -translate-y-1/2"
       >
-        <Icon name="next" size="h-6 w-6" />
+        <Icon name="next" />
       </Button>
     {/if}
   </div>
@@ -147,7 +147,7 @@
       {#each slots as slot (slot)}
         <button
           type="button"
-          class="h-16 w-28 shrink-0 overflow-hidden rounded-lg transition-opacity {slot === index
+          class="h-16 w-28 shrink-0 overflow-hidden rounded-control transition-opacity {slot === index
             ? 'opacity-100 ring-2 ring-white'
             : 'opacity-50 hover:opacity-100'}"
           aria-label={t("Vai all'immagine {0}", $language, [slot + 1])}

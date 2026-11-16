@@ -26,7 +26,7 @@ corepack pnpm test:feedback
 corepack pnpm test:sources
 ```
 
-The [CI workflow](../../.github/workflows/ci.yml) checks documentation on every run. Documentation-only changes skip native builds and application tests; code changes run frontend, Rust and Linux/Windows native checks. New PR pushes cancel superseded runs. Release commits use the production build instead of an additional smoke build. [Scripts](../../scripts/README.md) describes fixtures and test support. JSDOM and mock graphics tests do not validate native rendering.
+The [CI workflow](../../.github/workflows/ci.yml) checks documentation on every run. Documentation-only changes skip native builds and application tests; code changes run frontend, Rust (formatting, Clippy and tests) and Linux/Windows native checks. The Windows job also runs Clippy with `-D warnings` and the complete Rust test suite. New PR pushes cancel superseded runs. Release commits use the production build instead of an additional smoke build. [Scripts](../../scripts/README.md) describes fixtures and test support. JSDOM and mock graphics tests do not validate native rendering.
 
 Native tests need platform dependencies, localhost sockets and access to their child processes. Run relevant ignored or interactive tests explicitly; a passing subset does not replace required CI checks.
 

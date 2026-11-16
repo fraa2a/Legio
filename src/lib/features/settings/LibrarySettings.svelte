@@ -44,11 +44,11 @@
   }
 </script>
 
-<SettingsGroup icon="folder" title={t("Librerie dei giochi", $language)}>
+<SettingsGroup icon="library" title={t("Librerie dei giochi", $language)}>
   <p class="text-sm text-legio-fg-muted">{t("Le librerie sono le cartelle in cui Legio installa i giochi; a ogni download scegli quella da usare. Aggiungendo una cartella, Legio crea al suo interno la sottocartella Legio. Se la cartella contiene già un catalogo library.ldf, i suoi giochi vengono importati.", $language)}</p>
   {#if $gameLibraries.error !== null}<ErrorBanner message={$gameLibraries.error} onRetry={() => void gameLibraries.reload()} />{/if}
   {#each $gameLibraries.data as library (library.id)}
-    <div class="flex flex-col gap-2 rounded-lg bg-legio-fill p-3">
+    <div class="flex flex-col gap-2 rounded-control bg-legio-fill p-3">
       <div class="flex flex-wrap items-center gap-3">
         <span class="shrink-0 text-legio-fg-muted"><Icon name="folder" /></span>
         <div class="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -71,7 +71,7 @@
   {/each}
   <div>
     <Button label={t("Aggiungi libreria...", $language)} variant="secondary" disabled={pending} onClick={() => void addLibrary()}>
-      <Icon name="plus" size="size-4" />
+      <Icon name="plus" />
     </Button>
   </div>
   {#if error}<ErrorBanner message={error} />{/if}
@@ -81,7 +81,7 @@
   <RemoveLibraryDialog library={removing} onClose={() => (removing = null)} />
 {/if}
 
-<SettingsGroup icon="store" title={t("Giochi Steam nascosti", $language)}>
+<SettingsGroup icon="hidden" title={t("Giochi Steam nascosti", $language)}>
   {#if $hiddenSteamGames.error !== null}
     <ErrorBanner message={$hiddenSteamGames.error} onRetry={() => void hiddenSteamGames.reload()} />
   {/if}
@@ -89,7 +89,7 @@
     <p class="text-sm text-legio-fg-muted">{t("Nessun gioco Steam nascosto.", $language)}</p>
   {:else}
     {#each $hiddenSteamGames.data as game (game.id)}
-      <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-legio-fill p-3">
+      <div class="flex flex-wrap items-center justify-between gap-3 rounded-control bg-legio-fill p-3">
         <span class="min-w-0 text-sm text-legio-fg">{game.name}</span>
         <Button label={t("Mostra nella libreria", $language)} variant="secondary" disabled={restoringId !== null} onClick={() => void restore(game.id)} />
       </div>

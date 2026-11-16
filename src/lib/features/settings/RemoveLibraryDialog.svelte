@@ -49,12 +49,12 @@
 
 <Dialog open title={t("Rimuovi libreria", $language)} dismissible={!pending} {onClose}>
   {#snippet children(close)}
-    <p class="break-all rounded-lg bg-legio-fill p-3 font-mono text-xs text-legio-fg">{shown.root}</p>
+    <p class="break-all rounded-control bg-legio-fill p-3 font-mono text-xs text-legio-fg">{shown.root}</p>
     {#if total === 0}
       <p class="text-sm text-legio-fg">{t("La libreria verrà tolta dall'elenco. La cartella e il suo catalogo restano sul disco: potrai aggiungerla di nuovo in seguito.", $language)}</p>
     {:else}
       <p class="text-sm text-legio-fg">{total === 1 ? t("Questa libreria contiene 1 gioco. Scegli cosa farne prima di rimuoverla.", $language) : t("Questa libreria contiene {0} giochi. Scegli cosa farne prima di rimuoverla.", $language, [String(total)])}</p>
-      <ul class="flex max-h-40 flex-col gap-1 overflow-y-auto rounded-lg bg-legio-fill p-3 text-sm text-legio-fg">
+      <ul class="flex max-h-40 flex-col gap-1 overflow-y-auto rounded-control bg-legio-fill p-3 text-sm text-legio-fg">
         {#each shown.games as game (game.id)}<li class="truncate">{game.name}</li>{/each}
       </ul>
       <SegmentedControl name="library-removal" label={t("Giochi installati", $language)} value={mode} disabled={pending}

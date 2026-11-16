@@ -59,7 +59,7 @@
   {/if}
 
   {#if ready.length > 0}
-    <section class="flex flex-col gap-3 rounded-2xl legio-glass p-5" aria-labelledby="mods-ready-title">
+    <section class="flex flex-col gap-3 rounded-panel legio-glass p-5" aria-labelledby="mods-ready-title">
       <div>
         <h2 id="mods-ready-title" class="text-base font-semibold text-legio-fg">{t("Giochi con mod", $language)}</h2>
         <p class="mt-0.5 text-sm text-legio-fg-muted">{t("Le mod vivono nei profili di Legio: la cartella del gioco resta pulita e puoi tornare alla versione vanilla in ogni momento.", $language)}</p>
@@ -73,7 +73,7 @@
   {/if}
 
   {#if others.length > 0}
-    <section class="flex flex-col gap-3 rounded-2xl legio-glass p-5" aria-labelledby="mods-other-title">
+    <section class="flex flex-col gap-3 rounded-panel legio-glass p-5" aria-labelledby="mods-other-title">
       <div>
         <h2 id="mods-other-title" class="text-base font-semibold text-legio-fg">{t("Altri giochi", $language)}</h2>
         <p class="mt-0.5 text-sm text-legio-fg-muted">{t("Per ora Legio installa le mod dei giochi che usano BepInEx. Collega a mano i giochi che Thunderstore non ha riconosciuto.", $language)}</p>

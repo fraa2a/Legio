@@ -4,7 +4,7 @@ export function createSteamVideoSurface(video: HTMLVideoElement): { element: HTM
   if (context === null) return { element: video, destroy: () => video.pause() };
 
   const element = document.createElement("span");
-  element.className = "relative my-3 block w-fit max-w-full overflow-hidden rounded-lg";
+  element.className = "relative my-3 block w-fit max-w-full overflow-hidden rounded-control";
   video.className = "block h-auto max-w-full";
   canvas.className = "pointer-events-none absolute inset-0 size-full";
   canvas.setAttribute("aria-hidden", "true");

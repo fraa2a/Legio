@@ -30,8 +30,8 @@
 
 <ul class="flex flex-col gap-2" role="list">
   {#each jobs as job (job.id)}
-    <li class="flex flex-wrap items-center gap-3 rounded-xl legio-glass p-3">
-      <DownloadCover steamAppId={job.steamAppId} name={job.name} class="aspect-[2/3] w-9" rounded="lg" />
+    <li class="flex flex-wrap items-center gap-3 rounded-card legio-glass p-3">
+      <DownloadCover steamAppId={job.steamAppId} name={job.name} class="aspect-[2/3] w-9" radius="control" />
 
       <div class="min-w-0 flex-1 basis-44">
         <div class="flex flex-wrap items-center gap-2">

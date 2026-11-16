@@ -138,8 +138,8 @@
 <ToastNotice />
 
 {#if $updateState.version && !updateDismissed && ($appInfo.data.platform !== "linux" || !$updateState.nativeNotified)}
-  <div class="legio-popover fixed right-5 bottom-5 z-50 flex max-w-sm items-center gap-3 rounded-xl p-4 text-sm text-legio-fg shadow-xl shadow-black/30 inset-ring inset-ring-legio-info/25 light:shadow-zinc-900/15" role="status">
-    <span class="shrink-0 text-legio-info"><Icon name="info" size="size-4" /></span>
+  <div class="legio-popover fixed right-5 bottom-5 z-50 flex max-w-sm items-center gap-3 rounded-card p-4 text-sm text-legio-fg shadow-xl shadow-black/30 inset-ring inset-ring-legio-info/25 light:shadow-zinc-900/15" role="status">
+    <span class="shrink-0 text-legio-info"><Icon name="info" /></span>
     <span>{t("Legio {0} disponibile.", $language, [$updateState.version])}{#if $updateState.aur} {t("Aggiorna tramite AUR.", $language)}{/if}</span>
     {#if $appInfo.data.platform !== "linux" && !$updateState.aur}
       <Button label={$updateState.installing ? t("Installazione...", $language) : t("Aggiorna", $language)} size="sm" disabled={$updateState.installing} onClick={() => void installAppUpdate()} />

@@ -65,7 +65,7 @@
           </span>
         {/if}
         <div class="ml-auto flex items-center gap-1.5">
-          {#if $gameUpdates.data.some(update => update.gameId === game.id || (game.steamAppId !== null && update.steamAppId === game.steamAppId))}<span class="rounded-full bg-legio-download px-2 py-0.5 text-xs font-medium text-white" title={t("Aggiornamento disponibile", $language)}><Icon name="download" size="h-3.5 w-3.5" /></span>{/if}
+          {#if $gameUpdates.data.some(update => update.gameId === game.id || (game.steamAppId !== null && update.steamAppId === game.steamAppId))}<span class="rounded-full bg-legio-download px-2 py-0.5 text-xs font-medium text-white" title={t("Aggiornamento disponibile", $language)}><Icon name="download" size="sm" /></span>{/if}
           {#if status !== "idle"}
             <Badge tone={status === "running" ? "success" : "warning"} title={status === "running" ? t("In esecuzione", $language) : t("Avvio in corso", $language)} />
           {/if}
@@ -73,7 +73,7 @@
             class="flex items-center gap-1 rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium tabular-nums text-legio-fg light:bg-zinc-100/70"
             title={t("{0} giocati", $language, [playtimeLabel])}
           >
-            <Icon name="clock" size="h-3.5 w-3.5" />
+            <Icon name="clock" size="sm" />
             {playtimeLabel}
           </span>
         </div>

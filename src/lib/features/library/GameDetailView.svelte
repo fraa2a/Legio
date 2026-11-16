@@ -221,7 +221,7 @@
 </script>
 
 {#if storeGame === null && game === null}
-  <p class="legio-glass rounded-xl p-6 text-legio-fg-muted">{t("Il gioco non è più disponibile.", $language)}</p>
+  <p class="legio-glass rounded-card p-6 text-legio-fg-muted">{t("Il gioco non è più disponibile.", $language)}</p>
 {:else}
   <div class="relative isolate flex min-h-full flex-col gap-4">
     {#if customBannerUrl !== null || steamAppId !== null}
@@ -233,8 +233,8 @@
         {/if}
       </div>
     {/if}
-    <section class="relative isolate z-20 aspect-[1920/620] min-h-80 w-full rounded-2xl">
-      <div class="absolute inset-0 overflow-hidden rounded-2xl bg-zinc-800 light:bg-zinc-200">
+    <section class="relative isolate z-20 aspect-[1920/620] min-h-80 w-full rounded-panel">
+      <div class="absolute inset-0 overflow-hidden rounded-panel bg-zinc-800 light:bg-zinc-200">
         {#if customBannerUrl !== null}
           <img src={customBannerUrl} alt={t("Banner personalizzato di {0}", $language, [name])} class="absolute inset-0 size-full object-cover" />
         {:else if steamAppId !== null}
@@ -266,7 +266,7 @@
             />
           {:else if status?.availability === "verified" || status?.availability === "unverified"}
             <Button label={t("SCARICA", $language)} variant="download" size="hero" class="w-60" disabled={queueing || choosingLibrary} onClick={() => void requestDownload()}>
-              <Icon name="download" size="size-6" />
+              <Icon name="download" size="xl" />
             </Button>
           {:else if noReachableLinks}
             <Callout tone="warning" message={t("Nessun link di download raggiungibile per questo gioco.", $language)} class="legio-popover max-w-md" />
@@ -300,8 +300,8 @@
           />
         {/if}
         {#if game !== null}
-          <Button label={t("Impostazioni del gioco", $language)} square variant="overlay" size="hero" onClick={() => (gameSettingsOpen = true)}>
-            <Icon name="settings" size="size-6" />
+          <Button label={t("Impostazioni del gioco", $language)} iconOnly variant="overlay" size="hero" onClick={() => (gameSettingsOpen = true)}>
+            <Icon name="settings" size="xl" />
           </Button>
         {/if}
       </div>
@@ -431,7 +431,7 @@
 
 
 {#snippet nameText()}
-  <span class="block max-w-full truncate rounded-lg bg-zinc-950/60 px-3 py-1.5 text-right text-legio-fg light:bg-zinc-100/70">{name}</span>
+  <span class="block max-w-full truncate rounded-control bg-zinc-950/60 px-3 py-1.5 text-right text-legio-fg light:bg-zinc-100/70">{name}</span>
 {/snippet}
 
 {#snippet backdrop()}
