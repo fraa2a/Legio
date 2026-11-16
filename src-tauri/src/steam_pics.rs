@@ -407,7 +407,9 @@ mod tests {
 
     async fn expire_cache(path: &Path) {
         write_cache(path, &logo_assets(HASH)).await.unwrap();
-        std::fs::File::open(path)
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
             .unwrap()
             .set_times(
                 std::fs::FileTimes::new()

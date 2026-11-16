@@ -13,6 +13,7 @@ export const defaultSettings: Settings = {
   launchMinimized: false, launchInLibrary: false, downloadNotifications: true, verifyVerifiedDownloads: true,
   diagnosticsEnabled: false, applicationLoggingEnabled: false, sidebarCollapsed: true, libraryPortrait: false, automaticGameUpdates: false, downloadWhilePlaying: true, deferExtractionWhilePlaying: false,
   thunderstoreLinksEnabled: false, newsEnabled: true, automaticUpdateCheck: true,
+  previewUpdates: false, lastSeenVersion: null, pendingUpdateNotes: null,
 };
 
 export const settings = createResource<Settings>(defaultSettings, getSettings);

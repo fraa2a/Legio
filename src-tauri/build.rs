@@ -5,6 +5,7 @@ fn main() {
         tauri_build::AppManifest::new().commands(&[
             "is_aur_package",
             "get_app_info",
+            "check_app_update",
             "notify_update_available",
             "get_news",
             "refresh_news",
@@ -96,6 +97,8 @@ fn main() {
             "open_data_folder",
             "restore_database_backup",
             "reset_local_database",
+            "export_user_data",
+            "stage_user_data_import",
             "get_installed_folder_info",
             "refresh_legio_source",
             "check_steam_connectivity",

@@ -32,10 +32,14 @@ pub struct GameActionResult {
 
 #[tauri::command]
 pub async fn get_app_info(app: AppHandle) -> Result<AppInfo, String> {
-    let (startup_warnings, recovery_error) = match crate::startup_recovery::warnings(&app).await {
+    let (mut startup_warnings, recovery_error) = match crate::startup_recovery::warnings(&app).await
+    {
         Ok(warnings) => (warnings, None),
         Err(error) => (Vec::new(), Some(error)),
     };
+    if let Some(failure) = app.try_state::<crate::data_transfer::ImportFailure>() {
+        startup_warnings.extend(failure.0.clone());
+    }
     let package_info = app.package_info();
 
     Ok(AppInfo {
@@ -53,6 +57,14 @@ pub async fn get_app_info(app: AppHandle) -> Result<AppInfo, String> {
             .clone()),
         startup_warnings,
     })
+}
+
+#[tauri::command]
+pub async fn check_app_update(
+    app: AppHandle,
+    webview: tauri::Webview,
+) -> Result<Option<crate::app_update::UpdateMetadata>, String> {
+    crate::app_update::check(&app, webview, is_aur_package()).await
 }
 
 #[tauri::command]
@@ -351,7 +363,7 @@ fn default_library_root(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 }
 
 /// Refuses library changes while any game runs, is launching or is being transferred.
-fn require_idle_games(app: &AppHandle) -> Result<(), String> {
+pub(crate) fn require_idle_games(app: &AppHandle) -> Result<(), String> {
     let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
     for game in app.state::<DatabaseState>().database()?.games()? {
         manager.require_idle(&game.id)?;

@@ -73,7 +73,7 @@ impl CompatibilityLogState {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         stored.get_or_insert_with(|| {
             format!(
-                "Could not write compatibility {stream} output ({:?})",
+                "Could not write compatibility {stream} output ({})",
                 error.kind()
             )
         });

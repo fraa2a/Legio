@@ -1,11 +1,13 @@
 import { invoke } from "./invoke";
-import { check, type Update } from "@tauri-apps/plugin-updater";
+import { Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { writable } from "svelte/store";
 import { toMessage } from "../utils/errors";
+import { MAX_NOTES_CHARS, rememberPendingNotes } from "../stores/update-notes";
 
 type UpdateState = {
   version: string | null;
+  notes: string | null;
   aur: boolean;
   unavailable: boolean;
   checking: boolean;
@@ -17,6 +19,7 @@ type UpdateState = {
 
 export const updateState = writable<UpdateState>({
   version: null,
+  notes: null,
   aur: false,
   unavailable: false,
   checking: false,
@@ -38,13 +41,14 @@ export function checkForAppUpdate(): Promise<void> {
 }
 
 async function performCheck(): Promise<void> {
-  updateState.update((state) => ({ ...state, version: null, unavailable: false, checking: true, checked: false, error: null }));
+  updateState.update((state) => ({ ...state, version: null, notes: null, unavailable: false, checking: true, checked: false, error: null }));
   try {
     const previous = availableUpdate;
     availableUpdate = null;
     if (previous !== null) await previous.close();
     const aur = await invoke<boolean>("is_aur_package");
-    const update = await check();
+    const metadata = await invoke<ConstructorParameters<typeof Update>[0] | null>("check_app_update");
+    const update = metadata === null ? null : new Update(metadata);
     availableUpdate = update;
     let nativeNotified = update !== null && notifiedVersion === update.version;
     let notificationError: string | null = null;
@@ -57,7 +61,7 @@ async function performCheck(): Promise<void> {
         notificationError = toMessage(error);
       }
     }
-    updateState.update((state) => ({ ...state, version: update?.version ?? null, aur, checked: true, nativeNotified, error: notificationError }));
+    updateState.update((state) => ({ ...state, version: update?.version ?? null, notes: releaseNotes(update), aur, checked: true, nativeNotified, error: notificationError }));
   } catch (error) {
     const message = toMessage(error);
     const unavailable = /^(?:None of the fallback platforms `[^`]+` were|the platform `[^`]+` was not) found in the response `platforms` object$/.test(message);
@@ -65,6 +69,12 @@ async function performCheck(): Promise<void> {
   } finally {
     updateState.update((state) => ({ ...state, checking: false }));
   }
+}
+
+// The manifest is untrusted: notes are shown as plain text and capped.
+function releaseNotes(update: Update | null): string | null {
+  const body = update?.body?.trim();
+  return body ? body.slice(0, MAX_NOTES_CHARS) : null;
 }
 
 export function installAppUpdate(): Promise<void> {
@@ -78,6 +88,7 @@ async function performInstall(): Promise<void> {
   if (update === null) return;
   updateState.update((state) => ({ ...state, installing: true, error: null }));
   try {
+    await rememberPendingNotes(update.version, releaseNotes(update));
     await update.downloadAndInstall();
     availableUpdate = null;
     try {
