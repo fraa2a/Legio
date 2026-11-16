@@ -77,6 +77,7 @@
         bind:value={query}
         role="combobox"
         aria-expanded="true"
+        aria-autocomplete="list"
         aria-controls={listId}
         aria-activedescendant={selected === undefined ? undefined : `${listId}-${selected.id}`}
         placeholder={t("Cerca giochi, pagine e impostazioni", $language)}

@@ -281,6 +281,66 @@ test("every palette keeps readable text, muted text and accent buttons", () => {
   assert.equal(presetData.find((preset) => preset.id === "oled").palette.background, "#000000");
 });
 
+test("every palette meets the contrast targets for tokens, status colors, actions and control borders", async () => {
+  const css = await readFile(new URL("../src/app.css", import.meta.url), "utf8");
+  const channels = (hex) => [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16));
+  const toHex = (values) => "#" + values.map((value) => Math.round(value).toString(16).padStart(2, "0")).join("");
+  const luminance = (hex) => {
+    const [r, g, b] = channels(hex).map((value) => value / 255).map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrast = (first, second) => {
+    const [high, low] = [luminance(first), luminance(second)].sort((a, b) => b - a);
+    return (high + 0.05) / (low + 0.05);
+  };
+  const blend = (top, alpha, bottom) => toHex(channels(top).map((value, index) => value * alpha + channels(bottom)[index] * (1 - alpha)));
+  const declarations = (block) => Object.fromEntries([...block.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map((match) => [match[1], match[2].trim()]));
+  const rootBlock = css.match(/\n:root \{([^}]*)\}/)[1];
+  const lightBlock = css.match(/:root\[data-theme="light"\] \{([^}]*)\}/)[1];
+  const themeBlock = css.match(/@theme \{([^}]*)\}/)[1];
+  const actionColors = Object.entries(declarations(themeBlock)).filter(([name, value]) => /^--color-legio-(download|play|launching|danger)/.test(name) && value.startsWith("#"));
+  assert.equal(actionColors.length, 8);
+
+  // Resolves hex, var() and color-mix(in srgb, A n%, B) where B is a color or transparent over the ground.
+  const resolve = (expression, variables, ground) => {
+    const value = expression.trim();
+    if (value.startsWith("#")) return value;
+    const reference = value.match(/^var\((--[\w-]+)\)$/);
+    if (reference) return resolve(variables[reference[1]], variables, ground);
+    const mixture = value.match(/^color-mix\(in srgb, (.+?) (\d+)%, (.+)\)$/);
+    assert.ok(mixture, "unsupported token value " + value);
+    const top = resolve(mixture[1], variables, ground);
+    const bottom = mixture[3] === "transparent" ? ground : resolve(mixture[3], variables, ground);
+    return blend(top, Number(mixture[2]) / 100, bottom);
+  };
+
+  const failures = [];
+  for (const preset of presetData) {
+    const { palette } = preset;
+    const light = preset.scheme === "light";
+    const variables = { ...declarations(rootBlock), ...(light ? declarations(lightBlock) : {}), ...appearance.paletteVariables(preset) };
+    const grounds = { background: palette.background, surface: palette.surface };
+    const token = (name, ground) => resolve("var(--legio-" + name + ")", variables, ground);
+    const atLeast = (first, second, minimum, label) => {
+      if (contrast(first, second) < minimum) failures.push(preset.id + " " + label + " " + contrast(first, second).toFixed(2) + " < " + minimum);
+    };
+    for (const [groundName, ground] of Object.entries(grounds)) {
+      atLeast(token("fg-subtle", ground), ground, 4.5, "fg-subtle on " + groundName);
+      for (const tone of ["info", "success", "warning", "error"]) {
+        const color = token(tone, ground);
+        atLeast(color, ground, 4.5, tone + " on " + groundName);
+        atLeast(color, blend(color, 0.1, ground), 4.5, tone + " on its tint over " + groundName);
+      }
+      atLeast(token("focus", ground), ground, 3, "focus ring on " + groundName);
+      atLeast(token("line-control", ground), ground, 3, "control border on " + groundName);
+    }
+    atLeast(token("accent-text", palette.accent), token("accent", palette.accent), 4.5, "accent text on accent");
+    const label = variables["--color-white"];
+    for (const [name, color] of actionColors) atLeast(label, color, 4.5, name.replace("--color-legio-", "") + " with its label");
+  }
+  assert.deepEqual(failures, []);
+});
+
 test("the theme editor previews before auto save and preserves unrelated settings", async () => {
   const initial = { theme: "system", appearance: appearance.defaultAppearance(), language: "en", steamLibraryPollMinutes: 30 };
   settingsStore.set({ data: initial });

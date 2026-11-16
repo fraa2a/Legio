@@ -21,6 +21,7 @@
   >
     <input
       type="checkbox"
+      role="switch"
       class="peer sr-only"
       {disabled}
       {checked}
