@@ -21,8 +21,6 @@ export interface CatalogSearch {
   nextOffset: number | null;
   cachedAt: number | null;
   stale: boolean;
-  sourceCachedAt: number | null;
-  sourceStale: boolean;
 }
 
 export function searchCatalog(query: string, limit?: number, options: CatalogOptions = defaults): Promise<CatalogSearch> {

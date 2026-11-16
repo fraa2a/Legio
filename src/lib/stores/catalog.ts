@@ -12,7 +12,6 @@ interface CatalogState {
   results: CatalogGame[];
   total: number;
   nextOffset: number | null;
-  sourceStale: boolean;
   stale: boolean;
   refreshing: boolean;
   error: string | null;
@@ -25,7 +24,6 @@ const initial: CatalogState = {
   results: [],
   total: 0,
   nextOffset: null,
-  sourceStale: false,
   stale: false,
   refreshing: false,
   error: null,
@@ -44,7 +42,6 @@ source.subscribe(({ data }) => {
   catalog.update((state) => ({
     ...state,
     results: state.results.map((game) => ({ ...game, availability: sourceStatusFor(data.manifest, game.steamAppId).availability })),
-    sourceStale: data.stale,
   }));
 });
 
@@ -57,7 +54,6 @@ function applySearch(state: CatalogState, search: CatalogSearch, refreshing: boo
     total: search.total,
     nextOffset: search.nextOffset,
     stale: search.stale,
-    sourceStale: snapshot.stale,
     refreshing,
     error: null,
   };

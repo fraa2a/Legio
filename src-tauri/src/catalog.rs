@@ -69,8 +69,6 @@ pub struct CatalogSearch {
     pub next_offset: Option<usize>,
     pub cached_at: Option<i64>,
     pub stale: bool,
-    pub source_cached_at: Option<i64>,
-    pub source_stale: bool,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -493,11 +491,8 @@ fn search_with_options(
             stale: cached_at.is_none_or(|time| {
                 time > current_time || current_time.saturating_sub(time) >= STALE_SECONDS
             }),
-            source_cached_at: None,
-            source_stale: true,
         },
         source,
-        current_time,
     ))
 }
 
@@ -548,12 +543,8 @@ fn search(
 fn merge_source(
     mut result: CatalogSearch,
     source: Option<legio_source_cache::CachedSource>,
-    current_time: i64,
 ) -> CatalogSearch {
     if let Some(source) = source {
-        result.source_cached_at = Some(source.fetched_at);
-        result.source_stale = source.warning.is_some()
-            || legio_source_cache::is_stale(source.fetched_at, current_time);
         let verified: std::collections::HashSet<_> = source
             .manifest
             .verified
@@ -905,8 +896,6 @@ mod tests {
             next_offset: None,
             cached_at: Some(100),
             stale: false,
-            source_cached_at: None,
-            source_stale: true,
         };
         let merged = merge_source(
             search,
@@ -916,7 +905,6 @@ mod tests {
                 fetched_at: 100,
                 warning: None,
             }),
-            101,
         );
         assert_eq!(
             merged
@@ -931,8 +919,6 @@ mod tests {
             ]
         );
         assert_eq!(merged.games[0].name, "Catalog 400");
-        assert_eq!(merged.source_cached_at, Some(100));
-        assert!(!merged.source_stale);
     }
 
     #[test]
