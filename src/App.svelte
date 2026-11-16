@@ -19,11 +19,13 @@
   import Button from "./lib/components/ui/Button.svelte";
   import CloseButton from "./lib/components/ui/CloseButton.svelte";
   import Icon from "./lib/components/ui/Icon.svelte";
+  import DiskUsageDialog from "./lib/features/settings/DiskUsageDialog.svelte";
   import AccountSwitchDialog from "./lib/features/library/AccountSwitchDialog.svelte";
   import ModLinkDialog from "./lib/features/modding/ModLinkDialog.svelte";
   import SourceLinkDialog from "./lib/features/settings/SourceLinkDialog.svelte";
   import { checkForAppUpdateWhenEnabled, hydrateApp } from "./lib/stores/bootstrap";
   import { paletteOpen } from "./lib/stores/command-palette";
+  import { diskUsageDialogOpen } from "./lib/stores/disk-usage";
   import { shortcutsOpen } from "./lib/stores/shortcuts";
   import { handleShortcutKey } from "./lib/features/shortcuts/shortcut-actions";
   import ShortcutsDialog from "./lib/features/shortcuts/ShortcutsDialog.svelte";
@@ -139,6 +141,9 @@
   <CommandPalette />
 {/if}
 
+{#if $diskUsageDialogOpen}
+  <DiskUsageDialog onClose={() => diskUsageDialogOpen.set(false)} />
+{/if}
 {#if $shortcutsOpen}
   <ShortcutsDialog />
 {/if}

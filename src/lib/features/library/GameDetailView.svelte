@@ -36,6 +36,7 @@
   import SteamMetadata from "./SteamMetadata.svelte";
   import SteamArtwork from "./SteamArtwork.svelte";
   import SystemRequirements from "./SystemRequirements.svelte";
+  import GameInstalledSize from "./GameInstalledSize.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import Callout from "../../components/ui/Callout.svelte";
   import ReleasePicker, { type ReleaseOption } from "./ReleasePicker.svelte";
@@ -361,6 +362,7 @@
     {/if}
 
 
+    {#if game !== null}<GameInstalledSize {game} />{/if}
     {#if game !== null}<GameUpdateButton gameId={game.id} />{/if}
 
     <div class="grid flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">

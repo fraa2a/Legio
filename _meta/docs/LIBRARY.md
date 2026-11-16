@@ -140,3 +140,25 @@ minutes, with explicit confirmation. A persisted adjustment preserves real sessi
 history and calendar activity. Future sessions add time normally. Active sessions,
 invalid totals and externally detected running games are rejected by the backend.
 Steam account playtime is not modified.
+
+## Disk usage
+
+`folder_size.rs` walks an installation off the async executor. It never follows
+links, counts only regular files, and marks the result partial when an entry cannot
+be read. On Linux it sums allocated blocks (the stat call already reports them); on
+Windows it sums apparent length. The walk checks a cancel flag per entry and pauses
+briefly every 1024 entries and between games.
+
+`disk_usage.rs` measures only when a view asks (`refresh_disk_usage`): library
+settings, the "Cosa occupa spazio" dialog, or the game page for that single game.
+Games are Legio installations plus Steam games whose install folder is already
+recorded. Results are cached in `disk-usage.json` in the app cache folder, keyed by
+game ID with folder path, folder modification time and measurement time. An entry
+is dropped when the path or folder mtime differs or it is older than seven days,
+and explicitly after install, update, transfer and uninstall. No database schema is
+involved. `legio:disk-usage-changed` tells the UI to read the cache again.
+
+`get_library_usage` reports per library the total and free bytes of its disk, the
+bytes of its measured games and the remaining used space as "other". The figure is
+flagged as an estimate while any game is unmeasured or partial. Uninstalling from
+the usage dialog reuses the regular uninstall dialog and its backend path.

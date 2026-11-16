@@ -233,8 +233,8 @@ pub(crate) fn source_hash(url: &str) -> Result<String, String> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LibraryInfo {
-    id: String,
-    root: String,
+    pub(crate) id: String,
+    pub(crate) root: String,
     warning: Option<String>,
 }
 
@@ -264,7 +264,7 @@ pub(crate) const UNAVAILABLE_LIBRARY: &str = "The selected library is no longer 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LibraryGame {
-    id: String,
+    pub(crate) id: String,
     name: String,
 }
 
@@ -292,7 +292,7 @@ fn regular_directory(path: &Path) -> Result<bool, String> {
     }
 }
 
-fn library_games(database: &Database, root: &Path) -> Result<Vec<LibraryGame>, String> {
+pub(crate) fn library_games(database: &Database, root: &Path) -> Result<Vec<LibraryGame>, String> {
     let mut games: Vec<_> = database
         .games()?
         .into_iter()
