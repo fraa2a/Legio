@@ -8,6 +8,7 @@
   import DownloadSettings from "./DownloadSettings.svelte";
   import CompatibilitySettings from "./CompatibilitySettings.svelte";
   import AdvancedSettings from "./AdvancedSettings.svelte";
+  import PrivacySettings from "./PrivacySettings.svelte";
   import ModCacheSettings from "../modding/ModCacheSettings.svelte";
   import ThemeSettings from "./ThemeSettings.svelte";
   import GeneralSettings from "./GeneralSettings.svelte";
@@ -35,8 +36,8 @@
         <div class="flex items-center gap-2 px-3 py-2">
           <img src={logo} alt="" class="size-8 shrink-0 rounded-lg" />
           <div class="flex min-w-0 flex-col leading-tight">
-            <span class="truncate text-sm font-semibold text-zinc-100 light:text-zinc-900">Legio</span>
-            {#if $appInfo.data.version !== ""}<span class="truncate text-xs text-zinc-400 light:text-zinc-600">v.{$appInfo.data.version}</span>{/if}
+            <span class="truncate text-sm font-semibold text-legio-fg">Legio</span>
+            {#if $appInfo.data.version !== ""}<span class="truncate text-xs text-legio-fg-muted">v.{$appInfo.data.version}</span>{/if}
           </div>
         </div>
       {/snippet}
@@ -53,6 +54,8 @@
         <LibrarySourcesSettings />
       {:else if active === "compatibility" && $appInfo.data.platform === "linux"}
         <CompatibilitySettings />
+      {:else if active === "privacy"}
+        <PrivacySettings />
       {:else}
         <div class="flex flex-col gap-4">
           <AdvancedSettings />

@@ -32,7 +32,7 @@
     aria-label={t("Apri {0}", $language, [game.name])}
     aria-current={selected ? "true" : undefined}
     class="group relative flex h-12 w-full items-center overflow-hidden rounded-lg border border-transparent transition-[border-color,background-color,box-shadow] duration-300 ease-out hover:shadow-md hover:shadow-black/30 focus-visible:-outline-offset-2 {selected
-      ? 'border-white/30 light:border-zinc-900/40'
+      ? 'border-legio-line-strong'
       : ''}"
     onclick={() => openGame(game.id)}
   >
@@ -48,7 +48,7 @@
     {#if expanded}
       <span
         transition:fade={{ duration: fadeDuration, easing: cubicOut }}
-        class="absolute top-1/2 left-12 w-36 -translate-y-1/2 truncate text-left text-sm font-medium text-white light:text-zinc-900"
+        class="absolute top-1/2 left-12 w-36 -translate-y-1/2 truncate text-left text-sm font-medium text-legio-fg"
       >
         {game.name}
       </span>

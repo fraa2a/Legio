@@ -162,17 +162,17 @@
 
 <section class="flex flex-col gap-4">
   {#if loading}
-    <p class="text-sm text-zinc-400 light:text-zinc-600" role="status">{t("Caricamento dei runner e dei default...", $language)}</p>
+    <p class="text-sm text-legio-fg-muted" role="status">{t("Caricamento dei runner e dei default...", $language)}</p>
   {:else if $appInfo.status === "error"}
     <ErrorBanner message={$appInfo.error ?? t("Impossibile rilevare la piattaforma.", $language)} onRetry={() => void load()} />
   {:else if $appInfo.data.platform !== "linux"}
-    <p class="rounded-xl bg-white/5 p-4 text-sm text-zinc-400 light:bg-zinc-100 light:text-zinc-600">{t("I runner e i default di compatibilità sono disponibili su Linux. Le impostazioni di avvio native si configurano nella pagina di ogni gioco Windows.", $language)}</p>
+    <p class="rounded-xl bg-legio-fill p-4 text-sm text-legio-fg-muted">{t("I runner e i default di compatibilità sono disponibili su Linux. Le impostazioni di avvio native si configurano nella pagina di ogni gioco Windows.", $language)}</p>
   {:else}
     {#if loadError !== null}
       <ErrorBanner message={loadError} onRetry={() => void load()} />
     {/if}
 
-    <p class="text-xs text-zinc-500">{t(ntsyncAvailable
+    <p class="text-xs text-legio-fg-subtle">{t(ntsyncAvailable
     ? "NTSync disponibile sul sistema. L'attivazione è gestita dal runner."
     : "NTSync non disponibile sul sistema. Legio usa la sincronizzazione predefinita del runner.", $language)}</p>
   <SettingsGroup icon="wrench" title="Runner">
@@ -180,7 +180,7 @@
         <Callout tone="warning" title={t("Rilevamento runner", $language)} items={runnerDiagnostics} />
       {/if}
       {#if runners.length === 0}
-        <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Nessun runner compatibile rilevato.", $language)}</p>
+        <p class="text-sm text-legio-fg-muted">{t("Nessun runner compatibile rilevato.", $language)}</p>
       {/if}
       <div class="flex max-w-sm items-end gap-2"><div class="min-w-0 flex-1">
         <SelectField
@@ -193,7 +193,7 @@
         />
       </div><ResetSetting label={t("Ripristina runner predefinito", $language)} disabled={saving || defaults.runnerPath === null} onClick={() => { defaults = { ...defaults, runnerPath: null }; }} /></div>
       {#if logsDirectory !== null}
-        <p class="break-all text-xs text-zinc-500 light:text-zinc-600">{t("Log compatibilità: {0}", $language, [logsDirectory])}</p>
+        <p class="break-all text-xs text-legio-fg-muted">{t("Log compatibilità: {0}", $language, [logsDirectory])}</p>
       {/if}
     </SettingsGroup>
 
@@ -249,7 +249,7 @@
       {#if saved}
         <Callout tone="success" variant="inline" message={t("Default salvati.", $language)} />
       {/if}
-      {#if saving}<p class="text-sm text-zinc-400" role="status">{t("Salvataggio...", $language)}</p>{/if}
+      {#if saving}<p class="text-sm text-legio-fg-muted" role="status">{t("Salvataggio...", $language)}</p>{/if}
     </div>
   {/if}
 </section>

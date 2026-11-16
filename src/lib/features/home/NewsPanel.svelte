@@ -4,6 +4,8 @@
   import { t, language } from "../../i18n";
   import { formatDate } from "../../utils/format";
   import { loadNews, news } from "../../stores/news";
+  import { settings } from "../../stores/settings";
+  import EmptyState from "../../components/ui/EmptyState.svelte";
   import type { NewsArticle } from "../../services/news";
   import Dialog from "../../components/ui/Dialog.svelte";
   import Button from "../../components/ui/Button.svelte";
@@ -26,21 +28,23 @@
 
 <Panel title={t("Novità", $language)} class="min-h-0">
   {#snippet actions()}
-    <IconButton label={t("Aggiorna novità", $language)} title={t("Aggiorna", $language)} onClick={() => void refresh()}><RefreshIcon spinning={refreshing} /></IconButton>
+    <IconButton disabled={!$settings.data.newsEnabled} label={t("Aggiorna novità", $language)} title={t("Aggiorna", $language)} onClick={() => void refresh()}><RefreshIcon spinning={refreshing} /></IconButton>
   {/snippet}
   <div class="min-h-0 overflow-auto [mask-image:linear-gradient(to_bottom,black_calc(100%-1.25rem),transparent)]">
-    {#if articles.length > 0}
-      <ul class="flex flex-col divide-y divide-white/10 light:divide-zinc-900/10">
+    {#if !$settings.data.newsEnabled}
+      <EmptyState icon="globe" title={t("Novità disattivate", $language)} description={t("Puoi riattivarle in Impostazioni, Privacy e rete.", $language)} />
+    {:else if articles.length > 0}
+      <ul class="flex flex-col divide-y divide-legio-line-subtle">
         {#each articles.slice(0, 20) as article (article.id)}
           <li><button type="button" class="flex w-full flex-col gap-1 py-3 text-left" onclick={() => selected = article}>
-            <time class="text-xs text-zinc-400 light:text-zinc-600" datetime={article.publishedAt}>{date(article.publishedAt)}</time>
-            <span class="text-sm font-semibold text-zinc-100 light:text-zinc-900">{article.title[$language]}</span>
-            <span class="line-clamp-2 text-xs text-zinc-400 light:text-zinc-600">{article.summary[$language]}</span>
+            <time class="text-xs text-legio-fg-muted" datetime={article.publishedAt}>{date(article.publishedAt)}</time>
+            <span class="text-sm font-semibold text-legio-fg">{article.title[$language]}</span>
+            <span class="line-clamp-2 text-xs text-legio-fg-muted">{article.summary[$language]}</span>
           </button></li>
         {/each}
       </ul>
     {:else}
-      <p class="text-sm text-zinc-400 light:text-zinc-600" role="status">{$news.status === "idle" || $news.status === "loading" ? t("Caricamento novità...", $language) : t("Nessuna novità disponibile.", $language)}</p>
+      <p class="text-sm text-legio-fg-muted" role="status">{$news.status === "idle" || $news.status === "loading" ? t("Caricamento novità...", $language) : t("Nessuna novità disponibile.", $language)}</p>
     {/if}
     {#if $news.data.warning || $news.error}<Callout tone="warning" variant="inline" class="mt-3" message={t("Non è stato possibile aggiornare le novità. Le notizie salvate restano disponibili.", $language)} />{/if}
   </div>
@@ -49,8 +53,8 @@
   <Dialog open title={selected.title[$language]} onClose={() => selected = null}>
   {#snippet children(dismiss)}
     {#if selected}
-    <time class="text-xs text-zinc-400 light:text-zinc-600" datetime={selected.publishedAt}>{date(selected.publishedAt)}</time>
-    <p class="whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-200 light:text-zinc-800">{selected.body[$language]}</p>
+    <time class="text-xs text-legio-fg-muted" datetime={selected.publishedAt}>{date(selected.publishedAt)}</time>
+    <p class="whitespace-pre-wrap break-words text-sm leading-relaxed text-legio-fg">{selected.body[$language]}</p>
     <div class="flex justify-end"><Button label={t("Chiudi", $language)} variant="secondary" onClick={dismiss} /></div>
     {/if}
   {/snippet}

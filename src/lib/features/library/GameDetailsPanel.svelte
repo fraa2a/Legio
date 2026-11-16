@@ -134,18 +134,18 @@
     {#if canResetName}<ResetSetting label={t("Ripristina nome automatico", $language)} disabled={pending || identityPending} onClick={() => { nameDraft = null; if (game.nameOverride !== null) void saveName(null); }} />{/if}
   </div>
   {#if actionError !== null}<ErrorBanner message={actionError} />{/if}
-  {#if pending}<p class="text-xs text-zinc-400" role="status">{t("Salvataggio...", $language)}</p>{/if}
+  {#if pending}<p class="text-xs text-legio-fg-muted" role="status">{t("Salvataggio...", $language)}</p>{/if}
 </Panel>
 
 {#if game.steamInstallPath === null && game.executablePath !== null}
   <Panel title={t("Identità Steam", $language)}>
     {#if game.steamAppId !== null}
-      <p class="text-sm text-zinc-300 light:text-zinc-700">
-        {game.automaticName ?? game.name} <span class="text-zinc-500">({game.steamAppId})</span>
+      <p class="text-sm text-legio-fg">
+        {game.automaticName ?? game.name} <span class="text-legio-fg-subtle">({game.steamAppId})</span>
       </p>
     {/if}
     <SteamGameSearch id="edit-steam-game-search" disabled={pending || identityPending} onSelect={linkCandidate} />
-    {#if identityPending}<p class="text-xs text-zinc-400" role="status">{t("Salvataggio...", $language)}</p>{/if}
+    {#if identityPending}<p class="text-xs text-legio-fg-muted" role="status">{t("Salvataggio...", $language)}</p>{/if}
     {#if identityError !== null}<ErrorBanner message={identityError} />{/if}
   </Panel>
 {/if}
@@ -154,13 +154,13 @@
 {:else}
 {#if game.steamInstallPath !== null}
 <Panel title={t("Visibilità nella libreria", $language)}>
-  <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Nascondi questo gioco senza rimuoverlo. Puoi riabilitarlo nelle impostazioni delle librerie.", $language)}</p>
+  <p class="text-sm text-legio-fg-muted">{t("Nascondi questo gioco senza rimuoverlo. Puoi riabilitarlo nelle impostazioni delle librerie.", $language)}</p>
   <div class="mt-3"><Button label={t("Nascondi dalla libreria", $language)} variant="secondary" disabled={pending || identityPending} onClick={() => void hide()} /></div>
 </Panel>
 {/if}
 {#if game.steamInstallPath === null && game.executablePath !== null}
   <Panel title={t("Disinstalla gioco", $language)}>
-    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Elimina i file installati del gioco e rimuovi la voce dalla libreria.", $language)}</p>
+    <p class="text-sm text-legio-fg-muted">{t("Elimina i file installati del gioco e rimuovi la voce dalla libreria.", $language)}</p>
     {#if running}<Callout tone="warning" variant="inline" message={t("Chiudi il gioco prima di disinstallarlo.", $language)} />{/if}
     <Button label={t("Disinstalla gioco", $language)} variant="danger-soft" disabled={running || pending || identityPending} onClick={() => (confirmingUninstall = true)} />
   </Panel>
@@ -173,7 +173,7 @@
     <ErrorBanner message={actionError} />
   {/if}
   {#if confirmingRemove}
-    <p class="text-sm text-zinc-300 light:text-zinc-700">
+    <p class="text-sm text-legio-fg">
       {t("{0} verrà rimosso dalla libreria. I file installati non vengono eliminati.", $language, [game.name])}
     </p>
     <div class="flex flex-wrap gap-2">
@@ -181,7 +181,7 @@
       <Button label={t("Rimuovi", $language)} variant="danger" disabled={pending || identityPending || removeBlocked} onClick={() => void remove()} />
     </div>
   {:else}
-    <p class="text-sm text-zinc-400 light:text-zinc-600">{t("Rimuovi questa voce senza toccare i file del gioco.", $language)}</p>
+    <p class="text-sm text-legio-fg-muted">{t("Rimuovi questa voce senza toccare i file del gioco.", $language)}</p>
     {#if removeBlocked}
       <Callout tone="warning" class="mt-2" message={t("Disattiva Sync Steam games nelle impostazioni per rimuoverlo, oppure usa Nascondi dalla libreria per nascondere solo questo gioco.", $language)} />
     {/if}

@@ -60,6 +60,6 @@
   <div class="flex items-end gap-2"><div class="min-w-0 flex-1"><TextField id="game-executable" label={t("Percorso eseguibile (.exe)", $language)} value={executablePath} disabled={pending} placeholder={t("Seleziona o inserisci un file .exe", $language)} oninput={(value) => (executablePath = value)} /></div><ResetSetting label={t("Ripristina percorso eseguibile", $language)} disabled={pending || executablePath === (game.executablePath ?? "")} onClick={() => { executablePath = game.executablePath ?? ""; }} /></div>
   <div class="flex flex-wrap gap-2">
     <Button label={t("Scegli eseguibile...", $language)} variant="secondary" disabled={pending} onClick={() => void browse()} />
-    {#if pending}<span class="text-sm text-zinc-400" role="status">{t("Salvataggio...", $language)}</span>{/if}
+    {#if pending}<span class="text-sm text-legio-fg-muted" role="status">{t("Salvataggio...", $language)}</span>{/if}
   </div>
 </Panel>
