@@ -95,7 +95,7 @@
     </div>
   {/if}
   {#if error}
-    <p id={`${id}-error`} class="text-xs text-legio-error" role="alert">{error}</p>
+    <p id={`${id}-error`} class="select-text text-xs text-legio-error" data-selectable role="alert">{error}</p>
   {/if}
   {#if hint}
     <p id={`${id}-hint`} class="text-xs text-legio-fg-subtle">{hint}</p>

@@ -50,7 +50,7 @@
           />
         {/if}
         {#if job.error !== null}
-          <Callout tone="danger" variant="inline" class="mt-2" message={job.error} />
+          <Callout tone="danger" variant="inline" class="mt-2" message={t("Download non riuscito.", $language)} detail={job.error} copyable />
         {/if}
       </div>
 

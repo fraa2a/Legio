@@ -249,7 +249,8 @@ test("command palette ranks games and pages, moves with the arrows and runs the 
     "src/lib/stores/navigation": dataModule(`export const sections = ["home", "library", "store", "downloads"]; export const sectionLabels = { home: "Home", library: "Libreria", store: "Store", downloads: "Download" };
       export const selectSection = section => globalThis.paletteFixture.calls.push(["section", section]);
       export const openGame = id => globalThis.paletteFixture.calls.push(["game", id]);
-      export const openSettings = id => globalThis.paletteFixture.calls.push(["settings", id]);`),
+      export const openSettings = id => globalThis.paletteFixture.calls.push(["settings", id]);
+      export const openPlaytimeRecap = () => globalThis.paletteFixture.calls.push(["recap"]);`),
   });
   const { paletteOpen } = await import(await loadPalette("src/lib/stores/command-palette.ts"));
   const CommandPalette = (await import(await loadPalette("src/lib/features/palette/CommandPalette.svelte"))).default;

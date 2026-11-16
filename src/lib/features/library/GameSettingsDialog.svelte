@@ -7,6 +7,7 @@
   import { gameLibraries } from "../../stores/game-libraries";
   import LibraryPickerDialog from "./LibraryPickerDialog.svelte";
   import Button from "../../components/ui/Button.svelte";
+  import CopyButton from "../../components/ui/CopyButton.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import { toMessage } from "../../utils/errors";
   import SettingsNavigation from "../../components/ui/SettingsNavigation.svelte";
@@ -123,7 +124,7 @@
           {#if !steamManaged}<ExecutablePanel {game} />{:else}
             <Panel title={t("Installazione Steam", $language)}>
               <p class="text-sm text-legio-fg-muted">{t("Steam gestisce il percorso di installazione per questo gioco.", $language)}</p>
-              <p class="break-all text-sm text-legio-fg">{game.steamInstallPath}</p>
+              <div class="flex items-start gap-2"><p class="min-w-0 flex-1 select-text break-all text-sm text-legio-fg" data-selectable>{game.steamInstallPath}</p><CopyButton text={game.steamInstallPath ?? ""} size="inline-sm" label={t("Copia il percorso", $language)} /></div>
             </Panel>
           {/if}
           {#if game.executablePath !== null}

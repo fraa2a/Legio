@@ -101,6 +101,38 @@ legacy installation does not change how future update archives are overlaid.
 Filesystem/database journals remain necessary because copying games and updating
 multiple manifests cannot be one ordinary file replacement transaction.
 
+## Organization and views
+
+Games can be marked as favorites, given a play status (backlog, playing, completed,
+on hold, dropped) and added to any number of named collections. Versions of one
+game share a library card, so the card and the game page change all of them at once
+and read them together: a favorite or membership on any version counts, the status
+comes from the shown version or else the first version that has one. Storage and
+validation are described in [SCHEMA.md](SCHEMA.md#library-organization-in-the-local-database).
+
+The star on a card toggles the favorite. The collection button on a card, in the
+list and on the game page opens a dialog with the status and a switch per
+collection, plus a field to create one. The library toolbar manages collections
+(create, rename, reorder and delete with confirmation; games stay in the library).
+
+The toolbar switches between three views:
+
+- Grid: the cover grid, with a slider from 70% to 150% of the default tile width.
+- List: a table with sortable name, playtime, last played and source columns, plus
+  status. Clicking the current column flips the direction; a new column starts
+  descending for numbers and dates and ascending for text.
+- Shelves: one horizontal row per collection in collection order, then the games
+  without a collection.
+
+Every view applies the same sort (name, playtime, last played, recently added or
+source) and filters (favorites only, status, collection or games without one).
+Unknown dates sort last in both directions; games added before organization was
+stored have no known addition date. View, sort, direction, cover size and filters
+are saved in the application preferences under `libraryView`. A filter on a
+deleted collection shows every game. Sorting, filtering and resizing glide the
+grid cards near the viewport to their new places, without motion when reduced
+motion is preferred. Disk usage is not part of the list yet.
+
 ## Advanced playtime editing
 
 The per-game danger section can set Legio's local playtime total in hours and

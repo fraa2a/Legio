@@ -44,7 +44,7 @@ fn import_scan(database: &Database, scan: SteamScan) -> Result<SteamImportResult
         }
         {
             let mut remove = transaction
-                .prepare("DELETE FROM games WHERE steam_app_id = ?1 AND automatic_name = ?2 AND steam_install_path = ?3 AND name_override IS NULL AND steam_account_id IS NULL AND executable_path IS NULL")
+                .prepare("DELETE FROM games WHERE steam_app_id = ?1 AND automatic_name = ?2 AND steam_install_path = ?3 AND name_override IS NULL AND steam_account_id IS NULL AND executable_path IS NULL AND favorite = 0 AND play_status = 'none' AND NOT EXISTS (SELECT 1 FROM collection_games WHERE game_id = games.id)")
                 .map_err(database_error)?;
             for app in scan.excluded_non_games {
                 if let Ok(name) = required_name(app.name, "automatic name") {
@@ -401,6 +401,92 @@ mod tests {
                 .any(|game| game.id == edited.id && game.name == "Keep my edited row")
         );
         assert!(games.iter().any(|game| game.steam_app_id == Some(1)));
+    }
+
+    #[test]
+    fn resync_keeps_favorites_status_and_collections() {
+        let fixture = Fixture::new();
+        fixture.install(1, "Game", "Game");
+        fixture.install(2, "Favorite tool", "Favorite tool");
+        fixture.install(3, "Collected tool", "Collected tool");
+        fixture.install(4, "Plain tool", "Plain tool");
+        let database = Database::open(&fixture.0).unwrap();
+        import_scan(&database, fixture.scan()).unwrap();
+        let id_of = |app_id: u32| {
+            database
+                .games()
+                .unwrap()
+                .into_iter()
+                .find(|game| game.steam_app_id == Some(app_id))
+                .unwrap()
+                .id
+        };
+        let (game, favorite, collected) = (id_of(1), id_of(2), id_of(3));
+        database
+            .set_games_favorite(&[game.clone(), favorite.clone()], true)
+            .unwrap();
+        database
+            .set_games_play_status(
+                std::slice::from_ref(&game),
+                crate::database::PlayStatus::Playing,
+            )
+            .unwrap();
+        let collection = database.create_collection("Kept").unwrap().collections[0]
+            .id
+            .clone();
+        database
+            .set_games_collections(&[game.clone(), collected.clone()], &[collection])
+            .unwrap();
+
+        // Steam renames and moves the game, and reclassifies 2 to 4 as tools.
+        fixture.install(1, "Game renamed", "Game moved");
+        let metadata_path = fixture.0.join("steam/appcache/appinfo.vdf");
+        let modified = fs::metadata(&metadata_path).unwrap().modified().unwrap();
+        fs::write(
+            &metadata_path,
+            steam_local::appinfo_fixture(&[(1, "Game"), (2, "Tool"), (3, "Tool"), (4, "Tool")]),
+        )
+        .unwrap();
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&metadata_path)
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new().set_modified(modified + std::time::Duration::from_secs(2)),
+            )
+            .unwrap();
+        let result = import_scan(&database, fixture.scan()).unwrap();
+        assert_eq!((result.updated, result.removed), (1, 1));
+
+        let organization = database.library_organization().unwrap();
+        let entry = |id: &str| {
+            organization
+                .games
+                .iter()
+                .find(|entry| entry.game_id == id)
+                .unwrap()
+        };
+        assert_eq!(organization.games.len(), 3);
+        assert!(entry(&game).favorite);
+        assert_eq!(
+            entry(&game).play_status,
+            crate::database::PlayStatus::Playing
+        );
+        assert!(entry(&favorite).favorite);
+        assert_eq!(
+            organization.collections[0].game_ids,
+            [game.clone(), collected.clone()]
+        );
+        assert_eq!(
+            database
+                .games()
+                .unwrap()
+                .into_iter()
+                .find(|entry| entry.id == game)
+                .unwrap()
+                .name,
+            "Game renamed"
+        );
     }
 
     #[test]

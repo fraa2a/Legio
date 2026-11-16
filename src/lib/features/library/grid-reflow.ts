@@ -40,8 +40,11 @@ function currentOffset(card: HTMLElement): { x: number; y: number } {
 
 /**
  * Glides cards that wrap to another row after the grid resizes (sidebar toggle,
- * window resize). Cards that stay on their row follow the grid directly, since
- * they are resized as well and a translation cannot express that.
+ * window resize, tile size). Cards that stay on their row follow the grid directly,
+ * since they are resized as well and a translation cannot express that.
+ *
+ * Reordered or filtered cards keep their size, so every card near the viewport
+ * that changed place glides from its old slot; added cards appear in place.
  *
  * When `layout` emits a new value the cards change shape (cover style), so they
  * are morphed instead; the morph re-baselines the slots, which keeps the resize
@@ -76,23 +79,29 @@ export function reflowOnResize(grid: HTMLElement, layout?: Readable<unknown>): {
     });
   });
 
-  // ResizeObserver callbacks run once per frame between layout and paint, so the
-  // new layout is never painted before the glide starts.
-  const resizeObserver = new ResizeObserver(() => {
+  function glide(sameSize: boolean): void {
     const next = measure(grid);
     const glides: Glide[] = [];
+    const viewport = window.innerHeight;
     for (const [card, slot] of next) {
       const previous = slots.get(card);
-      if (previous === undefined || previous.row === slot.row) continue;
+      if (previous === undefined) continue;
+      if (sameSize ? previous.left === slot.left && previous.top === slot.top : previous.row === slot.row) continue;
       const inflight = running.has(card) ? currentOffset(card) : { x: 0, y: 0 };
-      glides.push({
-        card,
-        x: previous.left - slot.left + inflight.x,
-        y: previous.top - slot.top + inflight.y,
-      });
+      const x = previous.left - slot.left + inflight.x;
+      const y = previous.top - slot.top + inflight.y;
+      if (sameSize) {
+        // A large library reorders many cards at once; off-screen ones move instantly.
+        const { top, bottom } = card.getBoundingClientRect();
+        if (Math.min(bottom, bottom + y) < -viewport || Math.max(top, top + y) > 2 * viewport) continue;
+      }
+      glides.push({ card, x, y });
     }
     slots = next;
+    play(glides);
+  }
 
+  function play(glides: Glide[]): void {
     for (const { card, x, y } of glides) {
       running.get(card)?.cancel();
       const animation = card.animate(
@@ -102,14 +111,30 @@ export function reflowOnResize(grid: HTMLElement, layout?: Readable<unknown>): {
       animation.onfinish = () => running.delete(card);
       running.set(card, animation);
     }
-  });
+  }
 
-  // Added or removed cards re-baseline the layout without gliding.
+  // ResizeObserver callbacks run once per frame between layout and paint, so the
+  // new layout is never painted before the glide starts. The first card is observed
+  // too, since a new tile size can reflow the cards without resizing the grid.
+  const resizeObserver = new ResizeObserver(() => glide(false));
+  let sample: Element | null = null;
+  function observeSample(): void {
+    const first = grid.firstElementChild;
+    if (first === sample) return;
+    if (sample !== null) resizeObserver.unobserve(sample);
+    sample = first;
+    if (first !== null) resizeObserver.observe(first);
+  }
+
+  // Mutation callbacks run before the next paint, after Svelte has moved the cards.
   const mutationObserver = new MutationObserver(() => {
-    slots = measure(grid);
+    if (pending === null) glide(true);
+    else slots = measure(grid);
+    observeSample();
   });
 
   resizeObserver.observe(grid);
+  observeSample();
   mutationObserver.observe(grid, { childList: true });
 
   return {

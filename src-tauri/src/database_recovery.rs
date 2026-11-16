@@ -12,12 +12,13 @@ use tauri::{AppHandle, Manager, State};
 // SQLite files that belong to the main database file and must move with it.
 const COMPANION_SUFFIXES: [&str; 3] = ["-wal", "-shm", "-journal"];
 
-struct SetAside {
-    file_name: String,
-    moved: Vec<(PathBuf, PathBuf)>,
+pub(crate) struct SetAside {
+    pub(crate) file_name: String,
+    pub(crate) moved: Vec<(PathBuf, PathBuf)>,
 }
 
-fn move_back(moved: &[(PathBuf, PathBuf)]) -> Result<(), String> {
+/// Undoes recorded renames, newest first. Each pair is (original path, current path).
+pub(crate) fn move_back(moved: &[(PathBuf, PathBuf)]) -> Result<(), String> {
     for (source, target) in moved.iter().rev() {
         fs::rename(target, source).map_err(|error| {
             format!(
@@ -30,14 +31,14 @@ fn move_back(moved: &[(PathBuf, PathBuf)]) -> Result<(), String> {
     Ok(())
 }
 
-/// Renames the database and its companion files aside; nothing is deleted.
-fn set_aside(data_dir: &Path) -> Result<Option<SetAside>, String> {
+/// Renames the database and its companion files to `legio-{label}-{time}`; nothing is deleted.
+pub(crate) fn set_aside(data_dir: &Path, label: &str) -> Result<Option<SetAside>, String> {
     match fs::symlink_metadata(data_dir.join(DATABASE_FILE_NAME)) {
         Ok(_) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(format!("could not inspect the local database: {error}")),
     }
-    let file_name = format!("legio-broken-{}.sqlite3", now_milliseconds()?);
+    let file_name = format!("legio-{label}-{}.sqlite3", now_milliseconds()?);
     if fs::symlink_metadata(data_dir.join(&file_name)).is_ok() {
         return Err(format!("{file_name} already exists"));
     }
@@ -79,7 +80,7 @@ fn restore_backup(data_dir: &Path, file_name: &str) -> Result<(), String> {
         .and_then(|_| backup::sync_file(&temporary))
         .map_err(|error| format!("could not copy the database backup: {error}"))?;
         backup::verify_database_copy(&temporary)?;
-        let aside = set_aside(data_dir)?;
+        let aside = set_aside(data_dir, "broken")?;
         if let Err(error) = fs::rename(&temporary, data_dir.join(DATABASE_FILE_NAME)) {
             let error = format!("could not restore the database backup: {error}");
             return Err(match aside.map(|aside| move_back(&aside.moved)) {
@@ -118,7 +119,7 @@ fn restore_backup(data_dir: &Path, file_name: &str) -> Result<(), String> {
 
 /// Sets the database aside so the next start creates a new one.
 fn reset_database(data_dir: &Path) -> Result<(), String> {
-    let aside = set_aside(data_dir)?
+    let aside = set_aside(data_dir, "broken")?
         .ok_or_else(|| "there is no local database file to set aside".to_owned())?;
     crate::application_log::state_change(
         "database_reset",
@@ -127,7 +128,7 @@ fn reset_database(data_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn data_directory(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn data_directory(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
         .map_err(|error| format!("Could not locate app data: {error}"))

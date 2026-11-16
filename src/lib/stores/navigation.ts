@@ -31,6 +31,9 @@ export interface ModManagerSelection {
 
 export const selectedModGame = writable<ModManagerSelection | null>(null);
 
+// The yearly and monthly play recap, a page inside Home.
+export const playtimeRecapOpen = writable(false);
+
 export const settingsOpen = writable(false);
 export const settingsCategory = writable("general");
 
@@ -60,12 +63,14 @@ export function selectSection(section: Section): void {
     selectedGameId.set(null);
     selectedStoreGame.set(null);
     selectedModGame.set(null);
+    playtimeRecapOpen.set(false);
     activeSection.set(section);
   });
 }
 
 function showGame(gameId: string): void {
   selectedModGame.set(null);
+  playtimeRecapOpen.set(false);
   selectedGameId.set(gameId);
   activeSection.set("library");
 }
@@ -78,6 +83,7 @@ export function openModManager(gameId: string, returnTo: ModManagerSelection["re
   leave(() => {
     selectedGameId.set(null);
     selectedModGame.set({ gameId, returnTo });
+    playtimeRecapOpen.set(false);
     activeSection.set("mods");
   });
 }
@@ -96,11 +102,26 @@ export function closeGame(): void {
 
 export function openStoreGame(game: StoreGameSelection): void {
   selectedStoreGame.set(game);
+  playtimeRecapOpen.set(false);
   activeSection.set("store");
 }
 
 export function closeStoreGame(): void {
   selectedStoreGame.set(null);
+}
+
+export function openPlaytimeRecap(): void {
+  leave(() => {
+    selectedGameId.set(null);
+    selectedStoreGame.set(null);
+    selectedModGame.set(null);
+    playtimeRecapOpen.set(true);
+    activeSection.set("home");
+  });
+}
+
+export function closePlaytimeRecap(): void {
+  playtimeRecapOpen.set(false);
 }
 
 export function openSettings(category = "general"): void {
