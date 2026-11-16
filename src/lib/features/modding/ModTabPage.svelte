@@ -174,7 +174,7 @@
       {/if}
     </section>
   {:else if info === null}
-    <div class="flex flex-col gap-2" role="status">
+    <div class="flex flex-col gap-2" role="status" aria-busy="true">
       <span class="sr-only">{t("Caricamento...", $language)}</span>
       <Skeleton class="h-16" />
       <Skeleton class="h-24" />

@@ -43,6 +43,34 @@ fn default_animated_opacity() -> u8 {
     65
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Density {
+    Compact,
+    Wide,
+    // Unknown values from newer versions fall back to the default.
+    #[default]
+    #[serde(other)]
+    Normal,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Corners {
+    Sharp,
+    Round,
+    #[default]
+    #[serde(other)]
+    Soft,
+}
+
+const MIN_TEXT_SCALE: u8 = 90;
+const MAX_TEXT_SCALE: u8 = 120;
+
+fn default_text_scale() -> u8 {
+    100
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct DitherSettings {
@@ -90,6 +118,9 @@ pub struct Appearance {
     pub dialog_opacity: u8,
     pub dialog_blur: u8,
     pub transparent: bool,
+    pub density: Density,
+    pub corners: Corners,
+    pub text_scale: u8,
 }
 
 impl Default for Appearance {
@@ -107,6 +138,9 @@ impl Default for Appearance {
             dialog_opacity: 45,
             dialog_blur: 35,
             transparent: false,
+            density: Density::Normal,
+            corners: Corners::Soft,
+            text_scale: default_text_scale(),
         }
     }
 }
@@ -121,6 +155,9 @@ pub(crate) fn validate(appearance: &Appearance) -> Result<(), String> {
         || appearance.dialog_opacity > 100
     {
         return Err("Blur values must be 0-40 and opacity values must be 0-100".to_owned());
+    }
+    if !(MIN_TEXT_SCALE..=MAX_TEXT_SCALE).contains(&appearance.text_scale) {
+        return Err("Text scale must be between 90 and 120 percent".to_owned());
     }
     if let Some(id) = &appearance.background {
         validate_id(id)?;
@@ -443,6 +480,42 @@ mod tests {
             ),
             (45, 24, 45, 35)
         );
+    }
+
+    #[test]
+    fn interface_options_default_and_tolerate_unknown_values() {
+        let missing: Appearance = serde_json::from_str("{}").unwrap();
+        assert_eq!(missing.density, Density::Normal);
+        assert_eq!(missing.corners, Corners::Soft);
+        assert_eq!(missing.text_scale, 100);
+        let chosen: Appearance =
+            serde_json::from_str(r#"{"density": "compact", "corners": "round", "textScale": 110}"#)
+                .unwrap();
+        assert_eq!(chosen.density, Density::Compact);
+        assert_eq!(chosen.corners, Corners::Round);
+        assert_eq!(chosen.text_scale, 110);
+        let unknown: Appearance =
+            serde_json::from_str(r#"{"density": "huge", "corners": "blob"}"#).unwrap();
+        assert_eq!(unknown.density, Density::Normal);
+        assert_eq!(unknown.corners, Corners::Soft);
+    }
+
+    #[test]
+    fn rejects_out_of_range_text_scale() {
+        for text_scale in [89, 121] {
+            let scale = Appearance {
+                text_scale,
+                ..Appearance::default()
+            };
+            assert!(validate(&scale).is_err());
+        }
+        for text_scale in [90, 120] {
+            let scale = Appearance {
+                text_scale,
+                ..Appearance::default()
+            };
+            assert!(validate(&scale).is_ok());
+        }
     }
 
     #[test]

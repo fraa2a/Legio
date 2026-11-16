@@ -445,3 +445,60 @@ test("closing appearance settings flushes the final draft after a pending save",
   assert.equal(saved[1].appearance.surfaceOpacity, 60);
   pending.shift()(); await settle();
 });
+
+test("default interface options leave every scale variable at 1", () => {
+  const defaults = appearance.defaultAppearance();
+  assert.deepEqual([defaults.density, defaults.corners, defaults.textScale], ["normal", "soft", 100]);
+  assert.deepEqual(appearance.interfaceVariables(defaults), {
+    "--legio-control-scale": "1", "--legio-space-scale": "1", "--legio-corner-scale": "1", "--legio-text-scale": "1",
+  });
+});
+
+test("density, corners and text scale are applied as root variables", () => {
+  const root = document.documentElement;
+  const names = ["--legio-control-scale", "--legio-space-scale", "--legio-corner-scale", "--legio-text-scale"];
+  const read = () => names.map(name => root.style.getPropertyValue(name));
+  const apply = options => appearance.applyAppearance(root, "dark", { ...appearance.defaultAppearance(), ...options }, true, false);
+  apply({ density: "compact", corners: "sharp", textScale: 90 });
+  assert.deepEqual(read(), ["0.875", "0.75", "0.25", "0.9"]);
+  apply({ density: "wide", corners: "round", textScale: 120 });
+  assert.deepEqual(read(), ["1.125", "1.25", "1.75", "1.2"]);
+  apply({});
+  assert.deepEqual(read(), ["1", "1", "1", "1"]);
+});
+
+test("unknown or out of range interface values fall back safely", () => {
+  const variables = appearance.interfaceVariables({ density: "huge", corners: "blob", textScale: 400 });
+  assert.equal(variables["--legio-control-scale"], "1");
+  assert.equal(variables["--legio-corner-scale"], "1");
+  assert.equal(variables["--legio-text-scale"], "1.2");
+  assert.equal(appearance.interfaceVariables({ density: "normal", corners: "soft", textScale: undefined })["--legio-text-scale"], "1");
+});
+
+test("the interface group previews and saves density, corners and text scale", async () => {
+  settingsStore.set({ data: { theme: "dark", appearance: appearance.defaultAppearance() } });
+  const saved = [];
+  globalThis.themeSave = async value => { saved.push(value); return value; };
+  globalThis.themeInvoke = async () => {};
+  const component = (await import(await load("src/lib/features/settings/ThemeSettings.svelte"))).default;
+  const target = document.createElement("div"); document.body.append(target);
+  const instance = mount(component, { target }); await settle();
+  try {
+    const group = [...target.querySelectorAll("button[aria-expanded]")].find(button => button.textContent.includes("Interfaccia"));
+    group.click(); await settle();
+    const choose = async (name, value) => {
+      const radio = target.querySelector(`input[name="${name}"][value="${value}"]`);
+      radio.checked = true; radio.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+    };
+    await choose("density", "compact");
+    await choose("corners", "round");
+    const scale = target.querySelector("#theme-textScale");
+    scale.value = "110"; scale.dispatchEvent(new Event("input", { bubbles: true })); await settle();
+    const preview = get(previewStore).appearance;
+    assert.deepEqual([preview.density, preview.corners, preview.textScale], ["compact", "round", 110]);
+    await new Promise(resolve => setTimeout(resolve, 650)); await settle();
+    assert.equal(saved.length, 1);
+    assert.deepEqual([saved[0].appearance.density, saved[0].appearance.corners, saved[0].appearance.textScale], ["compact", "round", 110]);
+  } finally { await unmount(instance); target.remove(); }
+  await settle();
+});

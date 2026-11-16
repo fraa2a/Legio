@@ -119,7 +119,8 @@
   <div bind:this={listElement} class="flex min-h-full flex-col gap-4">
     {#if $sourceRefreshError}
       <ErrorBanner
-        message={$sourceRefreshError}
+        message={t("Impossibile aggiornare le sorgenti.", $language)}
+        detail={$sourceRefreshError}
         onRetry={() => void refreshSource()}
         retryLabel={t("Riprova", $language)}
       />
@@ -171,7 +172,7 @@
       hasData={entries.length > 0}
       loadingMessage={t("Ricerca in corso...", $language)}
       skeletonRows={4}
-      skeletonClass="h-28"
+      skeletonClass="h-28 sm:h-32"
       emptyIcon="search"
       {emptyMessage}
       error={$catalog.error}

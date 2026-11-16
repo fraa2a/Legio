@@ -2,6 +2,7 @@
   import { t, language } from "../../i18n";
   import type { LoadStatus } from "../../stores/resource";
   import Button from "../../components/ui/Button.svelte";
+  import CopyButton from "../../components/ui/CopyButton.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import ProgressBar from "../../components/ui/ProgressBar.svelte";
@@ -76,7 +77,7 @@
     {#if folder !== null}
       <div class="flex flex-col gap-1.5">
         <p class="text-xs text-legio-fg-muted">{t("Directory di installazione", $language)}</p>
-        <p class="break-all text-xs text-legio-fg">{folder.directory}</p>
+        <div class="flex items-start gap-2"><p class="min-w-0 flex-1 select-text break-all text-xs text-legio-fg" data-selectable>{folder.directory}</p><CopyButton text={folder.directory} size="inline-sm" label={t("Copia il percorso", $language)} /></div>
         <Button label={t("Apri la cartella", $language)} variant="secondary" class="mt-1 self-start" onClick={onOpenFolder} />
       </div>
     {/if}

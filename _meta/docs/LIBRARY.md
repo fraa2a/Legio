@@ -101,6 +101,38 @@ legacy installation does not change how future update archives are overlaid.
 Filesystem/database journals remain necessary because copying games and updating
 multiple manifests cannot be one ordinary file replacement transaction.
 
+## Organization and views
+
+Games can be marked as favorites, given a play status (backlog, playing, completed,
+on hold, dropped) and added to any number of named collections. Versions of one
+game share a library card, so the card and the game page change all of them at once
+and read them together: a favorite or membership on any version counts, the status
+comes from the shown version or else the first version that has one. Storage and
+validation are described in [SCHEMA.md](SCHEMA.md#library-organization-in-the-local-database).
+
+The star on a card toggles the favorite. The collection button on a card, in the
+list and on the game page opens a dialog with the status and a switch per
+collection, plus a field to create one. The library toolbar manages collections
+(create, rename, reorder and delete with confirmation; games stay in the library).
+
+The toolbar switches between three views:
+
+- Grid: the cover grid, with a slider from 70% to 150% of the default tile width.
+- List: a table with sortable name, playtime, last played and source columns, plus
+  status. Clicking the current column flips the direction; a new column starts
+  descending for numbers and dates and ascending for text.
+- Shelves: one horizontal row per collection in collection order, then the games
+  without a collection.
+
+Every view applies the same sort (name, playtime, last played, recently added or
+source) and filters (favorites only, status, collection or games without one).
+Unknown dates sort last in both directions; games added before organization was
+stored have no known addition date. View, sort, direction, cover size and filters
+are saved in the application preferences under `libraryView`. A filter on a
+deleted collection shows every game. Sorting, filtering and resizing glide the
+grid cards near the viewport to their new places, without motion when reduced
+motion is preferred. Disk usage is not part of the list yet.
+
 ## Advanced playtime editing
 
 The per-game danger section can set Legio's local playtime total in hours and
@@ -135,3 +167,25 @@ installs), are skipped. A game without a known executable is listed as not
 importable, because the library cannot hold an entry without one. On Linux, the
 detected Wine prefix of a Windows game becomes its prefix in the compatibility
 settings; the runner name is shown but not applied. No database migration is needed.
+
+## Disk usage
+
+`folder_size.rs` walks an installation off the async executor. It never follows
+links, counts only regular files, and marks the result partial when an entry cannot
+be read. On Linux it sums allocated blocks (the stat call already reports them); on
+Windows it sums apparent length. The walk checks a cancel flag per entry and pauses
+briefly every 1024 entries and between games.
+
+`disk_usage.rs` measures only when a view asks (`refresh_disk_usage`): library
+settings, the "Cosa occupa spazio" dialog, or the game page for that single game.
+Games are Legio installations plus Steam games whose install folder is already
+recorded. Results are cached in `disk-usage.json` in the app cache folder, keyed by
+game ID with folder path, folder modification time and measurement time. An entry
+is dropped when the path or folder mtime differs or it is older than seven days,
+and explicitly after install, update, transfer and uninstall. No database schema is
+involved. `legio:disk-usage-changed` tells the UI to read the cache again.
+
+`get_library_usage` reports per library the total and free bytes of its disk, the
+bytes of its measured games and the remaining used space as "other". The figure is
+flagged as an estimate while any game is unmeasured or partial. Uninstalling from
+the usage dialog reuses the regular uninstall dialog and its backend path.

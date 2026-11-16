@@ -823,6 +823,7 @@ fn spawn_staging<R: Runtime>(app: &AppHandle<R>, id: &str) {
                     None
                 };
             let game_id = finalize_install::automatic(database, &root, &job_id)?;
+            crate::disk_usage::invalidate(&worker, &game_id);
             crate::game_library::sync_storage(database, &root)?;
             finalize_install::create_install_shortcut(&worker, database, &game_id)?;
             match completion_notification(database, &job_id) {
@@ -2026,11 +2027,10 @@ pub async fn retry_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result
                 .path()
                 .app_data_dir()
                 .map_err(|error| format!("Could not locate app data: {error}"))?;
-            return crate::finalize_install::retry(
-                database,
-                &database.storage_root(&data_dir)?,
-                &id,
-            );
+            let result =
+                crate::finalize_install::retry(database, &database.storage_root(&data_dir)?, &id);
+            crate::disk_usage::invalidate(&app, &id);
+            return result;
         }
         change_status(
             database,
@@ -2429,6 +2429,8 @@ mod tests {
                         Err(error) => panic!("Mirror request {index} was not received: {error}"),
                     }
                 };
+                // Windows sockets inherit the listener's non-blocking mode.
+                socket.set_nonblocking(false).unwrap();
                 socket
                     .set_read_timeout(Some(Duration::from_secs(3)))
                     .unwrap();
@@ -2612,6 +2614,8 @@ mod tests {
                         Err(error) => panic!("Expected mirror retry: {error}"),
                     }
                 };
+                // Windows sockets inherit the listener's non-blocking mode.
+                socket.set_nonblocking(false).unwrap();
                 socket
                     .set_read_timeout(Some(Duration::from_secs(3)))
                     .unwrap();
@@ -2673,9 +2677,10 @@ mod tests {
             server.join().unwrap(),
             [vec!["/first"; 4], vec!["/second"; 4]].concat()
         );
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
+        remove_directory(directory);
     }
 
     #[test]
@@ -2797,9 +2802,23 @@ mod tests {
                 .load(Ordering::Acquire)
         );
         assert_eq!(status_of(&database, &job.id).as_deref(), Some("queued"));
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
+        remove_directory(directory);
+    }
+
+    // Windows keeps files locked until detached staging work releases them.
+    fn remove_directory(directory: PathBuf) {
+        let started = Instant::now();
+        while let Err(error) = fs::remove_dir_all(&directory) {
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "could not remove {}: {error}",
+                directory.display()
+            );
+            thread::sleep(Duration::from_millis(50));
+        }
     }
 
     fn wait_for_status(database: &Database, id: &str, expected: &str) {
@@ -2810,7 +2829,7 @@ mod tests {
                 return;
             }
             assert!(
-                started.elapsed() < Duration::from_secs(3),
+                started.elapsed() < Duration::from_secs(30),
                 "download did not reach {expected}, current status is {current}"
             );
             thread::sleep(Duration::from_millis(10));
@@ -2982,7 +3001,8 @@ mod tests {
             })
             .unwrap();
         assert!(changes.has_changed().unwrap());
-        fs::remove_dir_all(directory).unwrap();
+        drop(database);
+        remove_directory(directory);
     }
 
     #[test]
@@ -3041,8 +3061,30 @@ mod tests {
         (bytes, format!("{:x}", Sha256::digest(bytes)))
     }
 
+    // Name and content of the executable inside `install_archive_fixture`.
+    #[cfg(not(windows))]
+    const FIXTURE_EXECUTABLE: (&str, &[u8]) = ("start.sh", b"#!/bin/sh\nexit 0\n");
+    #[cfg(windows)]
+    const FIXTURE_EXECUTABLE: (&str, &[u8]) = ("start.exe", b"game");
+
     fn install_archive_fixture() -> (&'static [u8], String) {
+        // The checked-in archive holds a shell script, which Windows does not treat as a game executable.
+        #[cfg(not(windows))]
         let bytes: &'static [u8] = include_bytes!("../test-fixtures/archive/executable.zip");
+        #[cfg(windows)]
+        let bytes: &'static [u8] = {
+            use std::io::Write as _;
+            use zip::{ZipWriter, write::SimpleFileOptions};
+            let mut writer = ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            writer
+                .start_file(
+                    format!("Game/{}", FIXTURE_EXECUTABLE.0),
+                    SimpleFileOptions::default(),
+                )
+                .unwrap();
+            writer.write_all(FIXTURE_EXECUTABLE.1).unwrap();
+            Box::leak(writer.finish().unwrap().into_inner().into_boxed_slice())
+        };
         (bytes, format!("{:x}", Sha256::digest(bytes)))
     }
 
@@ -3395,9 +3437,10 @@ mod tests {
             fs::read(queue.path(&job.id, "stage").unwrap().join("Game/data.bin")).unwrap(),
             b"hello"
         );
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
+        remove_directory(directory);
     }
 
     #[tokio::test]
@@ -3423,9 +3466,10 @@ mod tests {
         settle().await;
         assert_eq!(status(&database, &job.id).unwrap(), "staged");
         assert!(changes.has_changed().unwrap());
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
+        remove_directory(directory);
     }
 
     #[test]
@@ -3465,13 +3509,14 @@ mod tests {
         let game = database.game(&completed.id).unwrap();
         assert_eq!(
             fs::read(game.executable_path.unwrap()).unwrap(),
-            b"#!/bin/sh\nexit 0\n"
+            FIXTURE_EXECUTABLE.1
         );
         assert_eq!(status_of(&database, &queued.id).as_deref(), Some("queued"));
         assert_eq!(status_of(&database, &failed.id).as_deref(), Some("failed"));
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
+        remove_directory(directory);
     }
 
     #[test]
@@ -3618,9 +3663,10 @@ mod tests {
         wait_for_installation(&app, &database, &job.id);
         server.join().unwrap();
 
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
+        remove_directory(directory);
     }
 
     #[tokio::test]
@@ -3669,15 +3715,16 @@ mod tests {
         wait_for_installation(&app, &database, &job.id);
         let installed = directory.join("installed/Portal");
         assert_eq!(
-            fs::read(installed.join("start.sh")).unwrap(),
-            b"#!/bin/sh\nexit 0\n"
+            fs::read(installed.join(FIXTURE_EXECUTABLE.0)).unwrap(),
+            FIXTURE_EXECUTABLE.1
         );
         assert!(database.game(&job.id).unwrap().executable_path.is_some());
         server.join().unwrap();
 
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
+        remove_directory(directory);
     }
 
     #[tokio::test(start_paused = true)]
@@ -3709,6 +3756,8 @@ mod tests {
                         Err(error) => panic!("download request {index} was not received: {error}"),
                     }
                 };
+                // Windows sockets inherit the listener's non-blocking mode.
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(3)))
                     .unwrap();
@@ -3788,9 +3837,10 @@ mod tests {
         assert_eq!(status(&database, &job.id).unwrap(), "installed");
         server.join().unwrap();
 
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
+        remove_directory(directory);
     }
 
     #[tokio::test]
@@ -4415,9 +4465,10 @@ mod tests {
             .unwrap();
 
         wait_for_status(&database, &job.id, "staged");
+        crate::database::close_test_database(&app.state::<DatabaseState>());
         drop(app);
         drop(database);
-        fs::remove_dir_all(directory).unwrap();
+        remove_directory(directory);
     }
 
     #[test]

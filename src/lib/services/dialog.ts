@@ -59,3 +59,13 @@ export function pickModProfileFile(): Promise<string | null> {
 export function pickModProfileExportPath(defaultName: string): Promise<string | null> {
   return save({ title: t("Esporta profilo", undefined), defaultPath: defaultName, filters: modProfileFilters() });
 }
+
+const dataExportFilters = () => [{ name: t("Dati di Legio", undefined), extensions: ["zip"] }];
+
+export function pickDataExportPath(defaultName: string): Promise<string | null> {
+  return save({ title: t("Esporta i dati", undefined), defaultPath: defaultName, filters: dataExportFilters() });
+}
+
+export function pickDataImportFile(): Promise<string | null> {
+  return open({ title: t("Seleziona un file da importare", undefined), directory: false, multiple: false, filters: dataExportFilters() });
+}

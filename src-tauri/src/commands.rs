@@ -3,7 +3,10 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_notification::NotificationExt;
 
 use crate::{
-    database::{self, CreateGameInput, DatabaseState, Game, Settings, UpdateGameInput},
+    database::{
+        self, CreateGameInput, DatabaseState, Game, LibraryOrganization, PlayStatus, Settings,
+        UpdateGameInput,
+    },
     diagnostics::{Diagnostics, LogStatus},
     legio_source_cache, link_check, manual_import,
     network::{ConnectivityCheck, NetworkState, NetworkStatus},
@@ -32,10 +35,14 @@ pub struct GameActionResult {
 
 #[tauri::command]
 pub async fn get_app_info(app: AppHandle) -> Result<AppInfo, String> {
-    let (startup_warnings, recovery_error) = match crate::startup_recovery::warnings(&app).await {
+    let (mut startup_warnings, recovery_error) = match crate::startup_recovery::warnings(&app).await
+    {
         Ok(warnings) => (warnings, None),
         Err(error) => (Vec::new(), Some(error)),
     };
+    if let Some(failure) = app.try_state::<crate::data_transfer::ImportFailure>() {
+        startup_warnings.extend(failure.0.clone());
+    }
     let package_info = app.package_info();
 
     Ok(AppInfo {
@@ -53,6 +60,14 @@ pub async fn get_app_info(app: AppHandle) -> Result<AppInfo, String> {
             .clone()),
         startup_warnings,
     })
+}
+
+#[tauri::command]
+pub async fn check_app_update(
+    app: AppHandle,
+    webview: tauri::Webview,
+) -> Result<Option<crate::app_update::UpdateMetadata>, String> {
+    crate::app_update::check(&app, webview, is_aur_package()).await
 }
 
 #[tauri::command]
@@ -277,6 +292,112 @@ pub async fn set_game_hidden(
         .map_err(|error| format!("Game visibility task failed: {error}"))?
 }
 
+async fn organize_library(
+    state: State<'_, DatabaseState>,
+    context: &'static str,
+    operation: impl FnOnce(&database::Database) -> Result<LibraryOrganization, String> + Send + 'static,
+) -> Result<LibraryOrganization, String> {
+    let database = state.shared_database()?;
+    let result = tauri::async_runtime::spawn_blocking(move || operation(&database))
+        .await
+        .unwrap_or_else(|error| Err(format!("Library organization task failed: {error}")));
+    if let Err(error) = &result {
+        crate::application_log::failure(context, error);
+    }
+    result
+}
+
+#[tauri::command]
+pub async fn get_library_organization(
+    state: State<'_, DatabaseState>,
+) -> Result<LibraryOrganization, String> {
+    organize_library(state, "library_organization_load", |database| {
+        database.library_organization()
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn set_games_favorite(
+    state: State<'_, DatabaseState>,
+    game_ids: Vec<String>,
+    favorite: bool,
+) -> Result<LibraryOrganization, String> {
+    organize_library(state, "library_favorite", move |database| {
+        database.set_games_favorite(&game_ids, favorite)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn set_games_play_status(
+    state: State<'_, DatabaseState>,
+    game_ids: Vec<String>,
+    status: PlayStatus,
+) -> Result<LibraryOrganization, String> {
+    organize_library(state, "library_play_status", move |database| {
+        database.set_games_play_status(&game_ids, status)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn set_games_collections(
+    state: State<'_, DatabaseState>,
+    game_ids: Vec<String>,
+    collection_ids: Vec<String>,
+) -> Result<LibraryOrganization, String> {
+    organize_library(state, "library_collection_membership", move |database| {
+        database.set_games_collections(&game_ids, &collection_ids)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn create_collection(
+    state: State<'_, DatabaseState>,
+    name: String,
+) -> Result<LibraryOrganization, String> {
+    organize_library(state, "library_collection_create", move |database| {
+        database.create_collection(&name)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn rename_collection(
+    state: State<'_, DatabaseState>,
+    id: String,
+    name: String,
+) -> Result<LibraryOrganization, String> {
+    organize_library(state, "library_collection_rename", move |database| {
+        database.rename_collection(&id, &name)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn delete_collection(
+    state: State<'_, DatabaseState>,
+    id: String,
+) -> Result<LibraryOrganization, String> {
+    organize_library(state, "library_collection_delete", move |database| {
+        database.delete_collection(&id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn reorder_collections(
+    state: State<'_, DatabaseState>,
+    ids: Vec<String>,
+) -> Result<LibraryOrganization, String> {
+    organize_library(state, "library_collection_reorder", move |database| {
+        database.reorder_collections(&ids)
+    })
+    .await
+}
+
 #[tauri::command]
 pub fn get_application_log_status(
     state: State<'_, crate::application_log::ApplicationLog>,
@@ -351,7 +472,7 @@ fn default_library_root(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 }
 
 /// Refuses library changes while any game runs, is launching or is being transferred.
-fn require_idle_games(app: &AppHandle) -> Result<(), String> {
+pub(crate) fn require_idle_games(app: &AppHandle) -> Result<(), String> {
     let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
     for game in app.state::<DatabaseState>().database()?.games()? {
         manager.require_idle(&game.id)?;
@@ -437,6 +558,46 @@ pub async fn get_playtime_activity(
     })
     .await
     .map_err(|error| format!("could not load playtime activity: {error}"))?
+}
+
+#[tauri::command]
+pub async fn get_playtime_recap(
+    app: AppHandle,
+    year: i32,
+    month: Option<u32>,
+    day_boundaries: Vec<i64>,
+) -> Result<crate::playtime_recap::PlaytimeRecap, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatabaseState>();
+        crate::playtime_recap::playtime_recap(
+            state.database()?,
+            year,
+            month,
+            &day_boundaries,
+            database::now_milliseconds()?,
+        )
+    })
+    .await
+    .map_err(|error| format!("could not load the playtime recap: {error}"))?
+}
+
+#[tauri::command]
+pub async fn get_playtime_recap_years(app: AppHandle) -> Result<Vec<i32>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatabaseState>();
+        crate::playtime_recap::playtime_years(state.database()?, database::now_milliseconds()?)
+    })
+    .await
+    .map_err(|error| format!("could not load the playtime years: {error}"))?
+}
+
+#[tauri::command]
+pub async fn save_playtime_recap_image(path: String, png_base64: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::playtime_recap::write_recap_image(std::path::Path::new(&path), &png_base64)
+    })
+    .await
+    .map_err(|error| format!("could not save the recap image: {error}"))?
 }
 
 #[tauri::command]

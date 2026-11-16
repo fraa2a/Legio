@@ -36,6 +36,7 @@
   import SteamMetadata from "./SteamMetadata.svelte";
   import SteamArtwork from "./SteamArtwork.svelte";
   import SystemRequirements from "./SystemRequirements.svelte";
+  import GameInstalledSize from "./GameInstalledSize.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import Callout from "../../components/ui/Callout.svelte";
   import ReleasePicker, { type ReleaseOption } from "./ReleasePicker.svelte";
@@ -50,6 +51,9 @@
   import { busyProfiles, loadModdableGames, loadOnce, modProfiles, moddableGameById, profilesOfGames, selectProfile } from "../../stores/modding";
   import { describeModdingError } from "../modding/modding-model";
   import { showToast } from "../../stores/toast";
+  import { libraryOrganization, organizationByGame, setFavorite } from "../../stores/library-organization";
+  import OrganizeGameDialog from "./OrganizeGameDialog.svelte";
+  import { collectionMembership, libraryEntries } from "./library-organize";
 
   let { storeGame = null, gameId = null }: { storeGame?: StoreGameSelection | null; gameId?: string | null } = $props();
 
@@ -88,6 +92,13 @@
     }), modStates));
   const selectedVersionId = $derived(storeGame !== null ? (entry === null ? "" : sourceReleaseId(entry)) : (game === null ? "" : selectedInstanceId(game.id, modStates.get(game.id))));
 
+  const organization = $derived(game === null ? null : libraryEntries(
+    [{ game, group: libraryVersions, totalMilliseconds: 0 }],
+    new Map(),
+    $organizationByGame,
+    collectionMembership($libraryOrganization.data.collections),
+  )[0]);
+  let organizeOpen = $state(false);
   let artworkOpen = $state(false);
   let addVersionOpen = $state(false);
   let gameSettingsOpen = $state(false);
@@ -107,6 +118,7 @@
   onMount(() => {
     if (storeGame !== null) return;
     void loadModdableGames();
+    void libraryOrganization.load();
     return startVisibleRefresh(() => void playtime.load(), 30000);
   });
 
@@ -234,7 +246,7 @@
       </div>
     {/if}
     <section class="relative isolate z-20 aspect-[1920/620] min-h-80 w-full rounded-panel">
-      <div class="absolute inset-0 overflow-hidden rounded-panel bg-zinc-800 light:bg-zinc-200">
+      <div class="absolute inset-0 overflow-hidden rounded-panel bg-zinc-800 light:bg-zinc-200 {launch?.status === 'launching' ? 'legio-cover-launching' : ''}">
         {#if customBannerUrl !== null}
           <img src={customBannerUrl} alt={t("Banner personalizzato di {0}", $language, [name])} class="absolute inset-0 size-full object-cover" />
         {:else if steamAppId !== null}
@@ -299,6 +311,21 @@
             linksDisabled={queueing || confirmOpen}
           />
         {/if}
+        {#if organization !== null}
+          <Button
+            label={organization.favorite ? t("Rimuovi dai preferiti", $language) : t("Aggiungi ai preferiti", $language)}
+            iconOnly
+            variant="overlay"
+            size="hero"
+            pressed={organization.favorite}
+            onClick={() => setFavorite(organization.gameIds, !organization.favorite).catch((error: unknown) => showToast(toMessage(error), "error"))}
+          >
+            <Icon name="star" size="xl" class={organization.favorite ? "fill-current text-legio-warning" : ""} />
+          </Button>
+          <Button label={t("Organizza {0}", $language, [name])} iconOnly variant="overlay" size="hero" onClick={() => (organizeOpen = true)}>
+            <Icon name="collection" size="xl" />
+          </Button>
+        {/if}
         {#if game !== null}
           <Button label={t("Impostazioni del gioco", $language)} iconOnly variant="overlay" size="hero" onClick={() => (gameSettingsOpen = true)}>
             <Icon name="settings" size="xl" />
@@ -328,13 +355,14 @@
       <ErrorBanner message={queueError} />
     {/if}
     {#if storeGame !== null && $sourceRefreshError !== null}
-      <ErrorBanner message={$sourceRefreshError} onRetry={() => void refreshSource()} retryLabel={t("Riprova", $language)} />
+      <ErrorBanner message={t("Impossibile aggiornare le sorgenti.", $language)} detail={$sourceRefreshError} onRetry={() => void refreshSource()} retryLabel={t("Riprova", $language)} />
     {/if}
     {#if storeGame === null && artworkError !== null}
       <ErrorBanner message={artworkError} />
     {/if}
 
 
+    {#if game !== null}<GameInstalledSize {game} />{/if}
     {#if game !== null}<GameUpdateButton gameId={game.id} />{/if}
 
     <div class="grid flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -353,7 +381,7 @@
             <dl class="grid gap-2 text-sm">
               <div class="flex flex-wrap gap-x-3">
                 <dt class="w-40 shrink-0 text-legio-fg-muted">{t("Versione", $language)}</dt>
-                <dd class="min-w-0 flex-1 break-words text-legio-fg">{entry?.release.version ?? t("non pubblicata", $language)}</dd>
+                <dd class="min-w-0 flex-1 select-text break-words text-legio-fg" data-selectable>{entry?.release.version ?? t("non pubblicata", $language)}</dd>
               </div>
               <div class="flex flex-wrap gap-x-3">
                 <dt class="w-40 shrink-0 text-legio-fg-muted">{t("Pubblicato", $language)}</dt>
@@ -391,6 +419,15 @@
       if (nextId === null) closeGame();
       else openGame(nextId);
     }}
+  />
+{/if}
+
+{#if organizeOpen && organization !== null}
+  <OrganizeGameDialog
+    {name}
+    gameIds={organization.gameIds}
+    playStatus={organization.playStatus}
+    onClose={() => (organizeOpen = false)}
   />
 {/if}
 

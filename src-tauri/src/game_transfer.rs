@@ -799,9 +799,13 @@ pub async fn transfer_game(
     game_id: String,
     library_id: String,
 ) -> Result<TransferResult, String> {
-    tauri::async_runtime::spawn_blocking(move || transfer(&app, &game_id, &library_id))
-        .await
-        .map_err(|error| format!("Transfer task failed: {error}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = transfer(&app, &game_id, &library_id);
+        crate::disk_usage::invalidate(&app, &game_id);
+        result
+    })
+    .await
+    .map_err(|error| format!("Transfer task failed: {error}"))?
 }
 
 #[cfg(test)]

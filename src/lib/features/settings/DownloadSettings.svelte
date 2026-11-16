@@ -83,7 +83,7 @@
 </script>
 
 <section class="flex flex-col gap-6">
-  {#if settingsError !== null}<ErrorBanner message={settingsError} />{/if}
+  {#if settingsError !== null}<ErrorBanner message={t("Impossibile salvare le impostazioni.", $language)} detail={settingsError} />{/if}
   {#if $bandwidthLimit.status === "error"}<ErrorBanner message={t("Impossibile leggere il limite di banda: {0}", $language, [$bandwidthLimit.error])} onRetry={() => void bandwidthLimit.load()} />{/if}
   {#if $bandwidthLimitError}<ErrorBanner message={$bandwidthLimitError} />{/if}
 

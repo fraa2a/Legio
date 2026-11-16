@@ -150,6 +150,7 @@ impl NativeProcessIdentity {
 #[derive(Clone)]
 pub(crate) enum ProcessTarget {
     Steam {
+        #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
         app_id: u32,
         #[cfg_attr(target_os = "linux", allow(dead_code))]
         install_path: std::path::PathBuf,

@@ -148,6 +148,26 @@ pub async fn open_installed_folder(app: AppHandle) -> Result<(), String> {
     .map_err(|error| format!("Installed folder task failed: {error}"))?
 }
 
+#[tauri::command]
+pub async fn open_game_folder(app: AppHandle, id: String) -> Result<(), String> {
+    crate::startup_recovery::wait(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let game = app
+            .state::<crate::database::DatabaseState>()
+            .database()?
+            .game(&id)?;
+        let folder = game
+            .steam_install_path
+            .or(game.installation_root)
+            .map(std::path::PathBuf::from)
+            .filter(|folder| folder.is_dir())
+            .ok_or("This game has no installation folder on disk")?;
+        open_directory(&folder)
+    })
+    .await
+    .map_err(|error| format!("Game folder task failed: {error}"))?
+}
+
 #[cfg(target_os = "linux")]
 pub(crate) fn open_directory(path: &Path) -> Result<(), String> {
     let mut candidates: Vec<(&str, &[&str])> = Vec::new();

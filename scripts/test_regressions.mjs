@@ -294,7 +294,7 @@ test("native launch events invalidate stale reads and reduce polling during game
       "../services/steam-accounts": service,
       "../utils/errors": errors,
       "./resource": await load("src/lib/stores/resource.ts"),
-      "./toast": dataModule("export const showToast = (message, tone) => globalThis.legioLaunchEvents.toasts.push([message, tone]);"),
+      "./toast": dataModule("export const showToast = (message, tone, action) => globalThis.legioLaunchEvents.toasts.push([message, tone, action?.detail]);"),
       "./window-activity": dataModule("export const windowActive = globalThis.legioLaunchEvents.active;"),
       "./app-info": dataModule("export const appInfo = globalThis.legioLaunchEvents.info;"),
       "./settings": dataModule("export const settings = globalThis.legioLaunchEvents.settings;"),
@@ -320,7 +320,7 @@ test("native launch events invalidate stale reads and reduce polling during game
     assert.equal(intervals.at(-1).cleared, true, "native events continue without background UI polling");
     failureListener("shortcut failure");
     assert.equal(get(launch.launchError), "shortcut failure");
-    assert.deepEqual(globalThis.legioLaunchEvents.toasts, [["shortcut failure", "error"]], "launch errors surface once, as a toast");
+    assert.deepEqual(globalThis.legioLaunchEvents.toasts, [["Could not start the game.", "error", "shortcut failure"]], "launch errors surface once, as a toast");
     stateListener([{ gameId: "game", status: "idle", error: "launch failed" }]);
     assert.equal(get(launch.hasRunningGame), false, "failed launches leave media active");
     assert.equal(get(launch.hasPendingLaunch), false);
@@ -362,6 +362,7 @@ test("hydration waits for startup recovery before loading games and displays fai
     "src/lib/stores/steam-library": dataModule("export const importSteamLibrary = async () => { globalThis.legioBootstrap.calls.push('steamImport'); };"),
     "src/lib/stores/navigation": dataModule("export const activeSection = globalThis.legioBootstrap.activeSection; export const openGame = () => {};"),
     "src/lib/stores/toast": dataModule("export const showToast = (message, tone) => globalThis.legioBootstrap.toasts.push([message, tone]);"),
+    "src/lib/stores/update-notes": dataModule("export const MAX_NOTES_CHARS = 100; export const rememberPendingNotes = async () => {}; export const announceInstalledVersion = async () => {};"),
     "src/lib/i18n": dataModule('export const t = (value, _language, args = []) => value.replace(/\\{(\\d+)\\}/g, (_, index) => args[index]);'),
   });
   const originalInterval = globalThis.setInterval;
@@ -486,9 +487,10 @@ test("missing updater platform is unavailable, not current, and invalidates a pr
   };
   const { load } = createModuleLoader({
     "src/lib/i18n": dataModule("export const t = value => value;"),
-    "@tauri-apps/plugin-updater": dataModule("export const check = () => globalThis.legioUpdaterCheck();"),
+    "@tauri-apps/plugin-updater": dataModule("export class Update { constructor(metadata) { Object.assign(this, metadata); } }"),
     "@tauri-apps/plugin-process": dataModule("export const relaunch = async () => {};"),
-    "src/lib/services/invoke": dataModule("export const invoke = async command => command === 'is_aur_package' ? false : undefined;"),
+    "src/lib/stores/update-notes": dataModule("export const MAX_NOTES_CHARS = 100; export const rememberPendingNotes = async () => {};"),
+    "src/lib/services/invoke": dataModule("export const invoke = async command => command === 'is_aur_package' ? false : command === 'check_app_update' ? globalThis.legioUpdaterCheck() : undefined;"),
   });
   const updater = await import(await load("src/lib/services/app-updater.ts"));
   try {

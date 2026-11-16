@@ -5,6 +5,7 @@
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import TextField from "../../components/ui/TextField.svelte";
   import Button from "../../components/ui/Button.svelte";
+  import CopyButton from "../../components/ui/CopyButton.svelte";
   import RefreshIcon from "../../components/ui/RefreshIcon.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Callout from "../../components/ui/Callout.svelte";
@@ -71,7 +72,7 @@
         <Button label={t("Interrompi", $language)} variant="secondary" size="sm" disabled={stopping} onClick={() => { void stopIdentification(); }} />
       </div>
     {/if}
-    {#if $sourceActionError}<ErrorBanner message={$sourceActionError} />{/if}
+    {#if $sourceActionError}<ErrorBanner message={t("Impossibile modificare le sorgenti.", $language)} detail={$sourceActionError} />{/if}
     {#if $source.error}<ErrorBanner message={$source.error} onRetry={() => { void source.load(); }} />{/if}
   </SettingsGroup>
 
@@ -91,7 +92,7 @@
               {#if problems.length > 0}<Callout tone="warning" variant="inline" items={problems} />{/if}
               {#if installed.diagnostics.unsupported > 0}<Callout tone="info" variant="inline" message="{installed.diagnostics.unsupported} {t("link non supportati", $language)}" />{/if}
             {/if}
-            <p class="break-all text-sm text-legio-fg">{installed.url}</p>
+            <div class="flex items-start gap-2"><p class="min-w-0 flex-1 select-text break-all text-sm text-legio-fg" data-selectable>{installed.url}</p><CopyButton text={installed.url} size="inline-sm" label={t("Copia l'indirizzo", $language)} /></div>
             <div class="flex flex-wrap items-center justify-between gap-3">
               <p class="text-xs text-legio-fg-muted">{installed.gameCount} {t("giochi", $language)} · {t(installed.stale ? "Cache da aggiornare" : "Aggiornata", $language)}</p>
               <Button label={t("Rimuovi", $language)} variant="danger-soft" disabled={$sourceBusy} onClick={() => { void removeSource(installed.id); }} />
@@ -104,7 +105,7 @@
         <Button label={t("Aggiorna sorgenti", $language)} variant="secondary" disabled={$sourceBusy} onClick={() => { void refreshSources(); }}><RefreshIcon spinning={refreshing} /></Button>
       </div>
     {/if}
-    {#if $sourceRefreshError}<ErrorBanner message={$sourceRefreshError} />{/if}
+    {#if $sourceRefreshError}<ErrorBanner message={t("Impossibile aggiornare le sorgenti.", $language)} detail={$sourceRefreshError} />{/if}
     {#if $source.data.warning}<ErrorBanner message={$source.data.warning} tone="warning" />{/if}
   </SettingsGroup>
   <p class="text-xs text-legio-fg-subtle">{t("Puoi aggiungere una sorgente anche aprendo un collegamento legio://add-source?url=... dopo il primo avvio di Legio.", $language)}</p>
