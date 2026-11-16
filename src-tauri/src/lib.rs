@@ -568,6 +568,8 @@ fn run_application(
             commands::inspect_steam_game_launch,
             commands::list_saved_steam_accounts,
             commands::set_game_steam_account_preference,
+            commands::get_game_start_steam,
+            commands::set_game_start_steam,
             commands::list_steam_shortcut_accounts,
             commands::preview_steam_shortcuts,
             commands::export_steam_shortcuts,

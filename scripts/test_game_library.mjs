@@ -68,7 +68,7 @@ test("transfer asks only for a destination library and stays disabled while the 
     "src/lib/services/local-state": dataModule('export const createDesktopShortcut=async()=>({}); export const transferGame=async(...args)=>{globalThis.libraryFixture.calls.push(args);return {game:globalThis.libraryFixture.game,warning:null};};'),
     "src/lib/components/ui/Dialog.svelte": await stub('<script>let {open,children}=$props();</script>{#if open}<div>{@render children?.()}</div>{/if}'),
   };
-  for (const panel of ["GameArtworkPanel", "GameDetailsPanel", "ExecutablePanel", "GameSettingsPanel", "SteamAccountPanel", "SteamLaunchSettings"]) {
+  for (const panel of ["GameArtworkPanel", "GameDetailsPanel", "ExecutablePanel", "GameSettingsPanel", "SteamAccountPanel", "SteamLaunchSettings", "SteamStartSetting"]) {
     mocks[`src/lib/features/library/${panel}.svelte`] = empty;
   }
   const loader = createModuleLoader(mocks);
@@ -310,4 +310,32 @@ test("library removal stops at the first failed game and keeps the library", asy
     globalThis.removalFixture.libraries = [only, { ...only, id: "other" }];
     assert.equal(await onlyUsableLibrary(null), null);
   } finally { delete globalThis.removalFixture; }
+});
+
+test("Steam start setting loads, saves and reverts a failed change", async () => {
+  const calls = [];
+  globalThis.steamStartFixture = { calls, fail: false };
+  const stub = async source => dataModule(await createModuleLoader({}).resolveImports(compile(source, { generate: "client" }).js.code, "stub.svelte"));
+  const { load } = createModuleLoader({
+    "src/lib/i18n": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const language=writable("it"); export const t=value=>value;`),
+    "src/lib/services/game-settings": dataModule('export const getGameStartSteam=async id=>{globalThis.steamStartFixture.calls.push(["get",id]);return true;}; export const setGameStartSteam=async(...args)=>{globalThis.steamStartFixture.calls.push(["set",...args]);if(globalThis.steamStartFixture.fail)throw new Error("Save failed");};'),
+    // Tooltips in these primitives need media globals this file does not install.
+    "src/lib/components/ui/ResetSetting.svelte": await stub("<span></span>"),
+    "src/lib/components/ui/ErrorBanner.svelte": await stub("<script>let {message}=$props();</script><p>{message}</p>"),
+  });
+  const Component = (await import(await load("src/lib/features/library/SteamStartSetting.svelte"))).default;
+  const target = document.createElement("div"); document.body.append(target);
+  const instance = mount(Component, { target, props: { game: { id: "game", steamAppId: 400 } } });
+  try {
+    await settle();
+    const toggle = target.querySelector('input[role="switch"]');
+    assert.equal(toggle.checked, true);
+    toggle.click(); await settle();
+    assert.deepEqual(calls, [["get", "game"], ["set", "game", false]]);
+    assert.equal(toggle.checked, false);
+    globalThis.steamStartFixture.fail = true;
+    toggle.click(); await settle();
+    assert.equal(toggle.checked, false);
+    assert.ok(target.textContent.includes("Save failed"));
+  } finally { await unmount(instance); target.remove(); delete globalThis.steamStartFixture; }
 });
