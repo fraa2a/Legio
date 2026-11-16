@@ -1408,5 +1408,8 @@
   "Cartella predefinita": "Default folder",
   "Nessuno screenshot": "No screenshots",
   "Gli screenshot di Steam e quelli salvati in {0} compaiono qui.": "Steam screenshots and the ones saved in {0} appear here.",
-  "Imposta come sfondo": "Set as wallpaper"
+  "Imposta come sfondo": "Set as wallpaper",
+  "Scelta di copertine e icone personalizzate per un gioco.": "Choosing custom covers and icons for a game.",
+  "Solo quando apri il selettore di SteamGridDB, con una chiave API che hai inserito tu.": "Only when you open the SteamGridDB picker, with an API key you entered.",
+  "Nome o ID Steam del gioco. La chiave API va solo a www.steamgriddb.com.": "Game name or Steam ID. The API key goes only to www.steamgriddb.com."
 }
