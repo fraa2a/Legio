@@ -48,7 +48,7 @@
   </div>
   <div class="flex shrink-0 flex-wrap items-center justify-center gap-2">
     <Button label={t("Informazioni su {0}", $language, [game.name])} variant="overlay" shape="circle" onClick={() => openGame(game.id)}><Icon name="info" /></Button>
-    <GameLaunchControls {game} {launch} playLabel={t("Continua a giocare", $language)} variant="primary" shape="pill" class="px-5"
+    <GameLaunchControls {game} {launch} playLabel={t("Continua a giocare", $language)} variant="primary" shape="pill" menuAbove class="px-5"
       actionPending={$pendingGameId === game.id} cancelPending={$cancelPendingGameId === game.id}
       onPlay={playGame} onCancel={abortGameLaunch} onStop={stopGameProcess} />
     <Button label={t("Impostazioni di {0}", $language, [game.name])} variant="overlay" shape="circle" onClick={onSettings}><Icon name="settings" /></Button>

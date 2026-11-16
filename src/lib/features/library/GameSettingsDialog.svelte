@@ -20,6 +20,7 @@
   import GameDetailsPanel from "./GameDetailsPanel.svelte";
   import ExecutablePanel from "./ExecutablePanel.svelte";
   import GameSettingsPanel from "./GameSettingsPanel.svelte";
+  import LaunchProfilesPanel from "./LaunchProfilesPanel.svelte";
   import SteamAccountPanel from "./SteamAccountPanel.svelte";
   import SteamLaunchSettings from "./SteamLaunchSettings.svelte";
   import GameModSettings from "../modding/GameModSettings.svelte";
@@ -35,15 +36,17 @@
   const steamManaged = $derived(game.steamInstallPath !== null);
   const allCategories = $derived([
     { id: "general", label: t("Generali", $language), icon: "settings" },
+    { id: "profiles", label: t("Profili di avvio", $language), icon: "play" },
     { id: "locations", label: t("Posizioni", $language), icon: "folder" },
     { id: "customization", label: t("Personalizzazione", $language), icon: "image" },
     { id: "compatibility", label: t("Compatibilità", $language), icon: "wrench" },
     { id: "mods", label: t("Mod", $language), icon: "mods" },
     { id: "danger", label: t("Zona pericolosa", $language), icon: "warning" },
-  ] satisfies { id: string; label: string; icon: "settings" | "folder" | "image" | "wrench" | "mods" | "warning" }[]);
-  const categories = $derived((steamManaged || $appInfo.data.platform !== "linux" || (game.executablePath !== null && !/\.exe$/i.test(game.executablePath)))
-    ? allCategories.filter((category) => category.id !== "compatibility")
-    : allCategories);
+  ] satisfies { id: string; label: string; icon: "settings" | "play" | "folder" | "image" | "wrench" | "mods" | "warning" }[]);
+  const noCompatibility = $derived(steamManaged || $appInfo.data.platform !== "linux" || (game.executablePath !== null && !/\.exe$/i.test(game.executablePath)));
+  const launchable = $derived(steamManaged || game.executablePath !== null);
+  const categories = $derived(allCategories.filter((category) =>
+    (category.id !== "compatibility" || !noCompatibility) && (category.id !== "profiles" || launchable)));
   let active = $state("general");
   const selectedCategory = $derived(categories.some(category => category.id === active) ? active : "general");
   let shortcutWarning = $state<string | null>(null);
@@ -119,6 +122,8 @@
             </Panel>
           {/if}
         </div>
+      {:else if selectedCategory === "profiles"}
+        {#key game.id}<LaunchProfilesPanel {game} />{/key}
       {:else if selectedCategory === "locations"}
         <div class="flex flex-col gap-4">
           {#if !steamManaged}<ExecutablePanel {game} />{:else}

@@ -329,6 +329,24 @@ Removing a game removes its memberships. Steam re-sync updates rows in place, an
 its cleanup of reclassified non-game rows skips favorites, rows with a status and
 collection members, as it already skips renamed rows and selected Steam accounts.
 
+## Launch profiles in the local database
+
+Schema version 41 adds launch profiles. They stay local: library manifests
+(`library.ldf`) do not carry them. See [LIBRARY.md](LIBRARY.md#launch-profiles) for
+behavior.
+
+| Storage | Column or rule |
+| --- | --- |
+| `launch_profiles` | `id` (UUID), `game_id` (foreign key, cascades on delete), `name` (1 to 48 characters, unique per game ignoring case), `position` (creation order), `overrides` (JSON) |
+| `game_last_launch_profile` | `game_id` (primary key, cascades on delete) and `profile_id` (cascades on delete); no row means the base settings |
+
+`overrides` is `{ arguments, environment, runnerPath, linuxPerformance }` with every
+field optional; a missing field inherits. Commands trim names, reject control
+characters and duplicates (compared case-insensitively), and accept at most 12
+profiles per game. Profiles of Steam-managed games can only override `arguments`.
+`get_launch_profiles` and every profile command return the whole snapshot
+`{ profiles: [{ id, gameId, name, overrides }], lastUsed: { gameId: profileId } }`.
+
 ## Code references
 
 - [Store manifest parser](../../src-tauri/src/legio_source.rs) and [source cache](../../src-tauri/src/legio_source_cache.rs).

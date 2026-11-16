@@ -205,28 +205,6 @@
     if (value === "inherit" || isWaylandMode(value)) setOverride("wayland", value === "inherit" ? null : value);
   }
 
-  function setPerformance(changes: Partial<GameCompatibilityOverrides["linuxPerformance"]>): void {
-    setOverride("linuxPerformance", { ...overrides.linuxPerformance, ...changes });
-  }
-
-  function setGamescopeResolution(value: string): void {
-    const config = overrides.linuxPerformance.gamescope;
-    if (config === null) return;
-    if (value === "native") {
-      setPerformance({ gamescope: { ...config, width: null, height: null } });
-    } else {
-      const [width, height] = value.split("x").map(Number);
-      if (Number.isInteger(width) && Number.isInteger(height)) setPerformance({ gamescope: { ...config, width, height } });
-    }
-  }
-
-  function setGamescopeFps(value: string): void {
-    const config = overrides.linuxPerformance.gamescope;
-    if (config === null) return;
-    const fps = value === "uncapped" ? null : Number(value);
-    if (fps === null || (Number.isInteger(fps) && fps >= 1 && fps <= 360)) setPerformance({ gamescope: { ...config, fps } });
-  }
-
   function setDebugLogging(value: string): void {
     setOverride("debugLogging", value === "inherit" ? null : value === "true");
   }
@@ -318,6 +296,28 @@
     } finally {
       saving = false;
     }
+  }
+
+  function setPerformance(changes: Partial<GameCompatibilityOverrides["linuxPerformance"]>): void {
+    setOverride("linuxPerformance", { ...overrides.linuxPerformance, ...changes });
+  }
+
+  function setGamescopeResolution(value: string): void {
+    const config = overrides.linuxPerformance.gamescope;
+    if (config === null) return;
+    if (value === "native") {
+      setPerformance({ gamescope: { ...config, width: null, height: null } });
+    } else {
+      const [width, height] = value.split("x").map(Number);
+      if (Number.isInteger(width) && Number.isInteger(height)) setPerformance({ gamescope: { ...config, width, height } });
+    }
+  }
+
+  function setGamescopeFps(value: string): void {
+    const config = overrides.linuxPerformance.gamescope;
+    if (config === null) return;
+    const fps = value === "uncapped" ? null : Number(value);
+    if (fps === null || (Number.isInteger(fps) && fps >= 1 && fps <= 360)) setPerformance({ gamescope: { ...config, fps } });
   }
 </script>
 

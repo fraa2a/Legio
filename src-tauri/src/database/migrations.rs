@@ -894,5 +894,26 @@ pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
             )
             .map_err(database_error)?;
     }
+    if version < 41 {
+        // Launch profiles: named overrides of a game's launch settings, plus the
+        // profile each game launched last. A missing selection means the base settings.
+        transaction
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS launch_profiles (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 48),
+                    position INTEGER NOT NULL,
+                    overrides TEXT NOT NULL,
+                    UNIQUE (game_id, name COLLATE NOCASE)
+                 );
+                 CREATE TABLE IF NOT EXISTS game_last_launch_profile (
+                    game_id TEXT PRIMARY KEY NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                    profile_id TEXT NOT NULL REFERENCES launch_profiles(id) ON DELETE CASCADE
+                 );
+                 PRAGMA user_version = 41;",
+            )
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }
