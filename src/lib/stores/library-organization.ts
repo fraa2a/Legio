@@ -13,7 +13,6 @@ import {
   type PlayStatus,
 } from "../services/library-organization";
 import { createResource } from "./resource";
-import { libraryView, updateLibraryView } from "./library-ui";
 
 export const libraryOrganization = createResource<LibraryOrganization>({ games: [], collections: [] }, getLibraryOrganization);
 
@@ -52,10 +51,8 @@ export function renameExistingCollection(id: string, name: string): Promise<void
   return apply(renameCollection(id, name));
 }
 
-export async function removeCollection(id: string): Promise<void> {
-  await apply(deleteCollection(id));
-  const filter = get(libraryView).collection;
-  if (filter.kind === "collection" && filter.id === id) await updateLibraryView({ collection: { kind: "all" } });
+export function removeCollection(id: string): Promise<void> {
+  return apply(deleteCollection(id));
 }
 
 /** Moves a collection one step up (-1) or down (1). */

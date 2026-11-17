@@ -51,6 +51,7 @@
   import RectangleHorizontal from "@lucide/svelte/icons/rectangle-horizontal";
   import RectangleVertical from "@lucide/svelte/icons/rectangle-vertical";
   import Rocket from "@lucide/svelte/icons/rocket";
+  import Rows3 from "@lucide/svelte/icons/rows-3";
   import RotateCw from "@lucide/svelte/icons/rotate-cw";
   import ScrollText from "@lucide/svelte/icons/scroll-text";
   import Search from "@lucide/svelte/icons/search";
@@ -143,6 +144,7 @@
     "collection": FolderHeart,
     "grid": LayoutGrid,
     "list": List,
+    "shelves": Rows3,
     "sort-ascending": ArrowUpNarrowWide,
     "sort-descending": ArrowDownWideNarrow,
   };

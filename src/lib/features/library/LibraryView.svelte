@@ -5,12 +5,15 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
   import Callout from "../../components/ui/Callout.svelte";
-  import type { LibrarySortKey, LibraryViewPreferences } from "../../services/local-state";
+  import Icon, { type IconName } from "../../components/ui/Icon.svelte";
+  import IconButton from "../../components/ui/IconButton.svelte";
+  import type { LibrarySortKey, LibraryViewMode, LibraryViewPreferences } from "../../services/local-state";
   import { games } from "../../stores/games";
-  import { addGameDialogOpen, libraryPortrait, libraryQuery, libraryView, previewLibraryView, updateLibraryView } from "../../stores/library-ui";
+  import { addGameDialogOpen, libraryPortrait, libraryQuery, libraryView, updateLibraryView } from "../../stores/library-ui";
   import { libraryOrganization, organizationByGame, setFavorite } from "../../stores/library-organization";
   import { launchStateByGame } from "../../stores/launch";
-  import { openGame } from "../../stores/navigation";
+  import { activeSection, openGame, selectedGameId } from "../../stores/navigation";
+  import { showTitleBarContent } from "../../stores/title-bar";
   import { playtime } from "../../stores/playtime";
   import { importSteamLibrary, steamLibrary } from "../../stores/steam-library";
   import { settings } from "../../stores/settings";
@@ -20,7 +23,7 @@
   import CollectionsDialog from "./CollectionsDialog.svelte";
   import GameCard from "./GameCard.svelte";
   import LibraryList from "./LibraryList.svelte";
-  import LibraryToolbar from "./LibraryToolbar.svelte";
+  import LibraryFilterMenu from "./LibraryFilterMenu.svelte";
   import OrganizeGameDialog from "./OrganizeGameDialog.svelte";
   import { reflowOnResize } from "./grid-reflow";
   import { libraryGroups, libraryItems } from "./library-model";
@@ -46,7 +49,13 @@
     $organizationByGame,
     collectionMembership(collections),
   ));
-  const visible = $derived(sortEntries(filterEntries(entries, $libraryView, collections), $libraryView.sort, $libraryView.descending));
+  const visible = $derived(sortEntries(filterEntries(entries, $libraryView), $libraryView.sort, $libraryView.descending));
+  const onPage = $derived($activeSection === "library" && $selectedGameId === null && $games.data.length > 0);
+  const viewModes = $derived<{ mode: LibraryViewMode; icon: IconName; label: string }[]>([
+    { mode: "grid", icon: "grid", label: t("Griglia", $language) },
+    { mode: "list", icon: "list", label: t("Elenco", $language) },
+    { mode: "shelves", icon: "shelves", label: t("Scaffali", $language) },
+  ]);
   const shelves = $derived($libraryView.mode === "shelves" ? libraryShelves(visible, collections, t("Senza raccolta", $language)) : []);
   const organizing = $derived(organizingId === null ? null : (entries.find((entry) => entry.game.id === organizingId) ?? null));
   const tileWidth = $derived(`${($libraryPortrait ? 11 : 18) * $libraryView.coverScale / 100}rem`);
@@ -61,6 +70,11 @@
   function changeView(changes: Partial<LibraryViewPreferences>): void {
     updateLibraryView(changes).catch(reportError);
   }
+
+  $effect(() => {
+    if (!onPage) return;
+    return showTitleBarContent({ start: viewControls });
+  });
 
   function sortBy(key: LibrarySortKey): void {
     changeView(nextSort($libraryView, key));
@@ -97,17 +111,6 @@
     error={$games.error}
     onRetry={() => void games.load()}
   />
-
-  {#if $games.data.length > 0}
-    <LibraryToolbar
-      view={$libraryView}
-      {collections}
-      onChange={changeView}
-      onPreviewCoverScale={(coverScale) => previewLibraryView({ coverScale })}
-      onCommitCoverScale={() => changeView({})}
-      onManageCollections={() => (collectionsOpen = true)}
-    />
-  {/if}
 
   {#snippet card(entry: LibraryEntry, className = "")}
     <GameCard
@@ -184,3 +187,18 @@
 {#if collectionsOpen}
   <CollectionsDialog onClose={() => (collectionsOpen = false)} />
 {/if}
+
+{#snippet viewControls()}
+  <div class="legio-glass flex h-control-md items-center gap-0.5 rounded-card p-1" role="toolbar" aria-label={t("Vista", $language)}>
+    {#each viewModes as option (option.mode)}
+      <IconButton label={option.label} title={option.label} pressed={$libraryView.mode === option.mode} onClick={() => changeView({ mode: option.mode })}>
+        <Icon name={option.icon} />
+      </IconButton>
+    {/each}
+    <span class="mx-0.5 h-4 w-px bg-legio-line-subtle" aria-hidden="true"></span>
+    <IconButton label={t("Raccolte", $language)} title={t("Gestisci raccolte", $language)} onClick={() => (collectionsOpen = true)}>
+      <Icon name="collection" />
+    </IconButton>
+  </div>
+  <LibraryFilterMenu filters={$libraryView} onChange={changeView} />
+{/snippet}

@@ -5,14 +5,22 @@
   import { diskUsageDialogOpen, libraryUsage, requestDiskUsage, watchDiskUsage } from "../../stores/disk-usage";
   import { gameLibraries, pickAndAddLibrary } from "../../stores/game-libraries";
   import { hiddenSteamGames, restoreSteamGame } from "../../stores/games";
+  import { libraryView, previewLibraryView, updateLibraryView } from "../../stores/library-ui";
+  import type { LibrarySortKey, LibraryViewPreferences } from "../../services/local-state";
   import { toMessage } from "../../utils/errors";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
+  import SettingsRow from "../../components/ui/SettingsRow.svelte";
+  import SelectField from "../../components/ui/SelectField.svelte";
+  import IconButton from "../../components/ui/IconButton.svelte";
+  import Slider from "../../components/ui/Slider.svelte";
   import Button from "../../components/ui/Button.svelte";
   import CopyButton from "../../components/ui/CopyButton.svelte";
   import Badge from "../../components/ui/Badge.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import { formatLibraryDetails } from "../library/library-details";
+  import { sortLabel } from "../library/library-labels";
+  import { defaultDescending } from "../library/library-organize";
   import LibraryUsageBar from "./LibraryUsageBar.svelte";
   import RemoveLibraryDialog from "./RemoveLibraryDialog.svelte";
 
@@ -20,6 +28,11 @@
   let error = $state<string | null>(null);
   let restoringId = $state<string | null>(null);
   let removing = $state<GameLibrary | null>(null);
+  let viewError = $state<string | null>(null);
+  // Mirrors MIN_LIBRARY_COVER_SCALE and MAX_LIBRARY_COVER_SCALE in database.rs.
+  const minCoverScale = 70;
+  const maxCoverScale = 150;
+  const sortKeys: LibrarySortKey[] = ["name", "playtime", "lastPlayed", "added", "origin"];
   onMount(() => {
     void gameLibraries.reload();
     void hiddenSteamGames.load();
@@ -42,6 +55,11 @@
     try { await pickAndAddLibrary(); }
     catch (cause) { error = toMessage(cause); }
     finally { pending = false; }
+  }
+
+  function changeView(changes: Partial<LibraryViewPreferences>): void {
+    viewError = null;
+    updateLibraryView(changes).catch((cause: unknown) => { viewError = toMessage(cause); });
   }
 
   async function repair(library: GameLibrary): Promise<void> {
@@ -94,6 +112,45 @@
 {#if removing !== null}
   <RemoveLibraryDialog library={removing} onClose={() => (removing = null)} />
 {/if}
+
+<SettingsGroup icon="grid" title={t("Come mostrare la libreria", $language)}>
+  <SettingsRow label={t("Ordina per", $language)}>
+    <div class="flex items-center gap-1">
+      <SelectField
+        id="library-sort"
+        label={t("Ordina per", $language)}
+        labelHidden
+        borderless
+        class="w-48"
+        value={$libraryView.sort}
+        options={sortKeys.map((key) => ({ value: key, label: sortLabel(key, $language) }))}
+        onChange={(value) => { if (value !== $libraryView.sort) changeView({ sort: value as LibrarySortKey, descending: defaultDescending(value as LibrarySortKey) }); }}
+      />
+      <IconButton
+        size="md"
+        label={$libraryView.descending ? t("Ordine decrescente", $language) : t("Ordine crescente", $language)}
+        title={$libraryView.descending ? t("Ordine decrescente", $language) : t("Ordine crescente", $language)}
+        onClick={() => changeView({ descending: !$libraryView.descending })}
+      >
+        <Icon name={$libraryView.descending ? "sort-descending" : "sort-ascending"} />
+      </IconButton>
+    </div>
+  </SettingsRow>
+  <SettingsRow label={t("Dimensione copertine", $language)} description={t("Vale per la griglia e gli scaffali.", $language)}>
+    <Slider
+      label={t("Dimensione copertine", $language)}
+      class="w-48"
+      min={minCoverScale}
+      max={maxCoverScale}
+      step={10}
+      value={$libraryView.coverScale}
+      valueText={`${$libraryView.coverScale}%`}
+      onInput={(coverScale) => previewLibraryView({ coverScale })}
+      onCommit={() => changeView({})}
+    />
+  </SettingsRow>
+  {#if viewError}<ErrorBanner message={viewError} />{/if}
+</SettingsGroup>
 
 <SettingsGroup icon="hidden" title={t("Giochi Steam nascosti", $language)}>
   {#if $hiddenSteamGames.error !== null}

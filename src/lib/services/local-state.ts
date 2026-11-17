@@ -7,7 +7,6 @@ export type Theme = "system" | "dark" | "light" | "bronze" | "crimson" | "steel"
 
 export type LibraryViewMode = "grid" | "list" | "shelves";
 export type LibrarySortKey = "name" | "playtime" | "lastPlayed" | "added" | "origin";
-export type LibraryCollectionFilter = { kind: "all" } | { kind: "uncollected" } | { kind: "collection"; id: string };
 
 export interface LibraryViewPreferences {
   mode: LibraryViewMode;
@@ -17,7 +16,6 @@ export interface LibraryViewPreferences {
   coverScale: number;
   favoritesOnly: boolean;
   playStatus: PlayStatus | null;
-  collection: LibraryCollectionFilter;
 }
 
 export interface Settings {

@@ -12,7 +12,7 @@ for (const key of ["window", "document", "navigator", "Node", "Text", "Comment",
 // jsdom has no ResizeObserver; the library grid's reflow action only needs it to exist.
 globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 const { mount, unmount, flushSync } = await import("svelte");
-const { writable } = await import("svelte/store");
+const { get, writable } = await import("svelte/store");
 const mocks = {
   "src/lib/stores/window-activity": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const windowActive = writable(true); export const windowVisible = writable(true);`),
   "@tauri-apps/api/core": dataModule('export const invoke = (...args) => args[0] === "cancel_artwork_request" ? (globalThis.cancelledMetadata?.push(args[1].requestId), Promise.resolve()) : globalThis.artworkInvoke(...args);'),
@@ -233,15 +233,16 @@ test("library renders repeated Steam diagnostics and stays usable after refresh"
     "src/lib/stores/games": dataModule("export const games = globalThis.libraryCrashFixture.games;"),
     "src/lib/stores/steam-library": dataModule("export const steamLibrary = globalThis.libraryCrashFixture.steamLibrary; export const importSteamLibrary = async () => {};"),
     "src/lib/stores/settings": dataModule(storeImport + 'export const settings = writable({ data: { syncSteamGames: true } });'),
-    "src/lib/stores/library-ui": dataModule(storeImport + 'export const addGameDialogOpen = writable(false), libraryPortrait = writable(false), libraryQuery = writable(""), libraryView = writable({ mode: "grid", sort: "name", descending: false, coverScale: 100, favoritesOnly: false, playStatus: null, collection: { kind: "all" } }); export const previewLibraryView = () => {}, updateLibraryView = async () => {};'),
+    "src/lib/stores/library-ui": dataModule(storeImport + 'export const addGameDialogOpen = writable(false), libraryPortrait = writable(false), libraryQuery = writable(""), libraryView = writable({ mode: "grid", sort: "name", descending: false, coverScale: 100, favoritesOnly: false, playStatus: null }); export const previewLibraryView = () => {}, updateLibraryView = async () => {};'),
     "src/lib/stores/library-organization": dataModule(storeImport + 'export const libraryOrganization = writable({ status: "ready", data: { games: [], collections: [] }, error: null }); libraryOrganization.load = async () => {}; export const organizationByGame = writable(new Map()); export const setFavorite = async () => {}, setPlayStatus = async () => {}, setCollections = async () => {}, addCollection = async () => "", renameExistingCollection = async () => {}, removeCollection = async () => {}, moveCollection = async () => {};'),
     "src/lib/stores/launch": dataModule(storeImport + "export const launchError = writable(null), launchStateByGame = writable(new Map());"),
     "src/lib/stores/playtime": dataModule(storeImport + "export const playtime = writable({data:[]}); playtime.load = async () => {};"),
-    "src/lib/stores/navigation": dataModule("export const openGame = () => {};"),
+    "src/lib/stores/navigation": dataModule(storeImport + "export const openGame = () => {}, activeSection = writable(\"library\"), selectedGameId = writable(null);"),
     "src/lib/features/library/GameCard.svelte": dataModule(await resolveImports(compile('<script>let { game } = $props();</script><li>{game.name}</li>', { generate: "client" }).js.code, "card-fixture.svelte")),
     "src/lib/features/library/AddGameDialog.svelte": dataModule("export default () => {};"),
   });
   const { default: LibraryView } = await import(await libraryModuleUrl("src/lib/features/library/LibraryView.svelte"));
+  const { titleBarContent } = await import(await libraryModuleUrl("src/lib/stores/title-bar.ts"));
   const target = document.createElement("div");
   document.body.append(target);
   let component;
@@ -251,10 +252,12 @@ test("library renders repeated Steam diagnostics and stays usable after refresh"
     component = mount(LibraryView, { target });
     await settle();
     assert.equal(target.querySelectorAll('[aria-label="Diagnostica Steam"] li').length, 2);
+    assert.equal(get(titleBarContent), null, "the view controls wait for games");
     games.set({ data: [{ id: "portal", name: "Portal", steamAppId: 400, steamInstallPath: "C:\\Steam\\Portal" }], status: "ready", error: null });
     steamLibrary.set({ importing: false, error: null, importResult: { diagnostics: [warning, warning, warning] } });
     await settle();
     assert.equal(target.querySelectorAll('[aria-label="Diagnostica Steam"] li').length, 3);
+    assert.ok(get(titleBarContent)?.start, "the view controls move into the title bar");
     assert.match(target.textContent, /Portal/);
     steamLibrary.set({ importing: false, error: null, importResult: { diagnostics: [] } });
     await settle();
@@ -264,6 +267,7 @@ test("library renders repeated Steam diagnostics and stays usable after refresh"
     if (component) await unmount(component);
     target.remove();
   }
+  assert.equal(get(titleBarContent), null);
 });
 
 test("Store row releases metadata demand as soon as it leaves view", async () => {

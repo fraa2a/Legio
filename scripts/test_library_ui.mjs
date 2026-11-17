@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { get, writable } from "svelte/store";
 import { createModuleLoader, dataModule } from "./test_module_loader.mjs";
 
-const defaultView = { mode: "grid", sort: "name", descending: false, coverScale: 100, favoritesOnly: false, playStatus: null, collection: { kind: "all" } };
+const defaultView = { mode: "grid", sort: "name", descending: false, coverScale: 100, favoritesOnly: false, playStatus: null };
 
 // library-ui is imported once (identical module URLs are cached), with a settings
 // store whose saves resolve or reject on demand.
@@ -60,15 +60,12 @@ test("cover size previews without saving and a failed save restores the saved vi
   assert.equal(get(libraryView).coverScale, 100);
 });
 
-test("deleting the filtered collection resets the collection filter", async () => {
-  const filtered = { ...defaultView, collection: { kind: "collection", id: "c1" } };
-  const view = writable(filtered);
+test("collections are created, reordered and deleted", async () => {
   const calls = [];
-  globalThis.organizationFixture = { view, calls };
+  globalThis.organizationFixture = { calls };
   const organization = { games: [], collections: [{ id: "c1", name: "A", gameIds: [] }, { id: "c2", name: "B", gameIds: [] }] };
   const { load } = createModuleLoader({
     "src/lib/i18n": dataModule(`import { writable } from "${import.meta.resolve("svelte/store")}"; export const language = writable("it"); export const t = (value) => value;`),
-    "src/lib/stores/library-ui": dataModule("export const libraryView = globalThis.organizationFixture.view; export const updateLibraryView = async (changes) => { globalThis.organizationFixture.calls.push(['view', changes]); };"),
     "src/lib/services/library-organization": dataModule(`
       const state = ${JSON.stringify(organization)};
       const record = (name, ...args) => { globalThis.organizationFixture.calls.push([name, ...args]); return structuredClone(state); };
@@ -93,9 +90,7 @@ test("deleting the filtered collection resets the collection filter", async () =
   await store.moveCollection("c3", 1);
   assert.equal(calls.length, before, "the last collection cannot move further down");
   await store.removeCollection("c2");
-  assert.deepEqual(calls.at(-1), ["delete", "c2"], "another collection keeps the filter");
-  await store.removeCollection("c1");
-  assert.deepEqual(calls.slice(-2), [["delete", "c1"], ["view", { collection: { kind: "all" } }]]);
-  assert.deepEqual(get(store.libraryOrganization).data.collections.map((item) => item.id), ["c3"]);
+  assert.deepEqual(calls.at(-1), ["delete", "c2"]);
+  assert.deepEqual(get(store.libraryOrganization).data.collections.map((item) => item.id), ["c1", "c3"]);
   delete globalThis.organizationFixture;
 });
