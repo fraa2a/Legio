@@ -246,7 +246,9 @@ test("artwork phase logging is opt-in and cannot delay image publication", async
     assert.ok(image.url); assert.equal(records.length, 1);
     assert.equal(records[0].event, "artwork");
     assert.match(records[0].message, /publication_ms=/);
-    assert.ok(!records[0].message.includes("blob:") && !records[0].message.includes("https:") && !records[0].message.includes("997"));
+    // request_id is a random UUID that can contain the digits 997 by chance.
+    const message = records[0].message.replace(/request_id=\S+/, "");
+    assert.ok(!message.includes("blob:") && !message.includes("https:") && !message.includes("997"));
   } finally { logging.setApplicationLoggingEnabled(false); }
 });
 
