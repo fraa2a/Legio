@@ -13,7 +13,7 @@
   import { playtime } from "../../stores/playtime";
   import GameCard from "../library/GameCard.svelte";
   import GameSettingsDialog from "../library/GameSettingsDialog.svelte";
-  import NewsPanel from "./NewsPanel.svelte";
+  import ChangelogPanel from "./ChangelogPanel.svelte";
   import ActivityCalendar from "./ActivityCalendar.svelte";
   import LastPlayedHero from "./LastPlayedHero.svelte";
   import { recentGames } from "./home-model";
@@ -52,7 +52,7 @@
 
     <div class="grid min-w-0 content-start grid-rows-[auto_12rem] gap-2.5">
       <ActivityCalendar />
-      <NewsPanel />
+      <ChangelogPanel />
     </div>
   </div>
 

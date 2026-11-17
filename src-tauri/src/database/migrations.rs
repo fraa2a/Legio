@@ -935,5 +935,14 @@ pub(super) fn migrate(connection: &Connection) -> Result<(), String> {
             .execute_batch("PRAGMA user_version = 42;")
             .map_err(database_error)?;
     }
+    if version < 43 {
+        // The removed news feed kept its cache in the settings table.
+        transaction
+            .execute_batch(
+                "DELETE FROM settings WHERE key = 'news_cache';
+             PRAGMA user_version = 43;",
+            )
+            .map_err(database_error)?;
+    }
     transaction.commit().map_err(database_error)
 }

@@ -93,18 +93,18 @@ test("using current settings discards appearance edits and cleans unused backgro
   assert.deepEqual(calls, ["save_settings", "cleanup_theme_backgrounds"]);
 });
 
-test("news retains the persistent feed while refreshing and when offline", async () => {
-  const api = await import(await load("src/lib/stores/news.ts"));
-  const cached = { feed: { schemaVersion: 1, generatedAt: "2026-10-04T12:00:00Z", items: [] }, cachedAt: 0, warning: null };
+test("changelog retains the cached releases while refreshing and when offline", async () => {
+  const api = await import(await load("src/lib/stores/changelog.ts"));
+  const cached = { releases: [{ version: "1.0.0", publishedAt: "2026-10-04T12:00:00Z", notes: "Fixes", url: "https://github.com/fraa2a/Legio/releases/tag/v1.0.0", prerelease: false }], cachedAt: 0, warning: null };
   let rejectRefresh;
-  globalThis.setupInvoke = command => command === "get_news" ? Promise.resolve(cached) : new Promise((resolve, reject) => { rejectRefresh = reject; });
-  const pending = api.loadNews();
+  globalThis.setupInvoke = command => command === "get_changelog" ? Promise.resolve(cached) : new Promise((resolve, reject) => { rejectRefresh = reject; });
+  const pending = api.loadChangelog();
   await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(get(api.news).data.feed, cached.feed);
+  assert.deepEqual(get(api.changelog).data.releases, cached.releases);
   rejectRefresh(new Error("offline"));
   await pending;
-  assert.deepEqual(get(api.news).data.feed, cached.feed);
-  assert.match(get(api.news).data.warning, /offline/);
+  assert.deepEqual(get(api.changelog).data.releases, cached.releases);
+  assert.match(get(api.changelog).data.warning, /offline/);
 });
 
 const found = (launcher, games) => ({ launcher, status: "found", games, warnings: [] });

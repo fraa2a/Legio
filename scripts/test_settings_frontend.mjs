@@ -111,15 +111,13 @@ await unmount(instance);target.remove();
 
 test("privacy switches save through the settings store and default to enabled", async () => {
 settings.set(structuredClone(defaultSettings));
-assert.equal(defaultSettings.newsEnabled,true);assert.equal(defaultSettings.automaticUpdateCheck,true);
+assert.equal(defaultSettings.automaticUpdateCheck,true);
 const saves=[];frontendRepro.saveSettings=async value=>{saves.push(value);return value;};
 const PrivacySettings=(await import(await loader.load('src/lib/features/settings/PrivacySettings.svelte'))).default;
 const target=document.createElement('div');document.body.append(target);const instance=mount(PrivacySettings,{target});await settle();
 const toggleFor=name=>[...target.querySelectorAll('label')].find(element=>element.textContent.includes(name)).querySelector('input');
-toggleFor('Novità di Legio').click();await settle();
-assert.equal(saves.at(-1).newsEnabled,false);assert.equal(get(settings).data.newsEnabled,false);
 toggleFor('Aggiornamenti dell\'app').click();await settle();
-assert.equal(saves.at(-1).automaticUpdateCheck,false);assert.equal(saves.at(-1).newsEnabled,false);
+assert.equal(saves.at(-1).automaticUpdateCheck,false);assert.equal(get(settings).data.automaticUpdateCheck,false);
 toggleFor('Discord').click();await settle();
 assert.equal(saves.at(-1).discordPresence.enabled,false);
 await unmount(instance);target.remove();

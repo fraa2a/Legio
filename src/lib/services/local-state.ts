@@ -45,7 +45,6 @@ export interface Settings {
   applicationLoggingEnabled: boolean;
   deferExtractionWhilePlaying: boolean;
   thunderstoreLinksEnabled: boolean;
-  newsEnabled: boolean;
   automaticUpdateCheck: boolean;
   previewUpdates: boolean;
   lastSeenVersion: string | null;

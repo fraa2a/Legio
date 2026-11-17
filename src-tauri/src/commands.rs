@@ -1554,16 +1554,16 @@ pub fn is_aur_package() -> bool {
 }
 
 #[tauri::command]
-pub async fn get_news(app: AppHandle) -> Result<crate::news::Snapshot, String> {
-    crate::news::cached(app).await
+pub async fn get_changelog(app: AppHandle) -> Result<crate::changelog::Snapshot, String> {
+    crate::changelog::cached(app).await
 }
 
 #[tauri::command]
-pub async fn refresh_news(
+pub async fn refresh_changelog(
     app: AppHandle,
     state: State<'_, crate::network::NetworkState>,
-) -> Result<crate::news::Snapshot, String> {
-    crate::news::refresh(app, state.inner()).await
+) -> Result<crate::changelog::Snapshot, String> {
+    crate::changelog::refresh(app, state.inner()).await
 }
 
 #[tauri::command]

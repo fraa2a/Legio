@@ -140,7 +140,7 @@ jobs:
       - name: Test dialogs and notifications
         run: corepack pnpm test:dialog && corepack pnpm test:a11y && corepack pnpm test:feedback
 
-      - name: Test onboarding and persistent news
+      - name: Test onboarding and the cached changelog
         run: corepack pnpm test:onboarding
 
       - name: Test launcher settings and updater

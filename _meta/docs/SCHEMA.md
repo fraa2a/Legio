@@ -9,8 +9,7 @@ This document describes the contracts currently consumed by Legio, their validat
 | Hydra | Catalog search and game names | Search response with `count` and `edges` |
 | Steam Store | Game details and Steam artwork | `appdetails` API and Steam assets |
 | Legio Store | Available releases, archive URLs, and source classification | User-configured HTTPS manifests |
-| Legio News | Bilingual articles on Home | `https://source.taxphobia.top/news.json` |
-| GitHub Releases | Launcher updates | `latest.json`, installers, and Tauri signatures |
+| GitHub Releases | Launcher updates and the Home changelog | `latest.json`, installers, Tauri signatures, and the releases API |
 
 The Steam App ID connects catalog records, Steam details, and releases. A Hydra result does not provide a download or imply that a release is verified. One game can have multiple releases with different trust classifications.
 
@@ -273,41 +272,11 @@ The consumed response has this shape, and every field is optional:
 
 Responses are limited to 64 KiB. Tiers are `platinum`, `gold`, `silver`, `bronze`, `borked` and `pending`; any other value becomes unknown. HTTP 404 means the game has no reports. Results are cached for 7 days as one file per App ID in the `protondb` folder of the app cache directory, and an expired entry is served when a refresh fails. A failed request shows no rating and is logged.
 
-## News manifest: `news.json`
+## Changelog: GitHub Releases API
 
-The example uses placeholders for Italian content; published articles must supply actual Italian and English translations.
+Home lists the latest Legio releases from `https://api.github.com/repos/fraa2a/Legio/releases?per_page=10`, requested without a token. The response is untrusted and limited to 1 MiB. Only `tag_name`, `published_at`, `body`, `html_url`, `prerelease` and `draft` are read. Drafts, releases without a publication date, tags outside `[A-Za-z0-9.+-]`, and links outside `https://github.com/fraa2a/Legio/releases/` are skipped. Bodies are shown as plain text, stripped of control characters other than line breaks and tabs, and cut to 20,000 characters.
 
-```json
-{
-  "schemaVersion": 1,
-  "generatedAt": "2026-10-05T12:00:00Z",
-  "items": [
-    {
-      "id": "welcome",
-      "publishedAt": "2026-10-05T12:00:00Z",
-      "title": { "it": "<Italian title>", "en": "Welcome" },
-      "summary": { "it": "<Italian summary>", "en": "Legio news" },
-      "body": { "it": "<Italian body>", "en": "Full article\nSecond paragraph" }
-    }
-  ]
-}
-```
-
-The document is limited to 512 KiB. `schemaVersion`, `generatedAt`, and `items` are required, and unknown fields are rejected at every level.
-
-| Field | Rule |
-| --- | --- |
-| `schemaVersion` | Integer; must be `1` |
-| `generatedAt`, `publishedAt` | RFC 3339 UTC timestamps ending in `Z`; `+00:00` is not accepted here |
-| `items` | At most 100 articles |
-| `id` | Unique, 1 to 64 bytes, containing only lowercase ASCII letters, digits, and `-` |
-| `title` | Object with required `it` and `en` strings, each nonempty and at most 160 characters |
-| `summary` | Same bilingual object; at most 600 characters per language |
-| `body` | Same bilingual object; at most 12,000 characters per language |
-
-Control characters are forbidden, except line breaks and tabs in the body. Content is plain text rather than HTML. Home hides articles with future publication dates, sorts newest first, and shows the first 20; full text opens in a dialog.
-
-The validated cache persists in SQLite under `settings.news_cache`. The frontend snapshot contains `feed`, `cachedAt`, and `warning`, all nullable. Home reads the cache immediately and refreshes the feed when it is at least 15 minutes old; errors preserve the last usable copy. Text follows the launcher language and dates follow the system locale.
+The last good list persists in SQLite under `settings.changelog_cache`. The frontend snapshot contains `releases`, `cachedAt` and `warning`. Home reads the cache immediately and refreshes it when it is at least one hour old, only while the automatic update check is on; errors keep the cached list and show a warning.
 
 ## Update manifest: `latest.json`
 
@@ -386,5 +355,5 @@ profiles per game. Profiles of Steam-managed games can only override `arguments`
 - [Hydra catalog](../../src-tauri/src/catalog.rs) and [network client](../../src-tauri/src/network.rs).
 - [Download queue](../../src-tauri/src/download_queue.rs), [archive extraction](../../src-tauri/src/archive_install.rs), and [finalization](../../src-tauri/src/finalize_install.rs).
 - [Frontend source contract](../../src/lib/services/legio-source.ts) and [download contracts](../../src/lib/services/downloads.ts).
-- [News parser and cache](../../src-tauri/src/news.rs).
+- [Changelog parser and cache](../../src-tauri/src/changelog.rs).
 - [Update manifest generator](../../scripts/release_manifest.py) and [Tauri configuration](../../src-tauri/tauri.conf.json).

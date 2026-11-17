@@ -16,7 +16,7 @@ import { get } from "svelte/store";
 import { activeSection, openGame } from "./navigation";
 import { showToast } from "./toast";
 import { t } from "../i18n";
-import { loadNews } from "./news";
+import { loadChangelog } from "./changelog";
 import { checkForAppUpdate } from "../services/app-updater";
 import { databaseFailure } from "./database-recovery";
 import { announceInstalledVersion } from "./update-notes";
@@ -94,6 +94,6 @@ export async function hydrateApp(): Promise<void> {
   }
   await startSourceLinks();
   await startModLinks();
-  void loadNews();
+  void loadChangelog();
   await Promise.all([checkConnectivity(), refreshSource()]);
 }

@@ -16,9 +16,9 @@ const QUEUE_CAPACITY: usize = 64;
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Operation {
+    Changelog,
     HydraSearch,
     LegioSource,
-    News,
     ProtonDb,
     SteamDetails,
     SteamAsset,
