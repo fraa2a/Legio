@@ -412,6 +412,7 @@ jobs:
     if: needs.plan.outputs.release == 'true'
     # A reusable workflow can only use permissions its caller grants.
     permissions:
+      actions: read
       contents: write
       id-token: write
       attestations: write
