@@ -2543,7 +2543,7 @@ dependencies = [
 
 [[package]]
 name = "legio"
-version = "0.3.1"
+version = "1.0.0"
 dependencies = [
  "ammonia",
  "base64 0.23.1",
