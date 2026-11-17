@@ -55,7 +55,7 @@ test("onboarding appearance editor reports drafts without saving or clearing the
   const target = document.createElement("div"); document.body.append(target);
   const instance = mount(component, { target, props: { accent: "#ff8800", preview: initial, onPreview: value => { previews.push(value); previewStore.set(value); } } });
   try {
-    await settle();
+    await settle(); [...target.querySelectorAll("button[aria-expanded]")].find(button => button.textContent.trim() === "Tema").click(); await settle();
     assert.equal(target.querySelector('input[name="theme"]:checked').value, "light");
     const dark = target.querySelector('input[name="theme"][value="dark"]');
     dark.checked = true; dark.dispatchEvent(new Event("change", { bubbles: true }));
@@ -158,7 +158,7 @@ test("the accent color previews immediately and resets to the palette accent", a
   document.documentElement.dataset.theme = "dark";
   const instance = mount(component, { target, props: { accent: "#fafafa", preview: initial, onPreview: value => previews.push(value) } });
   try {
-    await settle();
+    await settle(); [...target.querySelectorAll("button[aria-expanded]")].find(button => button.textContent.trim() === "Tema").click(); await settle();
     const input = target.querySelector("#theme-accent");
     assert.equal(input.value, presetData.find((preset) => preset.id === "dark").palette.accent);
     input.value = "#336699"; input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -365,7 +365,9 @@ test("the theme editor previews before auto save and preserves unrelated setting
     await settle();
   };
 
-  assert.equal(target.querySelectorAll('input[name="theme"]').length, presetData.length + 1, "the theme group starts open");
+  assert.equal(target.querySelector('input[name="theme"]'), null, "the theme group starts collapsed");
+  await openGroup("Tema");
+  assert.equal(target.querySelectorAll('input[name="theme"]').length, presetData.length + 1);
   assert.equal(target.querySelector("#theme-surfaceOpacity"), null, "other groups start collapsed");
   const dark = [...target.querySelectorAll('input[name="theme"]')].find((input) => input.value === "dark");
   dark.checked = true;
@@ -530,6 +532,8 @@ test("density, corners and text scale are applied as root variables", () => {
   assert.deepEqual(read(), ["0.875", "0.75", "0.25", "0.9"]);
   apply({ density: "wide", corners: "round", textScale: 120 });
   assert.deepEqual(read(), ["1.125", "1.25", "1.75", "1.2"]);
+  apply({ corners: "square" });
+  assert.equal(root.style.getPropertyValue("--legio-corner-scale"), "0");
   apply({});
   assert.deepEqual(read(), ["1", "1", "1", "1"]);
 });
@@ -565,6 +569,7 @@ test("the theme group toggles the game accent and shares the look as a code, a l
   const instance = mount(component, { target }); await settle();
   const button = label => [...document.querySelectorAll("button")].find(candidate => candidate.textContent.trim() === label);
   try {
+    [...target.querySelectorAll("button[aria-expanded]")].find(button => button.textContent.trim() === "Tema").click(); await settle();
     assert.equal(appearance.defaultAppearance().gameAccent, false, "off by default");
     const toggle = [...target.querySelectorAll("label")].find(label => label.textContent.includes("Accento dalla copertina del gioco")).querySelector("input");
     toggle.checked = true; toggle.dispatchEvent(new Event("change", { bubbles: true })); await settle();

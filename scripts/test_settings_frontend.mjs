@@ -75,6 +75,12 @@ assert.deepEqual(frontendRepro.bandwidthCalls,[]);assert.equal(get(downloads.ban
 await unmount(instance);target.remove();
 });
 
+test("bandwidth stops map saved limits to the nearest stop", async () => {
+const stops=await import(await loader.load('src/lib/features/settings/bandwidth-stops.ts'));
+assert.equal(stops.nearestStop(0),stops.unlimitedStop);assert.equal(stops.stopBytes(stops.unlimitedStop),0);
+assert.equal(stops.nearestStop(1049),0);assert.equal(stops.stopBytes(stops.nearestStop(9*1024*1024)),10*1024*1024);
+});
+
 test("obsolete scans cannot overwrite a newer directory or reset", async () => {
 // Actual manual import store, delayed scan responses from two folders.
 

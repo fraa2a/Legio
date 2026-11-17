@@ -36,7 +36,6 @@
   let saving = $state(false);
   let loadError = $state<string | null>(null);
   let saveError = $state<string | null>(null);
-  let saved = $state(false);
   let baseline = $state<string | null>(null);
   let failedSnapshot: string | null = null;
   const saveQueue = createSaveQueue();
@@ -111,7 +110,6 @@
       const dll = dllOverridesText;
       saving = true;
       saveError = null;
-      saved = false;
       try {
         const updated = await saveCompatibilityDefaults({
           ...draft,
@@ -130,7 +128,6 @@
         }
         baseline = JSON.stringify({ defaults: updated, argumentsBefore: updated.argumentsBefore.join("\n"), argumentsAfter: updated.argumentsAfter.join("\n"), environmentText: mapToText(updated.environment), dllOverridesText: mapToText(updated.dllOverrides) });
         failedSnapshot = null;
-        saved = true;
       } catch (error) {
         failedSnapshot = snapshot;
         saveError = toMessage(error);
@@ -191,7 +188,7 @@
           borderless
           onChange={(value) => (defaults = { ...defaults, runnerPath: value || null })}
         />
-      </div><ResetSetting label={t("Ripristina runner predefinito", $language)} disabled={saving || defaults.runnerPath === null} onClick={() => { defaults = { ...defaults, runnerPath: null }; }} /></div>
+      </div><ResetSetting label={t("Ripristina runner predefinito", $language)} disabled={defaults.runnerPath === null} onClick={() => { defaults = { ...defaults, runnerPath: null }; }} /></div>
       {#if logsDirectory !== null}
         <p class="select-text break-all text-xs text-legio-fg-muted" data-selectable>{t("Log compatibilità: {0}", $language, [logsDirectory])}</p>
       {/if}
@@ -206,10 +203,10 @@
           placeholder={t("Percorso opzionale", $language)}
           hint={t("Legio crea un prefix per gioco dentro questa cartella.", $language)}
           oninput={(value) => (defaults = { ...defaults, prefixRoot: value || null })}
-        /></div><ResetSetting label={t("Ripristina cartella prefix", $language)} disabled={saving || defaults.prefixRoot === null} onClick={() => { defaults = { ...defaults, prefixRoot: null }; }} /></div>
+        /></div><ResetSetting label={t("Ripristina cartella prefix", $language)} disabled={defaults.prefixRoot === null} onClick={() => { defaults = { ...defaults, prefixRoot: null }; }} /></div>
         <div class="self-end pb-2">
           <ToggleSetting label={t("Abilita log di debug per gli avvii", $language)}
-            checked={defaults.debugLogging} disabled={saving}
+            checked={defaults.debugLogging}
             onChange={(checked) => (defaults = { ...defaults, debugLogging: checked })} />
         </div>
       </div>
@@ -221,7 +218,7 @@
           options={[{ value: "runner_default", label: t("Predefinito del runner", $language) }, { value: "wine_d3d", label: "WineD3D" }]}
           borderless
           onChange={setGraphicsRenderer}
-        /></div><ResetSetting label={t("Ripristina renderer grafico", $language)} disabled={saving || defaults.graphicsRenderer === "runner_default"} onClick={() => { defaults = { ...defaults, graphicsRenderer: "runner_default" }; }} /></div>
+        /></div><ResetSetting label={t("Ripristina renderer grafico", $language)} disabled={defaults.graphicsRenderer === "runner_default"} onClick={() => { defaults = { ...defaults, graphicsRenderer: "runner_default" }; }} /></div>
         <div class="flex items-end gap-2"><div class="min-w-0 flex-1"><SelectField
           id="compat-wayland"
           label="Wayland"
@@ -229,27 +226,21 @@
           options={[{ value: "runner_default", label: t("Predefinito del runner", $language) }, { value: "disabled", label: t("Disattivato", $language) }, { value: "native", label: t("Nativo, solo GE-Proton", $language) }]}
           borderless
           onChange={setWayland}
-        /></div><ResetSetting label={t("Ripristina Wayland", $language)} disabled={saving || defaults.wayland === "runner_default"} onClick={() => { defaults = { ...defaults, wayland: "runner_default" }; }} /></div>
+        /></div><ResetSetting label={t("Ripristina Wayland", $language)} disabled={defaults.wayland === "runner_default"} onClick={() => { defaults = { ...defaults, wayland: "runner_default" }; }} /></div>
       </div>
     </SettingsGroup>
 
     <SettingsGroup icon="terminal" title={t("Argomenti e ambiente", $language)}>
       <div class="grid gap-4 md:grid-cols-2">
-        <div class="relative"><TextField id="compat-argumentsBefore" label={t("Argomenti prima dell'eseguibile", $language)} type="textarea" rows={4} bind:value={argumentsBefore} hint={t("Un argomento per riga. Le righe vuote rappresentano argomenti vuoti.", $language)} /><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina argomenti iniziali", $language)} disabled={saving || argumentsBefore === ""} onClick={() => { argumentsBefore = ""; }} /></span></div>
-        <div class="relative"><TextField id="compat-argumentsAfter" label={t("Argomenti dopo l'eseguibile", $language)} type="textarea" rows={4} bind:value={argumentsAfter} hint={t("Un argomento per riga, passato senza interpretazione shell.", $language)} /><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina argomenti finali", $language)} disabled={saving || argumentsAfter === ""} onClick={() => { argumentsAfter = ""; }} /></span></div>
-        <div class="relative"><TextField id="compat-environmentText" label={t("Variabili ambiente", $language)} type="textarea" rows={5} bind:value={environmentText} hint={t("Una voce KEY=VALUE per riga. I controlli tipizzati hanno priorità.", $language)} /><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina variabili ambiente", $language)} disabled={saving || environmentText === ""} onClick={() => { environmentText = ""; }} /></span></div>
-        <div class="relative"><TextField id="compat-dllOverridesText" label={t("Override DLL", $language)} type="textarea" rows={5} bind:value={dllOverridesText} hint={t("Una voce KEY=VALUE per riga, ad esempio d3d11=n,b.", $language)} /><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina override DLL", $language)} disabled={saving || dllOverridesText === ""} onClick={() => { dllOverridesText = ""; }} /></span></div>
+        <div class="relative"><TextField id="compat-argumentsBefore" label={t("Argomenti prima dell'eseguibile", $language)} type="textarea" rows={4} bind:value={argumentsBefore} hint={t("Un argomento per riga. Le righe vuote rappresentano argomenti vuoti.", $language)} /><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina argomenti iniziali", $language)} disabled={argumentsBefore === ""} onClick={() => { argumentsBefore = ""; }} /></span></div>
+        <div class="relative"><TextField id="compat-argumentsAfter" label={t("Argomenti dopo l'eseguibile", $language)} type="textarea" rows={4} bind:value={argumentsAfter} hint={t("Un argomento per riga, passato senza interpretazione shell.", $language)} /><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina argomenti finali", $language)} disabled={argumentsAfter === ""} onClick={() => { argumentsAfter = ""; }} /></span></div>
+        <div class="relative"><TextField id="compat-environmentText" label={t("Variabili ambiente", $language)} type="textarea" rows={5} bind:value={environmentText} hint={t("Una voce KEY=VALUE per riga. I controlli tipizzati hanno priorità.", $language)} /><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina variabili ambiente", $language)} disabled={environmentText === ""} onClick={() => { environmentText = ""; }} /></span></div>
+        <div class="relative"><TextField id="compat-dllOverridesText" label={t("Override DLL", $language)} type="textarea" rows={5} bind:value={dllOverridesText} hint={t("Una voce KEY=VALUE per riga, ad esempio d3d11=n,b.", $language)} /><span class="absolute right-0 top-0"><ResetSetting label={t("Ripristina override DLL", $language)} disabled={dllOverridesText === ""} onClick={() => { dllOverridesText = ""; }} /></span></div>
       </div>
     </SettingsGroup>
 
-    <div class="flex flex-wrap items-center gap-3">
-      {#if saveError !== null}
-        <ErrorBanner message={saveError} />
-      {/if}
-      {#if saved}
-        <Callout tone="success" variant="inline" message={t("Default salvati.", $language)} />
-      {/if}
-      {#if saving}<p class="text-sm text-legio-fg-muted" role="status">{t("Salvataggio...", $language)}</p>{/if}
-    </div>
+    {#if saveError !== null}
+      <ErrorBanner message={saveError} />
+    {/if}
   {/if}
 </section>
