@@ -40,7 +40,7 @@
   import { startPeriodicChecks } from "./lib/services/update-schedule";
   import { openReleaseNotes } from "./lib/stores/update-notes";
   import ReleaseNotesDialog from "./lib/features/updates/ReleaseNotesDialog.svelte";
-  import { windowVisible } from "./lib/stores/window-activity";
+  import { windowActive, windowVisible } from "./lib/stores/window-activity";
   import { hasRunningGame } from "./lib/stores/launch";
   import { observeMediaPlayback } from "./lib/services/media-playback";
   import { startArtworkDisplayTracking } from "./lib/services/artwork-display";
@@ -48,6 +48,7 @@
   import { allowsNativeContextMenu } from "./lib/utils/context-menu";
 
   const mediaActive = derived([windowVisible, hasRunningGame], ([$visible, $running]) => $visible && !$running);
+  const backgroundActive = derived([windowActive, hasRunningGame], ([$active, $running]) => $active && !$running);
   const appearance = $derived($appearancePreview?.appearance ?? $settings.data.appearance);
   const theme = $derived($appearancePreview?.theme ?? $settings.data.theme);
   let prefersDark = $state(window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -122,7 +123,7 @@
   }}
 />
 
-<AppBackground id={appearance.background} animation={appearance.animatedBackground} animationOpacity={appearance.animatedOpacity} {accent} dither={appearance.dither} {palette} season={appearance.season} starDensity={appearance.starDensity} grain={appearance.grain} active={$mediaActive} />
+<AppBackground id={appearance.background} animation={appearance.animatedBackground} animationOpacity={appearance.animatedOpacity} {accent} dither={appearance.dither} {palette} season={appearance.season} starDensity={appearance.starDensity} grain={appearance.grain} active={$backgroundActive} />
 <div class="legio-shell relative flex h-full w-full min-h-0 min-w-0 select-none">
   {#if $settings.status === "ready" && $settings.data.onboardingCompleted}<Sidebar />{/if}
   <div class="flex min-h-0 min-w-0 flex-1 flex-col pl-2.5 pr-2.5 pb-1.5">

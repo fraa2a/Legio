@@ -243,7 +243,7 @@ fn transformed_webp(bytes: &[u8], hero: Option<(u32, bool)>) -> Result<Vec<u8>, 
                 &rgba,
                 width,
                 height,
-                image::imageops::FilterType::Lanczos3,
+                image::imageops::FilterType::Triangle,
             );
             checkpoint(
                 operation,
@@ -270,7 +270,7 @@ fn transformed_webp(bytes: &[u8], hero: Option<(u32, bool)>) -> Result<Vec<u8>, 
     let encoder = webp::Encoder::from_rgba(&rgba, rgba.width(), rgba.height());
     let mut config = webp::WebPConfig::new().map_err(|_| "Could not initialize WebP encoder.")?;
     config.quality = 85.0;
-    config.method = 4;
+    config.method = 2;
     config.alpha_quality = 100;
     let output = encoder
         .encode_advanced(&config)
