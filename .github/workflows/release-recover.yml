@@ -1,0 +1,38 @@
+name: Recover release
+
+# Publishes the artifacts of a CI run on main whose publish step failed, without rebuilding.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: CI run whose build artifacts to publish
+        required: true
+        type: string
+      version:
+        description: Version of that run, for example 1.0.0
+        required: true
+        type: string
+      prerelease:
+        description: Publish as a prerelease
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Release
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ inputs.version }}
+      tag: v${{ inputs.version }}
+      prerelease: ${{ inputs.prerelease }}
+      artifacts_run_id: ${{ inputs.run_id }}
+    secrets: inherit
