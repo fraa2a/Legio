@@ -97,7 +97,7 @@
         <p class="mt-0.5 text-sm text-legio-fg-muted">{t("Annata di gioco", $language)}</p>
       </div>
       <div class="flex flex-wrap items-end gap-2">
-        <SegmentedControl name="recap-mode" label={t("Periodo", $language)} labelHidden options={modeOptions} value={selection.mode} onChange={(value) => select({ mode: value === "month" ? "month" : "year" })} />
+        <SegmentedControl name="recap-mode" label={t("Periodo", $language)} labelHidden class="shrink-0" options={modeOptions} value={selection.mode} onChange={(value) => select({ mode: value === "month" ? "month" : "year" })} />
         <SelectField id="recap-year" label={t("Anno", $language)} labelHidden class="w-28" value={String(selection.year)} options={yearOptions(years)} onChange={(value) => select({ year: Number(value) })} />
         {#if selection.mode === "month"}
           <SelectField id="recap-month" label={t("Mese", $language)} labelHidden class="w-40" value={String(selection.month)} options={monthOptions(locale)} onChange={(value) => select({ month: Number(value) })} />
@@ -120,7 +120,7 @@
     {:else}
       <dl class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {#each tiles as tile (tile.key)}
-          <div class="flex min-w-0 flex-col gap-1 rounded-card bg-legio-fill p-4">
+          <div class="flex min-w-0 flex-col gap-1 legio-glass rounded-card p-4">
             <dt class="text-sm font-medium text-legio-fg-muted">{tile.label}</dt>
             <dd class="truncate text-2xl font-semibold tabular-nums text-legio-fg">{tile.value}</dd>
             {#if tile.note !== null}<dd class="truncate text-xs text-legio-fg-muted">{tile.note}</dd>{/if}

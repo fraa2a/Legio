@@ -265,7 +265,7 @@ test("the Mod page marks unsupported and unmatched games and opens the manager",
     assert.ok(text.includes("Main · 2 mod"));
     assert.ok(text.includes("Loader non supportato"));
     assert.ok(text.includes("Il loader di Beta TS non è ancora supportato"));
-    assert.ok(text.includes("Da collegare"));
+    assert.ok(text.includes("Non disponibile per le mod"));
     button(page.target, "Gestisci le mod di Alpha").click();
     assert.deepEqual(get(navigation.selectedModGame), { gameId: "a", returnTo: "mods" });
     assert.equal(get(navigation.activeSection), "mods");

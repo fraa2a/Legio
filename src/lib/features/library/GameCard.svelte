@@ -64,7 +64,7 @@
       <div class="absolute inset-x-2 top-2 flex items-center gap-1.5">
         {#if lastPlayedLabel !== null}
           <span
-            class="rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium text-legio-fg light:bg-zinc-100/70"
+            class="rounded-full legio-glass px-2 py-0.5 text-xs font-medium text-legio-fg"
             title={t("Ultima partita: {0}", $language, [lastPlayedLabel])}
           >
             {lastPlayedLabel}
@@ -76,7 +76,7 @@
             <Badge tone={status === "running" ? "success" : "warning"} title={status === "running" ? t("In esecuzione", $language) : t("Avvio in corso", $language)} />
           {/if}
           <span
-            class="flex items-center gap-1 rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium tabular-nums text-legio-fg light:bg-zinc-100/70"
+            class="flex items-center gap-1 rounded-full legio-glass px-2 py-0.5 text-xs font-medium tabular-nums text-legio-fg"
             title={t("{0} giocati", $language, [playtimeLabel])}
           >
             <Icon name="clock" size="sm" />

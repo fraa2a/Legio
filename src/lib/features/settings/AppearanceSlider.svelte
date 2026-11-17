@@ -28,7 +28,7 @@
   } = $props();
 </script>
 
-<div class="flex min-w-0 flex-col gap-3 rounded-card bg-black/10 p-3 light:bg-white/70">
+<div class="flex min-w-0 flex-col gap-3 legio-glass rounded-card p-3">
   <div class="flex items-center justify-between gap-2">
     <label for={id} class="min-w-0 truncate text-sm font-medium text-legio-fg">{label}</label>
     <div class="flex shrink-0 items-center gap-1">

@@ -534,7 +534,7 @@
 
 
 {#snippet nameText()}
-  <span class="block max-w-full truncate rounded-control bg-zinc-950/60 px-3 py-1.5 text-right text-legio-fg light:bg-zinc-100/70">{name}</span>
+  <span class="block max-w-full truncate rounded-control legio-glass px-3 py-1.5 text-right text-legio-fg">{name}</span>
 {/snippet}
 
 {#snippet backdrop()}
