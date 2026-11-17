@@ -17,7 +17,7 @@
   {#each bars as bar, index (index)}
     <div class="flex min-w-0 flex-1 flex-col items-center gap-1.5" role="img" aria-label={bar.text} title={bar.text}>
       <div class="flex w-full flex-1 items-end">
-        <div class="w-full rounded-t-control bg-legio-accent" style:height="{bar.percent}%"></div>
+        <div class="w-full rounded-t-control bg-legio-accent transition-[height] duration-(--legio-motion-slow)" style:height="{bar.percent}%"></div>
       </div>
       <span class="h-4 w-full truncate text-center text-xs text-legio-fg-muted" aria-hidden="true">{labelVisible(index) ? bar.label : ""}</span>
     </div>

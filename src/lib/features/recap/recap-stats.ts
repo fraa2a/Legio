@@ -9,6 +9,9 @@ export interface RecapTile {
   key: RecapTileKey;
   label: string;
   value: string;
+  // Numeric source of value, tweened when the period changes.
+  amount: number | null;
+  format: (amount: number) => string;
   note: string | null;
 }
 
@@ -21,31 +24,39 @@ export function formatStreakDays(days: number, language: Language): string {
 export function recapTiles(recap: PlaytimeRecap, locale: string, language: Language): RecapTile[] {
   const { longestDay, longestSession, longestStreak, firstPlayed, lastPlayed } = recap;
   return [
-    { key: "total", label: t("Tempo di gioco", language), value: formatPlaytime(recap.totalMilliseconds), note: null },
-    { key: "sessions", label: t("Sessioni", language), value: String(recap.sessionCount), note: null },
-    { key: "games", label: t("Giochi giocati", language), value: String(recap.gameCount), note: null },
+    { key: "total", label: t("Tempo di gioco", language), value: formatPlaytime(recap.totalMilliseconds), amount: recap.totalMilliseconds, format: formatPlaytime, note: null },
+    { key: "sessions", label: t("Sessioni", language), value: String(recap.sessionCount), amount: recap.sessionCount, format: String, note: null },
+    { key: "games", label: t("Giochi giocati", language), value: String(recap.gameCount), amount: recap.gameCount, format: String, note: null },
     {
       key: "day",
       label: t("Giorno più lungo", language),
       value: longestDay === null ? "-" : formatPlaytime(longestDay.milliseconds),
+      amount: longestDay === null ? null : longestDay.milliseconds,
+      format: formatPlaytime,
       note: longestDay === null ? null : formatRecapDate(longestDay.date, locale),
     },
     {
       key: "session",
       label: t("Sessione più lunga", language),
       value: longestSession === null ? "-" : formatPlaytime(longestSession.milliseconds),
+      amount: null,
+      format: String,
       note: longestSession === null ? null : `${longestSession.name}, ${formatRecapDate(longestSession.date, locale, shortDate)}`,
     },
     {
       key: "streak",
       label: t("Serie di giorni", language),
       value: longestStreak === null ? "-" : formatStreakDays(longestStreak.days, language),
+      amount: null,
+      format: String,
       note: longestStreak === null ? null : `${formatRecapDate(longestStreak.start, locale, shortDate)} - ${formatRecapDate(longestStreak.end, locale, shortDate)}`,
     },
     {
       key: "span",
       label: t("Primo e ultimo giorno", language),
       value: firstPlayed === null ? "-" : formatRecapDate(firstPlayed, locale, shortDate),
+      amount: null,
+      format: String,
       note: lastPlayed === null ? null : t("Ultimo: {0}", language, [formatRecapDate(lastPlayed, locale, shortDate)]),
     },
   ];
