@@ -10,6 +10,7 @@ const dom = new JSDOM(
 for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLDialogElement", "HTMLMediaElement", "Element", "Node", "Text", "Comment", "Event", "MouseEvent", "CustomEvent", "MutationObserver", "getComputedStyle"]) {
   Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
 }
+globalThis.matchMedia = () => ({ matches: true });
 const { mount, unmount, flushSync } = await import("svelte");
 const storeImport = `import { writable } from "${import.meta.resolve("svelte/store")}";`;
 const mocks = {
@@ -55,10 +56,14 @@ test("an error banner keeps the summary visible and the technical detail collaps
     await settle();
     const alert = target.querySelector('[role="alert"]');
     assert.ok(alert.querySelector("[data-selectable].select-text"));
-    const details = alert.querySelector("details");
-    assert.equal(details.open, false);
-    assert.match(details.textContent, /Dettagli tecnici/);
-    assert.equal(details.querySelector("pre").textContent, "os error 13");
+    const toggle = alert.querySelector("button[aria-expanded]");
+    assert.equal(toggle.getAttribute("aria-expanded"), "false");
+    assert.match(toggle.textContent, /Dettagli tecnici/);
+    assert.equal(alert.querySelector("pre"), null);
+    toggle.click();
+    await settle();
+    assert.equal(toggle.getAttribute("aria-expanded"), "true");
+    assert.equal(alert.querySelector("pre").textContent, "os error 13");
     const copy = alert.querySelector('button[aria-label="Copia l\'errore"]');
     copy.click();
     await settle();
@@ -73,6 +78,6 @@ test("an error banner without detail has no details section", async () => {
   const instance = mount(ErrorBanner, { target, props: { message: "Could not save.", detail: "Could not save." } });
   try {
     await settle();
-    assert.equal(target.querySelector("details"), null);
+    assert.equal(target.querySelector("button[aria-expanded]"), null);
   } finally { await unmount(instance); }
 });

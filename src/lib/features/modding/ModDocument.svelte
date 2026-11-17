@@ -43,14 +43,14 @@
   .mod-markdown :global(h2) { font-size: 1.15rem; border-bottom: 1px solid var(--md-border); padding-bottom: 0.25rem; }
   .mod-markdown :global(h3) { font-size: 1.05rem; }
   .mod-markdown :global(a) { color: var(--color-legio-info); text-decoration: underline; }
-  .mod-markdown :global(img) { max-width: 100%; height: auto; border-radius: 0.5rem; }
+  .mod-markdown :global(img) { max-width: 100%; height: auto; border-radius: var(--radius-control); }
   .mod-markdown :global(ul),
   .mod-markdown :global(ol) { padding-left: 1.5rem; }
   .mod-markdown :global(ul) { list-style: disc; }
   .mod-markdown :global(ol) { list-style: decimal; }
   .mod-markdown :global(blockquote) { border-left: 3px solid var(--md-border); padding-left: 0.75rem; color: var(--md-muted); }
-  .mod-markdown :global(code) { background: var(--md-code); border-radius: 0.25rem; padding: 0.1rem 0.3rem; font-size: 0.85em; }
-  .mod-markdown :global(pre) { background: var(--md-code); border-radius: 0.5rem; padding: 0.75rem; overflow-x: auto; }
+  .mod-markdown :global(code) { background: var(--md-code); border-radius: calc(0.25rem * var(--legio-corner-scale, 1)); padding: 0.1rem 0.3rem; font-size: 0.85em; }
+  .mod-markdown :global(pre) { background: var(--md-code); border-radius: var(--radius-control); padding: 0.75rem; overflow-x: auto; }
   .mod-markdown :global(pre code) { background: none; padding: 0; }
   .mod-markdown :global(hr) { border-color: var(--md-border); }
   .mod-markdown :global(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }

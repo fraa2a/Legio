@@ -103,9 +103,12 @@
   let cancelling = $state(false);
   let selectRevision = $state(0);
   let tabRevision = $state(0);
+  let visitedTabs = $state<Tab[]>(["installed"]);
+  $effect(() => { if (!visitedTabs.includes(tab)) visitedTabs = [...visitedTabs, tab]; });
   let importOpen = $state(false);
   let shareOpen = $state(false);
   let configDirty = $state(false);
+  let configRevision = $state(0);
   let profileSize = $state<number | null>(null);
   let discardAction = $state<(() => void) | null>(null);
   // Opened mods stay while switching sections of this game and refer to its Thunderstore community.
@@ -202,6 +205,7 @@
     const action = discardAction;
     discardAction = null;
     configDirty = false;
+    configRevision++;
     action?.();
   }
 
@@ -453,15 +457,20 @@
           </EmptyState>
         {/if}
       {:else if ecosystemGameId !== null}
-        {#if tab === "installed"}
-          <InstalledModsList {gameId} {ecosystemGameId} {profile} locked={running} {busy} tabs={installedTabs} onTabsChange={(next) => (installedTabs = next)} onBrowse={() => (tab = "browse")} />
-        {:else if tab === "browse"}
-          <ModBrowser {gameId} {ecosystemGameId} {profile} disabled={running || busy} tabs={modTabs} onTabsChange={(next) => (modTabs = next)} />
-        {:else}
-          <div class="flex min-h-0 flex-1 flex-col">
-            <ModConfigEditor {gameId} profileId={profile.id} onDirtyChange={(dirty) => (configDirty = dirty)} />
+        <!-- Tabs mount on first visit and stay mounted, so their data and filters survive switching. -->
+        {#each visitedTabs as name (name)}
+          <div class="min-h-0 flex-1 flex-col {name === tab ? 'legio-tab-fade flex' : 'hidden'}">
+            {#if name === "installed"}
+              <InstalledModsList {gameId} {ecosystemGameId} {profile} locked={running} {busy} tabs={installedTabs} onTabsChange={(next) => (installedTabs = next)} onBrowse={() => (tab = "browse")} />
+            {:else if name === "browse"}
+              <ModBrowser {gameId} {ecosystemGameId} {profile} disabled={running || busy} tabs={modTabs} onTabsChange={(next) => (modTabs = next)} />
+            {:else}
+              {#key configRevision}
+                <ModConfigEditor {gameId} profileId={profile.id} onDirtyChange={(dirty) => (configDirty = dirty)} />
+              {/key}
+            {/if}
           </div>
-        {/if}
+        {/each}
       {/if}
     {/if}
   </div>

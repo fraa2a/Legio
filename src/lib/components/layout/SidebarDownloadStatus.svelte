@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { fade } from "svelte/transition";
   import { t, language } from "../../i18n";
+  import { fadeDuration } from "../../utils/motion";
   import {
     canCancelDownload,
     canPauseDownload,
@@ -91,6 +93,7 @@
 {#if lead}
   {#if expanded}
     <div
+      in:fade={{ duration: fadeDuration }}
       role="group"
       aria-label={t("Download in corso: {0}", $language, [lead.name])}
       class="group/download relative overflow-hidden flex shrink-0 flex-col gap-2 rounded-control border border-legio-line-subtle bg-legio-fill p-2"
@@ -136,6 +139,7 @@
     </div>
   {:else}
     <button
+      in:fade={{ duration: fadeDuration }}
       type="button"
       aria-label={t("Download in corso: {0}, {1}. Apri la sezione Download", $language, [lead.name, percentLabel])}
       onclick={() => selectSection("downloads")}

@@ -30,7 +30,7 @@ HTMLDialogElement.prototype.close = function () {
 const { mount, unmount, flushSync } = await import("svelte");
 const mocks = {
   "src/lib/i18n": dataModule('import { writable } from "' + import.meta.resolve("svelte/store") + '"; export const language = writable("it"); export const t = (value, _language, args = []) => value.replace(/\\{(\\d+)\\}/g, (_, index) => args[index]);'),
-  "src/lib/utils/motion": dataModule("export const reducedMotion = true;"),
+  "src/lib/utils/motion": dataModule("export const reducedMotion = true; export const fadeDuration = 0;"),
 };
 const { resolveImports } = createModuleLoader(mocks);
 

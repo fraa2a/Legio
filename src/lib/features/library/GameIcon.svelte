@@ -33,5 +33,5 @@
 {/if}
 
 {#snippet monogram()}
-  <span class="flex items-center justify-center bg-zinc-700/60 text-sm font-semibold text-legio-fg light:bg-zinc-200 {className}" aria-hidden="true">{game.name.trim().charAt(0).toUpperCase() || "?"}</span>
+  <span class="flex items-center justify-center bg-legio-fill text-sm font-semibold text-legio-fg {className}" aria-hidden="true">{game.name.trim().charAt(0).toUpperCase() || "?"}</span>
 {/snippet}

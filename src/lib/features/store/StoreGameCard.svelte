@@ -69,7 +69,7 @@
       aria-label={t("Dettagli di {0} nello Store", $language, [name])}
       onclick={onOpen}
     >
-      <div class="relative w-56 shrink-0 overflow-hidden bg-zinc-800 sm:w-72 light:bg-zinc-200">
+      <div class="relative w-56 shrink-0 overflow-hidden bg-legio-fill sm:w-72">
         {#if visible}
           <SteamArtwork
             {steamAppId}

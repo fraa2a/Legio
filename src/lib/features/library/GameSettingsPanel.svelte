@@ -15,6 +15,7 @@
     saveNativeLaunchConfig,
     type CompatibilityDefaults,
     type GameCompatibilityOverrides,
+    type LaunchSettingsCache,
     type NativeLaunchConfig,
   } from "../../services/game-settings";
   import { appInfo } from "../../stores/app-info";
@@ -31,7 +32,11 @@
   import { pickGameDirectory } from "../../services/dialog";
   import { formatLaunchArguments, parseLaunchArguments } from "../../utils/launch-arguments";
 
-  let { game, section }: { game: Game; section: "locations" | "launch" | "compatibility" } = $props();
+  let { game, section, cache }: { game: Game; section: "locations" | "launch" | "compatibility"; cache: LaunchSettingsCache } = $props();
+
+  async function cached<K extends keyof LaunchSettingsCache>(key: K, fetch: () => Promise<NonNullable<LaunchSettingsCache[K]>>): Promise<NonNullable<LaunchSettingsCache[K]>> {
+    return (cache[key] ??= await fetch()) as NonNullable<LaunchSettingsCache[K]>;
+  }
 
   let overrides = $state<GameCompatibilityOverrides>({ ...emptyGameCompatibilityOverrides });
   let onlineFixDetected = $state(false);
@@ -54,7 +59,6 @@
   let saving = $state(false);
   let loadError = $state<string | null>(null);
   let saveError = $state<string | null>(null);
-  let saved = $state(false);
   let baseline = $state<string | null>(null);
   let failedSnapshot: string | null = null;
   const saveQueue = createSaveQueue();
@@ -105,10 +109,10 @@
     const platform = $appInfo.data.platform;
     if (compatibilityGame) {
       const [overrideResult, defaultsResult, runnersResult, onlineFixResult] = await Promise.allSettled([
-        getGameCompatibilityOverrides(game.id),
-        getCompatibilityDefaults(),
-        section === "compatibility" ? listCompatibilityRunners() : Promise.resolve({ runners: [], diagnostics: [], gameModeAvailable: false, mangohudAvailable: false, gamescopeAvailable: false }),
-        section === "compatibility" ? getGameOnlineFixDetected(game.id) : Promise.resolve(false),
+        cached("overrides", () => getGameCompatibilityOverrides(game.id)),
+        cached("defaults", getCompatibilityDefaults),
+        section === "compatibility" ? cached("runners", listCompatibilityRunners) : Promise.resolve({ runners: [], diagnostics: [], gameModeAvailable: false, mangohudAvailable: false, gamescopeAvailable: false }),
+        section === "compatibility" ? cached("onlineFix", () => getGameOnlineFixDetected(game.id)) : Promise.resolve(false),
       ]);
       if (overrideResult.status === "fulfilled") {
         overrides = overrideResult.value;
@@ -135,7 +139,7 @@
       else if (loadError === null) loadError = toMessage(onlineFixResult.reason);
     } else if (platform === "windows" || platform === "linux") {
       try {
-        nativeConfig = await getNativeLaunchConfig(game.id);
+        nativeConfig = await cached("native", () => getNativeLaunchConfig(game.id));
         nativeArguments = formatLaunchArguments(nativeConfig.arguments);
         nativeWorkingDirectory = nativeConfig.workingDirectory ?? "";
         nativeEnvironmentText = mapToText(nativeConfig.environment);
@@ -232,7 +236,6 @@
     const { overrides: draft, argumentsBefore: before, argumentsAfter: after, environmentText: environment, dllOverridesText: dll, wrapperText: wrapper } = values;
     saving = true;
     saveError = null;
-    saved = false;
     try {
       if (draft.prefixPath !== null && draft.prefixPath.trim().length === 0) {
         throw new Error(t("Seleziona una cartella per il prefix personalizzato.", $language));
@@ -246,9 +249,9 @@
         dllOverrides: draft.dllOverrides === null ? null : parseMap(dll, t("Override DLL", $language)),
       });
       baseline = JSON.stringify({ overrides: updated, argumentsBefore: before, argumentsAfter: after, environmentText: environment, dllOverridesText: dll, wrapperText: wrapper });
+      cache.overrides = updated;
       if (!disposed && compatibilitySnapshot === snapshot) overrides = updated;
       failedSnapshot = null;
-      saved = true;
     } catch (error) {
       failedSnapshot = snapshot;
       saveError = toMessage(error);
@@ -259,7 +262,6 @@
 
   function resetCompatibility(): void {
     saveError = null;
-    saved = false;
     overrides = structuredClone(emptyGameCompatibilityOverrides);
     argumentsBefore = "";
     argumentsAfter = "";
@@ -274,7 +276,6 @@
     const { nativeArguments: argumentsText, nativeWorkingDirectory: workingDirectory, nativeEnvironmentText: environmentText } = values;
     saving = true;
     saveError = null;
-    saved = false;
     try {
       const updated = await saveNativeLaunchConfig(game.id, {
         arguments: parseLaunchArguments(argumentsText),
@@ -282,6 +283,7 @@
         environment: parseMap(environmentText, t("Variabili ambiente", $language)),
       });
       baseline = JSON.stringify({ nativeArguments: formatLaunchArguments(updated.arguments), nativeWorkingDirectory: updated.workingDirectory ?? "", nativeEnvironmentText: mapToText(updated.environment) });
+      cache.native = updated;
       if (!disposed && nativeSnapshot === snapshot) {
         nativeConfig = updated;
         nativeArguments = formatLaunchArguments(updated.arguments);
@@ -289,7 +291,6 @@
         nativeEnvironmentText = mapToText(updated.environment);
       }
       failedSnapshot = null;
-      saved = true;
     } catch (error) {
       failedSnapshot = snapshot;
       saveError = toMessage(error);
@@ -342,7 +343,6 @@
       </div>
     </div>
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
-    {#if saved}<Callout tone="success" variant="inline" message={t("Percorsi salvati.", $language)} />{/if}
   {:else if compatibilityGame && section === "compatibility"}
     <Toggle label={t("Avvio con Steam", $language)} checked={overrides.launchViaSteam ?? (game.steamAppId !== null)} onChange={(checked) => setOverride("launchViaSteam", checked)} />
     <p class="text-xs text-legio-fg-subtle">{t("Avvia Steam e il gioco con Proton usando il prefix della sezione Posizioni. Runtime e overlay vengono applicati automaticamente quando disponibili.", $language)}</p>
@@ -425,7 +425,6 @@
     </div>
 
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
-    {#if saved}<Callout tone="success" variant="inline" message={t("Impostazioni salvate.", $language)} />{/if}
     <div class="flex flex-wrap gap-2">
       <Button label={t("Ripristina default globali", $language)} variant="secondary" disabled={saving} onClick={resetCompatibility} />
     </div>
@@ -442,19 +441,16 @@
       </div>
     </div>
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
-    {#if saved}<Callout tone="success" variant="inline" message={t("Argomenti salvati.", $language)} />{/if}
   {:else if !compatibilityGame && section === "launch"}
     <p class="text-sm text-legio-fg-muted">{t("Aggiungi argomenti di avvio. Racchiudi tra virgolette i valori che contengono spazi.", $language)}</p>
     <TextField id="native-arguments" label={t("Opzioni di avvio", $language)} value={nativeArguments} placeholder="-windowed -novid" oninput={(value) => (nativeArguments = value)} />
     <TextField id="native-environment" type="textarea" rows={4} label={t("Variabili ambiente", $language)} bind:value={nativeEnvironmentText} hint={t("Una voce KEY=VALUE per riga. Applicate solo all'avvio di questo gioco.", $language)} />
     {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
-    {#if saved}<Callout tone="success" variant="inline" message={t("Argomenti salvati.", $language)} />{/if}
   {:else if !compatibilityGame}
     {#if section === "locations"}
       <p class="text-sm text-legio-fg-muted">{t("Imposta la cartella iniziale del processo per questo gioco.", $language)}</p>
       <TextField id="native-working-directory" label={t("Cartella di lavoro", $language)} value={nativeWorkingDirectory} placeholder={t("Cartella dell'eseguibile", $language)} oninput={(value) => (nativeWorkingDirectory = value)} />
       {#if saveError !== null}<ErrorBanner message={saveError} />{/if}
-      {#if saved}<Callout tone="success" variant="inline" message={t("Percorso salvato.", $language)} />{/if}
     {:else}
       <p class="text-sm text-legio-fg-muted">{t("Le opzioni di compatibilità aggiuntive non sono disponibili per i runner nativi. Configura gli argomenti di avvio in Generali.", $language)}</p>
     {/if}

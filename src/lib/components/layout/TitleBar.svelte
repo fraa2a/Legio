@@ -176,7 +176,7 @@
             tabindex="-1"
             aria-current="page"
             title={path.current}
-            class="max-w-80 truncate px-2 text-sm font-semibold text-legio-fg focus:outline-none"
+            class="min-w-0 flex-1 truncate px-2 text-sm font-semibold text-legio-fg focus:outline-none"
           >
             {path.current}
           </h1>

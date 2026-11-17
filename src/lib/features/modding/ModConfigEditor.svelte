@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
+  import { slide } from "svelte/transition";
+  import { reducedMotion } from "../../utils/motion";
   import { t, language } from "../../i18n";
   import {
     deleteModConfigFile, listModConfigFiles, openModConfigFile, readModConfigFile, saveModConfigEntries, saveModConfigText,
@@ -358,7 +360,7 @@
                     {#if changedCount > 0}<Badge tone="info" title={t("{0} modificate", $language, [changedCount])} />{/if}
                   </button>
                   {#if expanded}
-                    <div class="flex flex-col gap-2">
+                    <div class="flex flex-col gap-2" transition:slide={{ duration: reducedMotion ? 0 : 200 }}>
                       {#each section.entries as entry (entry.line)}
                         <ModConfigEntry
                           id={`mod-config-line-${entry.line}`}

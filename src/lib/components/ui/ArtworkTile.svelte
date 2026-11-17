@@ -34,7 +34,7 @@
 
 <ArtworkScope active={visible}>
   <li
-    class="tile group relative flex min-h-max min-w-0 flex-col overflow-hidden rounded-panel bg-zinc-800 light:bg-zinc-200 {portrait ? 'aspect-[2/3]' : 'aspect-[2.14/1]'} {className}"
+    class="tile group relative flex min-h-max min-w-0 flex-col overflow-hidden rounded-panel bg-legio-fill {portrait ? 'aspect-[2/3]' : 'aspect-[2.14/1]'} {className}"
   >
     <div
       bind:this={tile}

@@ -4,6 +4,7 @@
   import Button from "./Button.svelte";
   import Icon, { type IconName } from "./Icon.svelte";
   import IconButton from "./IconButton.svelte";
+  import Disclosure from "./Disclosure.svelte";
   import CopyButton from "./CopyButton.svelte";
   import { failureReport, technicalDetail } from "../../utils/error-message";
 
@@ -67,23 +68,15 @@
     {#if title}<p class="font-medium text-legio-fg">{title}</p>{/if}
     {#if message}<p>{message}</p>{/if}
     {#if technical !== null}
-      <details class="group mt-1">
-        <summary class="flex w-fit cursor-pointer list-none items-center gap-1 text-xs text-legio-fg-muted transition-colors hover:text-legio-fg">
-          {t("Dettagli tecnici", $language)}
-          <span class="transition-transform group-open:rotate-180 motion-reduce:transition-none"><Icon name="chevron-down" size="sm" /></span>
-        </summary>
+      <Disclosure label={t("Dettagli tecnici", $language)}>
         <pre class="mt-1 whitespace-pre-wrap break-words font-mono text-xs text-legio-fg-muted">{technical}</pre>
-      </details>
+      </Disclosure>
     {/if}
     {@render children?.()}
     {#if items.length > collapseAfter}
-      <details class="group mt-1">
-        <summary class="flex w-fit cursor-pointer list-none items-center gap-1 text-xs text-legio-fg-muted transition-colors hover:text-legio-fg">
-          {t("Mostra i dettagli ({0})", $language, [items.length])}
-          <span class="transition-transform group-open:rotate-180 motion-reduce:transition-none"><Icon name="chevron-down" size="sm" /></span>
-        </summary>
+      <Disclosure label={t("Mostra i dettagli ({0})", $language, [items.length])}>
         {@render list()}
-      </details>
+      </Disclosure>
     {:else if items.length > 0}
       {@render list()}
     {/if}

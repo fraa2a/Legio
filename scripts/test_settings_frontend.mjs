@@ -161,7 +161,7 @@ const nativeMocks={...mocks,
 const nativeLoader=createModuleLoader(nativeMocks);
 const GameSettingsPanel=(await import(await nativeLoader.load('src/lib/features/library/GameSettingsPanel.svelte'))).default;
 const manualGame={id:'native-game',name:'Native Game',steamAppId:null,steamInstallPath:null,executablePath:'C:/game.exe'};
-target=document.createElement('div');document.body.append(target);instance=mount(GameSettingsPanel,{target,props:{game:manualGame,section:'launch'}});await settle();
+target=document.createElement('div');document.body.append(target);instance=mount(GameSettingsPanel,{target,props:{game:manualGame,section:'launch',cache:{}}});await settle();
 const edit=(input,value)=>{input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));};
 edit(target.querySelector('#native-arguments'),'-a');await settle();await new Promise(resolve=>setTimeout(resolve,600));await settle();assert.equal(nativeSaves.length,1);
 edit(target.querySelector('#native-arguments'),'-b');await settle();
