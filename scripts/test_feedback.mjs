@@ -180,13 +180,16 @@ test("callouts expose their role, collapse long lists and offer retry and dismis
     instance = mountCallout({ tone: "warning", title: "Runner", items: ["one", "one"] });
     await settle();
     assert.equal(target.firstElementChild.getAttribute("role"), "status");
-    assert.equal(target.querySelector("details"), null, "two items stay visible");
+    assert.equal(target.querySelector("button[aria-expanded]"), null, "two items stay visible");
     assert.equal(target.querySelectorAll("li").length, 2);
     await unmount(instance); target.replaceChildren();
     instance = mountCallout({ tone: "warning", title: "Runner", items: ["a", "b", "b"] });
     await settle();
-    assert.ok(target.querySelector("details"), "longer lists collapse");
-    assert.match(target.querySelector("summary").textContent, /Mostra i dettagli \(3\)/);
+    const toggle = target.querySelector("button[aria-expanded]");
+    assert.ok(toggle, "longer lists collapse");
+    assert.match(toggle.textContent, /Mostra i dettagli \(3\)/);
+    toggle.click();
+    await settle();
     assert.equal(target.querySelector('ul[aria-label="Runner"]').children.length, 3);
   } finally { await unmount(instance); target.remove(); }
 });

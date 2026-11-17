@@ -5,12 +5,13 @@ import { compile } from "svelte/compiler";
 import { createModuleLoader, dataModule } from "./test_module_loader.mjs";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBeVisual: true });
-for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputElement", "Element", "Node", "Text", "Comment", "Event", "MutationObserver"]) {
+for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputElement", "Element", "Node", "Text", "Comment", "Event", "CustomEvent", "MutationObserver", "getComputedStyle"]) {
   Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
 }
 const { mount, unmount, flushSync } = await import("svelte");
 const { writable } = await import("svelte/store");
 globalThis.matchMedia = () => ({ matches: false });
+dom.window.HTMLElement.prototype.animate = () => ({ set onfinish(callback) { callback(); }, cancel() {} });
 dom.window.HTMLCanvasElement.prototype.getContext = () => null;
 dom.window.HTMLMediaElement.prototype.pause = function () {};
 const settle = async () => { for (let i = 0; i < 5; i++) { await new Promise(resolve => setImmediate(resolve)); flushSync(); } };

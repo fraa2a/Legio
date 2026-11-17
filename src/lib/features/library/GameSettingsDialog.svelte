@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { fade } from "svelte/transition";
+  import { fadeDuration } from "../../utils/motion";
   import { t, language } from "../../i18n";
+  import type { LaunchSettingsCache } from "../../services/game-settings";
   import { createDesktopShortcut, transferGame, type Game } from "../../services/local-state";
   import type { GameLibrary } from "../../services/game-libraries";
   import { reconcileGame } from "../../stores/games";
@@ -36,6 +39,8 @@
     onRemoved: (removed: Game) => void;
   } = $props();
 
+  // A new object per game, so panes mount with data fetched once instead of reloading on every category switch.
+  const launchSettingsCache = $derived.by<LaunchSettingsCache>(() => (game.id, {}));
   const steamManaged = $derived(game.steamInstallPath !== null);
   const allCategories = $derived([
     { id: "general", label: t("Generali", $language), icon: "settings" },
@@ -105,6 +110,8 @@
   <div class="flex min-h-0 flex-1">
     <SettingsNavigation {categories} selected={selectedCategory} label={t("Sezioni delle impostazioni del gioco", $language)} onSelect={id => (active = id)} />
     <div class="min-w-0 flex-1 overflow-y-auto p-6">
+      {#key selectedCategory}
+      <div in:fade={{ duration: fadeDuration }}>
       {#if selectedCategory === "general"}
         <div class="flex flex-col gap-4">
           <GameDetailsPanel {game} {onRemoved} />
@@ -125,7 +132,7 @@
             {#key `${game.id}:${shortcutPath ?? ""}`}<SteamLaunchSettings {game} />{/key}
           {:else if game.executablePath !== null}
             {#if game.steamAppId !== null}{#key game.id}<SteamStartSetting {game} />{/key}{/if}
-            {#key game.id}<GameSettingsPanel {game} section="launch" />{/key}
+            {#key game.id}<GameSettingsPanel {game} section="launch" cache={launchSettingsCache} />{/key}
           {:else}
             <Panel title={t("Opzioni di avvio", $language)}>
               <p class="text-sm text-legio-fg-muted">{t("Seleziona prima un eseguibile nella sezione Posizioni.", $language)}</p>
@@ -143,7 +150,7 @@
             </Panel>
           {/if}
           {#if game.executablePath !== null}
-            {#key game.id}<GameSettingsPanel {game} section="locations" />{/key}
+            {#key game.id}<GameSettingsPanel {game} section="locations" cache={launchSettingsCache} />{/key}
           {/if}
           {#if !steamManaged && game.executablePath !== null}
             <Panel title={t("Trasferisci gioco", $language)}>
@@ -163,7 +170,7 @@
         <GameArtworkPanel {game} />
       {:else if selectedCategory === "compatibility"}
         {#if game.executablePath !== null}
-          {#key game.id}<GameSettingsPanel {game} section="compatibility" />{/key}
+          {#key game.id}<GameSettingsPanel {game} section="compatibility" cache={launchSettingsCache} />{/key}
         {:else}
           <Panel title={t("Compatibilità", $language)}>
             <p class="text-sm text-legio-fg-muted">{t("Seleziona prima un eseguibile per configurare il runner e gli argomenti di avvio.", $language)}</p>
@@ -177,6 +184,8 @@
           <GameDetailsPanel {game} {onRemoved} {running} section="danger" />
         </div>
       {/if}
+      </div>
+      {/key}
     </div>
   </div>
 </Dialog>

@@ -48,7 +48,7 @@
     {#if expanded}
       <span
         transition:fade={{ duration: fadeDuration, easing: cubicOut }}
-        class="absolute top-1/2 left-12 w-36 -translate-y-1/2 truncate text-left text-sm font-medium text-legio-fg"
+        class="absolute top-1/2 left-12 right-2 -translate-y-1/2 truncate text-left text-sm font-medium text-legio-fg"
       >
         {game.name}
       </span>

@@ -289,7 +289,7 @@
       </div>
     {/if}
     <section class="relative isolate z-20 aspect-[1920/620] min-h-80 w-full rounded-panel">
-      <div class="absolute inset-0 overflow-hidden rounded-panel bg-zinc-800 light:bg-zinc-200 {launch?.status === 'launching' ? 'legio-cover-launching' : ''}">
+      <div class="absolute inset-0 overflow-hidden rounded-panel bg-legio-fill {launch?.status === 'launching' ? 'legio-cover-launching' : ''}">
         {#if customBannerUrl !== null}
           <img src={customBannerUrl} alt={t("Banner personalizzato di {0}", $language, [name])} class="absolute inset-0 size-full object-cover" onload={(event) => publishArtColor(`custom:${artworkGameId}`, artworkKey, event.currentTarget as HTMLImageElement)} />
         {:else if steamAppId !== null}

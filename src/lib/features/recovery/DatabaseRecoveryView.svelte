@@ -2,13 +2,13 @@
   import { onMount } from "svelte";
   import { t, language } from "../../i18n";
   import Button from "../../components/ui/Button.svelte";
+  import CopyButton from "../../components/ui/CopyButton.svelte";
   import ConfirmDialog from "../../components/ui/ConfirmDialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Logo from "../../components/ui/Logo.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
   import { databaseRecovery, loadDatabaseBackups, openDatabaseFolder, restoreSelectedBackup, selectDatabaseBackup, startWithNewDatabase } from "../../stores/database-recovery";
-  import { showToast } from "../../stores/toast";
   import { formatDateTime } from "../../utils/format";
 
   let { failure }: { failure: string } = $props();
@@ -21,15 +21,6 @@
   })));
 
   onMount(() => { void loadDatabaseBackups(); });
-
-  async function copyFailure(): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(failure);
-      showToast(t("Copiato", $language), "success");
-    } catch {
-      showToast(t("Impossibile copiare negli appunti.", $language), "error");
-    }
-  }
 </script>
 
 <main class="legio-content min-h-0 flex-1 overflow-auto rounded-card bg-black p-6 light:bg-zinc-50" aria-labelledby="database-recovery-title">
@@ -43,9 +34,9 @@
         <h1 id="database-recovery-title" class="text-xl font-semibold text-white light:text-zinc-900">{t("Impossibile aprire il database locale", $language)}</h1>
         <p class="mt-2 text-sm text-zinc-400 light:text-zinc-600">{t("Legio non riesce ad aprire o aggiornare il database della libreria. Nessun file è stato eliminato.", $language)}</p>
       </header>
-      <pre class="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-control bg-white/5 p-3 font-mono text-xs text-zinc-200 select-text light:bg-zinc-900/5 light:text-zinc-800">{failure}</pre>
+      <pre class="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-control bg-legio-fill p-3 font-mono text-xs text-zinc-200 select-text light:text-zinc-800">{failure}</pre>
       <div class="flex flex-wrap gap-2">
-        <Button label={t("Copia", $language)} variant="secondary" size="sm" onClick={() => void copyFailure()} />
+        <CopyButton text={failure} label={t("Copia l'errore", $language)} />
         <Button label={t("Apri cartella dati", $language)} variant="secondary" size="sm" onClick={() => void openDatabaseFolder()} />
       </div>
       {#if $databaseRecovery.error}<ErrorBanner message={$databaseRecovery.error} />{/if}

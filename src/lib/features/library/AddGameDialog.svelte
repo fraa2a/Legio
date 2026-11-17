@@ -170,8 +170,8 @@
           </div>
         {/if}
         {#if parsedAppId !== null}
-          <div class="flex items-center gap-3 rounded-card border border-legio-line-subtle bg-white/5 p-2 light:bg-white">
-            <div class="h-16 w-32 shrink-0 overflow-hidden rounded-control bg-zinc-800 light:bg-zinc-200">
+          <div class="flex items-center gap-3 rounded-card border border-legio-line-subtle bg-legio-fill p-2">
+            <div class="h-16 w-32 shrink-0 overflow-hidden rounded-control bg-legio-fill">
               <SteamArtwork steamAppId={parsedAppId} asset="header" caption={false} alt="" class="size-full object-cover" />
             </div>
             <div class="min-w-0">

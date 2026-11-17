@@ -84,6 +84,15 @@ export interface RunnerDiscovery {
   diagnostics: string[];
 }
 
+/** Launch settings already fetched for one game, shared by the panels of a settings dialog. */
+export interface LaunchSettingsCache {
+  overrides?: GameCompatibilityOverrides;
+  defaults?: CompatibilityDefaults;
+  runners?: RunnerDiscovery;
+  onlineFix?: boolean;
+  native?: NativeLaunchConfig;
+}
+
 export const emptyCompatibilityDefaults: CompatibilityDefaults = {
   runnerPath: null,
   prefixRoot: null,

@@ -145,7 +145,7 @@
 {/snippet}
 
 {#snippet monogram(name: string, size: string)}
-  <span class="flex {size} shrink-0 items-center justify-center rounded-control bg-zinc-700/60 text-sm font-semibold text-legio-fg light:bg-zinc-200" aria-hidden="true">{name.trim().charAt(0).toUpperCase() || "?"}</span>
+  <span class="flex {size} shrink-0 items-center justify-center rounded-control bg-legio-fill text-sm font-semibold text-legio-fg" aria-hidden="true">{name.trim().charAt(0).toUpperCase() || "?"}</span>
 {/snippet}
 
 {#snippet badges(option: ReleaseOption)}

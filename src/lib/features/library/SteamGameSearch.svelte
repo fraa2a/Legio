@@ -79,7 +79,7 @@
   {/if}
   {#if searchError !== null}<Callout tone="warning" variant="inline" message={t("Ricerca non disponibile: {0}", $language, [searchError])} />{/if}
   {#if searchResults.length > 0 && value.trim().length >= 2}
-    <ul class="max-h-36 overflow-y-auto rounded-control border border-legio-line-subtle bg-white/5 light:bg-white" aria-label={t("Risultati Steam", $language)}>
+    <ul class="max-h-36 overflow-y-auto rounded-control border border-legio-line-subtle bg-legio-fill" aria-label={t("Risultati Steam", $language)}>
       {#each searchResults as result (result.steamAppId)}
         <li>
           <button type="button" class="flex h-control-lg w-full items-center px-3 text-left text-sm text-legio-fg hover:bg-legio-fill-hover focus-visible:-outline-offset-2"
