@@ -11,6 +11,8 @@ for (const key of ["window", "document", "navigator", "Node", "Text", "Comment",
 }
 // jsdom has no ResizeObserver; the library grid's reflow action only needs it to exist.
 globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
+// jsdom has no Web Animations; Svelte transitions such as the disclosure slide need it.
+dom.window.HTMLElement.prototype.animate = () => ({ set onfinish(callback) { callback(); }, cancel() {} });
 const { mount, unmount, flushSync } = await import("svelte");
 const { get, writable } = await import("svelte/store");
 const mocks = {
@@ -255,6 +257,8 @@ test("library renders repeated Steam diagnostics and stays usable after refresh"
     assert.equal(get(titleBarContent), null, "the view controls wait for games");
     games.set({ data: [{ id: "portal", name: "Portal", steamAppId: 400, steamInstallPath: "C:\\Steam\\Portal" }], status: "ready", error: null });
     steamLibrary.set({ importing: false, error: null, importResult: { diagnostics: [warning, warning, warning] } });
+    await settle();
+    target.querySelector('button[aria-expanded="false"]').click();
     await settle();
     assert.equal(target.querySelectorAll('[aria-label="Diagnostica Steam"] li').length, 3);
     assert.ok(get(titleBarContent)?.start, "the view controls move into the title bar");
