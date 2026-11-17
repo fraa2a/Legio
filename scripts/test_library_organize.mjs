@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   collectionMembership,
   filterEntries,
+  hasActiveFilters,
   libraryEntries,
   libraryShelves,
   nextSort,
@@ -40,7 +41,7 @@ const entries = libraryEntries(
   collectionMembership(collections),
 );
 const names = (list) => list.map((entry) => entry.game.name);
-const all = { favoritesOnly: false, playStatus: null, collection: { kind: "all" } };
+const all = { favoritesOnly: false, playStatus: null };
 
 test("versions of a game share favorite, status, membership and dates", () => {
   const [portal] = entries;
@@ -55,13 +56,13 @@ test("versions of a game share favorite, status, membership and dates", () => {
   assert.equal(entries[2].addedAt, null);
 });
 
-test("filters combine favorites, status and collection", () => {
-  assert.deepEqual(names(filterEntries(entries, { ...all, favoritesOnly: true }, collections)), ["Portal"]);
-  assert.deepEqual(names(filterEntries(entries, { ...all, playStatus: "completed" }, collections)), ["doom"]);
-  assert.deepEqual(names(filterEntries(entries, { ...all, collection: { kind: "collection", id: "coop" } }, collections)), ["Portal", "doom"]);
-  assert.deepEqual(names(filterEntries(entries, { ...all, collection: { kind: "uncollected" } }, collections)), ["Braid"]);
-  assert.deepEqual(names(filterEntries(entries, { ...all, collection: { kind: "collection", id: "deleted" } }, collections)).length, 3, "a deleted collection filters nothing");
-  assert.deepEqual(names(filterEntries(entries, { favoritesOnly: true, playStatus: "completed", collection: { kind: "all" } }, collections)), []);
+test("filters combine favorites and status", () => {
+  assert.deepEqual(names(filterEntries(entries, all)), ["Portal", "doom", "Braid"]);
+  assert.deepEqual(names(filterEntries(entries, { ...all, favoritesOnly: true })), ["Portal"]);
+  assert.deepEqual(names(filterEntries(entries, { ...all, playStatus: "completed" })), ["doom"]);
+  assert.deepEqual(names(filterEntries(entries, { favoritesOnly: true, playStatus: "completed" })), []);
+  assert.equal(hasActiveFilters(all), false);
+  assert.equal(hasActiveFilters({ ...all, playStatus: "none" }), true);
 });
 
 test("sorts by each key with unknown dates last in both directions", () => {

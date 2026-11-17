@@ -1,4 +1,4 @@
-import type { Game, LibraryCollectionFilter, LibrarySortKey } from "../../services/local-state";
+import type { Game, LibrarySortKey } from "../../services/local-state";
 import type { Collection, GameOrganization, PlayStatus } from "../../services/library-organization";
 import type { PlaytimeSummary } from "../../services/playtime";
 
@@ -20,7 +20,6 @@ export interface LibraryEntry {
 export interface LibraryFilters {
   favoritesOnly: boolean;
   playStatus: PlayStatus | null;
-  collection: LibraryCollectionFilter;
 }
 
 export interface LibraryShelf {
@@ -85,15 +84,14 @@ export function libraryEntries(
   });
 }
 
-export function filterEntries(entries: LibraryEntry[], filters: LibraryFilters, collections: Collection[]): LibraryEntry[] {
-  const { collection } = filters;
-  // A filter on a deleted collection shows everything rather than nothing.
-  const collectionId = collection.kind === "collection" && collections.some((item) => item.id === collection.id) ? collection.id : null;
+export function filterEntries(entries: LibraryEntry[], filters: LibraryFilters): LibraryEntry[] {
   return entries.filter((entry) =>
     (!filters.favoritesOnly || entry.favorite)
-    && (filters.playStatus === null || entry.playStatus === filters.playStatus)
-    && (collection.kind !== "uncollected" || entry.collectionIds.size === 0)
-    && (collectionId === null || entry.collectionIds.has(collectionId)));
+    && (filters.playStatus === null || entry.playStatus === filters.playStatus));
+}
+
+export function hasActiveFilters(filters: LibraryFilters): boolean {
+  return filters.favoritesOnly || filters.playStatus !== null;
 }
 
 export function defaultDescending(key: LibrarySortKey): boolean {

@@ -1178,7 +1178,6 @@
   "parziale": "partial",
   "Spazio su disco": "Disk space",
   "Raccolte": "Collections",
-  "Raccolta": "Collection",
   "Nessuna raccolta. Creane una qui sotto.": "No collections. Create one below.",
   "Nome della raccolta": "Collection name",
   "Rinomina {0}": "Rename {0}",
@@ -1199,9 +1198,7 @@
   "Elenco": "List",
   "Scaffali": "Shelves",
   "Tutti gli stati": "All statuses",
-  "Tutte le raccolte": "All collections",
   "Senza raccolta": "No collection",
-  "Preferiti": "Favorites",
   "Dimensione copertine": "Cover size",
   "Nessun gioco corrisponde ai filtri.": "No game matches the filters.",
   "Nessuno stato": "No status",
@@ -1419,5 +1416,10 @@
   "Rimuovi i collegamenti di Legio": "Remove Legio shortcuts",
   "Verranno rimossi da Steam solo i collegamenti creati da Legio ({0}). Gli altri restano al loro posto.": "Only the shortcuts created by Legio ({0}) are removed from Steam. All others stay in place.",
   "Apri Steam prima del gioco": "Open Steam before the game",
-  "Legio avvia Steam e attende l'accesso all'account prima di aprire il gioco.": "Legio starts Steam and waits for the account to sign in before opening the game."
+  "Legio avvia Steam e attende l'accesso all'account prima di aprire il gioco.": "Legio starts Steam and waits for the account to sign in before opening the game.",
+  "Filtri, attivi": "Filters, active",
+  "Solo preferiti": "Favorites only",
+  "Gestisci raccolte": "Manage collections",
+  "Come mostrare la libreria": "How to show the library",
+  "Vale per la griglia e gli scaffali.": "Applies to the grid and the shelves."
 }

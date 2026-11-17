@@ -355,19 +355,10 @@ pub enum LibrarySortKey {
     Origin,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "camelCase", tag = "kind", content = "id")]
-pub enum LibraryCollectionFilter {
-    #[default]
-    All,
-    Uncollected,
-    Collection(String),
-}
-
 pub const MIN_LIBRARY_COVER_SCALE: u8 = 70;
 pub const MAX_LIBRARY_COVER_SCALE: u8 = 150;
 
-/// Library layout, sort and filters. Unknown collection IDs filter nothing.
+/// Library layout, sort and filters. Fields that are no longer used, such as the old collection filter, are ignored on load.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct LibraryViewPreferences {
@@ -378,7 +369,6 @@ pub struct LibraryViewPreferences {
     pub cover_scale: u8,
     pub favorites_only: bool,
     pub play_status: Option<PlayStatus>,
-    pub collection: LibraryCollectionFilter,
 }
 
 impl Default for LibraryViewPreferences {
@@ -390,7 +380,6 @@ impl Default for LibraryViewPreferences {
             cover_scale: 100,
             favorites_only: false,
             play_status: None,
-            collection: LibraryCollectionFilter::default(),
         }
     }
 }
@@ -400,9 +389,6 @@ fn validate_library_view(preferences: &LibraryViewPreferences) -> Result<(), Str
         return Err(format!(
             "Library cover size must be between {MIN_LIBRARY_COVER_SCALE} and {MAX_LIBRARY_COVER_SCALE} percent"
         ));
-    }
-    if let LibraryCollectionFilter::Collection(id) = &preferences.collection {
-        Uuid::parse_str(id).map_err(|_| "Library collection filter is invalid".to_owned())?;
     }
     Ok(())
 }
@@ -1820,8 +1806,11 @@ mod tests {
         let legacy: Settings = serde_json::from_str(r#"{"theme":"system"}"#).unwrap();
         assert_eq!(legacy.library_view, LibraryViewPreferences::default());
         let value = serde_json::to_value(LibraryViewPreferences::default()).unwrap();
-        assert_eq!(value["collection"], serde_json::json!({ "kind": "all" }));
         assert_eq!(value["playStatus"], serde_json::Value::Null);
+        let stored: LibraryViewPreferences =
+            serde_json::from_str(r#"{"mode":"list","collection":{"kind":"collection","id":"x"}}"#)
+                .unwrap();
+        assert_eq!(stored.mode, LibraryViewMode::List);
 
         let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();
@@ -1832,10 +1821,6 @@ mod tests {
             },
             LibraryViewPreferences {
                 cover_scale: MAX_LIBRARY_COVER_SCALE + 1,
-                ..LibraryViewPreferences::default()
-            },
-            LibraryViewPreferences {
-                collection: LibraryCollectionFilter::Collection("../escape".to_owned()),
                 ..LibraryViewPreferences::default()
             },
         ] {
@@ -2942,7 +2927,6 @@ mod tests {
                 cover_scale: 130,
                 favorites_only: true,
                 play_status: Some(PlayStatus::Playing),
-                collection: LibraryCollectionFilter::Collection(Uuid::new_v4().to_string()),
             },
             sidebar_collapsed: false,
             sync_steam_games: false,
