@@ -5,7 +5,7 @@
   import { t, language } from "../../i18n";
   import type { Theme } from "../../services/local-state";
   import {
-    activePalette, chooseBackground, textScaleRange, cleanupBackgrounds, defaultAppearance, createThemeCode, defaultDither, exportAppearance, importAppearance, readThemeCode, panelStyleOf, panelStyles, themePresets,
+    activePalette, chooseBackground, textScaleRange, cleanupBackgrounds, loadBackground, defaultAppearance, createThemeCode, defaultDither, exportAppearance, importAppearance, readThemeCode, panelStyleOf, panelStyles, themePresets,
     type Appearance, type AppearanceProfile, type Palette, type PanelStyle,
   } from "../../services/appearance";
   import { appearancePreview } from "../../stores/appearance";
@@ -19,6 +19,7 @@
   import TextField from "../../components/ui/TextField.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
+  import SettingsRow from "../../components/ui/SettingsRow.svelte";
   import SegmentedControl from "../../components/ui/SegmentedControl.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
@@ -56,11 +57,13 @@
   let pasteOpen = $state(false);
   let pasteText = $state("");
   let pasteError = $state<string | null>(null);
+  let backgroundUrl = $state<string | null>(null);
   let disposed = false;
 
   const serialized = $derived(JSON.stringify({ theme, appearance: draft }));
   const paletteAccent = $derived(activePalette(theme, document.documentElement.dataset.theme !== "light").palette.accent);
   const dirty = $derived(serialized !== baseline);
+  const backgroundId = $derived(draft.background);
   const hyprland = $derived($appInfo.data.platform === "linux" && $appInfo.data.desktopEnvironment === "hyprland");
   const themeOptions: { id: Theme; label: string; preset: (typeof themePresets)[number] | null }[] = $derived([
     { id: "system", label: t("Sistema", $language), preset: null },
@@ -108,6 +111,7 @@
     { value: "wide", label: t("Ampia", $language) },
   ]);
   const cornerOptions = $derived([
+    { value: "square", label: t("Quadrati", $language) },
     { value: "sharp", label: t("Squadrati", $language) },
     { value: "soft", label: t("Morbidi", $language) },
     { value: "round", label: t("Tondi", $language) },
@@ -133,6 +137,23 @@
   });
 
   $effect(() => { onBusyChange?.(busy); });
+
+  $effect(() => {
+    const id = backgroundId;
+    let url: string | null = null;
+    let cancelled = false;
+    backgroundUrl = null;
+    if (id !== null) {
+      void loadBackground(id).then((loaded) => {
+        if (cancelled) URL.revokeObjectURL(loaded);
+        else backgroundUrl = url = loaded;
+      }).catch((reason) => console.error("Could not load the background preview", reason));
+    }
+    return () => {
+      cancelled = true;
+      if (url !== null) URL.revokeObjectURL(url);
+    };
+  });
 
   $effect(() => {
     if (onPreview || !dirty || busy || saving || adjusting || serialized === failedSnapshot) return;
@@ -162,7 +183,6 @@
         await updateSettings({ theme: selectedTheme, appearance: selectedAppearance });
         baseline = snapshot;
         failedSnapshot = null;
-        if (!disposed && serialized === snapshot) showToast(t("Aspetto salvato.", get(language)), "success");
         await cleanupBackgrounds();
       } catch (reason) {
         failedSnapshot = snapshot;
@@ -281,7 +301,7 @@
 <section class="appearance-settings flex flex-col gap-6">
   {#if error}<ErrorBanner message={error} />{/if}
 
-  <SettingsGroup title={t("Tema", $language)} icon="palette" collapsible defaultOpen>
+  <SettingsGroup title={t("Tema", $language)} icon="palette" collapsible>
     <fieldset disabled={busy} class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       <legend class="sr-only">{t("Palette predefinite", $language)}</legend>
       {#each themeOptions as option (option.id)}
@@ -309,12 +329,20 @@
   </SettingsGroup>
 
   <SettingsGroup title={t("Sfondo e animazioni", $language)} icon="image" collapsible>
-    <div class="flex flex-wrap gap-2">
-      <Button variant="secondary" label={t("Scegli uno sfondo", $language)} disabled={busy || saving} onClick={() => void selectBackground()} />
-      {#if draft.background !== null}<Button variant="danger-soft" label={t("Rimuovi sfondo", $language)} disabled={busy} onClick={() => { draft.background = null; }} />{/if}
+    <div role="button" tabindex="0" aria-label={t("Scegli uno sfondo", $language)} class="flex cursor-pointer flex-wrap items-center gap-4 rounded-card border border-dashed border-legio-line legio-glass p-3" onclick={(event) => { if (!busy && !saving && !(event.target as Element).closest("button")) void selectBackground(); }} onkeydown={(event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); if (!busy && !saving) void selectBackground(); } }}>
+      <span class="grid h-16 w-28 shrink-0 place-items-center overflow-hidden rounded-control bg-legio-fill text-legio-fg-subtle" aria-hidden="true">
+        {#if backgroundUrl !== null}<img src={backgroundUrl} alt="" class="size-full object-cover" />{:else}<Icon name="image" />{/if}
+      </span>
+      <div class="min-w-0 flex-1">
+        <p class="text-sm font-medium text-legio-fg">{draft.background === null ? t("Nessuno sfondo", $language) : t("Immagine personalizzata", $language)}</p>
+        <p class="mt-0.5 text-xs text-legio-fg-subtle">{t("PNG, JPEG o WebP, fino a 16 MiB e 16 megapixel.", $language)}</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <Button variant="secondary" label={draft.background === null ? t("Scegli uno sfondo", $language) : t("Sostituisci", $language)} disabled={busy || saving} onClick={() => void selectBackground()} />
+        {#if draft.background !== null}<Button variant="danger-soft" label={t("Rimuovi sfondo", $language)} disabled={busy} onClick={() => { draft.background = null; }} />{/if}
+      </div>
     </div>
     {#if draft.background !== null}
-      <p class="text-xs text-legio-fg-subtle">{t("PNG, JPEG o WebP, fino a 16 MiB e 16 megapixel.", $language)}</p>
       <div class="grid gap-3 sm:grid-cols-2">
         {#each backgroundEffects as effect (effect.key)}
           <AppearanceSlider id={"theme-" + effect.key} label={effect.label} value={draft[effect.key]} min={effect.min} max={effect.max} unit={effect.unit} resetValue={defaultAppearance()[effect.key]} disabled={busy} onChange={(value) => { draft[effect.key] = value; }} />
@@ -376,15 +404,24 @@
     </SettingsGroup>
   {/if}
 
-  <div class="flex flex-wrap items-center justify-between gap-3 pt-4">
-    <Button variant="secondary" label={t("Ripristina aspetto predefinito", $language)} disabled={busy} onClick={reset} />
-    <div class="flex flex-wrap gap-2">
-      <Button variant="secondary" label={t("Copia codice", $language)} disabled={busy} onClick={() => void copyThemeCode(false)} />
-      <Button variant="secondary" label={t("Copia collegamento", $language)} disabled={busy} onClick={() => void copyThemeCode(true)} />
-      <Button variant="secondary" label={t("Incolla codice", $language)} disabled={busy} onClick={() => { pasteError = null; pasteOpen = true; }} />
-      <Button variant="secondary" label={t("Importa aspetto", $language)} disabled={busy} onClick={() => void importProfile()} />
-      <Button variant="secondary" label={t("Esporta aspetto", $language)} disabled={busy} onClick={() => void exportProfile()} />
-    </div>
+  <SettingsGroup title={t("Condividi e backup", $language)} icon="share">
+    <SettingsRow label={t("Codice tema", $language)} description={t("Condividi l'aspetto come codice o collegamento, oppure applica un codice ricevuto.", $language)}>
+      <div class="flex flex-wrap justify-end gap-2">
+        <Button variant="secondary" label={t("Copia codice", $language)} disabled={busy} onClick={() => void copyThemeCode(false)} />
+        <Button variant="secondary" label={t("Copia collegamento", $language)} disabled={busy} onClick={() => void copyThemeCode(true)} />
+        <Button variant="secondary" label={t("Incolla codice", $language)} disabled={busy} onClick={() => { pasteError = null; pasteOpen = true; }} />
+      </div>
+    </SettingsRow>
+    <SettingsRow label={t("File dell'aspetto", $language)} description={t("Salva l'aspetto in un file o caricalo da un backup.", $language)}>
+      <div class="flex flex-wrap justify-end gap-2">
+        <Button variant="secondary" label={t("Importa aspetto", $language)} disabled={busy} onClick={() => void importProfile()} />
+        <Button variant="secondary" label={t("Esporta aspetto", $language)} disabled={busy} onClick={() => void exportProfile()} />
+      </div>
+    </SettingsRow>
+  </SettingsGroup>
+
+  <div class="flex justify-end">
+    <Button variant="danger-soft" label={t("Ripristina aspetto predefinito", $language)} disabled={busy} onClick={reset} />
   </div>
 </section>
 

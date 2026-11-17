@@ -62,7 +62,7 @@ export type AnimatedBackground = "none" | "particles" | "dither" | "scanlines" |
 export type Season = "snow" | "rain" | "leaves";
 export type StarDensity = "low" | "medium" | "high";
 export type Density = "compact" | "normal" | "wide";
-export type Corners = "sharp" | "soft" | "round";
+export type Corners = "square" | "sharp" | "soft" | "round";
 
 export const textScaleRange = { min: 90, max: 120 } as const;
 
@@ -74,7 +74,7 @@ export const densityScales: Record<Density, { control: number; space: number }> 
 };
 
 // Multiplier on the control, card and panel radii.
-export const cornerScales: Record<Corners, number> = { sharp: 0.25, soft: 1, round: 1.75 };
+export const cornerScales: Record<Corners, number> = { square: 0, sharp: 0.25, soft: 1, round: 1.75 };
 
 export const themePresets = presets as ThemePreset[];
 

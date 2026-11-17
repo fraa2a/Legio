@@ -70,6 +70,7 @@ pub enum Density {
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Corners {
+    Square,
     Sharp,
     Round,
     #[default]
@@ -598,6 +599,8 @@ mod tests {
         assert_eq!(chosen.density, Density::Compact);
         assert_eq!(chosen.corners, Corners::Round);
         assert_eq!(chosen.text_scale, 110);
+        let square: Appearance = serde_json::from_str(r#"{"corners": "square"}"#).unwrap();
+        assert_eq!(square.corners, Corners::Square);
         let unknown: Appearance =
             serde_json::from_str(r#"{"density": "huge", "corners": "blob"}"#).unwrap();
         assert_eq!(unknown.density, Density::Normal);

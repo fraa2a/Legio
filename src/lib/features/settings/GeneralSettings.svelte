@@ -9,7 +9,6 @@
   import ToggleSetting from "../../components/ui/ToggleSetting.svelte";
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
   import Button from "../../components/ui/Button.svelte";
-  import Callout from "../../components/ui/Callout.svelte";
   import type { Settings } from "../../services/local-state";
   import { closeSettings } from "../../stores/navigation";
   import { defaultSettings, settings, settingsError, updateSettings } from "../../stores/settings";
@@ -24,8 +23,6 @@
     { key: "launchMinimized", label: t("Avvia Legio ridotto nell'area di notifica", $language) },
     { key: "launchInLibrary", label: t("Apri Legio sulla Libreria", $language) },
   ]);
-  let saving = $state(false);
-  let saved = $state(false);
 
   async function selectLanguage(value: string): Promise<void> {
     if (value !== "system" && value !== "it" && value !== "en") return;
@@ -33,19 +30,14 @@
   }
 
   async function update(changes: Partial<Settings>): Promise<boolean> {
-    saving = true;
-    saved = false;
     settingsError.set(null);
     try {
       await updateSettings(changes);
       if (changes.onboardingCompleted === false) closeSettings();
-      saved = true;
       return true;
     } catch (error) {
       settingsError.set(toMessage(error));
       return false;
-    } finally {
-      saving = false;
     }
   }
 
@@ -60,15 +52,15 @@
   <SettingsGroup icon="translate" title={t("Lingua", $language)}>
     <div class="flex items-end gap-2"><div class="min-w-0 flex-1"><SelectField id="ui-language" label={t("Lingua dell'interfaccia", $language)} value={$settings.data.language}
       options={[{ value: "system", label: t("Sistema", $language) }, { value: "it", label: "Italiano" }, { value: "en", label: "English" }]}
-      borderless disabled={saving} onChange={(value) => void selectLanguage(value)} /></div>
-      <ResetSetting label={t("Ripristina lingua", $language)} disabled={saving || $settings.data.language === defaultSettings.language} onClick={() => void update({ language: defaultSettings.language })} />
+      borderless onChange={(value) => void selectLanguage(value)} /></div>
+      <ResetSetting label={t("Ripristina lingua", $language)} disabled={$settings.data.language === defaultSettings.language} onClick={() => void update({ language: defaultSettings.language })} />
     </div>
   </SettingsGroup>
   <SettingsGroup icon="power" title={t("Comportamento", $language)}>
     {#each behaviors as option (option.key)}
       <ToggleSetting label={option.label} checked={Boolean($settings.data[option.key])}
         defaultValue={Boolean(defaultSettings[option.key])}
-        disabled={saving || (option.key === "launchMinimized" && !$settings.data.launchOnSystemStart)}
+        disabled={option.key === "launchMinimized" && !$settings.data.launchOnSystemStart}
         onChange={(checked) => void update({ [option.key]: checked,
           ...(option.key === "launchOnSystemStart" && !checked ? { launchMinimized: false } : {}) })} />
     {/each}
@@ -83,7 +75,7 @@
 
 
   <SettingsGroup title={t("Configurazione iniziale", $language)}>
-    <Button label={t("Ripeti configurazione iniziale", $language)} variant="secondary" disabled={saving} onClick={() => void update({ onboardingCompleted: false })} />
+    <Button label={t("Ripeti configurazione iniziale", $language)} variant="secondary" onClick={() => void update({ onboardingCompleted: false })} />
   </SettingsGroup>
 
   <SettingsGroup icon="update" title={t("Aggiornamenti", $language)}>
@@ -105,12 +97,8 @@
     </div>
     {#if !$updateState.aur}
       <ToggleSetting label={t("Ricevi versioni di anteprima", $language)} checked={$settings.data.previewUpdates} defaultValue={defaultSettings.previewUpdates}
-        disabled={saving || $settings.status !== "ready"} onChange={(checked) => void update({ previewUpdates: checked })} />
+        disabled={$settings.status !== "ready"} onChange={(checked) => void update({ previewUpdates: checked })} />
     {/if}
     {#if $updateState.error}<ErrorBanner message={$updateState.error} />{/if}
   </SettingsGroup>
-
-  {#if saved}
-    <Callout tone="success" variant="inline" message={t("Impostazioni salvate.", $language)} />
-  {/if}
 </section>

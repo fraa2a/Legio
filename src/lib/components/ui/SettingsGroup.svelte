@@ -1,5 +1,7 @@
 <script lang="ts">
   import { untrack, type Snippet } from "svelte";
+  import { slide } from "svelte/transition";
+  import { reducedMotion } from "../../utils/motion";
   import Icon, { type IconName } from "./Icon.svelte";
 
   let {
@@ -19,7 +21,7 @@
   let open = $state(untrack(() => defaultOpen));
 </script>
 
-<section class="flex flex-col gap-rhythm-row rounded-panel legio-glass p-inset-wide">
+<section class="flex flex-col rounded-panel legio-glass p-inset-wide">
   {#snippet iconBadge()}
     {#if icon}
       <span
@@ -60,7 +62,7 @@
     </div>
   {/if}
   {#if !collapsible || open}
-    <div class="flex flex-col gap-rhythm-row">
+    <div class="flex flex-col gap-rhythm-row pt-rhythm-row" transition:slide={{ duration: reducedMotion ? 0 : 200 }}>
       {@render children()}
     </div>
   {/if}
