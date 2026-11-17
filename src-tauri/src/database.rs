@@ -28,7 +28,7 @@ const DOWNLOAD_BANDWIDTH_LIMIT_KEY: &str = "download_bandwidth_limit_bytes_per_s
 const DEFAULT_STEAM_LIBRARY_POLL_MINUTES: u32 = 30;
 const MIN_STEAM_LIBRARY_POLL_MINUTES: u32 = 5;
 const MAX_STEAM_LIBRARY_POLL_MINUTES: u32 = 120;
-pub(crate) const SCHEMA_VERSION: i64 = 42;
+pub(crate) const SCHEMA_VERSION: i64 = 43;
 pub(crate) const DATABASE_FILE_NAME: &str = "legio.sqlite3";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -310,8 +310,6 @@ pub struct Settings {
     #[serde(default)]
     pub thunderstore_links_enabled: bool,
     #[serde(default = "default_true")]
-    pub news_enabled: bool,
-    #[serde(default = "default_true")]
     pub automatic_update_check: bool,
     #[serde(default)]
     pub preview_updates: bool,
@@ -444,7 +442,6 @@ impl Default for Settings {
             application_logging_enabled: false,
             defer_extraction_while_playing: false,
             thunderstore_links_enabled: false,
-            news_enabled: true,
             automatic_update_check: true,
             preview_updates: false,
             last_seen_version: None,
@@ -1796,7 +1793,6 @@ mod tests {
             Settings::default(),
             serde_json::from_str(r#"{"theme":"system"}"#).unwrap(),
         ] {
-            assert!(settings.news_enabled);
             assert!(settings.automatic_update_check);
         }
     }

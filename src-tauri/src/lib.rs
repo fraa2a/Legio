@@ -19,6 +19,7 @@ mod atomic_file;
 mod background_process;
 mod buzzheavier;
 mod catalog;
+mod changelog;
 mod cli;
 mod commands;
 #[cfg(target_os = "linux")]
@@ -72,7 +73,6 @@ mod modding;
 #[cfg(target_os = "linux")]
 mod native_rendering;
 mod network;
-mod news;
 mod one_fichier;
 mod online_fix;
 mod overlay_update;
@@ -499,8 +499,8 @@ fn run_application(
             commands::get_app_info,
             commands::check_app_update,
             commands::notify_update_available,
-            commands::get_news,
-            commands::refresh_news,
+            commands::get_changelog,
+            commands::refresh_changelog,
             commands::get_settings,
             commands::save_settings,
             appearance::import_theme_background,

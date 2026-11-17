@@ -16,7 +16,6 @@ const MAX_ASSET_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const SOURCE_LOOKUP_CONCURRENCY: usize = 16;
 const SOURCE_LOOKUP_RETRIES: u32 = 3;
 const SOURCE_LOOKUP_RETRY_BASE_DELAY: std::time::Duration = std::time::Duration::from_secs(15);
-const NEWS_HOST: &str = "source.taxphobia.top";
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -80,13 +79,7 @@ impl NetworkState {
             .read_timeout(std::time::Duration::from_secs(READ_TIMEOUT_SECONDS))
             .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
             .redirect(reqwest::redirect::Policy::custom(|attempt| {
-                if attempt.previous().len() < 3
-                    && !attempt
-                        .previous()
-                        .iter()
-                        .any(|url| url.host_str() == Some(NEWS_HOST))
-                    && is_approved_redirect(attempt.url())
-                {
+                if attempt.previous().len() < 3 && is_approved_redirect(attempt.url()) {
                     attempt.follow()
                 } else {
                     attempt.stop()
@@ -234,9 +227,13 @@ impl NetworkState {
         result
     }
 
-    pub async fn news(&self) -> Result<Vec<u8>, NetworkError> {
-        self.get(crate::news::URL, crate::news::MAX_BYTES, Operation::News)
-            .await
+    pub async fn changelog(&self) -> Result<Vec<u8>, NetworkError> {
+        self.get(
+            crate::changelog::URL,
+            crate::changelog::MAX_BYTES,
+            Operation::Changelog,
+        )
+        .await
     }
 
     async fn get(

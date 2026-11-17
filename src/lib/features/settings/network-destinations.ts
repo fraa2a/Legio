@@ -1,7 +1,7 @@
 import type { Settings } from "../../services/local-state";
 
 // Strings are translation keys. Keep in sync with _meta/docs/PRIVACY.md.
-export type NetworkSwitch = "newsEnabled" | "automaticUpdateCheck" | "discordPresence";
+export type NetworkSwitch = "automaticUpdateCheck" | "discordPresence";
 
 export interface NetworkDestination {
   id: string;
@@ -53,21 +53,11 @@ export const networkDestinations: readonly NetworkDestination[] = [
     kind: "on-demand",
   },
   {
-    id: "news",
-    name: "Novità di Legio",
-    hosts: "source.taxphobia.top",
-    purpose: "Articoli mostrati nella home.",
-    when: "All'avvio e ogni 15 minuti mentre la home è visibile.",
-    sends: "Solo la richiesta HTTP.",
-    kind: "switch",
-    switch: "newsEnabled",
-  },
-  {
     id: "updates",
     name: "Aggiornamenti dell'app",
-    hosts: "github.com",
-    purpose: "Cerca nuove versioni di Legio. Il download parte solo su tua richiesta.",
-    when: "All'avvio della versione installata e dal pulsante Controlla aggiornamenti.",
+    hosts: "github.com, api.github.com",
+    purpose: "Cerca nuove versioni di Legio e mostra il changelog nella home. Il download parte solo su tua richiesta.",
+    when: "All'avvio della versione installata, dal pulsante Controlla aggiornamenti e al massimo una volta all'ora per il changelog.",
     sends: "Solo la richiesta HTTP.",
     kind: "switch",
     switch: "automaticUpdateCheck",

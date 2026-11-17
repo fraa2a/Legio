@@ -14,7 +14,7 @@ export const defaultSettings: Settings = {
   diagnosticsEnabled: false, applicationLoggingEnabled: false, sidebarCollapsed: true, libraryPortrait: false,
   libraryView: { mode: "grid", sort: "name", descending: false, coverScale: 100, favoritesOnly: false, playStatus: null },
   automaticGameUpdates: false, downloadWhilePlaying: true, deferExtractionWhilePlaying: false,
-  thunderstoreLinksEnabled: false, newsEnabled: true, automaticUpdateCheck: true,
+  thunderstoreLinksEnabled: false, automaticUpdateCheck: true,
   previewUpdates: false, lastSeenVersion: null, pendingUpdateNotes: null,
 };
 
