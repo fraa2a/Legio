@@ -246,6 +246,9 @@ jobs:
 
       - name: Stage release files
         env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          TARGET_SHA: ${{ github.sha }}
           VERSION: ${{ inputs.version }}
           REPOSITORY: ${{ github.repository }}
         shell: bash
