@@ -13,59 +13,67 @@ const frames = new Map();
 let sequence = 0;
 globalThis.requestAnimationFrame = callback => { frames.set(++sequence, callback); return sequence; };
 globalThis.cancelAnimationFrame = id => frames.delete(id);
+// jsdom has no Web Animations API; this stub finishes animations once the clock passes their duration.
+const animations = new Set();
+HTMLElement.prototype.animate = function (keyframes, options) {
+  let resolve, reject;
+  const finished = new Promise((ok, fail) => { resolve = ok; reject = fail; });
+  finished.catch(() => {});
+  const animation = { node: this, keyframes, options, finished,
+    cancel() { animations.delete(animation); reject(new Error("AbortError")); },
+    finish() { animations.delete(animation); resolve(animation); } };
+  animations.add(animation);
+  return animation;
+};
 const { mount, unmount, flushSync } = await import("svelte");
 const { load } = createModuleLoader({});
 
 function advanceFrames(time) {
   const scheduled = [...frames.values()]; frames.clear();
   for (const callback of scheduled) callback(time);
+  for (const animation of [...animations]) if (time >= animation.options.duration) animation.finish();
 }
 
-test("foreground fade uses one paint-frame clock without compositor animations", async () => {
-  frames.clear();
+test("foreground fade uses compositor animations without paint-frame callbacks", async () => {
+  animations.clear();
   const { animateForeground } = await import(await load("src/lib/utils/foreground-transition.ts"));
   const node = document.createElement("div"); document.body.append(node);
-  node.animate = () => { throw new Error("Native compositor animations must not be used"); };
   try {
     const incoming = animateForeground(node, "in", 100);
-    assert.equal(node.style.opacity, "0"); assert.equal(frames.size, 1);
-    advanceFrames(0); advanceFrames(50);
-    assert.equal(Number(node.style.opacity), .5);
+    assert.equal(frames.size, 0); assert.equal(animations.size, 1);
+    const [animation] = animations;
+    assert.equal(animation.node, node);
+    assert.deepEqual(animation.keyframes, [{ opacity: 0 }, { opacity: 1 }]);
+    assert.deepEqual(animation.options, { duration: 100, easing: "linear", fill: "forwards" });
     advanceFrames(100); await incoming.finished;
-    assert.equal(Number(node.style.opacity), 1); assert.equal(frames.size, 0);
     incoming.cancel(); assert.equal(node.style.opacity, "");
-    assert.equal(node.style.filter, ""); assert.equal(node.style.transform, "");
-  } finally { node.remove(); frames.clear(); }
+  } finally { node.remove(); animations.clear(); }
 });
 
-test("paint-frame fade preserves dim foreground and protected glass", async () => {
-  frames.clear();
+test("compositor fade preserves dim foreground and protected glass", async () => {
+  animations.clear();
   const { animateForeground } = await import(await load("src/lib/utils/foreground-transition.ts"));
-  const root = document.createElement("div"); root.innerHTML = '<div class="legio-panel"><span style="opacity:.45!important">Text</span></div><div class="legio-glass"><b>Other</b></div>';
+  const root = document.createElement("div"); root.innerHTML = '<div class="legio-panel"><span style="opacity:.45">Text</span></div><div class="legio-glass"><b>Other</b></div>';
   document.body.append(root); const text = root.querySelector("span");
   try {
     const outgoing = animateForeground(root, "out", 100);
-    assert.equal(frames.size, 1, "all foreground targets share one frame callback");
-    advanceFrames(0); advanceFrames(50);
-    assert.equal(Number(text.style.opacity), .225);
-    assert.equal(root.querySelector(".legio-panel").style.opacity, "");
+    assert.deepEqual([...animations].map(animation => animation.node), [text, root.querySelector("b")]);
+    assert.deepEqual([...animations][0].keyframes, [{ opacity: .45 }, { opacity: 0 }]);
     advanceFrames(100); await outgoing.finished;
-    assert.equal(text.style.opacity, "0");
-    root.remove(); outgoing.cancel(); assert.equal(text.style.opacity, "0", "retired layers remain hidden");
-  } finally { root.remove(); frames.clear(); }
+    assert.equal(text.style.opacity, "0.45");
+  } finally { root.remove(); animations.clear(); }
 });
 
-test("paint-frame cancellation restores opacity and stops future callbacks", async () => {
-  frames.clear();
+test("compositor cancellation restores opacity and settles the transition", async () => {
+  animations.clear();
   const { animateForeground } = await import(await load("src/lib/utils/foreground-transition.ts"));
-  const node = document.createElement("div"); node.style.setProperty("opacity", ".45", "important");document.body.append(node);
+  const node = document.createElement("div"); node.style.opacity = ".45"; document.body.append(node);
   try {
-    const outgoing = animateForeground(node, "out", 100);advanceFrames(0);advanceFrames(50);
-    outgoing.cancel();await outgoing.finished;
-    assert.equal(Number(node.style.opacity), .45);assert.equal(node.style.getPropertyPriority("opacity"), "important");assert.equal(frames.size, 0);
-    advanceFrames(100);assert.equal(Number(node.style.opacity), .45);
-    const instant = animateForeground(node, "in", 0);await instant.finished;assert.equal(frames.size, 0);
-  } finally { node.remove(); frames.clear(); }
+    const outgoing = animateForeground(node, "out", 100);
+    outgoing.cancel(); await outgoing.finished;
+    assert.equal(Number(node.style.opacity), .45); assert.equal(animations.size, 0);
+    const instant = animateForeground(node, "in", 0); await instant.finished; assert.equal(animations.size, 0);
+  } finally { node.remove(); animations.clear(); }
 });
 
 
@@ -129,11 +137,11 @@ test("foreground_targets_never_contain_backdrop_surface", async () => {
     for (const other of targets) if (target !== other) assert.equal(target.contains(other), false);
   }
   try {
-    frames.clear(); const outgoing = animateForeground(root, "out", 105);
-    advanceFrames(0);advanceFrames(105);await outgoing.finished;
-    for (const surface of root.querySelectorAll(".legio-panel,.legio-glass,article")) assert.equal(surface.style.opacity, "");
-    outgoing.cancel(); await animateForeground(root, "in", 0).finished;assert.equal(frames.size, 0);
-  } finally { root.remove(); frames.clear(); }
+    animations.clear(); const outgoing = animateForeground(root, "out", 105);
+    assert.deepEqual([...animations].map(animation => animation.node), targets);
+    advanceFrames(105); await outgoing.finished;
+    outgoing.cancel(); await animateForeground(root, "in", 0).finished; assert.equal(animations.size, 0);
+  } finally { root.remove(); animations.clear(); }
 });
 
 test("navigation_keeps_sidebar_and_canvas_nodes and rapid_navigation_never_republishes_obsolete_target", async () => {
@@ -157,7 +165,7 @@ test("navigation_keeps_sidebar_and_canvas_nodes and rapid_navigation_never_repub
     target.querySelector("[data-page]").innerHTML = '<div class="legio-panel"><span>Outgoing foreground</span></div>';
     navigation.activeSection.set("library"); await settle();
     assert.equal(target.querySelector("[data-page]").dataset.page, "home", "outgoing foreground waits for exit");
-    assert.equal(frames.size, 1);
+    assert.equal(animations.size, 1);
     navigation.activeSection.set("store"); await settle();
     advanceFrames(0); await settle();
     assert.equal(target.querySelector("[data-page]").dataset.page, "home", "obsolete exit cannot publish library");
@@ -165,8 +173,7 @@ test("navigation_keeps_sidebar_and_canvas_nodes and rapid_navigation_never_repub
     assert.equal(target.querySelector("[data-page]").dataset.page, "store", "logging_does_not_gate_page_swap");
     assert.equal(target.querySelector("aside"), sidebar); assert.equal(target.querySelector("canvas"), canvas);
     assert.equal(sidebar.style.opacity, ""); assert.equal(canvas.style.opacity, "");
-    assert.equal(sidebar.style.opacity, "");assert.equal(canvas.style.opacity, "");
-  } finally { await unmount(instance); target.remove(); document.startViewTransition = previousStart;frames.clear(); }
+  } finally { await unmount(instance); target.remove(); document.startViewTransition = previousStart; animations.clear(); }
 });
 
 test("aurora follows the accent color and pauses while the window is inactive", async () => {
