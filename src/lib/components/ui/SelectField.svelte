@@ -158,7 +158,7 @@
   if (open && !root?.contains(event.target as Node)) close(false);
 }} />
 
-<div bind:this={root} class="relative flex flex-col {variant === 'hero' ? `h-control-hero justify-center border border-legio-line-subtle backdrop-blur-md ${boxShape} ${open ? openSurface : 'bg-zinc-950/60 hover:bg-zinc-950/75 light:bg-zinc-100/70 light:hover:bg-zinc-200'}` : 'gap-1.5'} {className}">
+<div bind:this={root} class="relative flex flex-col {variant === 'hero' ? `h-control-hero justify-center border border-legio-line-subtle ${boxShape} ${open ? openSurface : 'legio-glass'}` : 'gap-1.5'} {className}">
   <span id={`${id}-label`} class={labelHidden ? "sr-only" : variant === "hero" ? "px-3 pt-1 text-xs text-legio-fg-muted" : "text-sm font-medium text-legio-fg"}>{label}</span>
   <button
     bind:this={trigger}
@@ -175,7 +175,7 @@
       ? 'h-control-md rounded-control bg-transparent'
       : variant === 'toolbar'
         ? `h-control-md ${boxShape} ${open ? openSurface : 'legio-glass'}`
-        : `h-control-md ${boxShape} ${borderless ? '' : 'border border-legio-line-control hover:border-legio-fg-muted'} ${open ? openSurface : 'bg-white/5 hover:bg-white/10 light:bg-white'}`}"
+        : `h-control-md ${boxShape} ${borderless ? '' : 'border border-legio-line-control hover:border-legio-fg-muted'} ${open ? openSurface : 'legio-glass'}`}"
   >
     <span class="truncate">{selectedLabel}</span>
     <span class="shrink-0 text-legio-fg-muted transition-transform motion-reduce:transition-none {expanded ? 'rotate-180' : ''}"><Icon name="chevron-down" /></span>

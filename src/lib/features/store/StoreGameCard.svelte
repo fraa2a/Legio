@@ -109,6 +109,6 @@
 
 <style>
   .tile {
-    clip-path: inset(0 round 0.75rem);
+    clip-path: inset(0 round var(--radius-card));
   }
 </style>

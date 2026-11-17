@@ -100,7 +100,7 @@
           {#each tabs.tabs as tab (tab.key)}
             {@const selected = tab.key === tabs.active}
             {@const title = modTabTitle(tab)}
-            <div class="flex w-44 shrink-0 items-center gap-0.5 rounded-control pr-1 transition-colors {selected ? 'bg-white/15 text-legio-fg light:bg-white light:shadow-sm' : 'text-legio-fg-muted hover:bg-legio-fill hover:text-legio-fg'}">
+            <div class="flex w-44 shrink-0 items-center gap-0.5 rounded-control pr-1 transition-colors {selected ? 'bg-legio-fill-active text-legio-fg' : 'text-legio-fg-muted hover:bg-legio-fill hover:text-legio-fg'}">
               <button
                 type="button"
                 role="tab"

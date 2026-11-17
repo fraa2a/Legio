@@ -58,10 +58,10 @@
       {#if modState === "unsupported"}
         <Badge tone="warning" title={t("Loader non supportato", $language)} />
       {:else if modState === "unmatched"}
-        <Badge title={t("Da collegare", $language)} />
+        <Badge title={t("Non disponibile per le mod", $language)} />
       {:else if profileCount > 0}
         <span
-          class="flex items-center gap-1 rounded-full bg-zinc-950/60 px-2 py-0.5 text-xs font-medium tabular-nums text-legio-fg light:bg-zinc-100/70"
+          class="flex items-center gap-1 rounded-full legio-glass px-2 py-0.5 text-xs font-medium tabular-nums text-legio-fg"
           title={profileCount === 1 ? t("1 profilo mod", $language) : t("{0} profili mod", $language, [profileCount])}
         >
           <Icon name="mods" size="sm" />

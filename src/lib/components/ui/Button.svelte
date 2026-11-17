@@ -47,7 +47,7 @@
     if (variant === "running" || variant === "danger") return "bg-legio-danger text-white hover:bg-legio-danger-hover disabled:hover:bg-legio-danger";
     if (variant === "danger-soft") return "bg-legio-error/15 text-legio-error hover:bg-legio-error/25 disabled:hover:bg-legio-error/15";
     if (variant === "overlay") {
-      return "border border-legio-line-subtle bg-zinc-950/60 text-legio-fg backdrop-blur-md hover:bg-zinc-950/75 light:bg-zinc-100/70 light:hover:bg-zinc-200";
+      return "legio-glass border border-legio-line-subtle text-legio-fg hover:bg-legio-fill-hover";
     }
     if (variant === "ghost") return "text-legio-fg hover:bg-legio-fill-hover disabled:hover:bg-transparent";
     if (variant === "link") return "text-legio-fg underline-offset-2 hover:underline disabled:hover:no-underline";
