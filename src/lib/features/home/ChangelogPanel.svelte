@@ -11,6 +11,7 @@
   import Button from "../../components/ui/Button.svelte";
   import RefreshIcon from "../../components/ui/RefreshIcon.svelte";
   import IconButton from "../../components/ui/IconButton.svelte";
+  import StateBlock from "../../components/ui/StateBlock.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import Callout from "../../components/ui/Callout.svelte";
 
@@ -30,7 +31,7 @@
   {#snippet actions()}
     <IconButton disabled={!enabled} label={t("Aggiorna il changelog", $language)} title={t("Aggiorna", $language)} onClick={() => void refresh()}><RefreshIcon spinning={refreshing} /></IconButton>
   {/snippet}
-  <div class="min-h-0 overflow-auto [mask-image:linear-gradient(to_bottom,black_calc(100%-1.25rem),transparent)]">
+  <div class="min-h-0 overflow-auto pb-5 [mask-image:linear-gradient(to_bottom,black_calc(100%-1.25rem),transparent)]">
     {#if releases.length > 0}
       <ul class="flex flex-col divide-y divide-legio-line-subtle">
         {#each releases as release (release.url)}
@@ -49,8 +50,10 @@
       </ul>
     {:else if !enabled}
       <EmptyState icon="globe" title={t("Changelog disattivato", $language)} description={t("Si aggiorna insieme al controllo automatico degli aggiornamenti in Impostazioni, Privacy e rete.", $language)} />
+    {:else if $changelog.status === "idle" || $changelog.status === "loading" || refreshing}
+      <StateBlock status="loading" error={null} loadingMessage={t("Caricamento del changelog...", $language)} />
     {:else}
-      <p class="text-sm text-legio-fg-muted" role="status">{$changelog.status === "idle" || $changelog.status === "loading" || refreshing ? t("Caricamento del changelog...", $language) : t("Nessuna versione disponibile.", $language)}</p>
+      <p class="text-sm text-legio-fg-muted" role="status">{t("Nessuna versione disponibile.", $language)}</p>
     {/if}
     {#if $changelog.data.warning || $changelog.error}<Callout tone="warning" variant="inline" class="mt-3" message={t("Non è stato possibile aggiornare il changelog. Le versioni salvate restano disponibili.", $language)} />{/if}
   </div>
