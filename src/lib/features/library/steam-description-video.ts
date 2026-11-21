@@ -1,7 +1,42 @@
-export function createSteamVideoSurface(video: HTMLVideoElement): { element: HTMLElement; destroy: () => void } {
+export interface SteamVideoSurface {
+  element: HTMLElement;
+  // Far from the viewport the video drops its source, so it holds no decoder or buffered frames.
+  setNear: (near: boolean) => void;
+  destroy: () => void;
+}
+
+export function createSteamVideoSurface(video: HTMLVideoElement): SteamVideoSurface {
+  const source = video.getAttribute("src");
+  const sources = [...video.querySelectorAll("source")];
+  let loaded = true;
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
-  if (context === null) return { element: video, destroy: () => video.pause() };
+
+  function unload(): void {
+    video.pause();
+    video.removeAttribute("src");
+    video.replaceChildren();
+    video.load();
+  }
+
+  function reload(): void {
+    if (source !== null) video.src = source;
+    video.append(...sources);
+    video.load();
+  }
+
+  if (context === null) {
+    return {
+      element: video,
+      setNear(near) {
+        if (near === loaded) return;
+        loaded = near;
+        if (near) reload();
+        else unload();
+      },
+      destroy: () => video.pause(),
+    };
+  }
 
   const element = document.createElement("span");
   element.className = "relative my-3 block w-fit max-w-full overflow-hidden rounded-control";
@@ -25,7 +60,7 @@ export function createSteamVideoSurface(video: HTMLVideoElement): { element: HTM
   }
 
   function schedule(): void {
-    if (destroyed || frame !== undefined) return;
+    if (destroyed || !loaded || frame !== undefined) return;
     const next = () => {
       frame = undefined;
       if (destroyed) return;
@@ -49,13 +84,31 @@ export function createSteamVideoSurface(video: HTMLVideoElement): { element: HTM
     video.addEventListener("pause", cancel);
   }
 
-  return { element, destroy() {
-    if (destroyed) return;
-    destroyed = true;
-    cancel();
-    video.removeEventListener("loadeddata", paint);
-    video.removeEventListener("playing", schedule);
-    video.removeEventListener("pause", cancel);
-    video.pause();
-  } };
+  return {
+    element,
+    setNear(near) {
+      if (destroyed || near === loaded) return;
+      loaded = near;
+      if (near) {
+        reload();
+        if (nativeFrames) schedule();
+        return;
+      }
+      cancel();
+      unload();
+      // Drops the retained frame's backing store; the poster shows until the video returns.
+      canvas.hidden = true;
+      canvas.width = 0;
+      canvas.height = 0;
+    },
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      cancel();
+      video.removeEventListener("loadeddata", paint);
+      video.removeEventListener("playing", schedule);
+      video.removeEventListener("pause", cancel);
+      video.pause();
+    },
+  };
 }
