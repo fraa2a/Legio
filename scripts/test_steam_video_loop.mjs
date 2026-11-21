@@ -56,6 +56,21 @@ test("a video loop holds the last frame while the native player seeks", () => {
   } finally { f.cleanup(); }
 });
 
+test("the retained frame is sized to the displayed video, never above its source", () => {
+  const f = fixture();
+  globalThis.devicePixelRatio = 2;
+  try {
+    Object.defineProperty(f.video, "clientWidth", { value: 150, configurable: true });
+    f.frame();
+    assert.equal(f.canvas.width, 300);
+    assert.equal(f.canvas.height, 85);
+    Object.defineProperty(f.video, "clientWidth", { value: 500, configurable: true });
+    f.frame();
+    assert.equal(f.canvas.width, 600, "a larger display keeps the source resolution");
+    assert.equal(f.canvas.height, 170);
+  } finally { delete globalThis.devicePixelRatio; f.cleanup(); }
+});
+
 test("older players paint while playing and stop their fallback clock on pause", () => {
   const f = fixture(false);
   try {
@@ -71,6 +86,44 @@ test("older players paint while playing and stop their fallback clock on pause",
     f.video.dispatchEvent(new dom.window.Event("playing"));
     assert.equal(frames.size, 0, "destroy removes playback listeners");
   } finally { f.cleanup(); }
+});
+
+test("a video far from the viewport drops its source and retained frame until it returns", () => {
+  const originalLoad = dom.window.HTMLMediaElement.prototype.load;
+  let loads = 0;
+  dom.window.HTMLMediaElement.prototype.load = () => { loads++; };
+  const video = document.createElement("video");
+  video.src = "https://cdn.steamstatic.com/loop.webm";
+  const source = document.createElement("source");
+  source.src = "https://cdn.steamstatic.com/loop.mp4";
+  video.append(source);
+  Object.defineProperties(video, { videoWidth: { value: 600 }, videoHeight: { value: 170 }, readyState: { value: 4 }, seeking: { value: false } });
+  const callbacks = new Map();
+  let callbackId = 0;
+  video.requestVideoFrameCallback = callback => { callbacks.set(++callbackId, callback); return callbackId; };
+  video.cancelVideoFrameCallback = value => callbacks.delete(value);
+  const surface = createSteamVideoSurface(video);
+  try {
+    const pending = [...callbacks.values()];
+    callbacks.clear();
+    for (const callback of pending) callback(0, {});
+    const canvas = surface.element.querySelector("canvas");
+    assert.equal(canvas.width, 600);
+    surface.setNear(false);
+    assert.equal(video.hasAttribute("src"), false);
+    assert.equal(video.children.length, 0);
+    assert.equal(loads, 1, "reloading the emptied video releases its decoder");
+    assert.equal(canvas.width, 0);
+    assert.equal(canvas.hidden, true);
+    assert.equal(callbacks.size, 0, "a far video schedules no frame callbacks");
+    surface.setNear(false);
+    assert.equal(loads, 1, "an unloaded video is not reloaded again");
+    surface.setNear(true);
+    assert.equal(video.getAttribute("src"), "https://cdn.steamstatic.com/loop.webm");
+    assert.equal(video.querySelector("source"), source);
+    assert.equal(loads, 2);
+    assert.equal(callbacks.size, 1, "a returning video paints again");
+  } finally { surface.destroy(); dom.window.HTMLMediaElement.prototype.load = originalLoad; }
 });
 
 test("players without a canvas context retain native playback", () => {

@@ -1,4 +1,4 @@
-import { createSteamVideoSurface } from "./steam-description-video";
+import { createSteamVideoSurface, type SteamVideoSurface } from "./steam-description-video";
 
 // Links keep only their text: the webview cannot open them in the system browser.
 const allowedTags = new Set([
@@ -65,9 +65,14 @@ function suspendGif(image: HTMLImageElement): void {
 export function renderSteamDescription(target: HTMLElement, source: string): { update: (value: string) => void; destroy: () => void } {
   let media: (() => void)[] = [];
   let gifObserver: IntersectionObserver | undefined;
+  let videoObserver: IntersectionObserver | undefined;
+  const videos = new Map<Element, SteamVideoSurface>();
   function dispose(): void {
     gifObserver?.disconnect();
     gifObserver = undefined;
+    videoObserver?.disconnect();
+    videoObserver = undefined;
+    videos.clear();
     for (const destroy of media) destroy();
     media = [];
   }
@@ -90,6 +95,15 @@ export function renderSteamDescription(target: HTMLElement, source: string): { u
           const surface = createSteamVideoSurface(video);
           media.push(surface.destroy);
           parent.appendChild(surface.element);
+          // A description can hold dozens of looping videos; only those near the viewport keep a decoder.
+          if (typeof IntersectionObserver !== "undefined") {
+            videoObserver ??= new IntersectionObserver(entries => {
+              for (const entry of entries) videos.get(entry.target)?.setNear(entry.isIntersecting);
+            }, { rootMargin: "300px 0px" });
+            surface.setNear(false);
+            videos.set(surface.element, surface);
+            videoObserver.observe(surface.element);
+          }
         }
         return;
       }
