@@ -62,7 +62,7 @@ export interface BackgroundLoop<C> {
 }
 
 // Drives a canvas renderer: sizing with a capped device ratio, one frame per change while
-// paused for reduced motion, no frames while inactive, a frame-time guard and context recovery.
+// paused for reduced motion or inactive, a frame-time guard and context recovery.
 export function startBackgroundLoop<C>(options: BackgroundLoopOptions<C>): BackgroundLoop<C> {
   const { container, canvas, renderer } = options;
   const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -80,8 +80,9 @@ export function startBackgroundLoop<C>(options: BackgroundLoopOptions<C>): Backg
   let quality = initialQuality();
   let pointer: { x: number; y: number } | null = null;
 
+  // An inactive background still draws its pending change once, so it never stays blank.
   function schedule(): void {
-    if (active && !lost && frame === 0) frame = requestAnimationFrame(render);
+    if ((active || stale) && !lost && frame === 0) frame = requestAnimationFrame(render);
   }
 
   function cancel(): void {
@@ -92,7 +93,7 @@ export function startBackgroundLoop<C>(options: BackgroundLoopOptions<C>): Backg
 
   function render(now: number): void {
     frame = 0;
-    if (!active || lost || width === 0 || height === 0) return;
+    if ((!active && !stale) || lost || width === 0 || height === 0) return;
     const reduced = motion.matches;
     if (!stale && previous !== null && now - previous < interval - 2) {
       schedule();
@@ -105,7 +106,7 @@ export function startBackgroundLoop<C>(options: BackgroundLoopOptions<C>): Backg
     }
     renderer.draw({ time, delta, quality: qualityLevels[quality.level], reduced, pointer: reduced ? null : pointer });
     stale = false;
-    if (!reduced && renderer.animating()) {
+    if (active && !reduced && renderer.animating()) {
       previous = now;
       schedule();
     } else previous = null;
