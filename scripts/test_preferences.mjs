@@ -13,6 +13,17 @@ test("download progress stays finite and bounded for every consumer", async () =
   }
 });
 
+test("shutdown work ignores failed and automatically held downloads", async () => {
+  const { hasUnfinishedDownloadWork } = await import(await load("src/lib/services/downloads.ts"));
+  const job = (status, extra = {}) => [{ status, error: null, pauseReason: null, ...extra }];
+  assert.equal(hasUnfinishedDownloadWork(job("queued")), true);
+  assert.equal(hasUnfinishedDownloadWork(job("paused")), true);
+  assert.equal(hasUnfinishedDownloadWork(job("paused", { pauseReason: "automatic_disabled" })), false);
+  assert.equal(hasUnfinishedDownloadWork(job("staged")), true);
+  assert.equal(hasUnfinishedDownloadWork(job("staged", { error: "Extraction failed" })), false);
+  assert.equal(hasUnfinishedDownloadWork(job("failed")), false);
+});
+
 test("environment maps preserve own properties and reject duplicate special keys", async () => {
   const { parseMap } = await import(await load("src/lib/services/launch-fields.ts"));
   const result = parseMap("__proto__=value\nconstructor=other", "Environment");
