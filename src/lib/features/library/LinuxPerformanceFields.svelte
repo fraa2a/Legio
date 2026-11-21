@@ -7,6 +7,7 @@
   let {
     value,
     gameModeAvailable,
+    mangohudAvailable,
     gamescopeAvailable,
     idPrefix,
     disabled = false,
@@ -14,6 +15,7 @@
   }: {
     value: LinuxPerformance;
     gameModeAvailable: boolean;
+    mangohudAvailable: boolean;
     gamescopeAvailable: boolean;
     idPrefix: string;
     disabled?: boolean;
@@ -48,11 +50,17 @@
   <Toggle label="GameMode" checked={value.gameMode}
     disabled={disabled || (!gameModeAvailable && !value.gameMode)}
     onChange={(checked) => setPerformance({ gameMode: checked })} />
+  <Toggle label="MangoHud" checked={value.mangohud}
+    disabled={disabled || (!mangohudAvailable && !value.mangohud)}
+    onChange={(checked) => setPerformance({ mangohud: checked })} />
   <Toggle label="Gamescope" checked={value.gamescope !== null}
     disabled={disabled || (!gamescopeAvailable && value.gamescope === null)}
     onChange={(checked) => setPerformance({ gamescope: checked ? { width: null, height: null, fps: null } : null })} />
   {#if !gameModeAvailable || !gamescopeAvailable}
     <p class="text-xs text-legio-fg-subtle">{t("Installa GameMode o gamescope e riapri queste impostazioni per abilitarli.", $language)}</p>
+  {/if}
+  {#if !mangohudAvailable}
+    <p class="text-xs text-legio-fg-subtle">{t("Installa MangoHud e riapri queste impostazioni per abilitarlo.", $language)}</p>
   {/if}
   {#if value.gamescope !== null}
     {@const config = value.gamescope}

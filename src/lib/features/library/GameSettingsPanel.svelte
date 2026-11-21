@@ -27,6 +27,7 @@
   import TextField from "../../components/ui/TextField.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
   import Callout from "../../components/ui/Callout.svelte";
+  import LinuxPerformanceFields from "./LinuxPerformanceFields.svelte";
   import { createSaveQueue } from "../../services/save-queue";
   import { toMessage } from "../../utils/errors";
   import { pickGameDirectory } from "../../services/dialog";
@@ -298,28 +299,6 @@
       saving = false;
     }
   }
-
-  function setPerformance(changes: Partial<GameCompatibilityOverrides["linuxPerformance"]>): void {
-    setOverride("linuxPerformance", { ...overrides.linuxPerformance, ...changes });
-  }
-
-  function setGamescopeResolution(value: string): void {
-    const config = overrides.linuxPerformance.gamescope;
-    if (config === null) return;
-    if (value === "native") {
-      setPerformance({ gamescope: { ...config, width: null, height: null } });
-    } else {
-      const [width, height] = value.split("x").map(Number);
-      if (Number.isInteger(width) && Number.isInteger(height)) setPerformance({ gamescope: { ...config, width, height } });
-    }
-  }
-
-  function setGamescopeFps(value: string): void {
-    const config = overrides.linuxPerformance.gamescope;
-    if (config === null) return;
-    const fps = value === "uncapped" ? null : Number(value);
-    if (fps === null || (Number.isInteger(fps) && fps >= 1 && fps <= 360)) setPerformance({ gamescope: { ...config, fps } });
-  }
 </script>
 
 <Panel title={section === "locations" ? t("Percorsi del gioco", $language) : section === "launch" ? t("Opzioni di avvio", $language) : t("Compatibilità", $language)}>
@@ -383,39 +362,11 @@
       onChange={(checked) => setOverride("onlineFix", checked ? (onlineFixDetected ? null : true) : false)} />
     {#if onlineFixDetected}<p class="text-xs text-legio-fg-subtle">{t("OnlineFix64.dll rilevato nella cartella del gioco.", $language)}</p>{/if}
 
+    <LinuxPerformanceFields value={overrides.linuxPerformance} {gameModeAvailable} {mangohudAvailable} {gamescopeAvailable} idPrefix="game"
+      onChange={(value) => setOverride("linuxPerformance", value)} />
     <div class="flex flex-col gap-3">
-      <span class="text-sm text-legio-fg-muted">{t("Prestazioni Linux", $language)}</span>
-      <Toggle label="GameMode" checked={overrides.linuxPerformance.gameMode}
-        disabled={!gameModeAvailable && !overrides.linuxPerformance.gameMode}
-        onChange={(checked) => setPerformance({ gameMode: checked })} />
-      <Toggle label="MangoHud" checked={overrides.linuxPerformance.mangohud}
-        disabled={!mangohudAvailable && !overrides.linuxPerformance.mangohud}
-        onChange={(checked) => setPerformance({ mangohud: checked })} />
-      <Toggle label="Gamescope" checked={overrides.linuxPerformance.gamescope !== null}
-        disabled={!gamescopeAvailable && overrides.linuxPerformance.gamescope === null}
-        onChange={(checked) => setPerformance({ gamescope: checked ? { width: null, height: null, fps: null } : null })} />
-      {#if !gameModeAvailable || !gamescopeAvailable}
-        <p class="text-xs text-legio-fg-subtle">{t("Installa GameMode o gamescope e riapri queste impostazioni per abilitarli.", $language)}</p>
-      {/if}
-      {#if !mangohudAvailable}
-        <p class="text-xs text-zinc-500">{t("Installa MangoHud e riapri queste impostazioni per abilitarlo.", $language)}</p>
-      {/if}
-      {#if overrides.linuxPerformance.gamescope !== null}
-        {@const config = overrides.linuxPerformance.gamescope}
-        <div class="grid gap-4 md:grid-cols-2">
-          <SelectField id="gamescope-resolution" label={t("Risoluzione interna", $language)}
-            value={config.width === null ? "native" : `${config.width}x${config.height}`}
-            options={[{ value: "native", label: t("Nativa", $language) }, ...[...new Set(["1280x720", "1600x900", "1920x1080", "2560x1440", "3840x2160", ...(config.width === null ? [] : [`${config.width}x${config.height}`])])].map((value) => ({ value, label: value }))]}
-            onChange={setGamescopeResolution} />
-          <SelectField id="gamescope-fps" label={t("Limite FPS", $language)} value={config.fps === null ? "uncapped" : String(config.fps)}
-            options={[{ value: "uncapped", label: t("Senza limite", $language) }, ...[...new Set([30, 40, 60, 90, 120, 144, 165, 240, 360, ...(config.fps === null ? [] : [config.fps])])].map((fps) => ({ value: String(fps), label: String(fps) }))]}
-            onChange={setGamescopeFps} />
-        </div>
-        <p class="text-xs text-legio-fg-subtle">{t("Una risoluzione inferiore riduce la qualità visiva. Il limite FPS può ridurre consumi e temperature.", $language)}</p>
-      {/if}
       <TextField id="linux-wrapper-command" label={t("Comando wrapper personalizzato", $language)} value={wrapperText} placeholder="prime-run" oninput={(value) => (wrapperText = value)} />
       <p class="text-xs text-legio-fg-subtle">{t("Prefisso eseguito prima del gioco, ad esempio prime-run o taskset -c 0-7. Non passa da una shell.", $language)}</p>
-      <p class="text-xs text-legio-fg-subtle">{t("GameMode e Gamescope sono facoltativi. Confronta prestazioni e frametime sul gioco; Wayland resta una scelta separata.", $language)}</p>
     </div>
 
     <div class="grid gap-4 md:grid-cols-2">
