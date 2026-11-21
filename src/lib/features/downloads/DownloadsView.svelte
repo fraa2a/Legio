@@ -1,7 +1,7 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
   import {
-    isActiveDownloadStatus,
+    hasUnfinishedDownloadWork,
     type DownloadJob,
   } from "../../services/downloads";
   import Button from "../../components/ui/Button.svelte";
@@ -53,9 +53,7 @@
       (job): job is DownloadJob => job !== null,
     ),
   );
-  const hasPendingWork = $derived(
-    $downloads.data.some((job) => isActiveDownloadStatus(job.status) || job.status === "paused"),
-  );
+  const hasPendingWork = $derived(hasUnfinishedDownloadWork($downloads.data));
   const required = $derived(downloadBytes(pending));
   const networkSpeed = $derived(activeSpeed(pending));
   const queueOffset = $derived(

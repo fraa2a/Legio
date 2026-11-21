@@ -81,6 +81,14 @@ export function isFinishedDownloadStatus(status: string): boolean {
   return downloadState(status)?.section === "finished";
 }
 
+// Mirrors has_unfinished_work in download_queue.rs, which decides whether shutdown can be armed.
+export function hasUnfinishedDownloadWork(jobs: readonly DownloadJob[]): boolean {
+  return jobs.some((job) =>
+    ["queued", "downloading", "waiting"].includes(job.status)
+    || (job.status === "paused" && job.pauseReason !== "automatic_disabled")
+    || (["downloaded", "staging", "staged", "finalizing"].includes(job.status) && job.error === null));
+}
+
 export function downloadProgressPercent(job: DownloadJob): number {
   if (!Number.isFinite(job.sizeBytes) || !Number.isFinite(job.downloadedBytes) || job.sizeBytes <= 0) return 0;
   return Math.min(100, Math.max(0, (job.downloadedBytes / job.sizeBytes) * 100));
