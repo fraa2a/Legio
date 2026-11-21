@@ -53,6 +53,7 @@
   let runners = $state<CompatibilityRunner[]>([]);
   let inheritedRunner = $state("");
   let gameModeAvailable = $state(false);
+  let mangohudAvailable = $state(false);
   let gamescopeAvailable = $state(false);
   let environmentError = $state<string | null>(null);
 
@@ -63,6 +64,7 @@
       .then(([discovery, overrides, defaults]) => {
         runners = discovery.runners;
         gameModeAvailable = discovery.gameModeAvailable;
+        mangohudAvailable = discovery.mangohudAvailable;
         gamescopeAvailable = discovery.gamescopeAvailable;
         inheritedRunner = overrides.runnerPath ?? defaults.runnerPath ?? discovery.runners[0]?.path ?? "";
       })
@@ -197,7 +199,7 @@
         </div>
         <div class="flex flex-col gap-2">
           <Toggle label={t("Personalizza le prestazioni", $language)} checked={draft.performanceOverridden} disabled={saving} onChange={(enabled) => (draft.performanceOverridden = enabled)} />
-          <LinuxPerformanceFields value={draft.performance} {gameModeAvailable} {gamescopeAvailable} idPrefix="launch-profile" disabled={saving || !draft.performanceOverridden} onChange={(value) => (draft.performance = value)} />
+          <LinuxPerformanceFields value={draft.performance} {gameModeAvailable} {mangohudAvailable} {gamescopeAvailable} idPrefix="launch-profile" disabled={saving || !draft.performanceOverridden} onChange={(value) => (draft.performance = value)} />
         </div>
       {/if}
 
