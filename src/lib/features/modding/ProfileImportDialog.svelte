@@ -4,7 +4,7 @@
   import { pickModProfileFile } from "../../services/dialog";
   import { importModProfileCode, importModProfileFile, type ProfileImportOutcome } from "../../services/mod-profile-exchange";
   import { cancelModInstall, observeCatalogProgress, observeInstallProgress, type CatalogProgress, type InstallProgress, type ModProfile } from "../../services/modding";
-  import { moddableGameById, modProfiles, refreshCatalog } from "../../stores/modding";
+  import { moddableGameById, modProfiles, refreshCatalog, trackProfileImport } from "../../stores/modding";
   import { toMessage } from "../../utils/errors";
   import Button from "../../components/ui/Button.svelte";
   import Callout from "../../components/ui/Callout.svelte";
@@ -118,9 +118,9 @@
     try {
       unlisteners.push(await observeInstallProgress(track));
       unlisteners.push(await observeCatalogProgress((event) => { if (event.community === community) catalogProgress = event; }));
-      const result = source === "file" && path !== null
-        ? await importModProfileFile(gameId, path, operation, profileName, targetId)
-        : await importModProfileCode(gameId, normalizeProfileCode(code) ?? code, operation, profileName, targetId);
+      const result = await trackProfileImport(gameId, targetId, () => source === "file" && path !== null
+        ? importModProfileFile(gameId, path, operation, profileName, targetId)
+        : importModProfileCode(gameId, normalizeProfileCode(code) ?? code, operation, profileName, targetId));
       outcome = result;
       onImported(result.profile);
       // The import may have rebuilt the catalog; this only reads its new status.
