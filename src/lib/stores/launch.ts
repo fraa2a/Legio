@@ -122,7 +122,8 @@ export async function playGame(game: Game, profileId: string | null = null): Pro
   try {
     if (game.steamInstallPath !== null) {
       const inspection = await inspectSteamGameLaunch(game.id);
-      if (inspection.status === "mismatch" || (inspection.status === "unknown" && inspection.steamRunning)) {
+      // Switching closes Steam, which only matters while it runs a game.
+      if ((inspection.status === "mismatch" || inspection.status === "unknown") && inspection.steamGameRunning) {
         accountSwitchProfileId = profileId;
         accountSwitchGame.set(game);
         return;

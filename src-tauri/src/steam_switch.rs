@@ -30,6 +30,7 @@ pub(crate) enum LaunchStatus {
 pub(crate) struct LaunchInspection {
     pub status: LaunchStatus,
     pub steam_running: bool,
+    pub steam_game_running: bool,
     pub current_account_name: Option<String>,
     pub target_account_name: Option<String>,
 }
@@ -94,9 +95,11 @@ pub(crate) fn launch(
             steam_app_id,
         });
     }
-    if steam_running && !confirm_account_switch {
+    // Closing an idle Steam loses nothing, so only a running game needs confirmation.
+    if steam_running && !confirm_account_switch && steam_process::is_game_running(&steam_root)? {
         return Err(
-            "Confirm closing Steam before switching to this game's saved account.".to_owned(),
+            "Confirm closing Steam and its running game before switching to this game's saved account."
+                .to_owned(),
         );
     }
 
@@ -135,6 +138,7 @@ fn inspect_game(game: &Game) -> Result<LaunchInspection, String> {
         return Ok(LaunchInspection {
             status: LaunchStatus::NoOverride,
             steam_running,
+            steam_game_running: false,
             current_account_name: None,
             target_account_name: None,
         });
@@ -164,9 +168,11 @@ fn inspect_game(game: &Game) -> Result<LaunchInspection, String> {
         Some(_) => LaunchStatus::Mismatch,
         None => LaunchStatus::Unknown,
     };
+    let steam_game_running = steam_running && steam_process::is_game_running(&steam_root)?;
     Ok(LaunchInspection {
         status,
         steam_running,
+        steam_game_running,
         current_account_name,
         target_account_name,
     })

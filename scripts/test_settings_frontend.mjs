@@ -41,15 +41,15 @@ const mocks = {
  'src/lib/services/manual-import': d(`export const scanGameExecutables=(directory)=>globalThis.frontendRepro.scans.get(directory).promise;
  export const identifyManualGameSteamAppId=()=>{};export const importManualGame=()=>{};export const setGameExecutable=()=>{};`),
  'src/lib/stores/app-info': d(storeImport+'export const appInfo=writable({data:{platform:"linux",trayAvailable:true}});'),
- 'src/lib/services/steam-accounts': d(`export const inspectSteamGameLaunch=async()=>({status:'unknown',steamRunning:true,targetAccountName:'saved'});
- export const launchSteamGame=async(id,confirmed)=>{globalThis.frontendRepro.launchCalls.push({id,confirmed});if(!confirmed)throw new Error("Confirm closing Steam before switching to this game's saved account.");};
+ 'src/lib/services/steam-accounts': d(`export const inspectSteamGameLaunch=async()=>({status:'unknown',steamRunning:true,steamGameRunning:globalThis.frontendRepro.steamGameRunning,targetAccountName:'saved'});
+ export const launchSteamGame=async(id,confirmed)=>{globalThis.frontendRepro.launchCalls.push({id,confirmed});if(!confirmed&&globalThis.frontendRepro.steamGameRunning)throw new Error("Confirm closing Steam and its running game before switching to this game's saved account.");};
  export const listGameLaunchStates=async()=>[];export const cancelGameLaunch=()=>{};export const onGameLaunchStates=()=>{};export const onShortcutLaunchFailure=()=>{};export const stopGame=()=>{};`),
  'src/lib/services/launch': d('export const launchConfiguredGameWithRunner=async()=>{};export const launchNativeGame=async()=>{};'),
  'src/lib/services/game-settings': d('export const getCompatibilityLogsDirectory=async()=>"/logs";'),
  'src/lib/services/window': d('export const hideWindow=async()=>{};export const showWindow=async()=>{};'),
  'src/lib/stores/toast': d('export const showToast=()=>{};'),
 };
-globalThis.frontendRepro={current:{},bandwidth:1049,bandwidthCalls:[],scans:new Map(),launchCalls:[],saveSettings:async value=>{globalThis.frontendRepro.current=value;return value;}};
+globalThis.frontendRepro={current:{},bandwidth:1049,bandwidthCalls:[],scans:new Map(),launchCalls:[],steamGameRunning:true,saveSettings:async value=>{globalThis.frontendRepro.current=value;return value;}};
 const loader=createModuleLoader(mocks);
 const settle=async()=>{for(let i=0;i<6;i++){await new Promise(resolve=>setImmediate(resolve));flushSync();}};
 const defer=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
@@ -123,11 +123,20 @@ assert.equal(saves.at(-1).discordPresence.enabled,false);
 await unmount(instance);target.remove();
 });
 
-test("unknown running Steam account opens the confirmation dialog", async () => {
+test("unknown Steam account opens the confirmation dialog while Steam runs a game", async () => {
 // Actual launch store receives an inspection produced by native unknown-active-account path.
 const launch=await import(await loader.load('src/lib/stores/launch.ts'));
 await launch.playGame({id:'steam-game',steamInstallPath:'/steam/game',executablePath:null});
 assert.equal(get(launch.accountSwitchGame).id,'steam-game');assert.deepEqual(frontendRepro.launchCalls,[]);assert.equal(get(launch.launchError),null);launch.dismissAccountSwitch();
+});
+
+test("an idle Steam switches account without the confirmation dialog", async () => {
+const launch=await import(await loader.load('src/lib/stores/launch.ts'));
+frontendRepro.steamGameRunning=false;frontendRepro.launchCalls=[];
+try {
+await launch.playGame({id:'steam-game',steamInstallPath:'/steam/game',executablePath:null});
+assert.equal(get(launch.accountSwitchGame),null);assert.deepEqual(frontendRepro.launchCalls,[{id:'steam-game',confirmed:false}]);assert.equal(get(launch.launchError),null);
+} finally { frontendRepro.steamGameRunning=true;frontendRepro.launchCalls=[]; }
 });
 
 test("changing download root reloads installed folder and disk information", async () => {

@@ -84,6 +84,8 @@ pub(crate) struct GameLaunchState {
     pub compatibility_log_truncated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runner_exit_code: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub steam_wait: Option<steam_process::SteamWait>,
 }
 
 struct Entry {
@@ -97,6 +99,7 @@ struct Entry {
     #[cfg(target_os = "linux")]
     compatibility_log_error: Option<String>,
     runner_exit_code: Option<i32>,
+    steam_wait: Option<steam_process::SteamWait>,
     cancel: Arc<AtomicBool>,
     prefix: Option<PathBuf>,
 }
@@ -293,6 +296,7 @@ impl GameLaunchManager {
                     compatibility_log_error,
                     compatibility_log_truncated,
                     runner_exit_code: entry.runner_exit_code,
+                    steam_wait: entry.steam_wait,
                 }
             })
             .collect())
@@ -481,6 +485,8 @@ impl GameLaunchManager {
         let cancel = self.reserve_launch(&game_id, None, process_target.clone(), None)?;
         let manager = self.clone();
         let worker_id = game_id.clone();
+        let wait_manager = self.clone();
+        let wait_game_id = game_id.clone();
         if let Err(error) = thread::Builder::new()
             .name(format!("legio-native-{game_id}"))
             .spawn(move || {
@@ -494,7 +500,12 @@ impl GameLaunchManager {
                     },
                     move |cancel| {
                         if let Some(root) = steam_root.as_deref() {
-                            steam_process::ensure_signed_in(root, STEAM_READY_TIMEOUT, cancel)?;
+                            steam_process::ensure_signed_in(
+                                root,
+                                STEAM_READY_TIMEOUT,
+                                cancel,
+                                &mut |wait| wait_manager.set_steam_wait(&wait_game_id, wait),
+                            )?;
                         }
                         if cancel.load(Ordering::Acquire) {
                             return Err("Launch cancelled".to_owned());
@@ -741,6 +752,8 @@ impl GameLaunchManager {
         }
         let manager = self.clone();
         let worker_id = game_id.clone();
+        let wait_manager = self.clone();
+        let wait_game_id = game_id.clone();
         let session_database = database;
         if let Err(error) = thread::Builder::new()
             .name(format!("legio-game-runner-{}", game.id))
@@ -756,7 +769,12 @@ impl GameLaunchManager {
                     },
                     move |cancel| {
                         if let Some(root) = steam_root_to_start.as_deref() {
-                            steam_process::ensure_signed_in(root, STEAM_READY_TIMEOUT, cancel)?;
+                            steam_process::ensure_signed_in(
+                                root,
+                                STEAM_READY_TIMEOUT,
+                                cancel,
+                                &mut |wait| wait_manager.set_steam_wait(&wait_game_id, wait),
+                            )?;
                         }
                         if cancel.load(Ordering::Acquire) {
                             return Err("Launch cancelled".to_owned());
@@ -1244,6 +1262,7 @@ impl GameLaunchManager {
                 #[cfg(target_os = "linux")]
                 compatibility_log_error: None,
                 runner_exit_code: None,
+                steam_wait: None,
                 cancel: Arc::clone(&cancel),
                 prefix: prefix.map(Path::to_path_buf),
             },
@@ -1277,6 +1296,33 @@ impl GameLaunchManager {
             .ok_or_else(|| "Game launch state disappeared".to_owned())?;
         entry.compatibility_log = log;
         Ok(())
+    }
+
+    fn set_steam_wait(&self, game_id: &str, wait: steam_process::SteamWait) {
+        if let Some(journal) = &self.journal {
+            journal.record(
+                game_id,
+                match wait {
+                    steam_process::SteamWait::Starting => "waiting_for_steam",
+                    steam_process::SteamWait::SigningIn => "waiting_for_steam_sign_in",
+                },
+                false,
+                None,
+            );
+        }
+        let mut entries = match self.lock() {
+            Ok(entries) => entries,
+            Err(error) => {
+                crate::application_log::failure("record_steam_wait", error);
+                return;
+            }
+        };
+        if let Some(entry) = entries.get_mut(game_id)
+            && entry.status == GameStatus::Launching
+        {
+            entry.steam_wait = Some(wait);
+            self.changes.send_replace(());
+        }
     }
 
     fn set_runner_exit_code(&self, game_id: &str, code: i32) {
@@ -1330,6 +1376,7 @@ impl GameLaunchManager {
         }
         entry.status = GameStatus::Running;
         entry.error = error;
+        entry.steam_wait = None;
         #[cfg(target_os = "linux")]
         if let Some(log) = &entry.compatibility_log {
             log.record_event("running", entry.error.as_deref());
@@ -1379,6 +1426,7 @@ impl GameLaunchManager {
             }
             entry.status = status;
             entry.error = error;
+            entry.steam_wait = None;
             self.changes.send_replace(());
         }
     }
@@ -3400,6 +3448,7 @@ mod tests {
                 #[cfg(target_os = "linux")]
                 compatibility_log_error: None,
                 runner_exit_code: None,
+                steam_wait: None,
                 cancel: Arc::clone(&cancel),
                 prefix: None,
             },
@@ -3472,6 +3521,7 @@ mod tests {
                 #[cfg(target_os = "linux")]
                 compatibility_log_error: None,
                 runner_exit_code: None,
+                steam_wait: None,
                 cancel: Arc::clone(&cancel),
                 prefix: None,
             },
