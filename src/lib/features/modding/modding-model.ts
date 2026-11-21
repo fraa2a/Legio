@@ -66,11 +66,14 @@ export function activeProfile(game: ModdableGame | null, profiles: readonly ModP
   return id === null ? null : (profiles.find((profile) => profile.id === id) ?? null);
 }
 
+// Matches Rust `char::is_control` (C0 and C1 controls) and the path separators.
 function hasForbiddenCharacter(value: string): boolean {
-  return [...value].some((character) => {
-    const code = character.codePointAt(0) ?? 0;
-    return code < 0x20 || code === 0x7f || character === "/" || character === "\\";
-  });
+  return /[\u0000-\u001f\u007f-\u009f/\\]/u.test(value);
+}
+
+// SQLite `COLLATE NOCASE` and Rust `eq_ignore_ascii_case` fold ASCII letters only.
+function nameKey(name: string): string {
+  return name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 }
 
 export const maxProfileNameLength = 64;
@@ -85,20 +88,25 @@ export function profileNameError(
   if (trimmed.length === 0) return t("Inserisci un nome.", selected);
   if ([...trimmed].length > maxProfileNameLength) return t("Il nome può avere al massimo {0} caratteri.", selected, [maxProfileNameLength]);
   if (hasForbiddenCharacter(trimmed)) return t("Il nome non può contenere / o \\.", selected);
-  const lower = trimmed.toLowerCase();
-  if (profiles.some((profile) => profile.id !== exceptId && profile.name.toLowerCase() === lower)) {
+  const key = nameKey(trimmed);
+  if (profiles.some((profile) => profile.id !== exceptId && nameKey(profile.name) === key)) {
     return t("Esiste già un profilo con questo nome.", selected);
   }
   return null;
 }
 
+// Shortens the original name so the suffix always fits the length limit, like the backend import does.
 export function copyProfileName(name: string, profiles: readonly ModProfile[], selected: Language): string {
-  const taken = new Set(profiles.map((profile) => profile.name.toLowerCase()));
-  const base = t("{0} (copia)", selected, [name]);
-  if (!taken.has(base.toLowerCase())) return base;
+  const taken = new Set(profiles.map((profile) => nameKey(profile.name)));
+  const fit = (suffixed: (base: string) => string): string => {
+    const room = maxProfileNameLength - [...suffixed("")].length;
+    return suffixed([...name].slice(0, room).join("").trimEnd());
+  };
+  const base = fit((value) => t("{0} (copia)", selected, [value]));
+  if (!taken.has(nameKey(base))) return base;
   for (let index = 2; ; index++) {
-    const candidate = t("{0} (copia {1})", selected, [name, index]);
-    if (!taken.has(candidate.toLowerCase())) return candidate;
+    const candidate = fit((value) => t("{0} (copia {1})", selected, [value, index]));
+    if (!taken.has(nameKey(candidate))) return candidate;
   }
 }
 

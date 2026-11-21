@@ -97,6 +97,11 @@ test("profile names follow the backend rules", () => {
   assert.equal(model.profileNameError("default", profiles, "it"), "Esiste già un profilo con questo nome.");
   assert.equal(model.profileNameError("DEFAULT", profiles, "it", "1"), null, "renaming keeps its own name");
   assert.equal(model.copyProfileName("Default", profiles, "it"), "Default (copia 2)");
+  assert.equal(model.profileNameError("a\u0085b", profiles, "it"), "Il nome non può contenere / o \\.", "C1 controls are rejected like in Rust");
+  assert.equal(model.profileNameError("DÉFAULT", [{ id: "3", gameId: "g", name: "défault", createdAt: 0 }], "it"), null, "only ASCII letters are folded");
+  const long = model.copyProfileName("x".repeat(64), profiles, "it");
+  assert.equal([...long].length, 64);
+  assert.equal(model.profileNameError(long, profiles, "it"), null);
   assert.deepEqual(model.profileOptions(profiles, "it").map(option => option.value), ["", "1", "2"]);
 });
 
