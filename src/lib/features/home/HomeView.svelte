@@ -27,13 +27,13 @@
   onMount(() => startVisibleRefresh(() => void playtime.load(), 30000));
 </script>
 
-<div class="@container flex min-h-full flex-col gap-2.5">
+<div class="@container flex h-full min-h-0 flex-col gap-2.5">
   <StateBlock status={$games.status} hasData={$games.data.length > 0} error={$games.error} onRetry={() => void games.load()} />
   {#if $playtime.error !== null}<ErrorBanner message={t("Tempo di gioco: {0}", $language, [$playtime.error])} onRetry={() => void playtime.load()} />{/if}
   {#if $launchStates.error !== null}<ErrorBanner message={t("Stato dei giochi: {0}", $language, [$launchStates.error])} onRetry={() => void launchStates.load()} />{/if}
 
-  <div class="grid flex-1 gap-2.5 @min-[42rem]:grid-cols-[minmax(0,1fr)_18rem]">
-    <div class="flex min-h-72 min-w-0 flex-col">
+  <div class="grid min-h-0 flex-1 gap-2.5 @min-[42rem]:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]">
+    <div class="flex min-h-0 min-w-0 flex-col">
       {#if lastPlayed !== null}
         {#key lastPlayed.game.id}
           <LastPlayedHero game={lastPlayed.game} onSettings={() => settingsGameId = lastPlayed?.game.id ?? null} />
@@ -50,13 +50,13 @@
       {/if}
     </div>
 
-    <div class="grid min-w-0 content-start grid-rows-[auto_12rem] gap-2.5">
+    <div class="grid min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] gap-2.5 @min-[42rem]:[container-type:size]">
       <ActivityCalendar />
-      <ChangelogPanel />
+      <div class="changelog grid min-h-0"><ChangelogPanel /></div>
     </div>
   </div>
 
-  <Panel title={t("Giocati di recente", $language)} class="shrink-0">
+  <Panel title={t("Giocati di recente", $language)} class="home-recent shrink-0">
     {#snippet actions()}
       <Button label={t("Libreria", $language)} variant="secondary" size="sm" onClick={() => selectSection('library')} />
     {/snippet}
@@ -84,3 +84,12 @@
   <GameSettingsDialog game={settingsGame} onClose={() => settingsGameId = null} onRemoved={() => settingsGameId = null} />
 {/if}
 
+<style>
+  /* The home fits the window: secondary panels give way on short windows instead of scrolling. */
+  @container (max-height: 36rem) {
+    .changelog { display: none; }
+  }
+  @media (max-height: 700px) {
+    :global(.home-recent) { display: none; }
+  }
+</style>
