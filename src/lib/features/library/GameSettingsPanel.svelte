@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { mapToText, parseMap, parseEnvironment } from "../../services/launch-fields";
+  import { mapToText, parseMap } from "../../services/launch-fields";
   import { isGraphicsRenderer, isWaylandMode } from "../../services/game-settings";
   import { t, language } from "../../i18n";
   import { onDestroy, onMount } from "svelte";
@@ -245,7 +245,7 @@
         argumentsBefore: draft.argumentsBefore === null ? null : parseLaunchArguments(before),
         argumentsAfter: draft.argumentsAfter === null ? null : parseLaunchArguments(after),
         linuxPerformance: { ...draft.linuxPerformance, wrapper: parseLaunchArguments(wrapper) },
-        environment: draft.environment === null ? null : parseEnvironment(environment, draft.debugLogging ?? defaults?.debugLogging ?? false),
+        environment: draft.environment === null ? null : parseMap(environment, t("Variabili ambiente", $language)),
         dllOverrides: draft.dllOverrides === null ? null : parseMap(dll, t("Override DLL", $language)),
       });
       baseline = JSON.stringify({ overrides: updated, argumentsBefore: before, argumentsAfter: after, environmentText: environment, dllOverridesText: dll, wrapperText: wrapper });

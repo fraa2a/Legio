@@ -1571,6 +1571,18 @@ pub(crate) fn validate_launch_environment(
     Ok(())
 }
 
+/// Checked when compatibility settings are saved, so invalid values never reach a launch.
+#[cfg(target_os = "linux")]
+pub(crate) fn validate_saved_compatibility(
+    environment: &std::collections::BTreeMap<String, String>,
+    dll_overrides: &std::collections::BTreeMap<String, String>,
+    debug_logging: bool,
+) -> Result<(), String> {
+    validate_launch_environment(environment)?;
+    validate_dll_overrides(dll_overrides)?;
+    crate::compatibility_options::validate_environment_keys(environment, debug_logging)
+}
+
 #[cfg(target_os = "linux")]
 fn validate_dll_overrides(
     overrides: &std::collections::BTreeMap<String, String>,

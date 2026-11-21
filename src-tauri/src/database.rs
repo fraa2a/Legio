@@ -871,6 +871,12 @@ impl Database {
     ) -> Result<CompatibilityDefaults, String> {
         defaults.prefix_root =
             normalize_prefix_path(defaults.prefix_root)?.filter(|path| !path.is_empty());
+        #[cfg(target_os = "linux")]
+        crate::game_lifecycle::validate_saved_compatibility(
+            &defaults.environment,
+            &defaults.dll_overrides,
+            defaults.debug_logging,
+        )?;
         let arguments_before = encode_json(&defaults.arguments_before)?;
         let arguments_after = encode_json(&defaults.arguments_after)?;
         let environment = encode_json(&defaults.environment)?;
@@ -946,6 +952,19 @@ impl Database {
             if game.steam_install_path.is_some() {
                 return Err("Launch via Steam requires a manually imported game".to_owned());
             }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let empty = BTreeMap::new();
+            let debug_logging = match overrides.debug_logging {
+                Some(enabled) => enabled,
+                None => self.compatibility_defaults()?.debug_logging,
+            };
+            crate::game_lifecycle::validate_saved_compatibility(
+                overrides.environment.as_ref().unwrap_or(&empty),
+                overrides.dll_overrides.as_ref().unwrap_or(&empty),
+                debug_logging,
+            )?;
         }
         let arguments_before = encode_optional_json(&overrides.arguments_before)?;
         let arguments_after = encode_optional_json(&overrides.arguments_after)?;
@@ -2646,6 +2665,64 @@ mod tests {
         );
         assert_eq!(database.compatibility_defaults().unwrap(), saved);
         drop(database);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn reserved_environment_and_invalid_dll_overrides_are_rejected_on_save() {
+        let directory = TempDir::new();
+        let database = Database::open(&directory).unwrap();
+        let game = database
+            .create_game(CreateGameInput {
+                name: "Compatibility test".to_owned(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        let map = |key: &str, value: &str| BTreeMap::from([(key.to_owned(), value.to_owned())]);
+        for defaults in [
+            CompatibilityDefaults {
+                environment: map("protonpath", "/opt/proton"),
+                ..CompatibilityDefaults::default()
+            },
+            CompatibilityDefaults {
+                environment: map("PROTON_USE_WINED3D", "1"),
+                ..CompatibilityDefaults::default()
+            },
+            CompatibilityDefaults {
+                dll_overrides: map("d3d11", "xyz"),
+                ..CompatibilityDefaults::default()
+            },
+        ] {
+            assert!(database.save_compatibility_defaults(defaults).is_err());
+        }
+        database
+            .save_compatibility_defaults(CompatibilityDefaults {
+                debug_logging: true,
+                ..CompatibilityDefaults::default()
+            })
+            .unwrap();
+        // The game inherits debug logging, which owns PROTON_LOG.
+        assert!(
+            database
+                .save_game_compatibility_overrides(
+                    &game.id,
+                    GameCompatibilityOverrides {
+                        environment: Some(map("PROTON_LOG", "1")),
+                        ..GameCompatibilityOverrides::default()
+                    },
+                )
+                .is_err()
+        );
+        database
+            .save_game_compatibility_overrides(
+                &game.id,
+                GameCompatibilityOverrides {
+                    environment: Some(map("PROTON_LOG", "1")),
+                    debug_logging: Some(false),
+                    ..GameCompatibilityOverrides::default()
+                },
+            )
+            .unwrap();
     }
 
     #[test]
