@@ -143,7 +143,8 @@ export async function playGame(game: Game, profileId: string | null = null): Pro
     await launchStates.load();
   } catch (error) {
     let message = toMessage(error);
-    if (game.steamInstallPath === null && game.executablePath !== null && get(appInfo).data.platform === "linux") {
+    // Only Windows executables go through a compatibility runner; native ones have no compatibility logs.
+    if (game.steamInstallPath === null && game.executablePath !== null && /\.exe$/i.test(game.executablePath) && get(appInfo).data.platform === "linux") {
       try {
         message += t(" Log compatibilità: {0}", undefined, [await getCompatibilityLogsDirectory()]);
       } catch (diagnosticsError) {
