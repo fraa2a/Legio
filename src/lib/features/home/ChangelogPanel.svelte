@@ -40,7 +40,7 @@
               <span class="text-sm font-semibold text-legio-fg">{release.version}{#if release.prerelease}<span class="ml-2 text-xs font-normal text-legio-fg-muted">{t("Anteprima", $language)}</span>{/if}</span>
               <time class="text-xs text-legio-fg-muted" datetime={release.publishedAt}>{date(release.publishedAt)}</time>
             </div>
-            {#if release.notes}<p class="line-clamp-3 whitespace-pre-line break-words text-xs text-legio-fg-muted">{release.notes}</p>{/if}
+            {#if release.notes}<p class="line-clamp-3 whitespace-pre-line wrap-anywhere text-xs text-legio-fg-muted">{release.notes}</p>{/if}
             <div class="flex gap-2">
               {#if release.notes}<Button label={t("Mostra di più", $language)} variant="link" size="sm" onClick={() => openReleaseNotes({ version: release.version, notes: release.notes })} />{/if}
               <Button label={t("Apri su GitHub", $language)} variant="link" size="sm" onClick={() => void openGameLink(release.url)} />
