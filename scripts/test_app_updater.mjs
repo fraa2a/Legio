@@ -46,6 +46,10 @@ test("release notes are trimmed, capped and remembered before installing", async
   assert.equal(get(updater.updateState).notes, "0123456789");
   await updater.installAppUpdate();
   assert.deepEqual(globalThis.updaterReview.remembered, ["3", "0123456789"]);
+  // An emoji across the cap is kept whole instead of leaving a lone surrogate.
+  globalThis.updaterReview.check = async () => ({ update: { version: "5", body: "012345678\u{1F600}x", close: async () => {} }, unavailable: false });
+  await updater.checkForAppUpdate();
+  assert.equal(get(updater.updateState).notes, "012345678\u{1F600}");
   globalThis.updaterReview.check = async () => ({ update: { version: "4", close: async () => {} }, unavailable: false });
   await updater.checkForAppUpdate();
   assert.equal(get(updater.updateState).notes, null);
