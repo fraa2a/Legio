@@ -76,7 +76,8 @@ async function performCheck(): Promise<void> {
 // The manifest is untrusted: notes are shown as plain text and capped.
 function releaseNotes(update: Update | null): string | null {
   const body = update?.body?.trim();
-  return body ? body.slice(0, MAX_NOTES_CHARS) : null;
+  // Cut by code points like the backend limit, so an emoji is never split into a lone surrogate.
+  return body ? [...body].slice(0, MAX_NOTES_CHARS).join("") : null;
 }
 
 export function installAppUpdate(): Promise<void> {
