@@ -250,7 +250,8 @@ pub(crate) fn forecast(
 }
 
 fn gigabytes(bytes: u64) -> String {
-    format!("{:.1} GB", bytes as f64 / 1_000_000_000.0)
+    // Binary units, like the frontend formatBytes.
+    format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
 }
 
 pub(crate) fn extraction_shortfall(needed: u64, available: u64) -> String {
@@ -542,7 +543,7 @@ mod tests {
     #[test]
     fn the_shortfall_message_names_both_amounts() {
         assert_eq!(
-            extraction_shortfall(1_500_000_000, 260_000_000),
+            extraction_shortfall(1_610_612_736, 322_122_547),
             "Not enough free disk space to extract the archive: it needs 1.5 GB and 0.3 GB are free. Free disk space and retry"
         );
     }
