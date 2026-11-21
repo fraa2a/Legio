@@ -52,8 +52,12 @@ export function createSteamVideoSurface(video: HTMLVideoElement): SteamVideoSurf
 
   function paint(): void {
     if (video.seeking || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) return;
-    if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
-    if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
+    // The retained frame only needs the displayed pixels, not the source resolution.
+    const shown = Math.round(video.clientWidth * (globalThis.devicePixelRatio || 1));
+    const width = shown > 0 ? Math.min(video.videoWidth, shown) : video.videoWidth;
+    const height = Math.max(1, Math.round(width * video.videoHeight / video.videoWidth));
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
     context!.drawImage(video, 0, 0, canvas.width, canvas.height);
     // Retain the decoded frame while the native video surface resets at a loop.
     canvas.hidden = false;

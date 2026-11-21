@@ -56,6 +56,21 @@ test("a video loop holds the last frame while the native player seeks", () => {
   } finally { f.cleanup(); }
 });
 
+test("the retained frame is sized to the displayed video, never above its source", () => {
+  const f = fixture();
+  globalThis.devicePixelRatio = 2;
+  try {
+    Object.defineProperty(f.video, "clientWidth", { value: 150, configurable: true });
+    f.frame();
+    assert.equal(f.canvas.width, 300);
+    assert.equal(f.canvas.height, 85);
+    Object.defineProperty(f.video, "clientWidth", { value: 500, configurable: true });
+    f.frame();
+    assert.equal(f.canvas.width, 600, "a larger display keeps the source resolution");
+    assert.equal(f.canvas.height, 170);
+  } finally { delete globalThis.devicePixelRatio; f.cleanup(); }
+});
+
 test("older players paint while playing and stop their fallback clock on pause", () => {
   const f = fixture(false);
   try {
