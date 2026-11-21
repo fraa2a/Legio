@@ -265,6 +265,19 @@ for (const kind of ["starfield", "seasonal", "ambient"]) {
     assert.equal(motionListeners.size, 0, "teardown removes the motion listener");
   });
 
+  test(`${kind} draws one frame when it mounts inactive`, async () => {
+    reduced = false; frames.clear();
+    const view = await mountBackground(kind, { active: false });
+    try {
+      advance();
+      const drawn = draws(view.context);
+      assert.ok(drawn > 0, "the first frame draws without focus");
+      assert.equal(frames.size, 0, "no further frames are scheduled");
+      advance();
+      assert.equal(draws(view.context), drawn);
+    } finally { view.unmount(); }
+  });
+
   test(`${kind} draws a single frame under reduced motion`, async () => {
     reduced = true; frames.clear();
     const view = await mountBackground(kind);
