@@ -39,30 +39,6 @@ pub(crate) fn save(app: &AppHandle, settings: Settings) -> Result<Settings, Stri
     let root = state.database()?.storage_root(&data_dir)?;
     app.state::<crate::download_queue::DownloadQueueState>()
         .set_storage_root(&root)?;
-    if saved.language != previous.language
-        && let Some(tray) = app.tray_by_id("main-tray")
-    {
-        use tauri::menu::{Menu, MenuItem};
-        let open = MenuItem::with_id(
-            app,
-            "open",
-            saved.language.text("Apri", "Open"),
-            true,
-            None::<&str>,
-        )
-        .map_err(|error| error.to_string())?;
-        let quit = MenuItem::with_id(
-            app,
-            "quit",
-            saved.language.text("Chiudi", "Quit"),
-            true,
-            None::<&str>,
-        )
-        .map_err(|error| error.to_string())?;
-        let menu = Menu::with_items(app, &[&open, &quit]).map_err(|error| error.to_string())?;
-        tray.set_menu(Some(menu))
-            .map_err(|error| error.to_string())?;
-    }
     if saved.discord_presence != previous.discord_presence {
         app.state::<crate::discord_presence::PresenceService>()
             .refresh();
