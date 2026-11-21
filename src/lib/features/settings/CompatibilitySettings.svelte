@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { mapToText, parseMap, parseEnvironment } from "../../services/launch-fields";
+  import { mapToText, parseMap } from "../../services/launch-fields";
   import { compatibilityRunnerLabel, isGraphicsRenderer, isWaylandMode } from "../../services/game-settings";
   import { t, language } from "../../i18n";
   import { onDestroy, onMount } from "svelte";
@@ -116,7 +116,7 @@
           workingDirectory: null,
           argumentsBefore: parseArguments(before),
           argumentsAfter: parseArguments(after),
-          environment: parseEnvironment(environment, draft.debugLogging),
+          environment: parseMap(environment, t("Variabili ambiente", $language)),
           dllOverrides: parseMap(dll, t("Override DLL", $language)),
         });
         if (serialized === snapshot) {

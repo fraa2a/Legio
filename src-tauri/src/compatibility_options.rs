@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -170,6 +171,42 @@ pub(crate) fn proton_log_name(config: &EffectiveCompatibilityConfig) -> String {
     format!("steam-{app_id}.log")
 }
 
+/// Rejects environment keys that typed options or debug logging set themselves.
+pub(crate) fn validate_environment_keys(
+    environment: &BTreeMap<String, String>,
+    debug_logging: bool,
+) -> Result<(), String> {
+    for key in [
+        "PROTON_USE_WINED3D",
+        "PROTON_ENABLE_WAYLAND",
+        STEAM_OVERLAY_LAYER,
+        STEAM_OVERLAY_GAME_ID,
+    ] {
+        if environment
+            .keys()
+            .any(|configured| configured.eq_ignore_ascii_case(key))
+        {
+            return Err(format!(
+                "Compatibility environment variable {key} is managed by the typed launch options"
+            ));
+        }
+    }
+
+    if debug_logging {
+        for key in [PROTON_LOG, PROTON_LOG_DIR, STEAM_GAME_ID] {
+            if environment
+                .keys()
+                .any(|configured| configured.eq_ignore_ascii_case(key))
+            {
+                return Err(format!(
+                    "Compatibility environment variable {key} is managed by debug logging"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn validate(config: &EffectiveCompatibilityConfig, runner: &InstalledRunner) -> Result<(), String> {
     if config.environment.get("GAMEID").is_some_and(|id| {
         id.len() > 84
@@ -181,36 +218,7 @@ fn validate(config: &EffectiveCompatibilityConfig, runner: &InstalledRunner) -> 
             "GAMEID must be a short umu identifier without spaces or path separators".to_owned(),
         );
     }
-    for key in [
-        "PROTON_USE_WINED3D",
-        "PROTON_ENABLE_WAYLAND",
-        STEAM_OVERLAY_LAYER,
-        STEAM_OVERLAY_GAME_ID,
-    ] {
-        if config
-            .environment
-            .keys()
-            .any(|configured| configured.eq_ignore_ascii_case(key))
-        {
-            return Err(format!(
-                "Compatibility environment variable {key} is managed by the typed launch options"
-            ));
-        }
-    }
-
-    if config.debug_logging {
-        for key in [PROTON_LOG, PROTON_LOG_DIR, STEAM_GAME_ID] {
-            if config
-                .environment
-                .keys()
-                .any(|configured| configured.eq_ignore_ascii_case(key))
-            {
-                return Err(format!(
-                    "Compatibility environment variable {key} is managed by debug logging"
-                ));
-            }
-        }
-    }
+    validate_environment_keys(&config.environment, config.debug_logging)?;
 
     let uses_proton = matches!(runner.kind, RunnerKind::Proton | RunnerKind::GeProton);
     if config.graphics_renderer == GraphicsRenderer::WineD3d && !uses_proton {
