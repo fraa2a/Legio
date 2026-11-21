@@ -215,6 +215,11 @@ export function importLocalArchive(gameId: string, profileId: string, archivePat
   return track(gameId, profileId, () => importLocalMod(profileId, archivePath));
 }
 
+// An import into an existing profile changes it like an install; a new profile has no id to track yet.
+export function trackProfileImport<T>(gameId: string, profileId: string | undefined, operation: () => Promise<T>): Promise<T> {
+  return profileId === undefined ? operation() : track(gameId, profileId, operation);
+}
+
 // Switches the mods one after the other, so callers list dependencies before the mods that need them.
 export function setModsEnabled(gameId: string, profileId: string, fullNames: string[], enabled: boolean): Promise<void> {
   return track(gameId, profileId, async () => {
