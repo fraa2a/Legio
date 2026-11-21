@@ -278,7 +278,7 @@ pub(crate) fn is_game_running(steam_root: &Path) -> Result<bool, String> {
 }
 
 /// A document Steam is rewriting counts as running, so the account switch still asks first.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(target_os = "linux")]
 fn registry_has_running_game(bytes: &[u8]) -> bool {
     match crate::steam_vdf::keyvalues_scalar(
         bytes,
@@ -882,6 +882,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn registry_running_app_id_reports_a_running_game() {
         let registry = |running: &str| {
