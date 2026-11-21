@@ -43,6 +43,13 @@
 
   const status = $derived(launch?.status ?? "idle");
   const iconSize = $derived(size === "hero" ? "xl" : "md");
+  const launchingLabel = $derived(
+    launch?.steamWait === "signing_in"
+      ? t("ACCEDI A STEAM...", $language)
+      : launch?.steamWait === "starting"
+        ? t("ATTESA DI STEAM...", $language)
+        : t("AVVIO...", $language),
+  );
   const actionVariant = $derived(
     status === "launching" ? "launching" : status === "running" ? "running" : variant === "primary" ? "play" : "secondary",
   );
@@ -80,7 +87,7 @@
   {:else}
     <!-- One button for every state, so the color transitions instead of switching. -->
     <Button
-      label={status === "idle" ? playLabel : status === "launching" ? (cancelPending ? t("ANNULLAMENTO...", $language) : t("AVVIO...", $language)) : t("FERMA", $language)}
+      label={status === "idle" ? playLabel : status === "launching" ? (cancelPending ? t("ANNULLAMENTO...", $language) : launchingLabel) : t("FERMA", $language)}
       variant={actionVariant}
       {shape}
       {size}

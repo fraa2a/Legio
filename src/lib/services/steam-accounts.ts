@@ -28,6 +28,7 @@ export interface SteamLaunchResult {
 export interface SteamGameLaunchInspection {
   status: "no_override" | "already_matches" | "mismatch" | "unknown";
   steamRunning: boolean;
+  steamGameRunning: boolean;
   currentAccountName: string | null;
   targetAccountName: string | null;
 }
@@ -48,6 +49,7 @@ export interface GameLaunchState {
   compatibilityLogPath?: string;
   compatibilityLogError?: string;
   runnerExitCode?: number;
+  steamWait?: "starting" | "signing_in";
 }
 
 export function onGameLaunchStates(callback: (states: GameLaunchState[]) => void): Promise<UnlistenFn> {
