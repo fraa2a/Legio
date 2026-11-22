@@ -584,6 +584,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn externally_running_game_prevents_uninstall() {
+        use std::os::unix::process::CommandExt;
         let f = Fixture::new();
         let executable = f.directory.join("bin/game.exe");
         fs::copy("/bin/sleep", &executable).unwrap();
@@ -596,6 +597,8 @@ mod tests {
         }
         let process = ChildGuard(
             std::process::Command::new(&executable)
+                // Multi-call coreutils pick the command from argv[0] and exit at once on "game.exe".
+                .arg0("sleep")
                 .arg("60")
                 .spawn()
                 .unwrap(),
