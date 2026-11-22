@@ -1,5 +1,5 @@
 import type { CatalogGame } from "../../services/catalog";
-import type { InstalledSource, SourceEntry, SourceManifest } from "../../services/legio-source";
+import type { InstalledSource, ReleaseLinks, SourceEntry, SourceManifest } from "../../services/legio-source";
 
 export type SourceAvailability = CatalogGame["availability"];
 
@@ -70,14 +70,6 @@ export function sourceNameFor(entry: SourceEntry, sources: InstalledSource[]): s
   return sources.find(source => source.id === entry.sourceId)?.name;
 }
 
-export function releaseLinks(entry: SourceEntry, sources: InstalledSource[]): string[] {
-  return sources.find(origin => origin.id === entry.sourceId)?.candidates?.[entry.id ?? ""] ?? [entry.download.url];
-}
-
-export function reachableReleases(
-  releases: SourceReleaseStatus[],
-  sources: InstalledSource[],
-  sizes: Record<string, number>,
-): SourceReleaseStatus[] {
-  return releases.filter(release => releaseLinks(release.entry, sources).some(uri => uri in sizes));
+export function releaseLinksFor(entry: SourceEntry, links: ReleaseLinks[]): ReleaseLinks | undefined {
+  return links.find(link => link.sourceId === entry.sourceId && link.url === entry.download.url && link.version === entry.release.version);
 }

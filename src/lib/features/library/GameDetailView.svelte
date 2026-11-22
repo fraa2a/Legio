@@ -17,7 +17,7 @@
   import { closeGame, openGame, selectSection, selectedGameId, type StoreGameSelection } from "../../stores/navigation";
   import { downloads, queueJob } from "../../stores/downloads";
   import { onlyUsableLibrary } from "../../stores/game-libraries";
-  import { checkGameLinks, type SourceEntry } from "../../services/legio-source";
+  import { checkGameLinks, type ReleaseLinks, type SourceEntry } from "../../services/legio-source";
   import { describeDownloadStatus, downloadProgressPercent, forecastDownloadSpace } from "../../services/downloads";
   import { spaceWarning, type SpaceWarning } from "../downloads/space-forecast";
   import { playtime } from "../../stores/playtime";
@@ -52,7 +52,7 @@
   import { acquireGameArtwork, gameArtworkRevision } from "../../services/game-artwork";
   import { keepArtColorFor, publishArtColor } from "../../stores/game-accent";
   import { toMessage } from "../../utils/errors";
-  import { reachableReleases, releaseLinks, sourceNameFor, sourceReleaseId, sourceReleasesFor } from "../store/source-status";
+  import { releaseLinksFor, sourceNameFor, sourceReleaseId, sourceReleasesFor } from "../store/source-status";
   import { nextVersionAfterRemoval } from "./library-model";
   import { changesProfile, hasModProfiles, instanceModStates, instanceReleaseOptions, parseInstanceOptionId, selectedInstanceId } from "./instance-options";
   import { busyProfiles, loadModdableGames, loadOnce, modProfiles, moddableGameById, profilesOfGames, selectProfile } from "../../stores/modding";
@@ -79,17 +79,17 @@
   const usefulLinks = $derived(gameLinks({ steamAppId, thunderstoreCommunity: moddable?.ecosystemGameId ?? moddable?.steamMatchId ?? null, linux }));
   const protonUrl = $derived(usefulLinks.find((link) => link.kind === "protondb")?.url ?? null);
   const knownReleases = $derived(steamAppId === null ? [] : sourceReleasesFor($source.data.manifest, steamAppId));
-  let linkSizes = $state<Record<string, number> | null>(null);
+  let releaseLinks = $state<ReleaseLinks[] | null>(null);
   let linkError = $state<string | null>(null);
-  const checkingLinks = $derived(storeGame !== null && knownReleases.length > 0 && linkSizes === null && linkError === null);
-  const releases = $derived(storeGame !== null && linkSizes !== null ? reachableReleases(knownReleases, $source.data.sources, linkSizes) : knownReleases);
-  const noReachableLinks = $derived(storeGame !== null && linkSizes !== null && knownReleases.length > 0 && releases.length === 0);
+  const checkingLinks = $derived(storeGame !== null && knownReleases.length > 0 && releaseLinks === null && linkError === null);
+  const releases = $derived(storeGame !== null && releaseLinks !== null ? knownReleases.filter((release) => (releaseLinksFor(release.entry, releaseLinks ?? [])?.uris.length ?? 0) > 0) : knownReleases);
+  const noReachableLinks = $derived(storeGame !== null && releaseLinks !== null && knownReleases.length > 0 && releases.length === 0);
   let selectedReleaseId = $state<string | null>(null);
   const status = $derived(releases.find((release) => sourceReleaseId(release.entry) === selectedReleaseId) ?? releases[0] ?? null);
   const entry = $derived(status?.entry ?? null);
   const name = $derived(storeGame !== null ? (details?.name ?? storeGame.name) : (game?.name ?? ""));
   let selectedMirror = $state("auto");
-  const mirrorUris = $derived(entry === null ? [] : releaseLinks(entry, $source.data.sources).filter(uri => linkSizes === null || uri in linkSizes));
+  const mirrorUris = $derived(entry === null ? [] : (releaseLinksFor(entry, releaseLinks ?? [])?.uris ?? []));
   const job = $derived(storeGame === null || entry === null ? null : ($downloads.data.find((candidate) => candidate.steamAppId === steamAppId && (candidate.sourceId && candidate.sourceEntryId ? candidate.sourceId === entry.sourceId && candidate.sourceEntryId === entry.id : candidate.url === entry.download.url && candidate.releaseVersion === entry.release.version) && candidate.status !== "installed" && candidate.status !== "cancelled") ?? null));
   const downloadProgress = $derived(job === null ? 0 : downloadProgressPercent(job));
   const libraryVersions = $derived(game === null ? [] : $games.data.filter((candidate) => candidate.steamAppId === null ? candidate.id === game.id : candidate.steamAppId === game.steamAppId));
@@ -99,7 +99,7 @@
     ($launchStateByGame.get(id)?.status ?? "idle") !== "idle" || (activeProfileId !== null && $busyProfiles.has(activeProfileId))));
   let switchingVersion = $state(false);
   const versionOptions: ReleaseOption[] = $derived(storeGame !== null
-    ? releases.map((release) => ({ id: sourceReleaseId(release.entry), name: release.entry.name, sourceName: sourceNameFor(release.entry, $source.data.sources), subtitle: t("Versione {0}", $language, [release.entry.release.version]), sizeBytes: release.entry.download.sizeBytes ?? (linkSizes === null ? null : releaseLinks(release.entry, $source.data.sources).map(uri => linkSizes?.[uri]).find(size => size !== undefined) ?? null), availability: release.availability }))
+    ? releases.map((release) => ({ id: sourceReleaseId(release.entry), name: release.entry.name, sourceName: sourceNameFor(release.entry, $source.data.sources), subtitle: t("Versione {0}", $language, [release.entry.release.version]), sizeBytes: releaseLinksFor(release.entry, releaseLinks ?? [])?.sizeBytes ?? release.entry.download.sizeBytes ?? null, availability: release.availability }))
     : instanceReleaseOptions(libraryVersions.map((candidate) => {
       const lastPlayed = $playtime.data.find((summary) => summary.gameId === candidate.id)?.lastPlayedAt ?? null;
       return { id: candidate.id, name: candidate.name, subtitle: lastPlayed === null ? t("Mai giocato", $language) : t("Ultima partita: {0}", $language, [formatDateTime(lastPlayed / 1000, $language)]), isSteam: candidate.steamInstallPath !== null };
@@ -140,12 +140,12 @@
   $effect(() => {
     void $source.data.manifest;
     const appId = steamAppId;
-    linkSizes = null;
+    releaseLinks = null;
     linkError = null;
     if (storeGame === null || appId === null || knownReleases.length === 0) return;
     let cancelled = false;
     checkGameLinks(appId).then(
-      (sizes) => { if (!cancelled) linkSizes = sizes; },
+      (links) => { if (!cancelled) releaseLinks = links; },
       (cause: unknown) => { if (!cancelled) linkError = toMessage(cause); },
     );
     return () => { cancelled = true; };

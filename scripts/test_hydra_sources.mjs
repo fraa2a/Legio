@@ -23,6 +23,8 @@ test("source-distinct versions retain names and stable selection IDs", async () 
   assert.equal(new Set(entries.map(model.sourceReleaseId)).size, 3);
   const sources = [{ id: "one", name: "SteamGG" }, { id: "two", name: "Other" }, { id: "three", name: "SteamGG" }];
   assert.deepEqual(entries.map(entry => model.sourceNameFor(entry, sources)), ["SteamGG", "Other", "SteamGG"]);
+  const links = [{ sourceId: "two", url: "https://example.test/file.zip", version: "1", sizeBytes: 5, uris: ["https://mirror.test/b"] }];
+  assert.deepEqual(entries.map(entry => model.releaseLinksFor(entry, links)?.uris), [undefined, ["https://mirror.test/b"], undefined]);
 });
 
 test("release picker shows source badges alongside names and keeps the Steam badge", async () => {
