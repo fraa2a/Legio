@@ -39,7 +39,7 @@
     "test:protondb": "node --conditions=browser --test scripts/test_protondb.mjs",
     "test:game-media": "node --conditions=browser --test scripts/test_game_media.mjs",
     "test:details-cache": "node --conditions=browser --test scripts/test_steam_details_cache.mjs",
-    "test:modding": "node --conditions=browser --test scripts/test_modding.mjs",
+    "test:modding": "node --conditions=browser --test scripts/test_modding.mjs scripts/test_modding_error_contract.mjs",
     "test:modding-extra": "node --conditions=browser --test scripts/test_modding_extra.mjs",
     "test:instances": "node --conditions=browser --test scripts/test_instance_picker.mjs scripts/test_launch_profiles.mjs scripts/test_launch_profile_menu.mjs",
     "test:modding-browser": "node --conditions=browser --test scripts/test_modding_browser.mjs",

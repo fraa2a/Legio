@@ -150,6 +150,7 @@ test("error mapping and game search", () => {
     "winhttp.dll è già nella cartella del gioco e non è stato installato da Legio. Spostalo o rimuovilo per avviare con le mod.",
   );
   assert.equal(model.describeModdingError('A mod profile named "Main" already exists', "it"), 'Esiste già un profilo chiamato "Main". Scegli un altro nome.');
+  assert.equal(model.describeModdingError("Ebkr-R2modman is not a mod and cannot be installed", "it"), "Ebkr-R2modman non è una mod e non si può installare.");
   assert.equal(
     model.describeModdingError("Mods are being changed in the active mod profile. Wait for it to finish and launch again.", "it"),
     "Le mod del profilo attivo sono in fase di modifica. Attendi il termine e avvia di nuovo.",
