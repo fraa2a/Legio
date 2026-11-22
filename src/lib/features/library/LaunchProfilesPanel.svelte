@@ -11,6 +11,7 @@
   } from "../../services/game-settings";
   import type { LaunchProfile } from "../../services/launch-profiles";
   import { appInfo } from "../../stores/app-info";
+  import { usesCompatibilityRunner } from "./library-model";
   import { addLaunchProfile, copyLaunchProfile, launchProfiles, removeLaunchProfile, saveLaunchProfile } from "../../stores/launch-profiles";
   import { toMessage } from "../../utils/errors";
   import Button from "../../components/ui/Button.svelte";
@@ -39,7 +40,7 @@
   let { game }: { game: Game } = $props();
 
   const steamManaged = $derived(game.steamInstallPath !== null);
-  const compatibilityGame = $derived(!steamManaged && $appInfo.data.platform === "linux" && (game.executablePath === null || /\.exe$/i.test(game.executablePath)));
+  const compatibilityGame = $derived(!steamManaged && usesCompatibilityRunner(game, $appInfo.data.platform));
   const profiles = $derived(profilesOf($launchProfiles.data, game.id));
 
   // The profile being edited; "new" while creating one.

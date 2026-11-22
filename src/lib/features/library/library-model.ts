@@ -4,6 +4,11 @@ import type { GameLaunchState } from "../../services/steam-accounts";
 
 const collator = new Intl.Collator(undefined, { sensitivity: "base" });
 
+// Mirrors launch_game: on Linux a Windows executable (or one not chosen yet) runs through a compatibility runner.
+export function usesCompatibilityRunner(game: Game, platform: string): boolean {
+  return platform === "linux" && (game.executablePath === null || /\.exe$/i.test(game.executablePath));
+}
+
 export function libraryGroups(games: Game[], query: string): Game[][] {
   const needle = query.trim().toLowerCase();
   const groups = new Map<string, Game[]>();

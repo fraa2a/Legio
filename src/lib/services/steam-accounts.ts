@@ -20,26 +20,17 @@ export function setGameSteamAccountPreference(gameId: string, steamId: string | 
   return invoke<Game>("set_game_steam_account_preference", { gameId, steamId });
 }
 
-export interface SteamLaunchResult {
-  gameId: string;
-  steamAppId: number;
-}
-
 export interface SteamGameLaunchInspection {
   status: "no_override" | "already_matches" | "mismatch" | "unknown";
   steamRunning: boolean;
   steamGameRunning: boolean;
+  requiresConfirmation: boolean;
   currentAccountName: string | null;
   targetAccountName: string | null;
 }
 
 export function inspectSteamGameLaunch(gameId: string): Promise<SteamGameLaunchInspection> {
   return invoke<SteamGameLaunchInspection>("inspect_steam_game_launch", { gameId });
-}
-
-// A null profile launches with the game's base settings.
-export function launchSteamGame(gameId: string, confirmAccountSwitch: boolean, profileId: string | null): Promise<SteamLaunchResult> {
-  return invoke<SteamLaunchResult>("launch_steam_game", { gameId, confirmAccountSwitch, profileId });
 }
 
 export interface GameLaunchState {

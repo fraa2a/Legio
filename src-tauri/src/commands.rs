@@ -761,39 +761,11 @@ fn record_launch_profile(app: &AppHandle, game_id: &str, profile_id: Option<&str
 }
 
 #[tauri::command]
-pub async fn launch_steam_game(
+pub async fn launch_game(
     app: AppHandle,
     game_id: String,
+    profile: crate::game_lifecycle::LaunchProfileChoice,
     confirm_account_switch: bool,
-    profile_id: Option<String>,
-) -> Result<crate::steam_switch::SteamLaunchResult, String> {
-    let manager = app
-        .state::<crate::game_lifecycle::GameLaunchManager>()
-        .inner()
-        .clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        manager.record_launch_request(&game_id, false);
-        let result = manager.launch(
-            app.clone(),
-            game_id.clone(),
-            confirm_account_switch,
-            profile_id.clone(),
-        );
-        match &result {
-            Ok(_) => record_launch_profile(&app, &game_id, profile_id.as_deref()),
-            Err(_) => manager.record_launch_request(&game_id, true),
-        }
-        result
-    })
-    .await
-    .map_err(|error| format!("Steam launch task failed: {error}"))?
-}
-
-#[tauri::command]
-pub async fn launch_configured_game_with_runner(
-    app: AppHandle,
-    game_id: String,
-    profile_id: Option<String>,
 ) -> Result<(), String> {
     let manager = app
         .state::<crate::game_lifecycle::GameLaunchManager>()
@@ -801,38 +773,28 @@ pub async fn launch_configured_game_with_runner(
         .clone();
     tauri::async_runtime::spawn_blocking(move || {
         manager.record_launch_request(&game_id, false);
-        let result = manager.launch_configured(app.clone(), game_id.clone(), profile_id.clone());
+        let result = app
+            .state::<DatabaseState>()
+            .database()
+            .and_then(|database| profile.resolve(database, &game_id))
+            .and_then(|profile_id| {
+                manager
+                    .launch_game(
+                        app.clone(),
+                        game_id.clone(),
+                        confirm_account_switch,
+                        profile_id.clone(),
+                    )
+                    .map(|()| profile_id)
+            });
         match &result {
-            Ok(()) => record_launch_profile(&app, &game_id, profile_id.as_deref()),
+            Ok(profile_id) => record_launch_profile(&app, &game_id, profile_id.as_deref()),
             Err(_) => manager.record_launch_request(&game_id, true),
         }
-        result
+        result.map(|_| ())
     })
     .await
-    .map_err(|error| format!("Compatibility runner launch task failed: {error}"))?
-}
-
-#[tauri::command]
-pub async fn launch_native_game(
-    app: AppHandle,
-    game_id: String,
-    profile_id: Option<String>,
-) -> Result<(), String> {
-    let manager = app
-        .state::<crate::game_lifecycle::GameLaunchManager>()
-        .inner()
-        .clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        manager.record_launch_request(&game_id, false);
-        let result = manager.launch_native(app.clone(), game_id.clone(), profile_id.clone());
-        match &result {
-            Ok(()) => record_launch_profile(&app, &game_id, profile_id.as_deref()),
-            Err(_) => manager.record_launch_request(&game_id, true),
-        }
-        result
-    })
-    .await
-    .map_err(|error| format!("Native game launch task failed: {error}"))?
+    .map_err(|error| format!("Game launch task failed: {error}"))?
 }
 
 #[tauri::command]

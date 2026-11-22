@@ -280,7 +280,6 @@ test("native launch events invalidate stale reads and reduce polling during game
     export const onShortcutLaunchFailure = callback => globalThis.legioLaunchEvents.failure(callback);
     export const cancelGameLaunch = async () => {};
     export const inspectSteamGameLaunch = async () => ({});
-    export const launchSteamGame = async () => {};
     export const stopGame = async () => {};
   `);
   const intervals = [];
@@ -298,7 +297,7 @@ test("native launch events invalidate stale reads and reduce polling during game
       "./window-activity": dataModule("export const windowActive = globalThis.legioLaunchEvents.active;"),
       "./app-info": dataModule("export const appInfo = globalThis.legioLaunchEvents.info;"),
       "./settings": dataModule("export const settings = globalThis.legioLaunchEvents.settings;"),
-      "../services/launch": dataModule("export const launchConfiguredGameWithRunner = async () => {}; export const launchNativeGame = async () => {};"),
+      "../services/launch": dataModule("export const launchGame = async () => {};"),
       "../services/game-settings": dataModule("export const getCompatibilityLogsDirectory = async () => '';"),
       "../services/window": dataModule("export const hideWindow = async () => {}; export const showWindow = async () => {};"),
       "../features/modding/modding-model": dataModule("export const describeModdingError = (message) => message;"),

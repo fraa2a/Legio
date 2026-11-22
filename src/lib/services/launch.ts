@@ -1,10 +1,9 @@
 import { invoke } from "./invoke";
 
-// A null profile launches with the game's base settings.
-export function launchConfiguredGameWithRunner(gameId: string, profileId: string | null): Promise<void> {
-  return invoke<void>("launch_configured_game_with_runner", { gameId, profileId });
-}
+// `last_used` starts the profile the game last launched with, `base` its base settings.
+export type LaunchProfileChoice = { kind: "last_used" } | { kind: "base" } | { kind: "profile"; id: string };
 
-export function launchNativeGame(gameId: string, profileId: string | null): Promise<void> {
-  return invoke<void>("launch_native_game", { gameId, profileId });
+// The backend picks Steam, a compatibility runner or a native launch for the game.
+export function launchGame(gameId: string, profile: LaunchProfileChoice, confirmAccountSwitch: boolean): Promise<void> {
+  return invoke<void>("launch_game", { gameId, profile, confirmAccountSwitch });
 }

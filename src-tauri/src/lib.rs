@@ -553,9 +553,7 @@ fn run_application(
             commands::remove_game,
             game_uninstall::get_game_uninstall_target,
             game_uninstall::uninstall_game,
-            commands::launch_steam_game,
-            commands::launch_configured_game_with_runner,
-            commands::launch_native_game,
+            commands::launch_game,
             commands::get_launch_profiles,
             commands::create_launch_profile,
             commands::update_launch_profile,
@@ -762,23 +760,8 @@ fn stop_game(app: &tauri::AppHandle, game_id: String) {
 }
 
 fn prepare_shortcut(app: &tauri::AppHandle, game_id: &str) -> Result<(), String> {
-    let game = app
-        .state::<database::DatabaseState>()
-        .database()?
-        .game(game_id)?;
-    let manager = app.state::<game_lifecycle::GameLaunchManager>();
-    if game.steam_install_path.is_some() {
-        manager
-            .launch(app.clone(), game_id.to_owned(), false, None)
-            .map(|_| ())
-    } else {
-        #[cfg(target_os = "linux")]
-        {
-            manager.launch_configured(app.clone(), game_id.to_owned(), None)
-        }
-        #[cfg(windows)]
-        {
-            manager.launch_native(app.clone(), game_id.to_owned(), None)
-        }
-    }
+    let profile_id = game_lifecycle::LaunchProfileChoice::LastUsed
+        .resolve(app.state::<database::DatabaseState>().database()?, game_id)?;
+    app.state::<game_lifecycle::GameLaunchManager>()
+        .launch_game(app.clone(), game_id.to_owned(), false, profile_id)
 }

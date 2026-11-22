@@ -2,6 +2,7 @@
   import { t, language } from "../../i18n";
   import type { Game } from "../../services/local-state";
   import type { GameLaunchState } from "../../services/steam-accounts";
+  import type { LaunchProfileChoice } from "../../services/launch";
   import Button from "../../components/ui/Button.svelte";
   import Icon from "../../components/ui/Icon.svelte";
   import { launchProfiles } from "../../stores/launch-profiles";
@@ -36,7 +37,7 @@
     menuAbove?: boolean;
     class?: string;
     // A null profile is the game's base settings.
-    onPlay: (game: Game, profileId: string | null) => void | Promise<void>;
+    onPlay: (game: Game, profile?: LaunchProfileChoice) => void | Promise<void>;
     onCancel: (game: Game) => void;
     onStop: (game: Game) => void;
   } = $props();
@@ -60,9 +61,10 @@
     if (launchable && $launchProfiles.status === "idle") void launchProfiles.load();
   });
 
+  // The split button names the profile; a null choice is the base settings.
   async function play(profileId: string | null): Promise<void> {
     try {
-      await onPlay(game, profileId);
+      await onPlay(game, profileId === null ? { kind: "base" } : { kind: "profile", id: profileId });
     } finally {
       // The backend records the profile of a launch that started.
       await launchProfiles.reload();
@@ -93,7 +95,7 @@
       {size}
       class="duration-(--legio-motion-slow) {status === 'idle' && revealOnHover ? 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100' : className}"
       disabled={status === "idle" ? actionPending : status === "launching" ? cancelPending : actionPending}
-      onClick={() => (status === "idle" ? void onPlay(game, null) : status === "launching" ? onCancel(game) : onStop(game))}
+      onClick={() => (status === "idle" ? void onPlay(game) : status === "launching" ? onCancel(game) : onStop(game))}
     >
       <Icon name={status === "idle" ? "play" : status === "launching" ? "close" : "stop"} size={iconSize} />
     </Button>
