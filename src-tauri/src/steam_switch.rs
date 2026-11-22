@@ -31,6 +31,8 @@ pub(crate) struct LaunchInspection {
     pub status: LaunchStatus,
     pub steam_running: bool,
     pub steam_game_running: bool,
+    /// Switching closes Steam, which only needs confirmation while it runs a game.
+    pub requires_confirmation: bool,
     pub current_account_name: Option<String>,
     pub target_account_name: Option<String>,
 }
@@ -139,6 +141,7 @@ fn inspect_game(game: &Game) -> Result<LaunchInspection, String> {
             status: LaunchStatus::NoOverride,
             steam_running,
             steam_game_running: false,
+            requires_confirmation: false,
             current_account_name: None,
             target_account_name: None,
         });
@@ -173,6 +176,8 @@ fn inspect_game(game: &Game) -> Result<LaunchInspection, String> {
         status,
         steam_running,
         steam_game_running,
+        requires_confirmation: steam_game_running
+            && matches!(status, LaunchStatus::Mismatch | LaunchStatus::Unknown),
         current_account_name,
         target_account_name,
     })

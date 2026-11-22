@@ -308,7 +308,6 @@
   "Impossibile leggere il limite di banda: {0}": "Could not read the bandwidth limit: {0}",
   "{0} minuti": "{0} minutes",
   "Il limite di banda deve essere un numero intero di byte al secondo.": "The bandwidth limit must be an integer number of bytes per second.",
-  "L'avvio di giochi manuali non è disponibile su questa piattaforma.": "Manual game launching is unavailable on this platform.",
   "Seleziona un eseguibile nelle impostazioni del gioco.": "Select an executable in the game settings.",
   "Log compatibilità: {0}": "Compatibility logs: {0}",
   "Impossibile trovare i log di compatibilità: {0}": "Could not find compatibility logs: {0}",

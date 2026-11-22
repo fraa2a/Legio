@@ -41,10 +41,9 @@ const mocks = {
  'src/lib/services/manual-import': d(`export const scanGameExecutables=(directory)=>globalThis.frontendRepro.scans.get(directory).promise;
  export const identifyManualGameSteamAppId=()=>{};export const importManualGame=()=>{};export const setGameExecutable=()=>{};`),
  'src/lib/stores/app-info': d(storeImport+'export const appInfo=writable({data:{platform:"linux",trayAvailable:true}});'),
- 'src/lib/services/steam-accounts': d(`export const inspectSteamGameLaunch=async()=>({status:'unknown',steamRunning:true,steamGameRunning:globalThis.frontendRepro.steamGameRunning,targetAccountName:'saved'});
- export const launchSteamGame=async(id,confirmed)=>{globalThis.frontendRepro.launchCalls.push({id,confirmed});if(!confirmed&&globalThis.frontendRepro.steamGameRunning)throw new Error("Confirm closing Steam and its running game before switching to this game's saved account.");};
+ 'src/lib/services/steam-accounts': d(`export const inspectSteamGameLaunch=async()=>({status:'unknown',steamRunning:true,steamGameRunning:globalThis.frontendRepro.steamGameRunning,requiresConfirmation:globalThis.frontendRepro.steamGameRunning,targetAccountName:'saved'});
  export const listGameLaunchStates=async()=>[];export const cancelGameLaunch=()=>{};export const onGameLaunchStates=()=>{};export const onShortcutLaunchFailure=()=>{};export const stopGame=()=>{};`),
- 'src/lib/services/launch': d('export const launchConfiguredGameWithRunner=async()=>{};export const launchNativeGame=async()=>{};'),
+ 'src/lib/services/launch': d(`export const launchGame=async(id,profile,confirmed)=>{globalThis.frontendRepro.launchCalls.push({id,confirmed});if(!confirmed&&globalThis.frontendRepro.steamGameRunning)throw new Error("Confirm closing Steam and its running game before switching to this game's saved account.");};`),
  'src/lib/services/game-settings': d('export const getCompatibilityLogsDirectory=async()=>"/logs";'),
  'src/lib/services/window': d('export const hideWindow=async()=>{};export const showWindow=async()=>{};'),
  'src/lib/stores/toast': d('export const showToast=()=>{};'),

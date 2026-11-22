@@ -165,6 +165,30 @@ impl LaunchTarget {
     }
 }
 
+/// The launch profile a launch uses. `LastUsed` resolves to the profile the
+/// game last started with, or its base settings.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum LaunchProfileChoice {
+    LastUsed,
+    Base,
+    Profile { id: String },
+}
+
+impl LaunchProfileChoice {
+    pub(crate) fn resolve(
+        self,
+        database: &Database,
+        game_id: &str,
+    ) -> Result<Option<String>, String> {
+        Ok(match self {
+            Self::LastUsed => database.launch_profiles()?.last_used.get(game_id).cloned(),
+            Self::Base => None,
+            Self::Profile { id } => Some(id),
+        })
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct GameLaunchManager {
     entries: Arc<Mutex<HashMap<String, Entry>>>,
@@ -389,6 +413,36 @@ impl GameLaunchManager {
             game_id,
             steam_app_id: app_id,
         })
+    }
+
+    /// Launches a game the way its installation needs: through Steam, through a
+    /// compatibility runner on Linux (which starts native executables directly),
+    /// or natively on Windows.
+    pub(crate) fn launch_game(
+        &self,
+        app: AppHandle,
+        game_id: String,
+        confirm_account_switch: bool,
+        profile_id: Option<String>,
+    ) -> Result<(), String> {
+        let game = app.state::<DatabaseState>().database()?.game(&game_id)?;
+        if game.steam_install_path.is_some() {
+            return self
+                .launch(app, game_id, confirm_account_switch, profile_id)
+                .map(|_| ());
+        }
+        #[cfg(target_os = "linux")]
+        {
+            self.launch_configured(app, game_id, profile_id)
+        }
+        #[cfg(windows)]
+        {
+            self.launch_native(app, game_id, profile_id)
+        }
+        #[cfg(not(any(target_os = "linux", windows)))]
+        {
+            Err("Launching manually added games is not available on this platform".to_owned())
+        }
     }
 
     pub(crate) fn launch_native<R: Runtime>(
@@ -790,16 +844,6 @@ impl GameLaunchManager {
             return Err(format!("Could not start game launch task: {error}"));
         }
         Ok(())
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    pub(crate) fn launch_configured(
-        &self,
-        _app: AppHandle,
-        _game_id: String,
-        _profile_id: Option<String>,
-    ) -> Result<(), String> {
-        Err("Compatibility runner launches are supported on Linux only".to_owned())
     }
 
     pub(crate) fn cancel(&self, game_id: &str) -> Result<(), String> {
@@ -2135,6 +2179,52 @@ mod tests {
         result.unwrap();
         assert_eq!(manager.list().unwrap()[0].status, GameStatus::Running);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn launch_profile_choice_resolves_last_used_base_and_explicit() {
+        let directory = crate::test_support::TempDir::new();
+        let database = Database::open(&directory).unwrap();
+        let game = database
+            .create_game(crate::database::CreateGameInput {
+                name: "Game".into(),
+                steam_app_id: None,
+            })
+            .unwrap();
+        let choice = |json: &str| serde_json::from_str::<LaunchProfileChoice>(json).unwrap();
+        assert_eq!(
+            choice(r#"{"kind":"last_used"}"#)
+                .resolve(&database, &game.id)
+                .unwrap(),
+            None
+        );
+        let profile = database
+            .create_launch_profile(&game.id, "Window", Default::default())
+            .unwrap()
+            .profiles[0]
+            .id
+            .clone();
+        database
+            .set_last_launch_profile(&game.id, Some(&profile))
+            .unwrap();
+        assert_eq!(
+            choice(r#"{"kind":"last_used"}"#)
+                .resolve(&database, &game.id)
+                .unwrap(),
+            Some(profile.clone())
+        );
+        assert_eq!(
+            choice(r#"{"kind":"base"}"#)
+                .resolve(&database, &game.id)
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            choice(r#"{"kind":"profile","id":"other"}"#)
+                .resolve(&database, &game.id)
+                .unwrap(),
+            Some("other".to_owned())
+        );
     }
 
     #[test]

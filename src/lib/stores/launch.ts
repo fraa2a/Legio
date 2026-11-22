@@ -8,7 +8,6 @@ import {
   listGameLaunchStates,
   onGameLaunchStates,
   onShortcutLaunchFailure,
-  launchSteamGame,
   stopGame,
   type GameLaunchState,
 } from "../services/steam-accounts";
@@ -16,7 +15,7 @@ import type { Game } from "../services/local-state";
 import { toMessage } from "../utils/errors";
 import { createResource } from "./resource";
 import { appInfo } from "./app-info";
-import { launchConfiguredGameWithRunner, launchNativeGame } from "../services/launch";
+import { launchGame, type LaunchProfileChoice } from "../services/launch";
 import { getCompatibilityLogsDirectory } from "../services/game-settings";
 import { settings } from "./settings";
 import { hideWindow, showWindow } from "../services/window";
@@ -43,7 +42,7 @@ export const pendingGameId = writable<string | null>(null);
 export const cancelPendingGameId = writable<string | null>(null);
 export const accountSwitchGame = writable<Game | null>(null);
 // The profile the pending account switch launches with.
-let accountSwitchProfileId: string | null = null;
+let accountSwitchProfile: LaunchProfileChoice = { kind: "last_used" };
 
 let eventsReady = false;
 let listening: Promise<void> | null = null;
@@ -115,32 +114,19 @@ export function startLaunchEvents(): Promise<void> {
   return listening;
 }
 
-// A null profile launches with the game's base settings.
-export async function playGame(game: Game, profileId: string | null = null): Promise<void> {
+export async function playGame(game: Game, profile: LaunchProfileChoice = { kind: "last_used" }): Promise<void> {
   launchError.set(null);
   pendingGameId.set(game.id);
   try {
-    if (game.steamInstallPath !== null) {
-      const inspection = await inspectSteamGameLaunch(game.id);
-      // Switching closes Steam, which only matters while it runs a game.
-      if ((inspection.status === "mismatch" || inspection.status === "unknown") && inspection.steamGameRunning) {
-        accountSwitchProfileId = profileId;
-        accountSwitchGame.set(game);
-        return;
-      }
-      await launchSteamGame(game.id, false, profileId);
-    } else if (game.executablePath !== null) {
-      const platform = get(appInfo).data.platform;
-      if (platform === "linux") {
-        await launchConfiguredGameWithRunner(game.id, profileId);
-      } else if (platform === "windows") {
-        await launchNativeGame(game.id, profileId);
-      } else {
-        throw new Error(t("L'avvio di giochi manuali non è disponibile su questa piattaforma.", undefined));
-      }
-    } else {
+    if (game.steamInstallPath === null && game.executablePath === null) {
       throw new Error(t("Seleziona un eseguibile nelle impostazioni del gioco.", undefined));
     }
+    if (game.steamInstallPath !== null && (await inspectSteamGameLaunch(game.id)).requiresConfirmation) {
+      accountSwitchProfile = profile;
+      accountSwitchGame.set(game);
+      return;
+    }
+    await launchGame(game.id, profile, false);
     await launchStates.load();
   } catch (error) {
     let message = toMessage(error);
@@ -166,11 +152,11 @@ export async function confirmAccountSwitch(): Promise<void> {
   const game = get(accountSwitchGame);
   accountSwitchGame.set(null);
   if (game === null) return;
-  const profileId = accountSwitchProfileId;
+  const profile = accountSwitchProfile;
   launchError.set(null);
   pendingGameId.set(game.id);
   try {
-    await launchSteamGame(game.id, true, profileId);
+    await launchGame(game.id, profile, true);
     await launchStates.load();
   } catch (error) {
     launchError.set(toMessage(error));
