@@ -596,39 +596,19 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn externally_running_game_prevents_uninstall() {
-        use std::os::unix::process::CommandExt;
         let f = Fixture::new();
-        let executable = f.directory.join("bin/game.exe");
-        fs::copy("/bin/sleep", &executable).unwrap();
-        struct ChildGuard(std::process::Child);
-        impl Drop for ChildGuard {
-            fn drop(&mut self) {
-                let _ = self.0.kill();
-                let _ = self.0.wait();
-            }
-        }
-        let process = ChildGuard(
-            std::process::Command::new(&executable)
-                // Multi-call coreutils pick the command from argv[0] and exit at once on "game.exe".
-                .arg0("sleep")
-                .arg("60")
-                .spawn()
-                .unwrap(),
-        );
-        let expected = fs::canonicalize(&executable).unwrap();
-        let proc_executable = PathBuf::from(format!("/proc/{}/exe", process.0.id()));
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        while !fs::read_link(&proc_executable).is_ok_and(|path| path == expected) {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "test process executable was not visible in procfs"
-            );
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
+        // A process working inside the installation counts as the running game. Running a copy
+        // of the system sleep from the folder was flaky on CI runners.
+        let mut process = std::process::Command::new("sleep")
+            .arg("60")
+            .current_dir(&f.directory)
+            .spawn()
+            .unwrap();
         let result = remove_installation(&f.database, &f.id, &f.directory, &[]);
-        drop(process);
+        process.kill().unwrap();
+        process.wait().unwrap();
         assert!(result.unwrap_err().contains("Close the game"));
-        assert!(executable.is_file());
+        assert!(f.directory.join("bin/game.exe").is_file());
     }
 
     #[cfg(target_os = "linux")]
