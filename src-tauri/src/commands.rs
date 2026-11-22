@@ -1562,8 +1562,9 @@ pub async fn get_changelog(app: AppHandle) -> Result<crate::changelog::Snapshot,
 pub async fn refresh_changelog(
     app: AppHandle,
     state: State<'_, crate::network::NetworkState>,
+    force: bool,
 ) -> Result<crate::changelog::Snapshot, String> {
-    crate::changelog::refresh(app, state.inner()).await
+    crate::changelog::refresh(app, state.inner(), force).await
 }
 
 #[tauri::command]

@@ -20,6 +20,8 @@ pub const MAX_BYTES: usize = 1024 * 1024;
 // Matches MAX_NOTES_CHARS in src/lib/stores/update-notes.ts.
 const MAX_NOTES_CHARS: usize = 20_000;
 const RELEASE_PAGE_PREFIX: &str = "https://github.com/fraa2a/Legio/releases/";
+// The privacy page promises at most one automatic changelog request an hour.
+const REFRESH_INTERVAL_SECS: i64 = 60 * 60;
 
 /// The only fields read from a GitHub release; everything else is ignored.
 #[derive(Deserialize)]
@@ -131,29 +133,56 @@ pub async fn cached(app: AppHandle) -> Result<Snapshot, String> {
     .map_err(|error| error.to_string())?
 }
 
-pub async fn refresh(app: AppHandle, state: &NetworkState) -> Result<Snapshot, String> {
-    let database = app.state::<DatabaseState>().shared_database()?;
-    refresh_with(database, || state.changelog()).await
+fn now_secs() -> Result<i64, String> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs() as i64)
+        .map_err(|error| error.to_string())
 }
 
-/// Calls `fetch` only while the automatic update check is on; otherwise returns the cache untouched.
-async fn refresh_with<F, Fut>(database: Arc<Database>, fetch: F) -> Result<Snapshot, String>
+fn is_fresh(snapshot: &Snapshot, now: i64) -> bool {
+    snapshot
+        .cached_at
+        .is_some_and(|cached_at| (0..REFRESH_INTERVAL_SECS).contains(&(now - cached_at)))
+}
+
+pub async fn refresh(
+    app: AppHandle,
+    state: &NetworkState,
+    force: bool,
+) -> Result<Snapshot, String> {
+    let database = app.state::<DatabaseState>().shared_database()?;
+    refresh_with(database, force, || state.changelog()).await
+}
+
+/// Calls `fetch` only while the automatic update check is on and, unless `force`, the cache is
+/// older than an hour; otherwise returns the cache untouched.
+async fn refresh_with<F, Fut>(
+    database: Arc<Database>,
+    force: bool,
+    fetch: F,
+) -> Result<Snapshot, String>
 where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<Vec<u8>, NetworkError>>,
 {
     let checked = database.clone();
-    let enabled = tauri::async_runtime::spawn_blocking(move || {
-        checked
-            .settings()
-            .map(|settings| settings.automatic_update_check)
+    let cache = tauri::async_runtime::spawn_blocking(move || {
+        let enabled = checked.settings()?.automatic_update_check;
+        let cache = read_cache(&checked);
+        let fresh = match &cache {
+            Ok(cache) => !force && is_fresh(cache, now_secs()?),
+            Err(_) => false,
+        };
+        if !enabled || fresh {
+            return cache.map(Some);
+        }
+        Ok(None)
     })
     .await
     .map_err(|error| error.to_string())??;
-    if !enabled {
-        return tauri::async_runtime::spawn_blocking(move || read_cache(&database))
-            .await
-            .map_err(|error| error.to_string())?;
+    if let Some(cache) = cache {
+        return Ok(cache);
     }
     let fetched = fetch()
         .await
@@ -161,13 +190,9 @@ where
     tauri::async_runtime::spawn_blocking(move || {
         let database = database.as_ref();
         let fresh = fetched.and_then(|bytes| parse(&bytes)).and_then(|releases| {
-            let cached_at = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|error| error.to_string())?
-                .as_secs() as i64;
             let snapshot = Snapshot {
                 releases,
-                cached_at: Some(cached_at),
+                cached_at: Some(now_secs()?),
                 warning: None,
             };
             let raw = serde_json::to_string(&snapshot).map_err(|error| error.to_string())?;
@@ -270,19 +295,26 @@ mod tests {
             requests.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Ok(body.clone())
         };
-        let fresh = tauri::async_runtime::block_on(refresh_with(database.clone(), fetch)).unwrap();
+        let fresh =
+            tauri::async_runtime::block_on(refresh_with(database.clone(), false, fetch)).unwrap();
         assert_eq!(fresh.releases.len(), 1);
-        let failed = tauri::async_runtime::block_on(refresh_with(database.clone(), || async {
-            Err(NetworkError::Timeout)
-        }))
-        .unwrap();
+        // A recent cache is reused unless the refresh is forced.
+        let reused =
+            tauri::async_runtime::block_on(refresh_with(database.clone(), false, fetch)).unwrap();
+        assert_eq!(reused, fresh);
+        assert_eq!(count(), 1);
+        let failed =
+            tauri::async_runtime::block_on(refresh_with(database.clone(), true, || async {
+                Err(NetworkError::Timeout)
+            }))
+            .unwrap();
         assert_eq!(failed.releases, fresh.releases);
         assert!(failed.warning.is_some());
         // With the automatic update check off, only the cache is returned.
         let mut settings = database.settings().unwrap();
         settings.automatic_update_check = false;
         database.save_settings(settings).unwrap();
-        let cached = tauri::async_runtime::block_on(refresh_with(database, fetch)).unwrap();
+        let cached = tauri::async_runtime::block_on(refresh_with(database, true, fetch)).unwrap();
         assert_eq!(cached.releases, fresh.releases);
         assert_eq!(count(), 1);
         std::fs::remove_dir_all(root).unwrap();
