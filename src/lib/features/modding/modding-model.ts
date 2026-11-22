@@ -13,6 +13,7 @@ import type {
   PackageQuery,
   PackageSort,
   ProfileMod,
+  ToggleOutcome,
 } from "../../services/modding";
 
 export type ModdableGameState = "ready" | "unsupported" | "unmatched";
@@ -328,79 +329,12 @@ export function classifyModdingError(error: unknown, selected?: Language): Moddi
     : { kind: "error", message: describeModdingError(message, selected) };
 }
 
-// Installed mods that list `fullName` among their declared dependencies.
-export function dependentsOf(fullName: string, mods: readonly ProfileMod[]): string[] {
-  const target = modKey(fullName);
-  return mods
-    .filter((mod) => modKey(mod.fullName) !== target && mod.dependencies.some((dependency) => modKey(dependency) === target))
-    .map((mod) => mod.fullName);
-}
-
-export interface DependencyIssues { missing: string[]; disabled: string[] }
-
-// Per mod (by `modKey`), the declared dependencies absent from the profile and the ones installed but off.
-// A disabled mod needs nothing, so it is only checked for missing packages.
-export function dependencyIssues(mods: readonly ProfileMod[]): Map<string, DependencyIssues> {
-  const installed = indexByFullName(mods);
-  const issues = new Map<string, DependencyIssues>();
-  for (const mod of mods) {
-    const found: DependencyIssues = { missing: [], disabled: [] };
-    for (const dependency of mod.dependencies) {
-      const key = modKey(dependency);
-      if (key === modKey(mod.fullName)) continue;
-      const target = installed.get(key);
-      if (target === undefined) found.missing.push(dependency);
-      else if (mod.enabled && !target.enabled) found.disabled.push(target.fullName);
-    }
-    if (found.missing.length > 0 || found.disabled.length > 0) issues.set(modKey(mod.fullName), found);
-  }
-  return issues;
-}
-
-export function dependencyIssueLabels(issues: DependencyIssues, selected: Language): string[] {
+export function dependencyIssueLabels(mod: ProfileMod, selected: Language): string[] {
   const title = (fullName: string) => packageTitle(splitFullName(fullName).name);
   return [
-    ...issues.missing.map((name) => t("Dipendenza mancante: {0}", selected, [title(name)])),
-    ...issues.disabled.map((name) => t("Dipendenza disattivata: {0}", selected, [title(name)])),
+    ...mod.missingDependencies.map((name) => t("Dipendenza mancante: {0}", selected, [title(name)])),
+    ...mod.disabledDependencies.map((name) => t("Dipendenza disattivata: {0}", selected, [title(name)])),
   ];
-}
-
-// Disabled mods to switch on, dependencies first, so that `fullNames` end up enabled with everything they need.
-export function enablePlan(fullNames: readonly string[], mods: readonly ProfileMod[]): string[] {
-  const installed = indexByFullName(mods);
-  const visited = new Set<string>();
-  const order: string[] = [];
-  const visit = (fullName: string): void => {
-    const mod = installed.get(modKey(fullName));
-    if (mod === undefined || visited.has(modKey(mod.fullName))) return;
-    visited.add(modKey(mod.fullName));
-    for (const dependency of mod.dependencies) visit(dependency);
-    if (!mod.enabled) order.push(mod.fullName);
-  };
-  fullNames.forEach(visit);
-  return order;
-}
-
-// Enabled mods that need `fullName`, directly or through other enabled mods, the most dependent first.
-export function enabledDependents(fullName: string, mods: readonly ProfileMod[]): string[] {
-  const enabled = mods.filter((mod) => mod.enabled);
-  const visited = new Set([modKey(fullName)]);
-  const order: string[] = [];
-  const visit = (name: string): void => {
-    for (const dependent of dependentsOf(name, enabled)) {
-      if (visited.has(modKey(dependent))) continue;
-      visited.add(modKey(dependent));
-      visit(dependent);
-      order.push(dependent);
-    }
-  };
-  visit(fullName);
-  return order;
-}
-
-// What a one-click fix does: install the missing packages, switch on the disabled ones with their own needs.
-export function dependencyFix(issues: DependencyIssues, mods: readonly ProfileMod[]): { install: string[]; enable: string[] } {
-  return { install: issues.missing, enable: enablePlan(issues.disabled, mods) };
 }
 
 export type InstalledSort = "order" | "name" | "date";
@@ -485,6 +419,19 @@ export function installNotice(result: ModInstallResult, selected: Language): Res
   return result.installed.length === 1
     ? { tone: "success", message: t("{0} installata.", selected, [names[0]]), items: [] }
     : { tone: "success", message: t("{0} mod installate.", selected, [result.installed.length]), items: names };
+}
+
+// Switches that all went through need no notice.
+export function toggleNotice(outcome: ToggleOutcome, enabled: boolean, selected: Language): ResultNotice | null {
+  if (outcome.failed.length === 0) return null;
+  const changed = outcome.changed.length;
+  return {
+    tone: "warning",
+    message: enabled
+      ? t("Mod attivate: {0}. Alcune non sono state attivate:", selected, [changed])
+      : t("Mod disattivate: {0}. Alcune non sono state disattivate:", selected, [changed]),
+    items: outcome.failed.map((failure) => `${packageTitle(splitFullName(failure.fullName).name)}: ${describeModdingError(failure.message, selected)}`),
+  };
 }
 
 function sortedProfiles(profiles: readonly ModProfile[]): ModProfile[] {

@@ -175,7 +175,7 @@ commands.allow = [
   "update_profile_mods",
   "cancel_mod_install",
   "uninstall_profile_mod",
-  "set_profile_mod_enabled",
+  "set_profile_mods_enabled",
   "import_local_mod",
   "list_mod_config_files",
   "read_mod_config_file",

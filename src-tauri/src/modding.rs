@@ -5,6 +5,7 @@ pub(crate) mod cache_management;
 pub(crate) mod catalog_commands;
 pub(crate) mod config_files;
 pub(crate) mod dependencies;
+pub(crate) mod dependency_graph;
 pub(crate) mod ecosystem;
 pub(crate) mod ecosystem_store;
 pub(crate) mod exchange_commands;

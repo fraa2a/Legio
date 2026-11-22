@@ -260,7 +260,7 @@ test("search results open in panel tabs with readme, changelog and version insta
 
 test("installed mods open in their own tab set, including local mods", async () => {
   const mod = (fullName, extra = {}) => ({
-    profileId: "p", fullName, version: "1.0.0", enabled: true, onlineSource: true, installedAt: 0, installOrder: 0, isLoader: false, dependencies: [], ...extra,
+    profileId: "p", fullName, version: "1.0.0", enabled: true, onlineSource: true, installedAt: 0, installOrder: 0, isLoader: false, dependencies: [], missingDependencies: [], disabledDependencies: [], dependents: [], enabledDependents: [], ...extra,
   });
   const mods = [
     mod("BepInEx-BepInExPack", { isLoader: true, version: "5.4.0" }),

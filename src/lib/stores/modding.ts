@@ -22,7 +22,7 @@ import {
   restoreModdedGameFolder,
   setActiveModProfile,
   setAllProfileModsEnabled,
-  setProfileModEnabled,
+  setProfileModsEnabled,
   uninstallProfileMod,
   updateProfileMods,
   type CatalogProgress,
@@ -36,11 +36,12 @@ import {
   type ModInstallRequest,
   type ModInstallResult,
   type ModLaunchStatus,
+  type ModSwitch,
   type ModProfile,
   type ModUpdate,
   type PackageDetails,
   type ProfileMod,
-  type ToggleAllOutcome,
+  type ToggleOutcome,
   type UninstallOutcome,
 } from "../services/modding";
 import { toMessage } from "../utils/errors";
@@ -220,14 +221,12 @@ export function trackProfileImport<T>(gameId: string, profileId: string | undefi
   return profileId === undefined ? operation() : track(gameId, profileId, operation);
 }
 
-// Switches the mods one after the other, so callers list dependencies before the mods that need them.
-export function setModsEnabled(gameId: string, profileId: string, fullNames: string[], enabled: boolean): Promise<void> {
-  return track(gameId, profileId, async () => {
-    for (const fullName of fullNames) await setProfileModEnabled(profileId, fullName, enabled);
-  });
+// The backend adds the dependencies or dependents `mode` asks for and switches them in order.
+export function setModsEnabled(gameId: string, profileId: string, fullNames: string[], mode: ModSwitch): Promise<ToggleOutcome> {
+  return track(gameId, profileId, () => setProfileModsEnabled(profileId, fullNames, mode));
 }
 
-export function setAllModsEnabled(gameId: string, profileId: string, enabled: boolean): Promise<ToggleAllOutcome> {
+export function setAllModsEnabled(gameId: string, profileId: string, enabled: boolean): Promise<ToggleOutcome> {
   return track(gameId, profileId, () => setAllProfileModsEnabled(profileId, enabled));
 }
 
