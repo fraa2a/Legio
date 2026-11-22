@@ -46,7 +46,6 @@
   import InstallProgressCard from "./InstallProgressCard.svelte";
   import ModBrowser from "./ModBrowser.svelte";
   import {
-    canChooseEcosystemGame,
     classifyModdingError,
     copyProfileName,
     describeModdingError,
@@ -363,7 +362,7 @@
           ? t("Collega il gioco Thunderstore corrispondente per installare le sue mod.", $language)
           : t("{0} usa un loader che Legio non supporta ancora. Per ora sono supportati i giochi con BepInEx.", $language, [game.displayName ?? game.name])}
       >
-        {#if canChooseEcosystemGame(game)}
+        {#if game.canChooseEcosystem}
           <Button label={t("Collega a Thunderstore", $language)} variant={gameState === "unmatched" ? "primary" : "secondary"} onClick={() => (bindingOpen = true)} />
         {/if}
       </EmptyState>
@@ -430,7 +429,7 @@
             </span>
           {/if}
           <span class="min-w-0 truncate">{t("Thunderstore: {0}", $language, [game.displayName ?? game.name])}</span>
-          {#if canChooseEcosystemGame(game)}
+          {#if game.canChooseEcosystem}
             <IconButton size="inline-md" label={t("Cambia gioco Thunderstore", $language)} title={t("Cambia gioco Thunderstore", $language)} disabled={running} onClick={() => (bindingOpen = true)}>
               <Icon name="pencil" />
             </IconButton>

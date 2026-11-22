@@ -7,12 +7,12 @@
   import { games } from "../../stores/games";
   import { loadOnce, moddableGames, modProfiles, profileMods } from "../../stores/modding";
   import { hasDuplicateName, instanceLocation } from "../library/instance-options";
-  import { activeProfile, canChooseEcosystemGame, moddableGameState } from "./modding-model";
+  import { activeProfile, moddableGameState } from "./modding-model";
 
   let { game, onOpen }: { game: ModdableGame; onOpen: () => void } = $props();
 
   const modState = $derived(moddableGameState(game));
-  const interactive = $derived(modState === "ready" || canChooseEcosystemGame(game));
+  const interactive = $derived(modState === "ready" || game.canChooseEcosystem);
   const bound = $derived(game.binding !== null);
   const profiles = $derived(modProfiles(game.gameId));
   const profile = $derived(activeProfile(game, $profiles.data));

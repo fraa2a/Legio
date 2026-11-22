@@ -19,6 +19,8 @@ export interface ModdableGame {
   packageLoader: PackageLoader | null;
   supported: boolean;
   binding: GameModding | null;
+  // False for a game matched through its Steam app id, unless a manual binding overrides the match.
+  canChooseEcosystem: boolean;
 }
 
 export interface EcosystemGameSummary { id: string; displayName: string; packageLoader: PackageLoader; supported: boolean }

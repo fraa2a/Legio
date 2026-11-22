@@ -23,11 +23,6 @@ export function moddableGameState(game: ModdableGame): ModdableGameState {
   return game.supported ? "ready" : "unsupported";
 }
 
-// A game matched through its Steam app id has nothing to choose. A manual binding that overrides the match can still be undone.
-export function canChooseEcosystemGame(game: ModdableGame): boolean {
-  return game.steamMatchId === null || (game.binding !== null && game.binding.ecosystemGameId !== game.steamMatchId);
-}
-
 const stateOrder: Record<ModdableGameState, number> = { ready: 0, unsupported: 1, unmatched: 2 };
 
 // Supported games first, the ones already set up for mods ahead of the rest.
