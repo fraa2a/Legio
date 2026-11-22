@@ -17,7 +17,7 @@ use crate::{
 #[serde(rename_all = "camelCase")]
 pub struct TransferResult {
     game: Game,
-    warning: Option<String>,
+    pub(crate) warning: Option<String>,
 }
 
 /// Linux's limit on links followed while resolving one path.
@@ -793,19 +793,25 @@ pub(crate) fn ensure_launchable(database: &Database, game: &str) -> Result<(), S
     Ok(())
 }
 
+pub(crate) fn transfer_to_library(
+    app: &AppHandle,
+    game_id: &str,
+    library_id: &str,
+) -> Result<TransferResult, String> {
+    let result = transfer(app, game_id, library_id);
+    crate::disk_usage::invalidate(app, game_id);
+    result
+}
+
 #[tauri::command]
 pub async fn transfer_game(
     app: AppHandle,
     game_id: String,
     library_id: String,
 ) -> Result<TransferResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let result = transfer(&app, &game_id, &library_id);
-        crate::disk_usage::invalidate(&app, &game_id);
-        result
-    })
-    .await
-    .map_err(|error| format!("Transfer task failed: {error}"))?
+    tauri::async_runtime::spawn_blocking(move || transfer_to_library(&app, &game_id, &library_id))
+        .await
+        .map_err(|error| format!("Transfer task failed: {error}"))?
 }
 
 #[cfg(test)]

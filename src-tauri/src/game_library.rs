@@ -1,7 +1,7 @@
 use crate::database::{Database, database_error};
 use crate::library_manifest::{self as manifest, Entry, FILE, Installation, Library, Update};
 use rusqlite::{OptionalExtension, params};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -463,6 +463,102 @@ fn registered_root(database: &Database, id: &str) -> Result<PathBuf, String> {
         })?
         .map(PathBuf::from)
         .ok_or_else(|| UNAVAILABLE_LIBRARY.to_owned())
+}
+
+/// How the games of a library are taken out of it before it is forgotten.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum LibraryRemoval {
+    Uninstall,
+    Move { target_id: String },
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RemovalFailure {
+    game: String,
+    message: String,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LibraryRemovalOutcome {
+    warnings: Vec<String>,
+    /// The game that stopped the removal. The library and the games after it are left untouched.
+    pub(crate) failure: Option<RemovalFailure>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemovalProgress<'a> {
+    library_id: &'a str,
+    done: usize,
+    current: Option<&'a str>,
+}
+
+/// Moves or uninstalls every game of the library, one at a time. Each game takes
+/// its own locks; the first failure stops the loop.
+pub(crate) fn empty(
+    app: &tauri::AppHandle,
+    id: &str,
+    removal: &LibraryRemoval,
+) -> Result<LibraryRemovalOutcome, String> {
+    use tauri::{Emitter, Manager};
+    let games = {
+        let state = app.state::<crate::database::DatabaseState>();
+        let database = state.database()?;
+        library_games(database, &registered_root(database, id)?)?
+    };
+    Ok(empty_with(
+        &games,
+        |game| match removal {
+            LibraryRemoval::Move { target_id } => {
+                crate::game_transfer::transfer_to_library(app, &game.id, target_id)
+                    .map(|result| result.warning.into_iter().collect())
+            }
+            LibraryRemoval::Uninstall => {
+                crate::game_uninstall::uninstall(app, &game.id, None).map(|result| result.warnings)
+            }
+        },
+        |done, current| {
+            let progress = RemovalProgress {
+                library_id: id,
+                done,
+                current,
+            };
+            if let Err(error) = app.emit("game-library-removal-progress", progress) {
+                crate::application_log::failure("publish_library_removal_progress", error);
+            }
+        },
+    ))
+}
+
+fn empty_with(
+    games: &[LibraryGame],
+    mut remove_game: impl FnMut(&LibraryGame) -> Result<Vec<String>, String>,
+    mut progress: impl FnMut(usize, Option<&str>),
+) -> LibraryRemovalOutcome {
+    let mut warnings = Vec::new();
+    for (done, game) in games.iter().enumerate() {
+        progress(done, Some(&game.name));
+        match remove_game(game) {
+            Ok(mut more) => warnings.append(&mut more),
+            Err(message) => {
+                return LibraryRemovalOutcome {
+                    warnings,
+                    failure: Some(RemovalFailure {
+                        game: game.name.clone(),
+                        message,
+                    }),
+                };
+            }
+        }
+    }
+    progress(games.len(), None);
+    LibraryRemovalOutcome {
+        warnings,
+        failure: None,
+    }
 }
 
 /// Forgets a library that no longer holds games. Its catalog stays on disk so the
@@ -1119,6 +1215,54 @@ fn clear_install_markers(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn emptying_stops_at_the_first_failed_game() {
+        let game = |id: &str| LibraryGame {
+            id: id.to_owned(),
+            name: id.to_uppercase(),
+        };
+        let games = [game("a"), game("b"), game("c")];
+        let mut removed = Vec::new();
+        let mut steps = Vec::new();
+        let outcome = empty_with(
+            &games,
+            |game| {
+                removed.push(game.id.clone());
+                match game.id.as_str() {
+                    "a" => Ok(vec!["kept saves".to_owned()]),
+                    _ => Err("disk full".to_owned()),
+                }
+            },
+            |done, current| steps.push((done, current.map(str::to_owned))),
+        );
+        assert_eq!(removed, ["a", "b"]);
+        assert_eq!(
+            outcome,
+            LibraryRemovalOutcome {
+                warnings: vec!["kept saves".to_owned()],
+                failure: Some(RemovalFailure {
+                    game: "B".to_owned(),
+                    message: "disk full".to_owned()
+                }),
+            }
+        );
+        assert_eq!(
+            steps,
+            [(0, Some("A".to_owned())), (1, Some("B".to_owned()))]
+        );
+
+        let mut steps = Vec::new();
+        let outcome = empty_with(
+            &games[..1],
+            |_| Ok(Vec::new()),
+            |done, current| {
+                steps.push((done, current.map(str::to_owned)));
+            },
+        );
+        assert_eq!(outcome.failure, None);
+        assert_eq!(steps, [(0, Some("A".to_owned())), (1, None)]);
+    }
 
     fn installed_fixture() -> (PathBuf, Database, String) {
         let directory =

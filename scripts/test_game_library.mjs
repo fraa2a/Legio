@@ -280,28 +280,24 @@ test("Steam video animations respect reduced motion", async () => {
   } finally { globalThis.matchMedia = previousMatchMedia; delete globalThis.DOMParser; }
 });
 
-test("library removal stops at the first failed game and keeps the library", async () => {
+test("library removal runs in the backend and forwards its progress", async () => {
   const calls = [];
-  globalThis.removalFixture = { calls, fail: "b", libraries: [] };
+  globalThis.removalFixture = { calls, libraries: [], progress: null };
   const storeImport = `import { writable } from "${import.meta.resolve("svelte/store")}";`;
   const { load } = createModuleLoader({
     "src/lib/i18n": dataModule(storeImport + 'export const language=writable("it"); export const t=value=>value;'),
     "src/lib/services/dialog": dataModule("export const pickGameDirectory=async()=>null;"),
-    "src/lib/services/game-libraries": dataModule('export const listGameLibraries=async()=>globalThis.removalFixture.libraries; export const addGameLibrary=async()=>""; export const removeGameLibrary=async id=>{globalThis.removalFixture.calls.push(["remove",id]);};'),
-    "src/lib/services/local-state": dataModule('export const getGameUninstallTarget=async()=>""; export const transferGame=async(id,library)=>{globalThis.removalFixture.calls.push(["move",id,library]); if(id===globalThis.removalFixture.fail) throw new Error("disk full"); return {game:{id},warning:null};};'),
-    "src/lib/stores/games": dataModule("export const games={reload:async()=>{}}; export const reconcileGame=()=>{}; export const uninstallGame=async()=>({warnings:[]});"),
+    "src/lib/services/game-libraries": dataModule('export const listGameLibraries=async()=>globalThis.removalFixture.libraries; export const addGameLibrary=async()=>""; export const onLibraryRemovalProgress=async callback=>{globalThis.removalFixture.progress=callback; return ()=>{globalThis.removalFixture.calls.push(["unlisten"]);};}; export const removeGameLibrary=async(id,removal)=>{globalThis.removalFixture.calls.push(["remove",id,removal]); globalThis.removalFixture.progress({libraryId:"other",done:5,current:"X"}); globalThis.removalFixture.progress({libraryId:id,done:1,current:"B"}); return {warnings:[],failure:{game:"B",message:"disk full"}};};'),
+    "src/lib/stores/games": dataModule("export const games={reload:async()=>{globalThis.removalFixture.calls.push([\"games\"]);}};"),
   });
   const { removeLibrary, onlyUsableLibrary } = await import(await load("src/lib/stores/game-libraries.ts"));
   try {
-    const library = { id: "old", root: "/old", games: [{ id: "a", name: "A" }, { id: "b", name: "B" }, { id: "c", name: "C" }] };
-    const removal = { kind: "move", target: { id: "new", root: "/new" } };
-    const outcome = await removeLibrary(library, removal, () => {});
+    const library = { id: "old", root: "/old", games: [{ id: "a", name: "A" }, { id: "b", name: "B" }] };
+    const progress = [];
+    const outcome = await removeLibrary(library, { kind: "move", target: { id: "new", root: "/new" } }, (done, current) => progress.push([done, current]));
     assert.deepEqual(outcome.failure, { game: "B", message: "disk full" });
-    assert.deepEqual(calls, [["move", "a", "new"], ["move", "b", "new"]]);
-    globalThis.removalFixture.fail = null;
-    calls.length = 0;
-    assert.equal((await removeLibrary({ ...library, games: [{ id: "c", name: "C" }] }, removal, () => {})).failure, null);
-    assert.deepEqual(calls, [["move", "c", "new"], ["remove", "old"]]);
+    assert.deepEqual(progress, [[1, "B"]], "only this library's progress is forwarded");
+    assert.deepEqual(calls, [["remove", "old", { kind: "move", targetId: "new" }], ["unlisten"], ["games"]]);
 
     // The picker is skipped only for a single reachable library with enough room.
     const only = { id: "only", root: "/games", freeBytes: 500, games: [] };
