@@ -21,6 +21,7 @@ pub struct AppInfo {
     platform: String,
     tray_available: bool,
     desktop_environment: Option<String>,
+    system_language: &'static str,
     startup_launch_game_id: Option<String>,
     startup_launch_error: Option<String>,
     startup_warnings: Vec<String>,
@@ -51,6 +52,7 @@ pub async fn get_app_info(app: AppHandle) -> Result<AppInfo, String> {
         platform: std::env::consts::OS.to_owned(),
         tray_available: app.state::<crate::TrayAvailable>().0,
         desktop_environment: desktop_environment(),
+        system_language: crate::locale::LanguagePreference::System.code(),
         startup_launch_game_id: app.state::<crate::StartupLaunch>().game_id.clone(),
         startup_launch_error: recovery_error.or(app
             .state::<crate::StartupLaunch>()

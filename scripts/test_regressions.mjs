@@ -120,9 +120,12 @@ test("custom artwork shares URLs and invalidates only the changed kind", async (
 });
 
 test("language selection preserves regional formatting and interpolates translations", async () => {
-  const { resolveLanguage, t } = await import(localeUrl);
-  assert.equal(resolveLanguage(["de-DE", "it-CH", "en-US"]), "it");
-  assert.equal(resolveLanguage(["fr-FR"]), "en");
+  const { language, setLanguage, setSystemLanguage, t } = await import(localeUrl);
+  setLanguage("system");
+  setSystemLanguage("it");
+  assert.equal(get(language), "it");
+  setLanguage("en");
+  setSystemLanguage("en");
   assert.equal(t("Versione {0}", "en", ["1.2"]), "Version 1.2");
   assert.equal(t("Versione {0}", "it", ["1.2"]), "Versione 1.2");
   assert.equal(t("  Chiudi  ", "en"), "  Close  ");
