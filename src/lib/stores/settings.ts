@@ -1,22 +1,11 @@
 import { getSettings, saveSettings, type Settings } from "../services/local-state";
-import { defaultAppearance } from "../services/appearance";
+import contract from "../services/settings-contract.json";
 import { get, writable } from "svelte/store";
 import { createResource } from "./resource";
 import { installedFolder } from "./downloads";
 import { setApplicationLoggingEnabled } from "../services/application-log";
 
-export const defaultSettings: Settings = {
-  discordPresence: { enabled: true },
-  onboardingCompleted: false,
-  appearance: defaultAppearance(), theme: "system", language: "system", steamLibraryPollMinutes: 30, syncSteamGames: true, storeSort: "relevance", storeAvailability: "all", downloadPath: null,
-  closeToTray: true, hideOnGameStart: true, launchOnSystemStart: false,
-  launchMinimized: false, launchInLibrary: false, downloadNotifications: true, verifyVerifiedDownloads: true,
-  diagnosticsEnabled: false, applicationLoggingEnabled: false, sidebarCollapsed: true, libraryPortrait: false,
-  libraryView: { mode: "grid", sort: "name", descending: false, coverScale: 100, favoritesOnly: false, playStatus: null },
-  automaticGameUpdates: false, downloadWhilePlaying: true, deferExtractionWhilePlaying: false,
-  thunderstoreLinksEnabled: false, automaticUpdateCheck: true,
-  previewUpdates: false, lastSeenVersion: null, pendingUpdateNotes: null,
-};
+export const defaultSettings = contract.defaults as Settings;
 
 export const settings = createResource<Settings>(defaultSettings, getSettings);
 settings.subscribe(state => {

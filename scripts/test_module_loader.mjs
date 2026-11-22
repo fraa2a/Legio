@@ -61,6 +61,7 @@ export function createModuleLoader(mocks) {
       const source = await readFile(new URL(`../${path}`, import.meta.url), "utf8");
       const code = path.endsWith(".svelte")
         ? compile(source, { generate: "client", filename: path }).js.code
+        : path.endsWith(".json") ? `export default ${source};`
         : ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
       const directory = modules === packageModules ? join(outputRoot, "packages") : projectDirectory;
       await mkdir(directory, { recursive: true });

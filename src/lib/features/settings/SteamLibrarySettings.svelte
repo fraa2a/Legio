@@ -13,10 +13,12 @@
   import { configureSteamScanInterval } from "../../stores/bootstrap";
   import { importSteamLibrary } from "../../stores/steam-library";
   import { defaultSettings, settings, settingsError, updateSettings } from "../../stores/settings";
+  import contract from "../../services/settings-contract.json";
   import { toMessage } from "../../utils/errors";
   let exportOpen = $state(false);
   const exportable = $derived($games.data.filter(isSteamExportable));
-  const intervals = [5, 10, 15, 30, 60, 120];
+  const { min, max } = contract.limits.steamLibraryPollMinutes;
+  const intervals = [min, 10, 15, 30, 60, max];
   const options = $derived(intervals.map((minutes) => ({ value: String(minutes), label: t("{0} minuti", $language, [minutes]) })));
   async function selectInterval(value: string): Promise<void> {
     const minutes = Number(value);

@@ -744,7 +744,7 @@ impl Database {
         Ok(settings)
     }
 
-    pub fn save_settings(&self, settings: Settings) -> Result<Settings, String> {
+    pub fn save_settings(&self, mut settings: Settings) -> Result<Settings, String> {
         crate::appearance::validate(&settings.appearance)?;
         validate_steam_library_poll_minutes(settings.steam_library_poll_minutes)?;
         validate_library_view(&settings.library_view)?;
@@ -767,9 +767,8 @@ impl Database {
         {
             return Err("Update notes are too long".to_owned());
         }
-        if settings.launch_minimized && !settings.launch_on_system_start {
-            return Err("Launch minimized requires launch on system startup".to_owned());
-        }
+        // Starting minimized only applies to launches at system startup.
+        settings.launch_minimized &= settings.launch_on_system_start;
         if let Some(path) = &settings.download_path {
             let path = Path::new(path);
             if !path.is_absolute()
@@ -2044,6 +2043,62 @@ mod tests {
         let reopened = Database::open(&directory).unwrap();
         assert_eq!(reopened.settings().unwrap(), settings);
         drop(reopened);
+    }
+
+    #[test]
+    fn frontend_contract_matches_backend() {
+        let contract: serde_json::Value = serde_json::from_str(include_str!(
+            "../../src/lib/services/settings-contract.json"
+        ))
+        .unwrap();
+        // Through text so f32 defaults compare at their printed precision.
+        let defaults: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&Settings::default()).unwrap()).unwrap();
+        assert_eq!(contract["defaults"], defaults);
+        let limits = &contract["limits"];
+        let number = |value: &serde_json::Value| value.as_u64().unwrap() as usize;
+        let range = |key: &str| (number(&limits[key]["min"]), number(&limits[key]["max"]));
+        assert_eq!(
+            range("steamLibraryPollMinutes"),
+            (
+                MIN_STEAM_LIBRARY_POLL_MINUTES as usize,
+                MAX_STEAM_LIBRARY_POLL_MINUTES as usize
+            )
+        );
+        assert_eq!(
+            range("libraryCoverScale"),
+            (
+                MIN_LIBRARY_COVER_SCALE as usize,
+                MAX_LIBRARY_COVER_SCALE as usize
+            )
+        );
+        assert_eq!(
+            number(&limits["collectionNameChars"]),
+            library_organization::MAX_COLLECTION_NAME_CHARS
+        );
+        assert_eq!(
+            number(&limits["launchProfileNameChars"]),
+            launch_profiles::MAX_PROFILE_NAME_CHARS
+        );
+        assert_eq!(
+            number(&limits["launchProfilesPerGame"]),
+            launch_profiles::MAX_PROFILES_PER_GAME
+        );
+        assert_eq!(
+            number(&limits["modProfileNameChars"]),
+            MAX_PROFILE_NAME_CHARS
+        );
+        assert_eq!(number(&limits["updateNotesChars"]), MAX_UPDATE_NOTES_CHARS);
+    }
+
+    #[test]
+    fn launch_minimized_follows_system_start() {
+        let directory = TempDir::new();
+        let database = Database::open(&directory).unwrap();
+        let mut settings = database.settings().unwrap();
+        settings.launch_on_system_start = false;
+        settings.launch_minimized = true;
+        assert!(!database.save_settings(settings).unwrap().launch_minimized);
     }
 
     #[test]

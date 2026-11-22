@@ -2,11 +2,11 @@ import { t } from "../../i18n";
 import type { LinuxPerformance } from "../../services/game-settings";
 import { mapToText, parseMap } from "../../services/launch-fields";
 import type { LaunchOverrides, LaunchProfile, LaunchProfiles } from "../../services/launch-profiles";
+import contract from "../../services/settings-contract.json";
 import { formatLaunchArguments, parseLaunchArguments } from "../../utils/launch-arguments";
 
-// Mirror MAX_PROFILE_NAME_CHARS and MAX_PROFILES_PER_GAME in src-tauri/src/database/launch_profiles.rs.
-export const maxProfileNameLength = 48;
-export const maxProfilesPerGame = 12;
+export const maxProfileNameLength = contract.limits.launchProfileNameChars;
+export const maxProfilesPerGame = contract.limits.launchProfilesPerGame;
 
 export interface ProfileMenuOption {
   // The profile ID, or null for the base settings.

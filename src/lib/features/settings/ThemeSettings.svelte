@@ -5,7 +5,7 @@
   import { t, language } from "../../i18n";
   import type { Theme } from "../../services/local-state";
   import {
-    activePalette, chooseBackground, textScaleRange, cleanupBackgrounds, loadBackground, defaultAppearance, createThemeCode, defaultDither, exportAppearance, importAppearance, readThemeCode, panelStyleOf, panelStyles, themePresets,
+    activePalette, appearanceLimits, chooseBackground, cleanupBackgrounds, loadBackground, defaultAppearance, createThemeCode, defaultDither, exportAppearance, importAppearance, readThemeCode, panelStyleOf, panelStyles, themePresets,
     type Appearance, type AppearanceProfile, type Palette, type PanelStyle,
   } from "../../services/appearance";
   import { appearancePreview } from "../../stores/appearance";
@@ -69,15 +69,16 @@
     { id: "system", label: t("Sistema", $language), preset: null },
     ...themePresets.map((preset) => ({ id: preset.id as Theme, label: t(preset.name, $language), preset })),
   ]);
+  const { blur, percent, dither, textScale } = appearanceLimits;
   const backgroundEffects: SliderConfig[] = $derived([
-    { key: "backgroundBlur", label: t("Blur dello sfondo", $language), min: 0, max: 40, unit: "px" },
-    { key: "backgroundOpacity", label: t("Opacità dell'immagine", $language), min: 0, max: 100, unit: "%" },
+    { key: "backgroundBlur", label: t("Blur dello sfondo", $language), ...blur, unit: "px" },
+    { key: "backgroundOpacity", label: t("Opacità dell'immagine", $language), ...percent, unit: "%" },
   ]);
   const surfaceEffects: SliderConfig[] = $derived([
-    { key: "surfaceOpacity", label: t("Opacità dei pannelli", $language), min: 0, max: 100, unit: "%" },
-    { key: "surfaceBlur", label: t("Blur dei pannelli", $language), min: 0, max: 40, unit: "px" },
-    { key: "dialogOpacity", label: t("Opacità dei dialoghi", $language), min: 0, max: 100, unit: "%" },
-    { key: "dialogBlur", label: t("Blur dei dialoghi", $language), min: 0, max: 40, unit: "px" },
+    { key: "surfaceOpacity", label: t("Opacità dei pannelli", $language), ...percent, unit: "%" },
+    { key: "surfaceBlur", label: t("Blur dei pannelli", $language), ...blur, unit: "px" },
+    { key: "dialogOpacity", label: t("Opacità dei dialoghi", $language), ...percent, unit: "%" },
+    { key: "dialogBlur", label: t("Blur dei dialoghi", $language), ...blur, unit: "px" },
   ]);
   const animatedOptions: { id: Appearance["animatedBackground"]; label: string }[] = $derived([
     { id: "none", label: t("Nessuno", $language) },
@@ -118,12 +119,12 @@
   ]);
   const panelStyle = $derived(customPanels ? "custom" : (panelStyleOf(draft) ?? "custom"));
   const ditherEffects: DitherSliderConfig[] = $derived([
-    { key: "waveSpeed", label: t("Velocità dell'onda", $language), min: 0, max: 1, step: 0.01, decimals: 2 },
-    { key: "waveFrequency", label: t("Frequenza dell'onda", $language), min: 0, max: 10, step: 0.1, decimals: 1 },
-    { key: "waveAmplitude", label: t("Ampiezza dell'onda", $language), min: 0, max: 1, step: 0.01, decimals: 2 },
-    { key: "colorNum", label: t("Numero di colori", $language), min: 2, max: 64, step: 1, decimals: 0 },
-    { key: "pixelSize", label: t("Dimensione dei pixel", $language), min: 1, max: 16, step: 1, decimals: 0 },
-    { key: "mouseRadius", label: t("Raggio del mouse", $language), min: 0, max: 2, step: 0.05, decimals: 2 },
+    { key: "waveSpeed", label: t("Velocità dell'onda", $language), ...dither.waveSpeed, step: 0.01, decimals: 2 },
+    { key: "waveFrequency", label: t("Frequenza dell'onda", $language), ...dither.waveFrequency, step: 0.1, decimals: 1 },
+    { key: "waveAmplitude", label: t("Ampiezza dell'onda", $language), ...dither.waveAmplitude, step: 0.01, decimals: 2 },
+    { key: "colorNum", label: t("Numero di colori", $language), ...dither.colorNum, step: 1, decimals: 0 },
+    { key: "pixelSize", label: t("Dimensione dei pixel", $language), ...dither.pixelSize, step: 1, decimals: 0 },
+    { key: "mouseRadius", label: t("Raggio del mouse", $language), ...dither.mouseRadius, step: 0.05, decimals: 2 },
   ]);
   const ditherToggles: { key: DitherToggleKey; label: string }[] = $derived([
     { key: "disableAnimation", label: t("Disattiva animazione", $language) },
@@ -352,7 +353,7 @@
     <SelectField id="theme-animated-background" label={t("Effetto di sfondo animato", $language)} options={animatedOptions.map((option) => ({ value: option.id, label: option.label }))} value={draft.animatedBackground} disabled={busy} onChange={(value) => { draft.animatedBackground = value as Appearance["animatedBackground"]; }} />
     {#if draft.animatedBackground !== "none"}
       <ResetSetting label={t("Ripristina sfondo animato", $language)} disabled={busy} onClick={() => { draft.animatedBackground = "none"; }} />
-      <AppearanceSlider id="theme-animatedOpacity" label={t("Opacità dello sfondo animato", $language)} value={draft.animatedOpacity} min={0} max={100} unit="%" resetValue={defaultAppearance().animatedOpacity} disabled={busy} onChange={(value) => { draft.animatedOpacity = value; }} />
+      <AppearanceSlider id="theme-animatedOpacity" label={t("Opacità dello sfondo animato", $language)} value={draft.animatedOpacity} min={percent.min} max={percent.max} unit="%" resetValue={defaultAppearance().animatedOpacity} disabled={busy} onChange={(value) => { draft.animatedOpacity = value; }} />
     {/if}
     {#if draft.animatedBackground === "ambient"}
       <p class="text-xs text-legio-fg-subtle">{t("Prende i colori dalla copertina del gioco aperto o, nella Home, dell'ultimo giocato.", $language)}</p>
@@ -361,7 +362,7 @@
     {:else if draft.animatedBackground === "seasonal"}
       <SegmentedControl name="season" label={t("Stagione", $language)} options={seasonOptions} value={draft.season} disabled={busy} onChange={(value) => { draft.season = value as Appearance["season"]; }} />
     {/if}
-    <AppearanceSlider id="theme-grain" label={t("Grana", $language)} value={draft.grain} min={0} max={100} unit="%" resetValue={defaultAppearance().grain} disabled={busy} onChange={(value) => { draft.grain = value; }} />
+    <AppearanceSlider id="theme-grain" label={t("Grana", $language)} value={draft.grain} min={percent.min} max={percent.max} unit="%" resetValue={defaultAppearance().grain} disabled={busy} onChange={(value) => { draft.grain = value; }} />
     {#if draft.animatedBackground === "dither" || draft.animatedBackground === "scanlines"}
       <fieldset disabled={busy} class="grid gap-3 sm:grid-cols-2">
         <legend class="mb-2 text-sm font-medium text-legio-fg">{t("Impostazioni dither", $language)}</legend>
@@ -395,7 +396,7 @@
   <SettingsGroup title={t("Interfaccia", $language)} icon="sliders" collapsible>
     <SegmentedControl name="density" label={t("Densità", $language)} options={densityOptions} value={draft.density} disabled={busy} onChange={(value) => { draft.density = value as Appearance["density"]; }} />
     <SegmentedControl name="corners" label={t("Angoli", $language)} options={cornerOptions} value={draft.corners} disabled={busy} onChange={(value) => { draft.corners = value as Appearance["corners"]; }} />
-    <AppearanceSlider id="theme-textScale" label={t("Dimensione del testo", $language)} value={draft.textScale} min={textScaleRange.min} max={textScaleRange.max} step={5} unit="%" resetValue={defaultAppearance().textScale} disabled={busy} onChange={(value) => { draft.textScale = value; }} />
+    <AppearanceSlider id="theme-textScale" label={t("Dimensione del testo", $language)} value={draft.textScale} min={textScale.min} max={textScale.max} step={5} unit="%" resetValue={defaultAppearance().textScale} disabled={busy} onChange={(value) => { draft.textScale = value; }} />
   </SettingsGroup>
 
   {#if hyprland}

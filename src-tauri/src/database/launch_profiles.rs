@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 
 pub(crate) const MAX_PROFILE_NAME_CHARS: usize = 48;
-const MAX_PROFILES_PER_GAME: usize = 12;
+pub(crate) const MAX_PROFILES_PER_GAME: usize = 12;
 
 /// Launch settings a profile replaces. `None` inherits the game's base settings;
 /// a present value replaces the base value as a whole, so an empty list or map

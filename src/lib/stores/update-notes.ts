@@ -3,10 +3,11 @@ import { t } from "../i18n";
 import { appInfo } from "./app-info";
 import { settings, updateSettings } from "./settings";
 import { showToast } from "./toast";
+import contract from "../services/settings-contract.json";
 
 export type ReleaseNotes = { version: string; notes: string };
 
-export const MAX_NOTES_CHARS = 20_000;
+export const MAX_NOTES_CHARS = contract.limits.updateNotesChars;
 
 export const openedNotes = writable<ReleaseNotes | null>(null);
 

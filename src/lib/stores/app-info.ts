@@ -2,7 +2,7 @@ import { getAppInfo, type AppInfo } from "../services/app";
 import { createResource } from "./resource";
 
 export const appInfo = createResource<AppInfo>(
-  { name: "Legio", version: "", platform: "", trayAvailable: false, desktopEnvironment: null,
+  { name: "Legio", version: "", platform: "", trayAvailable: false, desktopEnvironment: null, systemLanguage: "en",
     startupLaunchGameId: null, startupLaunchError: null, startupWarnings: [] },
   getAppInfo,
 );

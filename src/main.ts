@@ -13,10 +13,11 @@ if (!target) {
 }
 
 async function start(): Promise<void> {
-  const [{ default: App }, { settings }, { setLanguage }] = await Promise.all([
-    import("./App.svelte"), import("./lib/stores/settings"), import("./lib/i18n"),
+  const [{ default: App }, { settings }, { appInfo }, { setLanguage, setSystemLanguage }] = await Promise.all([
+    import("./App.svelte"), import("./lib/stores/settings"), import("./lib/stores/app-info"), import("./lib/i18n"),
   ]);
-  await settings.load();
+  await Promise.all([settings.load(), appInfo.load()]);
+  appInfo.subscribe((state) => setSystemLanguage(state.data.systemLanguage));
   settings.subscribe((state) => setLanguage(state.data.language));
   mount(App, { target: target! });
   logApplicationEvent("info", "renderer_ready", "Application mounted");

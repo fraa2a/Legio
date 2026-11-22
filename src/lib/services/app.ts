@@ -1,4 +1,5 @@
 import { invoke } from "./invoke";
+import type { Language } from "../i18n";
 
 export interface AppInfo {
   name: string;
@@ -6,6 +7,7 @@ export interface AppInfo {
   platform: string;
   trayAvailable: boolean;
   desktopEnvironment: string | null;
+  systemLanguage: Language;
   startupLaunchGameId: string | null;
   startupLaunchError: string | null;
   startupWarnings: string[];

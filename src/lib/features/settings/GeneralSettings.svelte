@@ -61,8 +61,7 @@
       <ToggleSetting label={option.label} checked={Boolean($settings.data[option.key])}
         defaultValue={Boolean(defaultSettings[option.key])}
         disabled={option.key === "launchMinimized" && !$settings.data.launchOnSystemStart}
-        onChange={(checked) => void update({ [option.key]: checked,
-          ...(option.key === "launchOnSystemStart" && !checked ? { launchMinimized: false } : {}) })} />
+        onChange={(checked) => void update({ [option.key]: checked })} />
     {/each}
   </SettingsGroup>
 

@@ -68,7 +68,7 @@
         <Toggle label={t("Riduci nell'area di notifica alla chiusura", $language)} checked={$onboarding.draft.closeToTray} onChange={(checked) => changeOnboarding({ closeToTray: checked })} />
         <Toggle label={t("Nascondi Legio nell'area di notifica quando avvii un gioco", $language)} checked={$onboarding.draft.hideOnGameStart} onChange={(checked) => changeOnboarding({ hideOnGameStart: checked })} />
         {/if}
-        <Toggle label={t("Avvia Legio all'accesso al sistema", $language)} checked={$onboarding.draft.launchOnSystemStart} onChange={(checked) => changeOnboarding({ launchOnSystemStart: checked, ...(!checked ? { launchMinimized: false } : {}) })} />
+        <Toggle label={t("Avvia Legio all'accesso al sistema", $language)} checked={$onboarding.draft.launchOnSystemStart} onChange={(checked) => changeOnboarding({ launchOnSystemStart: checked })} />
         <Toggle label={t("Apri Legio sulla Libreria", $language)} checked={$onboarding.draft.launchInLibrary} onChange={(checked) => changeOnboarding({ launchInLibrary: checked })} />
         <Toggle label={t("Notifica di sistema al termine del download", $language)} checked={$onboarding.draft.downloadNotifications} onChange={(checked) => changeOnboarding({ downloadNotifications: checked })} />
       {:else if stepName === "Compatibilità Linux"}

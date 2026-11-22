@@ -63,7 +63,7 @@ export async function hydrateApp(): Promise<void> {
   }
   await startLaunchEvents();
   if (get(settings).status !== "ready") await settings.load();
-  await appInfo.load();
+  if (get(appInfo).status !== "ready") await appInfo.load();
   await Promise.all([
     games.load(),
     downloads.load(),

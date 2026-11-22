@@ -15,7 +15,7 @@
     "test:morph": "node --experimental-strip-types --test scripts/test_library_morph.mjs scripts/test_library_organize.mjs",
     "test:logging": "node --conditions=browser scripts/test_application_logging.mjs",
     "tauri": "tauri",
-    "test:regressions": "node --test scripts/test_regressions.mjs",
+    "test:regressions": "node --test scripts/test_regressions.mjs scripts/test_settings_contract.mjs",
     "test:artwork": "node --conditions=browser --test scripts/test_library_artwork.mjs",
     "test:appearance": "node --conditions=browser --test scripts/test_appearance.mjs scripts/test_game_accent.mjs",
     "test:window": "node --conditions=browser --test scripts/test_window_activity.mjs scripts/test_library_ui.mjs scripts/test_title_bar.mjs",
