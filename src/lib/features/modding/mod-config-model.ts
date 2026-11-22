@@ -1,14 +1,9 @@
 import { t, type Language } from "../../i18n";
 import type { BepInExConfig, ConfigEdit, ConfigEntry, ConfigFileEntry } from "../../services/mod-config";
 
-export type EntryControl = "boolean" | "choice" | "number" | "text";
-
-export const maxConfigTextBytes = 2 * 1024 * 1024;
 export const fileListPageSize = 200;
 const largeConfigEntries = 60;
 
-const integerTypes = new Set(["byte", "sbyte", "int16", "uint16", "int32", "uint32", "int64", "uint64", "int", "uint", "short", "ushort", "long", "ulong"]);
-const decimalTypes = new Set(["single", "double", "decimal", "float"]);
 const numberPattern = /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/;
 const integerPattern = /^-?\d+$/;
 
@@ -50,23 +45,7 @@ export function configSortOptions(language?: Language): { value: ConfigSort; lab
   ];
 }
 
-const typeName = (entry: ConfigEntry): string => (entry.settingType ?? "").trim().toLowerCase();
-
-export function isIntegerEntry(entry: ConfigEntry): boolean {
-  return integerTypes.has(typeName(entry));
-}
-
-function allowsMultipleChoices(entry: ConfigEntry): boolean {
-  return /multiple values can be set/i.test(entry.description ?? "");
-}
-
-export function entryControl(entry: ConfigEntry): EntryControl {
-  const type = typeName(entry);
-  if ((type === "boolean" || type === "bool") && /^(true|false)$/i.test(entry.value.trim())) return "boolean";
-  if (entry.acceptableValues.length > 0 && !allowsMultipleChoices(entry)) return "choice";
-  if ((integerTypes.has(type) || decimalTypes.has(type)) && numberPattern.test(entry.value.trim())) return "number";
-  return "text";
-}
+export const isNumberEntry = (entry: ConfigEntry): boolean => entry.kind === "integer" || entry.kind === "decimal";
 
 // The current value stays selectable even when the file holds something the list does not mention.
 export function choiceOptions(entry: ConfigEntry, current: string): { value: string; label: string }[] {
@@ -79,11 +58,12 @@ export function rangeHint(entry: ConfigEntry, language?: Language): string | nul
   return t("Valori da {0} a {1}", language, [entry.acceptableRange[0], entry.acceptableRange[1]]);
 }
 
+// Inline feedback while typing; the backend checks every edit again when saving.
 export function validateEntry(entry: ConfigEntry, value: string, language?: Language): string | null {
-  if (entryControl(entry) !== "number") return null;
+  if (!isNumberEntry(entry)) return null;
   const trimmed = value.trim();
   if (!numberPattern.test(trimmed)) return t("Inserisci un numero", language);
-  if (isIntegerEntry(entry) && !integerPattern.test(trimmed)) return t("Inserisci un numero intero", language);
+  if (entry.kind === "integer" && !integerPattern.test(trimmed)) return t("Inserisci un numero intero", language);
   if (entry.acceptableRange !== null) {
     const number = Number(trimmed);
     const [min, max] = entry.acceptableRange.map(Number);
@@ -160,14 +140,6 @@ export function initialOpenSections(config: BepInExConfig): string[] {
   const total = config.sections.reduce((sum, section) => sum + section.entries.length, 0);
   const open = total > largeConfigEntries ? config.sections.slice(0, 1) : config.sections;
   return open.map((_section, index) => String(index));
-}
-
-export function textSizeError(text: string, language?: Language): string | null {
-  // A UTF-8 character takes at most three bytes in the BMP, so short texts cannot exceed the limit.
-  if (text.length * 3 <= maxConfigTextBytes) return null;
-  return new TextEncoder().encode(text).length > maxConfigTextBytes
-    ? t("Il file supera il limite di 2 MiB", language)
-    : null;
 }
 
 export function formatBoolean(checked: boolean): string {

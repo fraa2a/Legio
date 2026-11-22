@@ -290,6 +290,7 @@ const knownErrors: Record<string, string> = {
   "Mods are being changed in the active mod profile. Wait for it to finish and launch again": "Le mod del profilo attivo sono in fase di modifica. Attendi il termine e avvia di nuovo.",
   "The active mod profile has no BepInEx loader. Install BepInExPack in the profile first": "Il profilo mod attivo non ha BepInEx. Installalo dal gestore delle mod o scegli Vanilla per avviare senza mod.",
   "The config file changed on disk; reload it": "Il file è cambiato sul disco: ricaricalo prima di salvare.",
+  "Config file would be larger than 2 MiB": "Il file è troppo grande per essere salvato.",
   "The link is not a web address": "Il collegamento non è un indirizzo web.",
   "The mod cache is being cleared. Wait for it to finish and try again": "La cache delle mod è in fase di eliminazione. Attendi il termine e riprova.",
   "The profile is being changed by another operation": "Il profilo è in uso da un'altra operazione.",

@@ -18,6 +18,11 @@ const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
 pub(crate) const CONFIG_EXTENSIONS: [&str; 6] = ["cfg", "txt", "json", "yml", "yaml", "ini"];
 const EXCLUDED_BEPINEX_FOLDERS: [&str; 4] = ["core", "plugins", "patchers", "cache"];
 const EXCLUDED_FILE_NAMES: [&str; 2] = ["doorstop_config.ini", "manifest.json"];
+const INTEGER_TYPES: [&str; 14] = [
+    "byte", "sbyte", "int16", "uint16", "int32", "uint32", "int64", "uint64", "int", "uint",
+    "short", "ushort", "long", "ulong",
+];
+const DECIMAL_TYPES: [&str; 4] = ["single", "double", "decimal", "float"];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -58,8 +63,24 @@ pub(crate) struct ConfigEntry {
     pub(crate) default_value: Option<String>,
     pub(crate) acceptable_values: Vec<String>,
     pub(crate) acceptable_range: Option<(String, String)>,
+    pub(crate) kind: EntryKind,
     /// 0-based index of the `key = value` line.
     pub(crate) line: usize,
+}
+
+/// How an entry is edited and which values it accepts, decided from its
+/// declared type and its current value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum EntryKind {
+    Boolean,
+    /// One of `acceptable_values`.
+    Choice,
+    /// A whole number, within `acceptable_range` when given.
+    Integer,
+    /// A number, within `acceptable_range` when given.
+    Decimal,
+    Text,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -333,23 +354,128 @@ pub(crate) fn apply_cfg_edits(text: &str, edits: &[ConfigEdit]) -> Result<String
         if edit.value.contains(['\r', '\n']) {
             return Err("Config values cannot contain line breaks".to_owned());
         }
-        let matches_edit = |section: &ConfigSection, entry: &ConfigEntry| {
-            entry.line == edit.line && entry.key == edit.key && section.name == edit.section
-        };
-        if !config.sections.iter().any(|section| {
-            section
-                .entries
-                .iter()
-                .any(|entry| matches_edit(section, entry))
-        }) {
-            return Err("The config file changed on disk; reload it".to_owned());
-        }
+        let entry = config
+            .sections
+            .iter()
+            .filter(|section| section.name == edit.section)
+            .flat_map(|section| &section.entries)
+            .find(|entry| entry.line == edit.line && entry.key == edit.key)
+            .ok_or("The config file changed on disk; reload it")?;
+        validate_value(entry, &edit.value)?;
         let line = lines
             .get_mut(edit.line)
             .ok_or("The config file changed on disk; reload it")?;
         *line = replace_value(line, &edit.value)?;
     }
     Ok(lines.concat())
+}
+
+fn validate_value(entry: &ConfigEntry, value: &str) -> Result<(), String> {
+    let key = &entry.key;
+    let trimmed = value.trim();
+    match entry.kind {
+        EntryKind::Boolean if parse_bool(trimmed).is_none() => {
+            Err(format!("{key} must be true or false"))
+        }
+        // The value the file already holds stays allowed, listed or not.
+        EntryKind::Choice
+            if value != entry.value
+                && !entry.acceptable_values.iter().any(|option| option == value) =>
+        {
+            Err(format!("{key} must be one of its listed values"))
+        }
+        EntryKind::Integer | EntryKind::Decimal => validate_number(entry, trimmed),
+        _ => Ok(()),
+    }
+}
+
+fn validate_number(entry: &ConfigEntry, value: &str) -> Result<(), String> {
+    let key = &entry.key;
+    let number = is_number(value)
+        .then(|| value.parse::<f64>().ok())
+        .flatten()
+        .ok_or_else(|| format!("{key} must be a number"))?;
+    if entry.kind == EntryKind::Integer && !is_integer(value) {
+        return Err(format!("{key} must be a whole number"));
+    }
+    let Some((min, max)) = &entry.acceptable_range else {
+        return Ok(());
+    };
+    let bound = |text: &str| text.parse::<f64>().ok().filter(|bound| bound.is_finite());
+    if bound(min).is_some_and(|min| number < min) {
+        return Err(format!("{key} must be at least {min}"));
+    }
+    if bound(max).is_some_and(|max| number > max) {
+        return Err(format!("{key} must be at most {max}"));
+    }
+    Ok(())
+}
+
+fn entry_kind(entry: &ConfigEntry) -> EntryKind {
+    let setting_type = entry
+        .setting_type
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let value = entry.value.trim();
+    if matches!(setting_type.as_str(), "boolean" | "bool") && parse_bool(value).is_some() {
+        return EntryKind::Boolean;
+    }
+    // BepInEx flag enums list their values but take several at once.
+    let multiple = entry.description.as_deref().is_some_and(|description| {
+        description
+            .to_ascii_lowercase()
+            .contains("multiple values can be set")
+    });
+    if !entry.acceptable_values.is_empty() && !multiple {
+        return EntryKind::Choice;
+    }
+    if is_number(value) {
+        if INTEGER_TYPES.contains(&setting_type.as_str()) {
+            return EntryKind::Integer;
+        }
+        if DECIMAL_TYPES.contains(&setting_type.as_str()) {
+            return EntryKind::Decimal;
+        }
+    }
+    EntryKind::Text
+}
+
+fn parse_bool(value: &str) -> Option<bool> {
+    if value.eq_ignore_ascii_case("true") {
+        Some(true)
+    } else if value.eq_ignore_ascii_case("false") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+fn is_digits(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn is_integer(text: &str) -> bool {
+    is_digits(text.strip_prefix('-').unwrap_or(text))
+}
+
+/// Plain decimal notation with an optional exponent, so `NaN`, `inf` and
+/// `1.` are not numbers.
+fn is_number(text: &str) -> bool {
+    let unsigned = text.strip_prefix('-').unwrap_or(text);
+    let (mantissa, exponent) = match unsigned.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => (mantissa, Some(exponent)),
+        None => (unsigned, None),
+    };
+    let (whole, fraction) = match mantissa.split_once('.') {
+        Some((whole, fraction)) => (whole, Some(fraction)),
+        None => (mantissa, None),
+    };
+    is_digits(whole)
+        && fraction.is_none_or(is_digits)
+        && exponent
+            .is_none_or(|exponent| is_digits(exponent.strip_prefix(['+', '-']).unwrap_or(exponent)))
 }
 
 fn replace_value(line: &str, value: &str) -> Result<String, String> {
@@ -412,7 +538,7 @@ impl PendingEntry {
 
     fn into_entry(self, key: &str, value: &str, line: usize) -> ConfigEntry {
         let description = self.description.join("\n").trim().to_owned();
-        ConfigEntry {
+        let mut entry = ConfigEntry {
             key: key.to_owned(),
             value: value.to_owned(),
             description: (!description.is_empty()).then_some(description),
@@ -420,8 +546,11 @@ impl PendingEntry {
             default_value: self.default_value,
             acceptable_values: self.acceptable_values,
             acceptable_range: self.acceptable_range,
+            kind: EntryKind::Text,
             line,
-        }
+        };
+        entry.kind = entry_kind(&entry);
+        entry
     }
 }
 
@@ -642,6 +771,80 @@ Volume = 50\n";
             Some(("0".to_owned(), "100".to_owned()))
         );
         assert_eq!(volume.line, 21);
+    }
+
+    #[test]
+    fn classifies_entries() {
+        let config = parse_bepinex_cfg(EXAMPLE);
+        let kinds: Vec<_> = config
+            .sections
+            .iter()
+            .flat_map(|section| section.entries.iter().map(|entry| entry.kind))
+            .collect();
+        assert_eq!(
+            kinds,
+            [EntryKind::Boolean, EntryKind::Choice, EntryKind::Integer]
+        );
+        let kind = |comments: &str, value: &str| {
+            parse_bepinex_cfg(&format!("[A]\n{comments}\nKey = {value}\n")).sections[0].entries[0]
+                .kind
+        };
+        assert_eq!(kind("# Setting type: Boolean", "maybe"), EntryKind::Text);
+        assert_eq!(kind("# Setting type: Single", "1.5"), EntryKind::Decimal);
+        assert_eq!(kind("# Setting type: Single", "NaN"), EntryKind::Text);
+        assert_eq!(
+            kind(
+                "## Multiple values can be set at the same time\n# Acceptable values: A, B",
+                "A"
+            ),
+            EntryKind::Text
+        );
+    }
+
+    #[test]
+    fn validates_edits_against_the_entry_kind() {
+        let text = "[A]\n# Setting type: Int32\n# Acceptable value range: From 1 To 10\nCount = 5\n\
+            # Setting type: Single\nScale = 1.5\n# Setting type: Boolean\nOn = true\n\
+            # Acceptable values: Fast, Slow\nMode = Odd\n# Setting type: String\nName = x\n";
+        let check = |key: &str, line: usize, value: &str| {
+            apply_cfg_edits(text, &[edit("A", key, value, line)]).map(|_| ())
+        };
+        assert_eq!(check("Count", 3, "7"), Ok(()));
+        assert_eq!(check("Count", 3, " 10 "), Ok(()));
+        assert_eq!(
+            check("Count", 3, "11").unwrap_err(),
+            "Count must be at most 10"
+        );
+        assert_eq!(
+            check("Count", 3, "0").unwrap_err(),
+            "Count must be at least 1"
+        );
+        assert_eq!(
+            check("Count", 3, "2.5").unwrap_err(),
+            "Count must be a whole number"
+        );
+        assert_eq!(check("Count", 3, "").unwrap_err(), "Count must be a number");
+        assert_eq!(check("Scale", 5, "-2e3"), Ok(()));
+        assert_eq!(
+            check("Scale", 5, "inf").unwrap_err(),
+            "Scale must be a number"
+        );
+        assert_eq!(check("On", 7, "FALSE"), Ok(()));
+        assert_eq!(
+            check("On", 7, "yes").unwrap_err(),
+            "On must be true or false"
+        );
+        assert_eq!(check("Mode", 9, "Slow"), Ok(()));
+        assert_eq!(
+            check("Mode", 9, "Odd"),
+            Ok(()),
+            "the current value stays allowed"
+        );
+        assert_eq!(
+            check("Mode", 9, "Other").unwrap_err(),
+            "Mode must be one of its listed values"
+        );
+        assert_eq!(check("Name", 11, "anything at all"), Ok(()));
     }
 
     #[test]

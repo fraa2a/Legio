@@ -6,6 +6,9 @@ export interface ConfigFileEntry {
   modified: number;
 }
 
+// Decided by the backend from the declared type and the current value.
+export type ConfigEntryKind = "boolean" | "choice" | "integer" | "decimal" | "text";
+
 export interface ConfigEntry {
   key: string;
   value: string;
@@ -14,6 +17,7 @@ export interface ConfigEntry {
   defaultValue: string | null;
   acceptableValues: string[];
   acceptableRange: [string, string] | null;
+  kind: ConfigEntryKind;
   line: number;
 }
 

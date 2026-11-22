@@ -50,18 +50,15 @@ async function mountComponent(path, props) {
   return { target, dispose: async () => { await unmount(instance); target.remove(); } };
 }
 
-test("config model chooses controls, validates numbers and collects only changed entries", async () => {
+test("config model validates numbers inline and collects only changed entries", async () => {
   const model = await import(await load("src/lib/features/modding/mod-config-model.ts"));
-  const entry = (overrides) => ({ key: "K", value: "", description: null, settingType: null, defaultValue: null, acceptableValues: [], acceptableRange: null, line: 1, ...overrides });
-  assert.equal(model.entryControl(entry({ settingType: "Boolean", value: "true" })), "boolean");
-  assert.equal(model.entryControl(entry({ settingType: "Boolean", value: "maybe" })), "text");
-  assert.equal(model.entryControl(entry({ settingType: "Mode", value: "A", acceptableValues: ["A", "B"] })), "choice");
-  assert.equal(model.entryControl(entry({ settingType: "Mode", value: "A", acceptableValues: ["A", "B"], description: "Multiple values can be set at the same time" })), "text");
-  assert.equal(model.entryControl(entry({ settingType: "Single", value: "1.5" })), "number");
-  assert.equal(model.entryControl(entry({ settingType: "Single", value: "NaN" })), "text");
+  const entry = (overrides) => ({ key: "K", value: "", description: null, settingType: null, defaultValue: null, acceptableValues: [], acceptableRange: null, kind: "text", line: 1, ...overrides });
+  assert.equal(model.isNumberEntry(entry({ kind: "decimal" })), true);
+  assert.equal(model.isNumberEntry(entry({ kind: "choice" })), false);
+  assert.equal(model.validateEntry(entry({ settingType: "Int32" }), "abc"), null, "only number kinds are checked inline");
   assert.deepEqual(model.choiceOptions(entry({ acceptableValues: ["A", "B"] }), "Z").map((option) => option.value), ["Z", "A", "B"]);
 
-  const ranged = entry({ settingType: "Int32", value: "5", acceptableRange: ["1", "10"] });
+  const ranged = entry({ settingType: "Int32", value: "5", acceptableRange: ["1", "10"], kind: "integer" });
   assert.equal(model.validateEntry(ranged, "5"), null);
   assert.equal(model.validateEntry(ranged, "11"), "Il valore massimo è 10");
   assert.equal(model.validateEntry(ranged, "0"), "Il valore minimo è 1");
@@ -95,8 +92,6 @@ test("config model chooses controls, validates numbers and collects only changed
   const files = [{ relativePath: "plugins/b.cfg", size: 1, modified: 1 }, { relativePath: "a.cfg", size: 1, modified: 1 }, { relativePath: "plugins/A2.txt", size: 1, modified: 1 }];
   assert.deepEqual(model.filterConfigFiles(files, "").map((view) => view.file.relativePath), ["a.cfg", "plugins/A2.txt", "plugins/b.cfg"]);
   assert.deepEqual(model.filterConfigFiles(files, "PLUGINS").map((view) => view.name), ["A2.txt", "b.cfg"]);
-  assert.equal(model.textSizeError("small"), null);
-  assert.notEqual(model.textSizeError("a".repeat(model.maxConfigTextBytes + 1)), null);
 
   const dated = [{ relativePath: "b.cfg", size: 1, modified: 20 }, { relativePath: "a.cfg", size: 1, modified: 10 }, { relativePath: "c.cfg", size: 1, modified: 20 }];
   const order = (sort, query = "") => model.filterConfigFiles(dated, query, sort).map((view) => view.name);
@@ -156,10 +151,10 @@ const cfgFile = {
     sections: [{
       name: "General",
       entries: [
-        { key: "Enabled", value: "true", description: "Turns it on", settingType: "Boolean", defaultValue: "true", acceptableValues: [], acceptableRange: null, line: 2 },
-        { key: "Mode", value: "Easy", description: null, settingType: "Mode", defaultValue: "Easy", acceptableValues: ["Easy", "Hard"], acceptableRange: null, line: 3 },
-        { key: "Speed", value: "1.5", description: null, settingType: "Single", defaultValue: "1", acceptableValues: [], acceptableRange: ["0", "10"], line: 4 },
-        { key: "Greeting", value: "Hi", description: null, settingType: "String", defaultValue: "Hello", acceptableValues: [], acceptableRange: null, line: 5 },
+        { key: "Enabled", value: "true", description: "Turns it on", settingType: "Boolean", defaultValue: "true", acceptableValues: [], acceptableRange: null, kind: "boolean", line: 2 },
+        { key: "Mode", value: "Easy", description: null, settingType: "Mode", defaultValue: "Easy", acceptableValues: ["Easy", "Hard"], acceptableRange: null, kind: "choice", line: 3 },
+        { key: "Speed", value: "1.5", description: null, settingType: "Single", defaultValue: "1", acceptableValues: [], acceptableRange: ["0", "10"], kind: "decimal", line: 4 },
+        { key: "Greeting", value: "Hi", description: null, settingType: "String", defaultValue: "Hello", acceptableValues: [], acceptableRange: null, kind: "text", line: 5 },
       ],
     }],
   },
