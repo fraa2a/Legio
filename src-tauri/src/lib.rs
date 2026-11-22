@@ -536,6 +536,7 @@ fn run_application(
             commands::add_game_library,
             commands::remove_game_library,
             commands::repair_game_library,
+            commands::get_recent_game_ids,
             commands::get_playtime_activity,
             commands::get_playtime_recap,
             commands::get_playtime_recap_years,

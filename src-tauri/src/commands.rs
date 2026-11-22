@@ -553,6 +553,23 @@ pub async fn repair_game_library(app: AppHandle, directory: String) -> Result<()
     .map_err(|e| e.to_string())?
 }
 
+/// Ids of the played visible games, most recent first, as the tray lists them.
+#[tauri::command]
+pub async fn get_recent_game_ids(app: AppHandle) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatabaseState>();
+        let database = state.database()?;
+        let games = database.visible_games()?;
+        let summaries = database.playtime_summaries(database::now_milliseconds()?)?;
+        Ok(crate::tray_menu::recent_games(&games, &summaries)
+            .into_iter()
+            .map(|game| game.id.clone())
+            .collect())
+    })
+    .await
+    .map_err(|error| format!("Recent games task failed: {error}"))?
+}
+
 #[tauri::command]
 pub async fn get_playtime_activity(
     app: AppHandle,

@@ -10,7 +10,7 @@
   import { games } from "../../stores/games";
   import { launchStateByGame, launchStates } from "../../stores/launch";
   import { openGame, selectSection } from "../../stores/navigation";
-  import { playtime } from "../../stores/playtime";
+  import { playtime, recentGameIds } from "../../stores/playtime";
   import GameCard from "../library/GameCard.svelte";
   import GameSettingsDialog from "../library/GameSettingsDialog.svelte";
   import ChangelogPanel from "./ChangelogPanel.svelte";
@@ -18,7 +18,7 @@
   import LastPlayedHero from "./LastPlayedHero.svelte";
   import { recentGames } from "./home-model";
 
-  const recent = $derived(recentGames($games.data, $playtime.data));
+  const recent = $derived(recentGames($games.data, $playtime.data, $recentGameIds.data));
   const lastPlayed = $derived(recent[0] ?? null);
   let settingsGameId = $state<string | null>(null);
   const settingsGame = $derived($games.data.find((game) => game.id === settingsGameId) ?? null);

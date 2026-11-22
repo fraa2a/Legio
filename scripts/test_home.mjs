@@ -28,22 +28,10 @@ test("calendar uses local midnights across daylight saving changes", () => {
   }
 });
 
-test("recent games select the last played installation and exclude unplayed games", () => {
-  const games = [
-    { id: "steam", name: "Game", steamAppId: 42 },
-    { id: "manual", name: "Game copy", steamAppId: 42 },
-    { id: "other", name: "Other", steamAppId: null },
-    { id: "unplayed", name: "Unplayed", steamAppId: null },
-  ];
-  const summaries = [
-    { gameId: "steam", lastPlayedAt: 100 },
-    { gameId: "manual", lastPlayedAt: 300 },
-    { gameId: "other", lastPlayedAt: 200 },
-    { gameId: "unplayed", lastPlayedAt: null },
-    { gameId: "deleted", lastPlayedAt: 400 },
-  ];
-  assert.deepEqual(recentGames(games, summaries).map(({ game }) => game.id), ["manual", "other"]);
-  assert.deepEqual(recentGames(games, summaries.filter(({ gameId }) => gameId !== "steam")).map(({ game }) => game.id), ["manual", "other"]);
+test("recent games follow the backend order and skip ids without loaded data", () => {
+  const games = [{ id: "manual", name: "Game copy" }, { id: "other", name: "Other" }];
+  const summaries = [{ gameId: "manual", lastPlayedAt: 300 }, { gameId: "other", lastPlayedAt: 200 }];
+  assert.deepEqual(recentGames(games, summaries, ["other", "deleted", "manual"]).map(({ game }) => game.id), ["other", "manual"]);
 });
 
 test("activity intensity increases continuously and saturates at eight hours", () => {
