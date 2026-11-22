@@ -6,7 +6,7 @@ use tauri::{Manager, Runtime};
 
 use crate::{
     database::{Database, DatabaseState},
-    legio_source_cache,
+    legio_source, legio_source_cache,
     network::{NetworkError, NetworkState},
 };
 
@@ -400,41 +400,14 @@ fn search_with_options(
     }
     let normalized_query = query.to_lowercase();
     let query_words: Vec<_> = normalized_query.split_whitespace().collect();
-    let verified: HashSet<_> = source
-        .iter()
-        .flat_map(|source| {
-            source
-                .manifest
-                .verified
-                .iter()
-                .map(|entry| entry.steam_app_id)
-        })
-        .collect();
-    let unverified: HashSet<_> = source
-        .iter()
-        .flat_map(|source| {
-            source
-                .manifest
-                .unverified
-                .iter()
-                .map(|entry| entry.steam_app_id)
-        })
-        .collect();
+    let availability_of = source_availability(source.as_ref().map(|source| &*source.manifest));
     let mut ranked = Vec::new();
     let mut oldest = None;
     for (steam_app_id, name, search_name, fetched_at) in rows {
         if !query_words.is_empty() && !query_words.iter().any(|word| search_name.contains(word)) {
             continue;
         }
-        let availability = if source.is_none() {
-            SourceAvailability::Unknown
-        } else if verified.contains(&steam_app_id) {
-            SourceAvailability::Verified
-        } else if unverified.contains(&steam_app_id) {
-            SourceAvailability::Unverified
-        } else {
-            SourceAvailability::Unavailable
-        };
+        let availability = availability_of(steam_app_id);
         let included = match options.availability {
             CatalogAvailability::All => true,
             CatalogAvailability::Available => matches!(
@@ -475,18 +448,33 @@ fn search_with_options(
         .take(limit as usize)
         .map(|entry| entry.3)
         .collect();
-    Ok(merge_source(
-        CatalogSearch {
-            games,
-            total,
-            next_offset: None,
-            cached_at,
-            stale: cached_at.is_none_or(|time| {
-                time > current_time || current_time.saturating_sub(time) >= STALE_SECONDS
-            }),
-        },
-        source,
-    ))
+    Ok(CatalogSearch {
+        games,
+        total,
+        next_offset: None,
+        cached_at,
+        stale: cached_at.is_none_or(|time| {
+            time > current_time || current_time.saturating_sub(time) >= STALE_SECONDS
+        }),
+    })
+}
+
+/// Classifies app IDs by the releases the cached source lists for them.
+fn source_availability(
+    manifest: Option<&legio_source::Manifest>,
+) -> impl Fn(u32) -> SourceAvailability {
+    let ids = |entries: &[legio_source::SourceEntry]| -> HashSet<u32> {
+        entries.iter().map(|entry| entry.steam_app_id).collect()
+    };
+    let sets = manifest.map(|manifest| (ids(&manifest.verified), ids(&manifest.unverified)));
+    move |steam_app_id| match &sets {
+        None => SourceAvailability::Unknown,
+        Some((verified, _)) if verified.contains(&steam_app_id) => SourceAvailability::Verified,
+        Some((_, unverified)) if unverified.contains(&steam_app_id) => {
+            SourceAvailability::Unverified
+        }
+        Some(_) => SourceAvailability::Unavailable,
+    }
 }
 
 pub(crate) async fn lookup_source_title(
@@ -531,36 +519,6 @@ fn search(
     current_time: i64,
 ) -> Result<CatalogSearch, CatalogError> {
     search_with_limit(database, query, current_time, LOCAL_LIMIT)
-}
-
-fn merge_source(
-    mut result: CatalogSearch,
-    source: Option<legio_source_cache::CachedSource>,
-) -> CatalogSearch {
-    if let Some(source) = source {
-        let verified: std::collections::HashSet<_> = source
-            .manifest
-            .verified
-            .iter()
-            .map(|entry| entry.steam_app_id)
-            .collect();
-        let unverified: std::collections::HashSet<_> = source
-            .manifest
-            .unverified
-            .iter()
-            .map(|entry| entry.steam_app_id)
-            .collect();
-        for game in &mut result.games {
-            game.availability = if verified.contains(&game.steam_app_id) {
-                SourceAvailability::Verified
-            } else if unverified.contains(&game.steam_app_id) {
-                SourceAvailability::Unverified
-            } else {
-                SourceAvailability::Unavailable
-            };
-        }
-    }
-    result
 }
 
 pub async fn search_catalog<R: Runtime>(
@@ -873,45 +831,18 @@ mod tests {
     }
 
     #[test]
-    fn merges_source_by_app_id_without_replacing_catalog_identity() {
+    fn classifies_app_ids_by_source_release() {
         let manifest = parse_manifest(br#"{"schemaVersion":1,"generatedAt":"2026-09-22T00:00:00Z","verified":[{"steamAppId":400,"name":"Source title","release":{"version":"1","publishedAt":"2026-09-22T00:00:00Z"},"download":{"url":"https://example.invalid/a.zip","sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","sizeBytes":1}}],"unverified":[{"steamAppId":401,"name":"Other source title","release":{"version":"1","publishedAt":"2026-09-22T00:00:00Z"},"download":{"url":"https://example.invalid/b.zip","sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","sizeBytes":1}}]}"#).unwrap();
-        let games = [400, 401, 402]
-            .into_iter()
-            .map(|steam_app_id| CatalogGame {
-                steam_app_id,
-                name: format!("Catalog {steam_app_id}"),
-                availability: SourceAvailability::Unknown,
-            })
-            .collect();
-        let search = CatalogSearch {
-            games,
-            total: 3,
-            next_offset: None,
-            cached_at: Some(100),
-            stale: false,
-        };
-        let merged = merge_source(
-            search,
-            Some(legio_source_cache::CachedSource {
-                rows: Default::default(),
-                manifest: manifest.into(),
-                fetched_at: 100,
-                warning: None,
-            }),
-        );
+        let availability = source_availability(Some(&manifest));
         assert_eq!(
-            merged
-                .games
-                .iter()
-                .map(|game| game.availability)
-                .collect::<Vec<_>>(),
-            vec![
+            [400, 401, 402].map(&availability),
+            [
                 SourceAvailability::Verified,
                 SourceAvailability::Unverified,
                 SourceAvailability::Unavailable
             ]
         );
-        assert_eq!(merged.games[0].name, "Catalog 400");
+        assert_eq!(source_availability(None)(400), SourceAvailability::Unknown);
     }
 
     #[test]

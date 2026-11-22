@@ -54,14 +54,6 @@ export const availabilityMeta: Record<
   },
 };
 
-export function sourceStatusFor(
-  manifest: SourceManifest | null,
-  steamAppId: number,
-): SourceStatus {
-  if (manifest === null) return { availability: "unknown", entry: null };
-  return releaseIndex(manifest).get(steamAppId)?.[0] ?? { availability: "unavailable", entry: null };
-}
-
 export function sourceReleasesFor(
   manifest: SourceManifest | null,
   steamAppId: number,

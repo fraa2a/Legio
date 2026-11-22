@@ -19,7 +19,7 @@
   import { refreshSource, sourceRefreshError, source } from "../../stores/source";
   import GameDetailView from "../library/GameDetailView.svelte";
   import StoreGameCard from "./StoreGameCard.svelte";
-  import { sourceStatusFor, type SourceStatus } from "./source-status";
+  import { sourceReleasesFor, type SourceStatus } from "./source-status";
 
   interface StoreEntry {
     steamAppId: number;
@@ -73,7 +73,7 @@
       .map((result) => ({
         steamAppId: result.steamAppId,
         name: result.name,
-        status: sourceStatusFor(manifest, result.steamAppId),
+        status: { availability: result.availability, entry: sourceReleasesFor(manifest, result.steamAppId)[0]?.entry ?? null },
       })));
 
   const pageCount = $derived(pageCountFor(entries.length));
