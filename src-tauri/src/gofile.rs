@@ -7,7 +7,6 @@ use serde::{
     Deserialize, Serialize,
     de::{MapAccess, Visitor},
 };
-use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
     path::PathBuf,
@@ -174,7 +173,7 @@ fn website_token(secret: &str, token: &str, seconds: u64) -> String {
         "{USER_AGENT}::{LANGUAGE}::{token}::{}::{secret}",
         seconds / 14400
     );
-    format!("{:x}", Sha256::digest(raw.as_bytes()))
+    crate::sha256::hex_digest(raw.as_bytes())
 }
 fn content_url(id: &str, page: usize, password: Option<&str>) -> String {
     let mut url = format!(
@@ -190,7 +189,7 @@ fn hash_password(password: &str) -> String {
     if password.len() == 64 && password.bytes().all(|c| c.is_ascii_hexdigit()) {
         password.to_ascii_lowercase()
     } else {
-        format!("{:x}", Sha256::digest(password.as_bytes()))
+        crate::sha256::hex_digest(password.as_bytes())
     }
 }
 fn now() -> u64 {
@@ -766,7 +765,7 @@ mod tests {
 
     #[test]
     fn content_urls_hash_passwords_and_preserve_existing_hashes() {
-        let hashed = format!("{:x}", Sha256::digest(b"test password"));
+        let hashed = crate::sha256::hex_digest(b"test password");
         let url = content_url("folder", 2, Some(" test password "));
         assert!(url.contains("page=2&pageSize=1000&sortField=createTime&sortDirection=-1"));
         assert!(url.ends_with(&format!("&password={hashed}")));

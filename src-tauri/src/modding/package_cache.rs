@@ -15,7 +15,6 @@ use rusqlite::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
 
 use super::{
@@ -306,7 +305,7 @@ impl PackageCache {
         let compressed = http.get_bytes(index_url, MAX_INDEX_BYTES).await?;
         // Only once Thunderstore answered, so an offline start does not wait for GitHub too.
         self.inner.exclusions.refresh(http).await;
-        let hash = hex_digest(&compressed);
+        let hash = crate::sha256::hex_digest(&compressed);
         if let Some(known) = &known
             && known.index_hash == hash
         {
@@ -495,13 +494,6 @@ fn unix_seconds() -> i64 {
         .map_or(0, |elapsed| {
             i64::try_from(elapsed.as_secs()).unwrap_or(i64::MAX)
         })
-}
-
-fn hex_digest(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
 }
 
 fn database_error(error: rusqlite::Error) -> String {

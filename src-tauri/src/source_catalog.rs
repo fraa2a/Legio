@@ -4,7 +4,6 @@ use crate::{
     source_matching::{MatchResult, normalized_title},
 };
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -141,18 +140,12 @@ pub(crate) fn from_hydra(
         matches.insert(entry.title.clone(), app_id);
         let mut stable_uris = entry.uris.clone();
         stable_uris.sort();
-        let id = format!(
-            "{:x}",
-            Sha256::digest(
-                format!(
-                    "{}\0{}\0{}",
-                    entry.title,
-                    entry.upload_date.as_deref().unwrap_or(""),
-                    stable_uris.join("\0")
-                )
-                .as_bytes()
-            )
-        );
+        let id = crate::sha256::hex_digest(format!(
+            "{}\0{}\0{}",
+            entry.title,
+            entry.upload_date.as_deref().unwrap_or(""),
+            stable_uris.join("\0")
+        ));
         candidates.insert(id.clone(), entry.uris.clone());
         let published_at = entry
             .upload_date

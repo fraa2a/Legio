@@ -14,7 +14,6 @@ use crate::{
     artwork_scheduler::{ArtworkScheduler, ConversionPermit, WorkError, WorkHandle, WorkOrigin},
 };
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use tauri::Manager;
 
 use crate::{
@@ -970,8 +969,8 @@ fn asset_key(
     };
     Ok(if let Some(identity) = identity {
         format!(
-            "{app_id}-screenshot-{:x}{suffix}",
-            Sha256::digest(identity.as_bytes())
+            "{app_id}-screenshot-{}{suffix}",
+            crate::sha256::hex_digest(identity)
         )
     } else {
         match index {
