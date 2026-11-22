@@ -14,7 +14,7 @@
   import { showToast } from "../../stores/toast";
   import { toMessage } from "../../utils/errors";
   import EcosystemGameDialog from "./EcosystemGameDialog.svelte";
-  import { canChooseEcosystemGame, describeModdingError, moddableGameState } from "./modding-model";
+  import { describeModdingError, moddableGameState } from "./modding-model";
   import { describeToolsError } from "./mod-tools-model";
 
   let { game }: { game: Game } = $props();
@@ -24,7 +24,7 @@
   const modding = $derived($moddableGameById.get(game.id) ?? null);
   const modState = $derived(modding === null ? null : moddableGameState(modding));
   const running = $derived(($launchStateByGame.get(game.id)?.status ?? "idle") !== "idle");
-  const canChoose = $derived(modding !== null && canChooseEcosystemGame(modding));
+  const canChoose = $derived(modding?.canChooseEcosystem ?? false);
 
   let pickerOpen = $state(false);
   let restoring = $state(false);

@@ -5,12 +5,13 @@ use std::{fs, path::Path, sync::Arc};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
+use super::dependency_graph::{DependencyGraph, DependencyState};
 use super::ecosystem::EcosystemSchema;
 use super::ecosystem_store::EcosystemStore;
 use super::install_commands::redownload_package;
 use super::installer::{
-    GameRules, InstallError, InstallProgress, ModdingContext, PROGRESS_EVENT, ToggleAllOutcome,
-    UninstallOutcome, declared_dependencies, set_all_mods_enabled, set_mod_enabled, uninstall_mod,
+    GameRules, InstallProgress, ModSwitch, ModdingContext, PROGRESS_EVENT, ToggleOutcome,
+    UninstallOutcome, declared_dependencies, set_all_mods_enabled, set_mods_enabled, uninstall_mod,
 };
 use super::local_import::{self, LocalImportOutcome};
 use super::paths::ModdingPaths;
@@ -20,8 +21,9 @@ use super::profiles::{
 };
 use crate::database::{Database, DatabaseState, GameModding, ModProfile, ProfileMod};
 
-/// A mod of a profile, whether it is the game's mod loader and the packages
-/// (`Owner-Name`) its installed version declares as dependencies.
+/// A mod of a profile, whether it is the game's mod loader, the packages
+/// (`Owner-Name`) its installed version declares as dependencies and how they
+/// stand in the profile.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProfileModEntry {
@@ -29,6 +31,8 @@ pub(crate) struct ProfileModEntry {
     record: ProfileMod,
     is_loader: bool,
     dependencies: Vec<String>,
+    #[serde(flatten)]
+    dependency_state: DependencyState,
 }
 
 /// Forwards install progress to the frontend, tagged with the caller's
@@ -148,13 +152,16 @@ fn mod_entries(
     paths: &ModdingPaths,
     is_loader: impl Fn(&str) -> bool,
 ) -> Vec<ProfileModEntry> {
-    let mut dependencies = declared_dependencies(database, paths, mods);
+    let declared = declared_dependencies(database, paths, mods);
+    let graph = DependencyGraph::new(mods, &declared);
     mods.iter()
         .map(|record| ProfileModEntry {
             is_loader: is_loader(&record.full_name),
-            dependencies: dependencies
-                .remove(&record.full_name.to_lowercase())
+            dependencies: declared
+                .get(&record.full_name.to_lowercase())
+                .cloned()
                 .unwrap_or_default(),
+            dependency_state: graph.state(record),
             record: record.clone(),
         })
         .collect()
@@ -176,13 +183,15 @@ pub async fn uninstall_profile_mod(
     .await
 }
 
+/// Switches `full_names` with the mods `mode` adds. Mods that could not be
+/// switched are listed in the outcome and stay as they were.
 #[tauri::command]
-pub async fn set_profile_mod_enabled(
+pub async fn set_profile_mods_enabled(
     app: AppHandle,
     profile_id: String,
-    full_name: String,
-    enabled: bool,
-) -> Result<(), String> {
+    full_names: Vec<String>,
+    mode: ModSwitch,
+) -> Result<ToggleOutcome, String> {
     let schema = local_schema(&app).await?;
     run_modding(app, move |app, database, paths, locks| {
         require_profile_not_running(app, database, paths, &profile_id)?;
@@ -192,18 +201,13 @@ pub async fn set_profile_mod_enabled(
             locks,
             &schema,
             &profile_id,
-            |ctx, community| match set_mod_enabled(ctx, &profile_id, &full_name, enabled) {
+            |ctx, community| {
                 // Enabling copies from the package cache, so a lost cache
                 // is downloaded once and the attempt repeated.
-                Err(InstallError::CacheMissing {
-                    package,
-                    online_source: true,
-                }) => {
-                    redownload_package(app, ctx, community, &profile_id, &package)?;
-                    set_mod_enabled(ctx, &profile_id, &full_name, enabled)
-                        .map_err(|error| error.to_string())
-                }
-                result => result.map_err(|error| error.to_string()),
+                set_mods_enabled(ctx, &profile_id, &full_names, mode, |package| {
+                    redownload_package(app, ctx, community, &profile_id, package)
+                })
+                .map_err(|error| error.to_string())
             },
         )
     })
@@ -217,7 +221,7 @@ pub async fn set_all_profile_mods_enabled(
     app: AppHandle,
     profile_id: String,
     enabled: bool,
-) -> Result<ToggleAllOutcome, String> {
+) -> Result<ToggleOutcome, String> {
     let schema = local_schema(&app).await?;
     run_modding(app, move |app, database, paths, locks| {
         require_profile_not_running(app, database, paths, &profile_id)?;

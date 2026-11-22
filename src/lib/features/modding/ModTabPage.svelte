@@ -101,7 +101,7 @@
   });
 
   const info = $derived(details ?? tab.summary);
-  const latest = $derived(details?.versions[0]?.versionNumber ?? "");
+  const latest = $derived(details?.latestVersion ?? "");
   const installedMod = $derived(installed.get(tab.key) ?? null);
   const isLocal = $derived(installedMod !== null && !installedMod.onlineSource);
   // Local mods, and installed ones missing from the catalog, only have what the profile stores.
@@ -232,7 +232,7 @@
         label={t("Versione", $language)}
         class="min-w-40 flex-1"
         value={versionNumber}
-        options={versionChoices(details.versions, $language)}
+        options={versionChoices(details.versions, latest, $language)}
         onChange={(value) => (chosenVersion = value)}
       />
       <Button

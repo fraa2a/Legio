@@ -38,6 +38,9 @@ pub(crate) struct ModdableGame {
     supported: bool,
     /// Set once the game was bound; carries the active profile.
     binding: Option<GameModding>,
+    /// Whether another Thunderstore game can be bound, see
+    /// [`can_choose_ecosystem`].
+    can_choose_ecosystem: bool,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -89,10 +92,7 @@ pub async fn bind_game_to_ecosystem(
     require_package_index(&schema, &ecosystem_game_id)?;
     let database = state.shared_database()?;
     let binding = tauri::async_runtime::spawn_blocking(move || {
-        let is_rebinding = database
-            .game_modding(&game_id)?
-            .is_some_and(|binding| binding.ecosystem_game_id != ecosystem_game_id);
-        if is_rebinding {
+        if require_bindable(&database, &schema, &game_id, &ecosystem_game_id)? {
             app.state::<GameLaunchManager>().require_idle(&game_id)?;
         }
         database.set_game_modding(&game_id, &ecosystem_game_id)
@@ -189,6 +189,40 @@ pub async fn list_mod_categories(
         .await
 }
 
+/// A game matched through its Steam app id has nothing to choose. A manual
+/// binding that overrides the match can still be undone.
+fn can_choose_ecosystem(steam_match_id: Option<&str>, binding: Option<&GameModding>) -> bool {
+    steam_match_id
+        .is_none_or(|matched| binding.is_some_and(|binding| binding.ecosystem_game_id != matched))
+}
+
+fn steam_match(schema: &EcosystemSchema, steam_app_id: Option<u32>) -> Option<&str> {
+    steam_app_id
+        .and_then(|app_id| schema.find_by_steam_app(app_id).first().copied())
+        .map(|found| found.ecosystem_game_id)
+}
+
+/// Refuses a binding the game cannot choose; binding to its Steam match is
+/// always allowed. Returns whether it replaces another binding.
+fn require_bindable(
+    database: &Database,
+    schema: &EcosystemSchema,
+    game_id: &str,
+    ecosystem_game_id: &str,
+) -> Result<bool, String> {
+    let steam_match_id = steam_match(schema, database.game(game_id)?.steam_app_id);
+    let binding = database.game_modding(game_id)?;
+    if steam_match_id != Some(ecosystem_game_id)
+        && !can_choose_ecosystem(steam_match_id, binding.as_ref())
+    {
+        return Err(
+            "This game is matched to its Thunderstore game through Steam, so it cannot be changed"
+                .to_owned(),
+        );
+    }
+    Ok(binding.is_some_and(|binding| binding.ecosystem_game_id != ecosystem_game_id))
+}
+
 /// The package index URL of a playable game in the schema.
 fn require_package_index(
     schema: &EcosystemSchema,
@@ -229,10 +263,7 @@ fn moddable_games(
         .into_iter()
         .map(|game| {
             let binding = database.game_modding(&game.id)?;
-            let steam_match_id = game
-                .steam_app_id
-                .and_then(|app_id| schema.find_by_steam_app(app_id).first().copied())
-                .map(|found| found.ecosystem_game_id);
+            let steam_match_id = steam_match(schema, game.steam_app_id);
             let ecosystem_game_id = match &binding {
                 Some(binding) => Some(binding.ecosystem_game_id.as_str()),
                 None => steam_match_id,
@@ -251,6 +282,7 @@ fn moddable_games(
                 package_loader: ecosystem_game.map(|(_, _, entry)| entry.package_loader),
                 supported: ecosystem_game
                     .is_some_and(|(_, _, entry)| supports_loader(entry.package_loader)),
+                can_choose_ecosystem: can_choose_ecosystem(steam_match_id, binding.as_ref()),
                 binding,
             })
         })
@@ -299,6 +331,7 @@ mod tests {
         assert!(lethal.supported);
         assert_eq!(lethal.binding, None);
         assert_eq!(lethal.steam_match_id.as_deref(), Some("lethal-company"));
+        assert!(!lethal.can_choose_ecosystem);
 
         let ror2 = find(&ror2);
         assert_eq!(ror2.ecosystem_game_id.as_deref(), Some("riskofrain2"));
@@ -310,6 +343,7 @@ mod tests {
         assert!(!manual.supported);
         assert_eq!(manual.binding.as_ref().unwrap().active_profile_id, None);
         assert_eq!(manual.steam_match_id, None);
+        assert!(manual.can_choose_ecosystem);
 
         let unknown = find(&unknown);
         assert_eq!(unknown.ecosystem_game_id, None);
@@ -329,6 +363,39 @@ mod tests {
         let games = moddable_games(&database, &schema()).unwrap();
         assert_eq!(games[0].ecosystem_game_id.as_deref(), Some("riskofrain2"));
         assert_eq!(games[0].steam_match_id.as_deref(), Some("lethal-company"));
+        assert!(games[0].can_choose_ecosystem, "the override can be undone");
+    }
+
+    #[test]
+    fn a_steam_match_cannot_be_rebound() {
+        let directory = TempDir::new();
+        let database = Database::open(directory.path()).unwrap();
+        let schema = schema();
+        let lethal = game(&database, "Lethal Company", Some(1966720));
+        let manual = game(&database, "Manual", None);
+        assert_eq!(
+            require_bindable(&database, &schema, &lethal, "lethal-company"),
+            Ok(false)
+        );
+        assert!(require_bindable(&database, &schema, &lethal, "riskofrain2").is_err());
+        database
+            .set_game_modding(&lethal, "lethal-company")
+            .unwrap();
+        assert!(require_bindable(&database, &schema, &lethal, "riskofrain2").is_err());
+        // An override from before the match is kept and can go back to it.
+        database.set_game_modding(&lethal, "riskofrain2").unwrap();
+        assert_eq!(
+            require_bindable(&database, &schema, &lethal, "backpack-hero"),
+            Ok(true)
+        );
+        assert_eq!(
+            require_bindable(&database, &schema, &lethal, "lethal-company"),
+            Ok(true)
+        );
+        assert_eq!(
+            require_bindable(&database, &schema, &manual, "riskofrain2"),
+            Ok(false)
+        );
     }
 
     #[test]

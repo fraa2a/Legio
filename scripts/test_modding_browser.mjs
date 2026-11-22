@@ -173,13 +173,9 @@ test("search results open in panel tabs with readme, changelog and version insta
   const version = (fullName, versionNumber, dependencies = []) => ({
     fullName, versionNumber, description: `Version ${versionNumber}`, dependencies, fileSize: 2048, websiteUrl: null, dateCreated: "2024-01-01", downloads: 5,
   });
-  const details = (fullName) => ({
-    ...summary(fullName),
-    donationLink: null,
-    versions: fullName === "Owner-More_Suits"
-      ? [version(fullName, "2.0.0", ["Owner-Core-1.0.0"]), version(fullName, "1.0.0")]
-      : [version(fullName, "1.0.0")],
-  });
+  const details = (fullName) => fullName === "Owner-More_Suits"
+    ? { ...summary(fullName, { latestVersion: "2.0.0" }), donationLink: null, versions: [version(fullName, "1.0.0"), version(fullName, "2.0.0", ["Owner-Core-1.0.0"])] }
+    : { ...summary(fullName, { latestVersion: "1.0.0" }), donationLink: null, versions: [version(fullName, "1.0.0")] };
   globalThis.browserInvoke = async (command, args) => {
     calls.push([command, args]);
     if (command === "search_mods") return { total: 2, items: [summary("Owner-More_Suits"), summary("Other-Hats")] };
@@ -260,7 +256,7 @@ test("search results open in panel tabs with readme, changelog and version insta
 
 test("installed mods open in their own tab set, including local mods", async () => {
   const mod = (fullName, extra = {}) => ({
-    profileId: "p", fullName, version: "1.0.0", enabled: true, onlineSource: true, installedAt: 0, installOrder: 0, isLoader: false, dependencies: [], ...extra,
+    profileId: "p", fullName, version: "1.0.0", enabled: true, onlineSource: true, installedAt: 0, installOrder: 0, isLoader: false, dependencies: [], missingDependencies: [], disabledDependencies: [], dependents: [], enabledDependents: [], ...extra,
   });
   const mods = [
     mod("BepInEx-BepInExPack", { isLoader: true, version: "5.4.0" }),

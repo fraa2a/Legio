@@ -7,7 +7,7 @@
   import SelectField from "../../components/ui/SelectField.svelte";
   import TextField from "../../components/ui/TextField.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
-  import { choiceOptions, entryControl, formatBoolean, isIntegerEntry, rangeHint, validateEntry } from "./mod-config-model";
+  import { choiceOptions, formatBoolean, isNumberEntry, rangeHint, validateEntry } from "./mod-config-model";
 
   let { id, entry, value, onChange }: {
     id: string;
@@ -16,7 +16,6 @@
     onChange: (value: string) => void;
   } = $props();
 
-  const control = $derived(entryControl(entry));
   const error = $derived(validateEntry(entry, value, $language));
   const changed = $derived(value !== entry.value);
   const canReset = $derived(entry.defaultValue !== null && value !== entry.defaultValue);
@@ -26,7 +25,7 @@
 <div class="flex flex-col gap-2 rounded-control bg-legio-fill p-3 [contain-intrinsic-size:auto_6rem] [content-visibility:auto]">
   <div class="flex items-center justify-between gap-3">
     <div class="min-w-0 flex-1">
-      {#if control === "boolean"}
+      {#if entry.kind === "boolean"}
         <Toggle label={entry.key} checked={value.trim().toLowerCase() === "true"} onChange={(checked) => onChange(formatBoolean(checked))} />
       {:else}
         <p class="flex items-center gap-2 text-sm font-medium break-words text-legio-fg">
@@ -49,11 +48,11 @@
   {#if entry.description}
     <p class="text-xs whitespace-pre-line text-legio-fg-muted">{entry.description}</p>
   {/if}
-  {#if control === "choice"}
+  {#if entry.kind === "choice"}
     <SelectField {id} label={entry.key} labelHidden value={value} options={choiceOptions(entry, value)} onChange={onChange} />
-  {:else if control === "number"}
-    <TextField {id} label={entry.key} labelHidden type="number" inputmode={isIntegerEntry(entry) ? "numeric" : "text"} {value} {error} oninput={onChange} />
-  {:else if control === "text"}
+  {:else if isNumberEntry(entry)}
+    <TextField {id} label={entry.key} labelHidden type="number" inputmode={entry.kind === "integer" ? "numeric" : "text"} {value} {error} oninput={onChange} />
+  {:else if entry.kind === "text"}
     <TextField {id} label={entry.key} labelHidden {value} {error} oninput={onChange} />
   {/if}
   {#if entry.defaultValue !== null || range}

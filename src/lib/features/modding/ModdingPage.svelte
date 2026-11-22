@@ -10,7 +10,7 @@
   import { openModManager, selectSection } from "../../stores/navigation";
   import EcosystemGameDialog from "./EcosystemGameDialog.svelte";
   import ModdableGameCard from "./ModdableGameCard.svelte";
-  import { canChooseEcosystemGame, moddableGameState, sortModdableGames } from "./modding-model";
+  import { moddableGameState, sortModdableGames } from "./modding-model";
 
   // The library may have changed since the last visit.
   onMount(() => void moddableGames.load());
@@ -23,7 +23,7 @@
 
   function open(game: ModdableGame): void {
     if (moddableGameState(game) === "ready") openModManager(game.gameId);
-    else if (canChooseEcosystemGame(game)) bindingTarget = game;
+    else if (game.canChooseEcosystem) bindingTarget = game;
   }
 
   async function bind(ecosystemGameId: string): Promise<void> {

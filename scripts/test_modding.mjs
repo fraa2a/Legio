@@ -49,7 +49,7 @@ const model = await import(await modelLoader.load("src/lib/features/modding/modd
 
 const moddable = (gameId, name, extra = {}) => ({
   gameId, name, steamAppId: null, ecosystemGameId: "lethal-company", displayName: "Lethal Company",
-  packageLoader: "bepinex", supported: true, binding: null, steamMatchId: null, ...extra,
+  packageLoader: "bepinex", supported: true, binding: null, steamMatchId: null, canChooseEcosystem: true, ...extra,
 });
 const summary = (fullName, extra = {}) => {
   const [owner, name] = fullName.split("-");
@@ -69,15 +69,6 @@ test("moddable games list supported and set up games first", () => {
   ];
   assert.deepEqual(model.sortModdableGames(games).map(game => game.gameId), ["d", "a", "b", "c"]);
   assert.deepEqual(games.map(model.moddableGameState), ["unmatched", "unsupported", "ready", "ready"]);
-});
-
-test("the Thunderstore game can only be chosen without an automatic Steam match", () => {
-  const bound = ecosystemGameId => ({ gameId: "g", ecosystemGameId, activeProfileId: null });
-  assert.equal(model.canChooseEcosystemGame(moddable("a", "Manual")), true);
-  assert.equal(model.canChooseEcosystemGame(moddable("b", "Steam", { steamAppId: 1, steamMatchId: "lethal-company" })), false);
-  assert.equal(model.canChooseEcosystemGame(moddable("c", "Bound to the match", { steamMatchId: "lethal-company", binding: bound("lethal-company") })), false);
-  assert.equal(model.canChooseEcosystemGame(moddable("d", "Manual override", { steamMatchId: "lethal-company", binding: bound("riskofrain2") })), true);
-  assert.equal(model.canChooseEcosystemGame(moddable("e", "Manual binding", { binding: bound("riskofrain2") })), true);
 });
 
 test("catalog download failures are translated", () => {
@@ -143,17 +134,11 @@ test("launch notices, queries and progress", () => {
 });
 
 const installedMod = (fullName, extra = {}) => ({
-  profileId: "p", fullName, version: "1.0.0", enabled: true, onlineSource: true, installedAt: 0, installOrder: 0, isLoader: false, dependencies: [], ...extra,
+  profileId: "p", fullName, version: "1.0.0", enabled: true, onlineSource: true, installedAt: 0, installOrder: 0, isLoader: false,
+  dependencies: [], missingDependencies: [], disabledDependencies: [], dependents: [], enabledDependents: [], ...extra,
 });
 
-test("dependents, error mapping and game search", () => {
-  const mods = [
-    installedMod("A-Core"),
-    installedMod("B-Addon", { dependencies: ["a-core", "BepInEx-BepInExPack"] }),
-    installedMod("C-Other"),
-  ];
-  assert.deepEqual(model.dependentsOf("a-core", mods), ["B-Addon"]);
-  assert.deepEqual(model.dependentsOf("C-Other", mods), []);
+test("error mapping and game search", () => {
   assert.equal(model.describeModdingError("Stop the game before changing its installation", "it"), "Chiudi il gioco prima di modificarne l'installazione.");
   assert.equal(model.describeModdingError("Something else", "it"), "Something else");
   assert.equal(
@@ -165,6 +150,7 @@ test("dependents, error mapping and game search", () => {
     "winhttp.dll è già nella cartella del gioco e non è stato installato da Legio. Spostalo o rimuovilo per avviare con le mod.",
   );
   assert.equal(model.describeModdingError('A mod profile named "Main" already exists', "it"), 'Esiste già un profilo chiamato "Main". Scegli un altro nome.');
+  assert.equal(model.describeModdingError("Ebkr-R2modman is not a mod and cannot be installed", "it"), "Ebkr-R2modman non è una mod e non si può installare.");
   assert.equal(
     model.describeModdingError("Mods are being changed in the active mod profile. Wait for it to finish and launch again.", "it"),
     "Le mod del profilo attivo sono in fase di modifica. Attendi il termine e avvia di nuovo.",
@@ -214,37 +200,14 @@ test("installed mods are searched, sorted and filtered with the loader kept on t
   assert.equal(model.disabledPositionOptions("it").length, 3);
 });
 
-test("dependency health, enable plans and dependents of installed mods", () => {
-  const mods = [
-    installedMod("BepInEx-BepInExPack", { isLoader: true }),
-    installedMod("A-Core", { dependencies: ["BepInEx-BepInExPack"] }),
-    installedMod("B-Lib", { enabled: false, dependencies: ["A-Core", "Gone-Missing"] }),
-    installedMod("C-Mid", { enabled: false, dependencies: ["b-lib"] }),
-    installedMod("D-Top", { dependencies: ["C-Mid", "A-Core", "D-Top"] }),
-    installedMod("E-Local", { onlineSource: false }),
-    installedMod("F-Off", { enabled: false, dependencies: ["C-Mid"] }),
-  ];
-  const issues = model.dependencyIssues(mods);
-  assert.deepEqual([...issues.keys()].sort(), ["b-lib", "d-top"]);
-  assert.deepEqual(issues.get("b-lib"), { missing: ["Gone-Missing"], disabled: [] }, "a disabled mod is only checked for missing packages");
-  assert.deepEqual(issues.get("d-top"), { missing: [], disabled: ["C-Mid"] }, "its own name is ignored");
-  assert.equal(issues.has("e-local"), false, "mods without known dependencies have no indicator");
-  assert.deepEqual(model.dependencyIssueLabels(issues.get("b-lib"), "it"), ["Dipendenza mancante: Missing"]);
-  assert.deepEqual(model.dependencyIssueLabels(issues.get("d-top"), "it"), ["Dipendenza disattivata: Mid"]);
-
-  assert.deepEqual(model.enablePlan(["C-Mid"], mods), ["B-Lib", "C-Mid"], "dependencies come first");
-  assert.deepEqual(model.enablePlan(["D-Top"], mods), ["B-Lib", "C-Mid"], "enabled mods are not listed");
-  assert.deepEqual(model.enablePlan(["A-Core"], mods), []);
-  assert.deepEqual(model.dependencyFix(issues.get("d-top"), mods), { install: [], enable: ["B-Lib", "C-Mid"] });
-  assert.deepEqual(model.dependencyFix(issues.get("b-lib"), mods), { install: ["Gone-Missing"], enable: [] });
-
-  assert.deepEqual(model.enabledDependents("A-Core", mods), ["D-Top"], "disabled mods in between do not pass the need on");
-  assert.deepEqual(model.enabledDependents("c-mid", mods), ["D-Top"]);
-  const chain = [installedMod("X-Base"), installedMod("Y-Mid", { dependencies: ["X-Base"] }), installedMod("Z-Top", { dependencies: ["Y-Mid"] })];
-  assert.deepEqual(model.enabledDependents("X-Base", chain), ["Z-Top", "Y-Mid"], "the most dependent mods are switched off first");
-  assert.deepEqual(model.enabledDependents("Z-Top", chain), []);
-  const cycle = [installedMod("P-One", { dependencies: ["P-Two"], enabled: false }), installedMod("P-Two", { dependencies: ["P-One"], enabled: false })];
-  assert.deepEqual(model.enablePlan(["P-One"], cycle), ["P-Two", "P-One"]);
+test("dependency labels and toggle notices", () => {
+  const mod = installedMod("D-Top", { missingDependencies: ["Gone-Missing"], disabledDependencies: ["C-Mid"] });
+  assert.deepEqual(model.dependencyIssueLabels(mod, "it"), ["Dipendenza mancante: Missing", "Dipendenza disattivata: Mid"]);
+  assert.deepEqual(model.dependencyIssueLabels(installedMod("A-Core"), "it"), []);
+  assert.equal(model.toggleNotice({ changed: ["A-Core"], failed: [] }, true, "it"), null);
+  assert.deepEqual(model.toggleNotice({ changed: [], failed: [{ fullName: "B-Lib", message: "Download cancelled" }] }, false, "it"), {
+    tone: "warning", message: "Mod disattivate: 0. Alcune non sono state disattivate:", items: ["Lib: Download annullato."],
+  });
 });
 
 test("the Mod page marks unsupported and unmatched games and opens the manager", async () => {
@@ -294,9 +257,9 @@ test("the Mod page shows empty and error states", async () => {
 test("installed mods toggle, update and uninstall with a dependents warning", async () => {
   const calls = [];
   let mods = [
-    { profileId: "p", fullName: "BepInEx-BepInExPack", version: "5.4.0", enabled: true, onlineSource: true, installedAt: 0, installOrder: 0, isLoader: true, dependencies: [] },
-    { profileId: "p", fullName: "A-Core", version: "1.0.0", enabled: true, onlineSource: true, installedAt: 0, installOrder: 1, isLoader: false, dependencies: [] },
-    { profileId: "p", fullName: "B-Addon", version: "1.0.0", enabled: true, onlineSource: true, installedAt: 0, installOrder: 2, isLoader: false, dependencies: ["A-Core"] },
+    installedMod("BepInEx-BepInExPack", { version: "5.4.0", isLoader: true }),
+    installedMod("A-Core", { installOrder: 1, dependents: ["B-Addon"], enabledDependents: ["B-Addon"] }),
+    installedMod("B-Addon", { installOrder: 2, dependencies: ["A-Core"] }),
   ];
   const { load } = await fixture("installedInvoke", async (command, args) => {
     calls.push([command, args]);
@@ -307,7 +270,7 @@ test("installed mods toggle, update and uninstall with a dependents warning", as
       const versions = args.fullName === "B-Addon" ? [{ versionNumber: "1.0.0", dependencies: ["A-Core-1.0.0"] }] : [{ versionNumber: "1.0.0", dependencies: [] }];
       return { ...summary(args.fullName), versions };
     }
-    if (command === "set_profile_mod_enabled") return undefined;
+    if (command === "set_profile_mods_enabled") return { changed: args.fullNames, failed: [] };
     if (command === "update_profile_mods") return { installed: ["A-Core-1.1.0"], skipped: [], warnings: [] };
     if (command === "uninstall_profile_mod") { mods = mods.filter(mod => mod.fullName !== args.fullName); return { dependents: ["B-Addon"] }; }
     throw new Error(`unexpected ${command}`);
@@ -321,7 +284,7 @@ test("installed mods toggle, update and uninstall with a dependents warning", as
     const toggles = [...target.querySelectorAll('li input[type="checkbox"]')];
     assert.equal(toggles[0].disabled, true, "the loader cannot be disabled");
     toggles[2].click(); await settle();
-    assert.deepEqual(calls.find(([command]) => command === "set_profile_mod_enabled"), ["set_profile_mod_enabled", { profileId: "p", fullName: "B-Addon", enabled: false }]);
+    assert.deepEqual(calls.find(([command]) => command === "set_profile_mods_enabled"), ["set_profile_mods_enabled", { profileId: "p", fullNames: ["B-Addon"], mode: "disable" }]);
     button(target, "Aggiorna").click(); await settle();
     assert.deepEqual(calls.find(([command]) => command === "update_profile_mods"), ["update_profile_mods", { profileId: "p", fullNames: ["A-Core"] }]);
     button(target, "Disinstalla Core").click(); await settle();
@@ -341,13 +304,13 @@ async function installedFixture(initial, calls, extra = {}) {
     if (command === "list_mod_updates") return [];
     if (command === "get_mod_launch_status") return null;
     if (command === "get_mod_package") return null;
-    if (command === "set_profile_mod_enabled") {
-      mods = mods.map(mod => mod.fullName === args.fullName ? { ...mod, enabled: args.enabled } : mod);
-      return undefined;
+    if (command === "set_profile_mods_enabled") {
+      mods = mods.map(mod => args.fullNames.includes(mod.fullName) ? { ...mod, enabled: args.mode === "enable" } : mod);
+      return extra.switched ?? { changed: args.fullNames, failed: [] };
     }
     if (command === "set_all_profile_mods_enabled") {
       mods = mods.map(mod => mod.isLoader ? mod : { ...mod, enabled: args.enabled });
-      return extra.bulk ?? { changed: 2, failed: [] };
+      return extra.bulk ?? { changed: ["A", "B"], failed: [] };
     }
     if (command === "install_mods") return { installed: ["Gone-Missing-1.0.0"], skipped: [], warnings: [] };
     throw new Error(`unexpected ${command}`);
@@ -387,7 +350,7 @@ test("installed mods show dependency warnings with a one-click fix", async () =>
   const open = await installedFixture([
     installedMod("BepInEx-BepInExPack", { isLoader: true }),
     installedMod("A-Lib", { installOrder: 1, enabled: false }),
-    installedMod("B-Top", { installOrder: 2, dependencies: ["A-Lib", "Gone-Missing"] }),
+    installedMod("B-Top", { installOrder: 2, dependencies: ["A-Lib", "Gone-Missing"], missingDependencies: ["Gone-Missing"], disabledDependencies: ["A-Lib"] }),
   ], calls);
   const view = await open();
   try {
@@ -395,40 +358,55 @@ test("installed mods show dependency warnings with a one-click fix", async () =>
     assert.ok(target.textContent.includes("Dipendenza mancante: Missing"));
     assert.ok(target.textContent.includes("Dipendenza disattivata: Lib"));
     button(target, "Risolvi").click(); await settle();
-    assert.deepEqual(calls.filter(([command]) => command === "set_profile_mod_enabled"), [["set_profile_mod_enabled", { profileId: "p", fullName: "A-Lib", enabled: true }]]);
+    assert.deepEqual(calls.filter(([command]) => command === "set_profile_mods_enabled"), [["set_profile_mods_enabled", { profileId: "p", fullNames: ["A-Lib"], mode: "enable" }]]);
     assert.deepEqual(calls.find(([command]) => command === "install_mods"), ["install_mods", { profileId: "p", packages: [{ fullName: "Gone-Missing" }] }]);
   } finally { await view.destroy(); delete globalThis.installedExtraInvoke; }
 });
 
-test("enabling a mod enables its dependencies and disabling asks about dependents", async () => {
+test("toggles send the cascade choice to the backend", async () => {
   const calls = [];
   const open = await installedFixture([
-    installedMod("A-Lib", { installOrder: 1, enabled: false }),
+    installedMod("A-Lib", { installOrder: 1, dependents: ["B-Mid"], enabledDependents: ["C-Top", "B-Mid"] }),
     installedMod("B-Mid", { installOrder: 2, enabled: false, dependencies: ["A-Lib"] }),
     installedMod("C-Top", { installOrder: 3, dependencies: ["B-Mid"] }),
-    installedMod("D-Solo", { installOrder: 4, enabled: false }),
   ], calls);
   const view = await open();
-  const switches = () => calls.filter(([command]) => command === "set_profile_mod_enabled").map(([, args]) => `${args.fullName}:${args.enabled}`);
+  const switches = () => calls.filter(([command]) => command === "set_profile_mods_enabled").map(([, args]) => `${args.fullNames.join(",")}:${args.mode}`);
   try {
     const target = view.target;
     const toggles = () => [...target.querySelectorAll('li input[type="checkbox"]')];
     toggles()[1].click(); await settle();
-    assert.deepEqual(switches(), ["A-Lib:true", "B-Mid:true"], "dependencies are enabled first");
+    assert.deepEqual(switches(), ["B-Mid:enable"]);
     calls.length = 0;
     toggles()[0].click(); await settle();
     const dialog = target.querySelector('[role="dialog"]');
-    assert.ok(dialog.textContent.includes("Top"), "the dialog lists the enabled dependents");
+    assert.ok(dialog.textContent.includes("Top") && dialog.textContent.includes("Mid"), "the dialog lists the enabled dependents");
     assert.deepEqual(switches(), [], "nothing changes before the choice");
     button(dialog, "Disattiva solo questa").click(); await settle();
-    assert.deepEqual(switches(), ["A-Lib:false"]);
+    assert.deepEqual(switches(), ["A-Lib:disable"]);
+    toggles()[0].click(); await settle();
     calls.length = 0;
-    toggles()[1].click(); await settle();
+    toggles()[0].click(); await settle();
     button(target.querySelector('[role="dialog"]'), "Disattiva anche le dipendenti").click(); await settle();
-    assert.deepEqual(switches(), ["C-Top:false", "B-Mid:false"]);
+    assert.deepEqual(switches(), ["A-Lib:disableWithDependents"]);
     calls.length = 0;
-    toggles()[3].click(); await settle();
-    assert.deepEqual(switches(), ["D-Solo:true"], "mods nobody needs switch without asking");
+    toggles()[2].click(); await settle();
+    assert.deepEqual(switches(), ["C-Top:disable"], "mods nobody needs switch without asking");
+  } finally { await view.destroy(); delete globalThis.installedExtraInvoke; }
+});
+
+test("a toggle that partly fails reports the failed mods", async () => {
+  const calls = [];
+  const failed = [{ fullName: "A-Lib", message: "Stop the game before changing its installation" }];
+  const open = await installedFixture([
+    installedMod("A-Lib", { installOrder: 1, enabled: false }),
+    installedMod("B-Top", { installOrder: 2, enabled: false, dependencies: ["A-Lib"] }),
+  ], calls, { switched: { changed: ["B-Top"], failed } });
+  const view = await open();
+  try {
+    [...view.target.querySelectorAll('li input[type="checkbox"]')][1].click(); await settle();
+    assert.ok(view.target.textContent.includes("Mod attivate: 1. Alcune non sono state attivate:"));
+    assert.ok(view.target.textContent.includes("Lib: Chiudi il gioco prima di modificarne l'installazione."));
   } finally { await view.destroy(); delete globalThis.installedExtraInvoke; }
 });
 
@@ -438,7 +416,7 @@ test("enable all and disable all report the mods that failed", async () => {
     installedMod("BepInEx-BepInExPack", { isLoader: true }),
     installedMod("A-Lib", { installOrder: 1 }),
     installedMod("B-Top", { installOrder: 2, enabled: false }),
-  ], calls, { bulk: { changed: 1, failed: [{ fullName: "B-Top", message: "Stop the game before changing its installation" }] } });
+  ], calls, { bulk: { changed: ["A-Lib"], failed: [{ fullName: "B-Top", message: "Stop the game before changing its installation" }] } });
   const view = await open();
   try {
     const target = view.target;

@@ -15,7 +15,7 @@
   import TextField from "../../components/ui/TextField.svelte";
   import Toggle from "../../components/ui/Toggle.svelte";
   import { pickModArchive } from "../../services/dialog";
-  import type { ModProfile, PackageDetails, ProfileMod } from "../../services/modding";
+  import type { ModProfile, ModSwitch, PackageDetails, ProfileMod } from "../../services/modding";
   import {
     importLocalArchive,
     installPackages,
@@ -33,15 +33,9 @@
     arrangeInstalledMods,
     classifyModdingError,
     defaultInstalledFilters,
-    dependencyFix,
     dependencyIssueLabels,
-    dependencyIssues,
-    dependentsOf,
-    describeModdingError,
     disabledPositionOptions,
     displayPackageId,
-    enabledDependents,
-    enablePlan,
     hasInstalledFilters,
     indexByFullName,
     installedSortOptions,
@@ -49,7 +43,7 @@
     modKey,
     packageTitle,
     splitFullName,
-    type DependencyIssues,
+    toggleNotice,
     type DisabledPosition,
     type InstalledSort,
     type ResultNotice,
@@ -90,7 +84,6 @@
 
   let filters = $state({ ...defaultInstalledFilters });
   const visible = $derived(arrangeInstalledMods($mods.data, filters, updateKeys));
-  const issues = $derived(dependencyIssues($mods.data));
   const sortOptions = $derived(installedSortOptions($language));
   const positionOptions = $derived(disabledPositionOptions($language));
 
@@ -126,8 +119,8 @@
     return () => { cancelled = true; };
   });
 
-  const removeDependents = $derived(removeTarget === null ? [] : dependentsOf(removeTarget.fullName, $mods.data));
-  const disableDependents = $derived(disableTarget === null ? [] : enabledDependents(disableTarget.fullName, $mods.data));
+  const removeDependents = $derived(removeTarget?.dependents ?? []);
+  const disableDependents = $derived(disableTarget?.enabledDependents ?? []);
 
   function fail(error: unknown): void {
     const failure = classifyModdingError(error, $language);
@@ -151,9 +144,13 @@
     else notice = next;
   }
 
-  const switchMods = (fullNames: string[], enabled: boolean) => run(async () => {
+  async function switchMods(fullNames: string[], mode: ModSwitch): Promise<void> {
+    notice = toggleNotice(await setModsEnabled(gameId, profile.id, fullNames, mode), mode === "enable", $language);
+  }
+
+  const switchFromToggle = (fullNames: string[], mode: ModSwitch) => run(async () => {
     try {
-      await setModsEnabled(gameId, profile.id, fullNames, enabled);
+      await switchMods(fullNames, mode);
     } finally {
       toggleRevision++;
     }
@@ -162,9 +159,9 @@
   // Switching a mod on also switches on the mods it needs; switching it off asks about the mods that need it.
   function toggle(mod: ProfileMod, enabled: boolean): void {
     if (enabled) {
-      void switchMods(enablePlan([mod.fullName], $mods.data), true);
-    } else if (enabledDependents(mod.fullName, $mods.data).length === 0) {
-      void switchMods([mod.fullName], false);
+      void switchFromToggle([mod.fullName], "enable");
+    } else if (mod.enabledDependents.length === 0) {
+      void switchFromToggle([mod.fullName], "disable");
     } else {
       disableTarget = mod;
       toggleRevision++;
@@ -174,30 +171,23 @@
   function disableChosen(withDependents: boolean): void {
     const mod = disableTarget;
     if (mod === null) return;
-    const names = withDependents ? [...disableDependents, mod.fullName] : [mod.fullName];
     disableTarget = null;
-    void switchMods(names, false);
+    void switchFromToggle([mod.fullName], withDependents ? "disableWithDependents" : "disable");
   }
 
-  const fixDependencies = (found: DependencyIssues) => run(async () => {
-    const fix = dependencyFix(found, $mods.data);
-    if (fix.enable.length > 0) await setModsEnabled(gameId, profile.id, fix.enable, true);
-    if (fix.install.length > 0) showInstall(await installPackages(gameId, profile.id, fix.install.map((fullName) => ({ fullName }))));
+  const fixDependencies = (mod: ProfileMod) => run(async () => {
+    if (mod.disabledDependencies.length > 0) await switchMods(mod.disabledDependencies, "enable");
+    if (mod.missingDependencies.length > 0) {
+      showInstall(await installPackages(gameId, profile.id, mod.missingDependencies.map((fullName) => ({ fullName }))));
+    }
   });
 
   const switchAll = (enabled: boolean) => run(async () => {
     const outcome = await setAllModsEnabled(gameId, profile.id, enabled);
-    if (outcome.failed.length === 0) {
-      showToast(enabled ? t("Mod attivate: {0}.", $language, [outcome.changed]) : t("Mod disattivate: {0}.", $language, [outcome.changed]), "success");
-      return;
-    }
-    notice = {
-      tone: "warning",
-      message: enabled
-        ? t("Mod attivate: {0}. Alcune non sono state attivate:", $language, [outcome.changed])
-        : t("Mod disattivate: {0}. Alcune non sono state disattivate:", $language, [outcome.changed]),
-      items: outcome.failed.map((failure) => `${packageTitle(splitFullName(failure.fullName).name)}: ${describeModdingError(failure.message, $language)}`),
-    };
+    notice = toggleNotice(outcome, enabled, $language);
+    if (notice !== null) return;
+    const changed = outcome.changed.length;
+    showToast(enabled ? t("Mod attivate: {0}.", $language, [changed]) : t("Mod disattivate: {0}.", $language, [changed]), "success");
   });
 
   const installVersion = (fullName: string, version: string | null) => run(async () =>
@@ -331,7 +321,7 @@
               {@const title = packageTitle(name.name)}
               {@const detail = details[modKey(mod.fullName)] ?? null}
               {@const update = updateIndex.get(modKey(mod.fullName))}
-              {@const issue = issues.get(modKey(mod.fullName))}
+              {@const issueLabels = dependencyIssueLabels(mod, $language)}
               {@const opened = tabs.active === modKey(mod.fullName)}
             <li class="flex flex-wrap items-center gap-3 rounded-card legio-glass p-3 transition-colors hover:bg-legio-fill {opened ? 'ring-1 ring-legio-accent ring-inset' : ''}">
               <div class="min-w-0 flex-1 basis-48">
@@ -357,12 +347,12 @@
                     </span>
                   </span>
                 </button>
-                {#if issue !== undefined}
+                {#if issueLabels.length > 0}
                   <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
-                    {#each dependencyIssueLabels(issue, $language) as label, index (index)}
+                    {#each issueLabels as label, index (index)}
                       <Badge tone="warning" title={label}><Icon name="warning" size="sm" /></Badge>
                     {/each}
-                    <Button label={t("Risolvi", $language)} variant="secondary" size="sm" {disabled} onClick={() => void fixDependencies(issue)} />
+                    <Button label={t("Risolvi", $language)} variant="secondary" size="sm" {disabled} onClick={() => void fixDependencies(mod)} />
                   </div>
                 {/if}
               </div>

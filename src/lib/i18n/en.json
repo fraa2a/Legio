@@ -850,7 +850,7 @@
   "Inserisci un numero intero": "Enter a whole number",
   "Il valore minimo è {0}": "The minimum value is {0}",
   "Il valore massimo è {0}": "The maximum value is {0}",
-  "Il file supera il limite di 2 MiB": "The file exceeds the 2 MiB limit",
+  "Il file è troppo grande per essere salvato.": "The file is too large to be saved.",
   "Il codice deve avere il formato 123e4567-e89b-12d3-a456-426614174000": "The code must look like 123e4567-e89b-12d3-a456-426614174000",
   "Modulo": "Form",
   "Testo": "Text",

@@ -25,7 +25,7 @@
   import { describeModdingError } from "./modding-model";
   import {
     collectEdits, configSortOptions, currentValue, fileListPageSize, filterConfigFiles, filterSections, findInvalidEntries,
-    initialOpenSections, sectionChangeCount, setChange, splitConfigPath, textSizeError, type ConfigChanges, type ConfigSort,
+    initialOpenSections, sectionChangeCount, setChange, splitConfigPath, type ConfigChanges, type ConfigSort,
   } from "./mod-config-model";
 
   let { gameId, profileId, onDirtyChange }: {
@@ -71,7 +71,6 @@
   const dirty = $derived(
     file === null ? false : effectiveMode === "raw" ? rawText !== file.text : Object.keys(changes).length > 0,
   );
-  const sizeError = $derived(effectiveMode === "raw" && dirty ? textSizeError(rawText, $language) : null);
   const invalid = $derived(effectiveMode === "form" && config !== null && findInvalidEntries(config, changes) > 0);
   const modeOptions = $derived([
     { value: "form", label: t("Modulo", $language) },
@@ -182,7 +181,7 @@
   }
 
   async function save(): Promise<void> {
-    if (file === null || selectedPath === null || !dirty || saving || invalid || sizeError !== null) return;
+    if (file === null || selectedPath === null || !dirty || saving || invalid) return;
     const path = selectedPath;
     saving = true;
     saveError = null;
@@ -314,7 +313,7 @@
           <Icon name="trash" />
         </IconButton>
         <Button label={t("Annulla modifiche", $language)} variant="secondary" size="sm" disabled={!dirty || saving} onClick={discard} />
-        <Button label={saving ? t("Salvataggio...", $language) : t("Salva", $language)} size="sm" disabled={!dirty || saving || invalid || sizeError !== null} onClick={() => void save()} />
+        <Button label={saving ? t("Salvataggio...", $language) : t("Salva", $language)} size="sm" disabled={!dirty || saving || invalid} onClick={() => void save()} />
       </header>
 
       {#if actionError !== null}<div class="px-4 pt-4"><ErrorBanner message={actionError} /></div>{/if}
@@ -324,7 +323,6 @@
         <div class="flex flex-1 items-center justify-center gap-3 text-sm text-legio-fg" role="status"><Spinner />{t("Caricamento...", $language)}</div>
       {:else}
         {#if saveError !== null}<div class="px-4 pt-4"><ErrorBanner message={saveError} /></div>{/if}
-        {#if sizeError !== null}<div class="px-4 pt-4"><ErrorBanner message={sizeError} tone="warning" /></div>{/if}
         {#if effectiveMode === "raw"}
           <div class="flex min-h-0 flex-1 p-4">
             <TextField

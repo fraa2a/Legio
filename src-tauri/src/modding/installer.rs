@@ -6,12 +6,13 @@
 
 use std::{collections::HashMap, fmt, fs, path::Path};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::archive_cache::{
     CacheStage, FetchPackage, PackageOrigin, TempPath, ensure_cached, package_dir,
 };
 use super::dependencies::{InstallRequest, PackageSource, ResolveMode, package_key, resolve_plan};
+use super::dependency_graph::DependencyGraph;
 use super::ecosystem::{EcosystemSchema, GameEntry, ModloaderPackage, PackageLoader};
 use super::install_rules::{PlannedFile, plan_install};
 use super::loader_install::{plan_loader_install, unsupported_loader_message};
@@ -472,8 +473,12 @@ pub(crate) fn uninstall_mod(
     let _guard = ctx.locks.lock(&profile.id)?;
     let mods = ctx.database.profile_mods(&profile.id)?;
     let record = find_mod(&mods, full_name)?;
-    let dependencies = declared_dependencies(ctx.database, ctx.paths, &mods);
-    let dependents = find_dependents(&mods, &dependencies, record);
+    let declared = declared_dependencies(ctx.database, ctx.paths, &mods);
+    let dependents = DependencyGraph::new(&mods, &declared)
+        .dependents(record)
+        .into_iter()
+        .map(|dependent| dependent.full_name.clone())
+        .collect();
     let files = ctx
         .database
         .profile_mod_files(&profile.id, &record.full_name)?;
@@ -530,7 +535,8 @@ fn toggle_mod(
     }
 }
 
-/// A mod that [`set_all_mods_enabled`] could not switch.
+/// A mod that [`set_mods_enabled`] or [`set_all_mods_enabled`] could not
+/// switch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ToggleFailure {
@@ -538,57 +544,120 @@ pub(crate) struct ToggleFailure {
     pub(crate) message: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ToggleAllOutcome {
-    /// Mods that were switched.
-    pub(crate) changed: usize,
+pub(crate) struct ToggleOutcome {
+    /// Mods that were switched, in the order they were switched.
+    pub(crate) changed: Vec<String>,
     pub(crate) failed: Vec<ToggleFailure>,
 }
 
+/// What [`set_mods_enabled`] switches besides the mods asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum ModSwitch {
+    /// Enables the mods and the disabled mods they need, dependencies first.
+    Enable,
+    /// Disables only the mods asked for.
+    Disable,
+    /// Disables the mods and the enabled mods that need them, the most
+    /// dependent first.
+    DisableWithDependents,
+}
+
+/// Switches `full_names` and the mods `mode` adds, planned and applied under
+/// one hold of the profile lock. A failing mod stays as it was and the others
+/// are still processed. `restore_cache` downloads a lost package again.
+pub(crate) fn set_mods_enabled(
+    ctx: &ModdingContext<'_>,
+    profile_id: &str,
+    full_names: &[String],
+    mode: ModSwitch,
+    restore_cache: impl FnMut(&PackageVersionId) -> Result<(), String>,
+) -> Result<ToggleOutcome, InstallError> {
+    let (profile, profile_dir) = profile_with_directory(ctx.database, ctx.paths, profile_id)?;
+    let _guard = ctx.locks.lock(&profile.id)?;
+    let mods = ctx.database.profile_mods(&profile.id)?;
+    let declared = declared_dependencies(ctx.database, ctx.paths, &mods);
+    let graph = DependencyGraph::new(&mods, &declared);
+    let targets = full_names
+        .iter()
+        .map(|full_name| find_mod(&mods, full_name))
+        .collect::<Result<Vec<_>, _>>()?;
+    let plan = match mode {
+        ModSwitch::Enable => graph.enable_order(&targets),
+        ModSwitch::Disable => graph.disable_order(&targets, false),
+        ModSwitch::DisableWithDependents => graph.disable_order(&targets, true),
+    };
+    let enabled = mode == ModSwitch::Enable;
+    Ok(switch_mods(
+        ctx,
+        &profile,
+        &profile_dir,
+        &plan,
+        enabled,
+        restore_cache,
+    ))
+}
+
 /// Enables or disables every mod of the profile except the loader under one
-/// hold of the profile lock. Each mod is switched like in
-/// [`set_mod_enabled`], so a failing one stays as it was and the others are
-/// still processed. Enabling goes in install order, disabling in reverse.
-/// `restore_cache` downloads a lost package again.
+/// hold of the profile lock, like [`set_mods_enabled`]. Enabling goes in
+/// install order, disabling in reverse.
 pub(crate) fn set_all_mods_enabled(
     ctx: &ModdingContext<'_>,
     profile_id: &str,
     enabled: bool,
-    mut restore_cache: impl FnMut(&PackageVersionId) -> Result<(), String>,
-) -> Result<ToggleAllOutcome, InstallError> {
+    restore_cache: impl FnMut(&PackageVersionId) -> Result<(), String>,
+) -> Result<ToggleOutcome, InstallError> {
     let (profile, profile_dir) = profile_with_directory(ctx.database, ctx.paths, profile_id)?;
     let _guard = ctx.locks.lock(&profile.id)?;
     let mut mods = ctx.database.profile_mods(&profile.id)?;
     if !enabled {
         mods.reverse();
     }
-    let mut outcome = ToggleAllOutcome {
-        changed: 0,
-        failed: Vec::new(),
-    };
-    for record in &mods {
-        if record.enabled == enabled || ctx.find_loader(&record.full_name).is_some() {
-            continue;
-        }
-        let result = match toggle_mod(ctx, &profile, &profile_dir, record, enabled) {
+    let plan: Vec<_> = mods
+        .iter()
+        .filter(|record| record.enabled != enabled && ctx.find_loader(&record.full_name).is_none())
+        .collect();
+    Ok(switch_mods(
+        ctx,
+        &profile,
+        &profile_dir,
+        &plan,
+        enabled,
+        restore_cache,
+    ))
+}
+
+/// The profile lock must be held by the caller.
+fn switch_mods(
+    ctx: &ModdingContext<'_>,
+    profile: &ModProfile,
+    profile_dir: &Path,
+    plan: &[&ProfileMod],
+    enabled: bool,
+    mut restore_cache: impl FnMut(&PackageVersionId) -> Result<(), String>,
+) -> ToggleOutcome {
+    let mut outcome = ToggleOutcome::default();
+    for record in plan {
+        let result = match toggle_mod(ctx, profile, profile_dir, record, enabled) {
             Err(InstallError::CacheMissing {
                 package,
                 online_source: true,
             }) => restore_cache(&package)
                 .map_err(InstallError::Failed)
-                .and_then(|()| toggle_mod(ctx, &profile, &profile_dir, record, enabled)),
+                .and_then(|()| toggle_mod(ctx, profile, profile_dir, record, enabled)),
             result => result,
         };
         match result {
-            Ok(()) => outcome.changed += 1,
+            Ok(()) => outcome.changed.push(record.full_name.clone()),
             Err(error) => outcome.failed.push(ToggleFailure {
                 full_name: record.full_name.clone(),
                 message: error.to_string(),
             }),
         }
     }
-    Ok(outcome)
+    outcome
 }
 
 fn enable_mod(
@@ -625,26 +694,6 @@ fn enable_mod(
         .set_profile_mod_enabled(&profile.id, &record.full_name, true)
         .map_err(|error| restore(&written, error))?;
     Ok(())
-}
-
-fn find_dependents(
-    mods: &[ProfileMod],
-    dependencies: &HashMap<String, Vec<String>>,
-    target: &ProfileMod,
-) -> Vec<String> {
-    mods.iter()
-        .filter(|other| !other.full_name.eq_ignore_ascii_case(&target.full_name))
-        .filter(|other| {
-            dependencies
-                .get(&other.full_name.to_lowercase())
-                .is_some_and(|declared| {
-                    declared
-                        .iter()
-                        .any(|package| package.eq_ignore_ascii_case(&target.full_name))
-                })
-        })
-        .map(|other| other.full_name.clone())
-        .collect()
 }
 
 /// The packages (`Owner-Name`, no version, no duplicates) a package directory
@@ -1628,7 +1677,7 @@ mod tests {
         let ctx = env.ctx();
 
         let outcome = set_all_mods_enabled(&ctx, &env.profile.id, false, |_| Ok(())).unwrap();
-        assert_eq!((outcome.changed, outcome.failed.len()), (2, 0));
+        assert_eq!((outcome.changed.len(), outcome.failed.len()), (2, 0));
         assert_eq!(
             enabled_flags(&env),
             [
@@ -1642,14 +1691,46 @@ mod tests {
         assert!(env.exists("winhttp.dll"));
 
         let outcome = set_all_mods_enabled(&ctx, &env.profile.id, true, |_| Ok(())).unwrap();
-        assert_eq!((outcome.changed, outcome.failed.len()), (2, 0));
+        assert_eq!((outcome.changed.len(), outcome.failed.len()), (2, 0));
         assert!(enabled_flags(&env).iter().all(|(_, enabled)| *enabled));
         assert!(env.exists("BepInEx/plugins/Owner-Mod/Mod.dll"));
         assert!(env.exists("BepInEx/plugins/Other-Addon/Addon.dll"));
 
         // Nothing left to switch.
         let outcome = set_all_mods_enabled(&ctx, &env.profile.id, true, |_| Ok(())).unwrap();
-        assert_eq!((outcome.changed, outcome.failed.len()), (0, 0));
+        assert_eq!((outcome.changed.len(), outcome.failed.len()), (0, 0));
+    }
+
+    #[test]
+    fn switches_mods_with_their_dependencies_under_one_lock() {
+        let env = Env::new();
+        env.install(&repo(), &["Other-Addon-1.0.0"], ResolveMode::Latest)
+            .unwrap();
+        let ctx = env.ctx();
+        let switch = |names: &[&str], mode| {
+            let names: Vec<String> = names.iter().map(|name| (*name).to_owned()).collect();
+            set_mods_enabled(&ctx, &env.profile.id, &names, mode, |_| Ok(())).unwrap()
+        };
+
+        let outcome = switch(&["owner-mod"], ModSwitch::Disable);
+        assert_eq!(outcome.changed, ["Owner-Mod"]);
+        let outcome = switch(&["Other-Addon"], ModSwitch::Enable);
+        assert_eq!(
+            outcome.changed,
+            ["Owner-Mod"],
+            "the enabled mod is left alone"
+        );
+        let outcome = switch(&["Owner-Mod"], ModSwitch::DisableWithDependents);
+        assert_eq!(outcome.changed, ["Other-Addon", "Owner-Mod"]);
+        let outcome = switch(&["Other-Addon"], ModSwitch::Enable);
+        assert_eq!(outcome.changed, ["Owner-Mod", "Other-Addon"]);
+        assert!(enabled_flags(&env).iter().all(|(_, enabled)| *enabled));
+        assert!(env.exists("BepInEx/plugins/Other-Addon/Addon.dll"));
+
+        let names = ["Missing-Mod".to_owned()];
+        assert!(
+            set_mods_enabled(&ctx, &env.profile.id, &names, ModSwitch::Enable, |_| Ok(())).is_err()
+        );
     }
 
     #[test]
@@ -1674,7 +1755,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(restored.into_inner(), ["Owner-Mod-2.0.0"]);
-        assert_eq!(outcome.changed, 1);
+        assert_eq!(outcome.changed, ["Other-Addon"]);
         assert_eq!(
             outcome.failed,
             [ToggleFailure {

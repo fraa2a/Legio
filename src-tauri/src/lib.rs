@@ -669,7 +669,7 @@ fn run_application(
             install_commands::update_profile_mods,
             install_commands::cancel_mod_install,
             profile_commands::uninstall_profile_mod,
-            profile_commands::set_profile_mod_enabled,
+            profile_commands::set_profile_mods_enabled,
             profile_commands::import_local_mod,
             config_files::list_mod_config_files,
             config_files::read_mod_config_file,

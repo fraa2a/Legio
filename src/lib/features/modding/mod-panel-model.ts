@@ -100,10 +100,10 @@ export function modTabTitle(tab: ModTab): string {
   return packageTitle(tab.summary?.name ?? splitFullName(tab.fullName).name);
 }
 
-export function versionChoices(versions: readonly PackageVersionDetails[], language: Language): { value: string; label: string }[] {
-  return versions.map((entry, index) => ({
+export function versionChoices(versions: readonly PackageVersionDetails[], latest: string, language: Language): { value: string; label: string }[] {
+  return versions.map((entry) => ({
     value: entry.versionNumber,
-    label: index === 0 ? t("{0} (ultima)", language, [entry.versionNumber]) : entry.versionNumber,
+    label: entry.versionNumber === latest ? t("{0} (ultima)", language, [entry.versionNumber]) : entry.versionNumber,
   }));
 }
 

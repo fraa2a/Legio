@@ -19,6 +19,8 @@ export interface ModdableGame {
   packageLoader: PackageLoader | null;
   supported: boolean;
   binding: GameModding | null;
+  // False for a game matched through its Steam app id, unless a manual binding overrides the match.
+  canChooseEcosystem: boolean;
 }
 
 export interface EcosystemGameSummary { id: string; displayName: string; packageLoader: PackageLoader; supported: boolean }
@@ -36,6 +38,12 @@ export interface ProfileMod {
   isLoader: boolean;
   // Packages (`Owner-Name`) the installed version declares, read from its stored manifest.
   dependencies: string[];
+  missingDependencies: string[];
+  // Installed but off while this mod is on.
+  disabledDependencies: string[];
+  dependents: string[];
+  // Directly or through other enabled mods, the most dependent first.
+  enabledDependents: string[];
 }
 
 export interface CatalogStatus { ecosystemGameId: string; packageCount: number; syncedAt: number }
@@ -98,7 +106,8 @@ export interface ModInstallResult { installed: string[]; skipped: string[]; warn
 export interface ModUpdate { fullName: string; installedVersion: string; latestVersion: string }
 export interface UninstallOutcome { dependents: string[] }
 export interface ToggleFailure { fullName: string; message: string }
-export interface ToggleAllOutcome { changed: number; failed: ToggleFailure[] }
+export interface ToggleOutcome { changed: string[]; failed: ToggleFailure[] }
+export type ModSwitch = "enable" | "disable" | "disableWithDependents";
 export interface DeleteProfileOutcome { directoryError: string | null }
 export interface LocalImportOutcome { installed: ProfileMod; missingDependencies: string[] }
 
@@ -171,8 +180,9 @@ export const updateProfileMods = (profileId: string, fullNames: string[] | null 
 export const cancelModInstall = (profileId: string) => invoke<void>("cancel_mod_install", { profileId });
 export const uninstallProfileMod = (profileId: string, fullName: string) =>
   invoke<UninstallOutcome>("uninstall_profile_mod", { profileId, fullName });
-export const setProfileModEnabled = (profileId: string, fullName: string, enabled: boolean) =>
-  invoke<void>("set_profile_mod_enabled", { profileId, fullName, enabled });
+// Enabling adds the disabled dependencies, `disableWithDependents` the enabled dependents.
+export const setProfileModsEnabled = (profileId: string, fullNames: string[], mode: ModSwitch) =>
+  invoke<ToggleOutcome>("set_profile_mods_enabled", { profileId, fullNames, mode });
 export const importLocalMod = (profileId: string, archivePath: string) =>
   invoke<LocalImportOutcome>("import_local_mod", { profileId, archivePath });
 
@@ -203,6 +213,6 @@ export const getModPackageDocument = (fullName: string, version: string, documen
 export const openModExternalLink = (url: string) => invoke<void>("open_mod_external_link", { url });
 
 export const setAllProfileModsEnabled = (profileId: string, enabled: boolean) =>
-  invoke<ToggleAllOutcome>("set_all_profile_mods_enabled", { profileId, enabled });
+  invoke<ToggleOutcome>("set_all_profile_mods_enabled", { profileId, enabled });
 
 export const getModProfileSize = (profileId: string) => invoke<number>("get_mod_profile_size", { profileId });
