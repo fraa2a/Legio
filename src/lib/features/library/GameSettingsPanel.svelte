@@ -19,6 +19,7 @@
     type NativeLaunchConfig,
   } from "../../services/game-settings";
   import { appInfo } from "../../stores/app-info";
+  import { usesCompatibilityRunner } from "./library-model";
   import Button from "../../components/ui/Button.svelte";
   import RadioCard from "../../components/ui/RadioCard.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
@@ -74,7 +75,7 @@
   }
   const compatibilitySnapshot = $derived(JSON.stringify({ overrides, argumentsBefore, argumentsAfter, environmentText, dllOverridesText, wrapperText }));
   const nativeSnapshot = $derived(JSON.stringify({ nativeArguments, nativeWorkingDirectory, nativeEnvironmentText }));
-  const compatibilityGame = $derived($appInfo.data.platform === "linux" && (game.executablePath === null || /\.exe$/i.test(game.executablePath)));
+  const compatibilityGame = $derived(usesCompatibilityRunner(game, $appInfo.data.platform));
   const currentSnapshot = $derived(compatibilityGame ? compatibilitySnapshot : nativeSnapshot);
 
   onMount(() => {

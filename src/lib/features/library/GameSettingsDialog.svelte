@@ -32,6 +32,7 @@
   import GameModSettings from "../modding/GameModSettings.svelte";
   import { launchStateByGame } from "../../stores/launch";
   import { appInfo } from "../../stores/app-info";
+  import { usesCompatibilityRunner } from "./library-model";
 
   let { game, onClose, onRemoved }: {
     game: Game;
@@ -51,7 +52,7 @@
     { id: "mods", label: t("Mod", $language), icon: "mods" },
     { id: "danger", label: t("Zona pericolosa", $language), icon: "warning" },
   ] satisfies { id: string; label: string; icon: "settings" | "play" | "folder" | "image" | "wrench" | "mods" | "warning" }[]);
-  const noCompatibility = $derived(steamManaged || $appInfo.data.platform !== "linux" || (game.executablePath !== null && !/\.exe$/i.test(game.executablePath)));
+  const noCompatibility = $derived(steamManaged || !usesCompatibilityRunner(game, $appInfo.data.platform));
   const launchable = $derived(steamManaged || game.executablePath !== null);
   const categories = $derived(allCategories.filter((category) =>
     (category.id !== "compatibility" || !noCompatibility) && (category.id !== "profiles" || launchable)));
