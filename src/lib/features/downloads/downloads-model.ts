@@ -33,7 +33,7 @@ export function splitDownloads(jobs: DownloadJob[]): DownloadSections {
 }
 
 export function isReorderable(job: DownloadJob): boolean {
-  return downloadState(job.status)?.reorderable ?? false;
+  return job.actions.reorder;
 }
 
 export function reorderPayload(primary: DownloadJob | null, queue: DownloadJob[]): string[] {

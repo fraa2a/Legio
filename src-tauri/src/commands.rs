@@ -1244,7 +1244,7 @@ pub async fn get_legio_source(
 pub async fn check_game_links(
     app: AppHandle,
     steam_app_id: u32,
-) -> Result<std::collections::BTreeMap<String, u64>, String> {
+) -> Result<Vec<link_check::ReleaseLinks>, String> {
     link_check::check_game(app, steam_app_id).await
 }
 

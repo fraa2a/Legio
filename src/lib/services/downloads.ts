@@ -1,6 +1,16 @@
-import { downloadState, supportsDownloadAction, type DownloadStatus } from "./download-status";
+import { downloadState, type DownloadStatus } from "./download-status";
 import { t } from "../i18n";
 import { invoke } from "./invoke";
+
+/** Commands the backend accepts for the job in its current state. */
+export interface DownloadActions {
+  pause: boolean;
+  resume: boolean;
+  retry: boolean;
+  cancel: boolean;
+  remove: boolean;
+  reorder: boolean;
+}
 
 export interface DownloadJob {
   id: string;
@@ -23,6 +33,7 @@ export interface DownloadJob {
   sourceEntryId?: string | null;
   /** Part being written and part count of a multipart archive. */
   parts?: { current: number; total: number } | null;
+  actions: DownloadActions;
 }
 
 export type SpaceVerdict = "enough" | "tight" | "insufficient" | "unknown";
@@ -55,26 +66,6 @@ export function describeDownloadStatus(status: string): string {
 
 export function isActiveDownloadStatus(status: string): boolean {
   return downloadState(status)?.active ?? false;
-}
-
-export function canPauseDownload(status: string): boolean {
-  return supportsDownloadAction(status, "pause");
-}
-
-export function canResumeDownload(status: string): boolean {
-  return supportsDownloadAction(status, "resume");
-}
-
-export function canRetryDownload(status: string, error?: string | null): boolean {
-  return supportsDownloadAction(status, "retry") || ((status === "downloaded" || status === "finalizing" || status === "staged") && Boolean(error));
-}
-
-export function canCancelDownload(status: string): boolean {
-  return supportsDownloadAction(status, "cancel");
-}
-
-export function canRemoveDownload(status: string, error?: string | null): boolean {
-  return supportsDownloadAction(status, "remove") || (status === "downloaded" && Boolean(error));
 }
 
 export function isFinishedDownloadStatus(status: string): boolean {

@@ -36,8 +36,17 @@ export function refreshLegioSource(): Promise<SourceSnapshot> {
   return invoke<SourceSnapshot>("refresh_legio_source");
 }
 
-export function checkGameLinks(steamAppId: number): Promise<Record<string, number>> {
-  return invoke<Record<string, number>>("check_game_links", { steamAppId });
+/** Reachable links of one cached release, identified by source, download URL and version. */
+export interface ReleaseLinks {
+  sourceId: string;
+  url: string;
+  version: string;
+  sizeBytes: number | null;
+  uris: string[];
+}
+
+export function checkGameLinks(steamAppId: number): Promise<ReleaseLinks[]> {
+  return invoke<ReleaseLinks[]>("check_game_links", { steamAppId });
 }
 
 export interface InstalledSource {
@@ -49,10 +58,9 @@ export interface InstalledSource {
   warning: string | null;
   gameCount: number;
   supportGameUpdates?: boolean;
-  name?: string;
+  name: string;
   format?: "legio" | "hydra";
   diagnostics?: { rejected: number; unsupported: number; unresolved: number; reasons: string[] };
-  candidates?: Record<string, string[]>;
 }
 
 export function addDownloadSource(url: string): Promise<SourceSnapshot> {

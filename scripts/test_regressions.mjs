@@ -219,10 +219,6 @@ test("catalog load more requests the next remote page", async () => {
   await loadMoreCatalog("portal", 60);
   assert.deepEqual(pages, [50]);
   assert.equal(get(state).results.length, 3);
-  globalThis.legioSourceFixture.set({ data: { manifest: { verified: [{ steamAppId: 400 }], unverified: [] }, stale: false } });
-  assert.equal(get(state).results[0].availability, "verified", "a refreshed source updates visible search results");
-  globalThis.legioSourceFixture.set({ data: { manifest: null, stale: false } });
-  assert.equal(get(state).results[0].availability, "unknown", "removing the last source clears cached availability");
 });
 
 test("library groups preserve matching versions and sum all installations through the summary index", async () => {
@@ -243,12 +239,11 @@ test("library groups preserve matching versions and sum all installations throug
 });
 
 test("source indexing preserves verified precedence and release order", async () => {
-  const { sourceStatusFor, sourceReleasesFor } = await loadModule("../src/lib/features/store/source-status.ts");
+  const { sourceReleasesFor } = await loadModule("../src/lib/features/store/source-status.ts");
   const manifest = { verified: [{ steamAppId: 400, name: "verified" }, { steamAppId: 400, name: "second" }], unverified: [{ steamAppId: 400, name: "unverified" }] };
-  assert.equal(sourceStatusFor(manifest, 400).entry.name, "verified");
   assert.deepEqual(sourceReleasesFor(manifest, 400).map(({ entry }) => entry.name), ["verified", "second", "unverified"]);
-  assert.equal(sourceStatusFor(manifest, 401).availability, "unavailable");
-  assert.equal(sourceStatusFor(null, 400).availability, "unknown");
+  assert.deepEqual(sourceReleasesFor(manifest, 401), []);
+  assert.deepEqual(sourceReleasesFor(null, 400), []);
 });
 
 

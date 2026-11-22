@@ -3,7 +3,6 @@ import { cachedCatalogSearch, refreshCatalogCached, refreshCatalogPage, remember
 import { toMessage } from "../utils/errors";
 import type { LoadStatus } from "./resource";
 import { source } from "./source";
-import { sourceStatusFor } from "../features/store/source-status";
 
 interface CatalogState {
   query: string;
@@ -39,18 +38,13 @@ source.subscribe(({ data }) => {
     previousManifest = data.manifest;
     requestId++;
   }
-  catalog.update((state) => ({
-    ...state,
-    results: state.results.map((game) => ({ ...game, availability: sourceStatusFor(data.manifest, game.steamAppId).availability })),
-  }));
 });
 
 function applySearch(state: CatalogState, search: CatalogSearch, refreshing: boolean): CatalogState {
-  const snapshot = get(source).data;
   return {
     ...state,
     status: search.games.length === 0 ? "empty" : "ready",
-    results: search.games.map((game) => ({ ...game, availability: sourceStatusFor(snapshot.manifest, game.steamAppId).availability })),
+    results: search.games,
     total: search.total,
     nextOffset: search.nextOffset,
     stale: search.stale,

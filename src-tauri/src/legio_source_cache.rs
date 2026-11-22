@@ -29,7 +29,6 @@ pub struct InstalledSource {
     pub name: String,
     pub format: SourceFormat,
     pub diagnostics: crate::hydra_source::ImportDiagnostics,
-    pub candidates: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -204,7 +203,6 @@ fn snapshot(database: &Database, current_time: i64) -> Result<SourceSnapshot, St
             }),
             format: row.catalog.format,
             diagnostics: row.catalog.diagnostics.clone(),
-            candidates: row.catalog.candidates.clone(),
         })
         .collect();
     let warning = cache.as_ref().and_then(|cache| cache.warning.clone());

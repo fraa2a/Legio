@@ -1,5 +1,5 @@
 import type { CatalogGame } from "../../services/catalog";
-import type { InstalledSource, SourceEntry, SourceManifest } from "../../services/legio-source";
+import type { InstalledSource, ReleaseLinks, SourceEntry, SourceManifest } from "../../services/legio-source";
 
 export type SourceAvailability = CatalogGame["availability"];
 
@@ -54,14 +54,6 @@ export const availabilityMeta: Record<
   },
 };
 
-export function sourceStatusFor(
-  manifest: SourceManifest | null,
-  steamAppId: number,
-): SourceStatus {
-  if (manifest === null) return { availability: "unknown", entry: null };
-  return releaseIndex(manifest).get(steamAppId)?.[0] ?? { availability: "unavailable", entry: null };
-}
-
 export function sourceReleasesFor(
   manifest: SourceManifest | null,
   steamAppId: number,
@@ -75,19 +67,9 @@ export function sourceReleaseId(entry: SourceEntry): string {
 }
 
 export function sourceNameFor(entry: SourceEntry, sources: InstalledSource[]): string | undefined {
-  const origin = sources.find(source => source.id === entry.sourceId);
-  if (origin === undefined) return undefined;
-  return origin.name || new URL(origin.url).hostname;
+  return sources.find(source => source.id === entry.sourceId)?.name;
 }
 
-export function releaseLinks(entry: SourceEntry, sources: InstalledSource[]): string[] {
-  return sources.find(origin => origin.id === entry.sourceId)?.candidates?.[entry.id ?? ""] ?? [entry.download.url];
-}
-
-export function reachableReleases(
-  releases: SourceReleaseStatus[],
-  sources: InstalledSource[],
-  sizes: Record<string, number>,
-): SourceReleaseStatus[] {
-  return releases.filter(release => releaseLinks(release.entry, sources).some(uri => uri in sizes));
+export function releaseLinksFor(entry: SourceEntry, links: ReleaseLinks[]): ReleaseLinks | undefined {
+  return links.find(link => link.sourceId === entry.sourceId && link.url === entry.download.url && link.version === entry.release.version);
 }

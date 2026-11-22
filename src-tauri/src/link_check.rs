@@ -72,18 +72,46 @@ pub(crate) fn cached_size(database: &Database, uri: &str) -> Result<Option<u64>,
         .and_then(Result::ok))
 }
 
-/// Reachable download links of every cached release of a game, with exact sizes.
+/// Reachable links of one cached release, identified like the merged manifest
+/// does: by source, download URL and version.
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseLinks {
+    source_id: String,
+    url: String,
+    version: String,
+    /// The published size, or else the exact size of the first reachable link.
+    size_bytes: Option<u64>,
+    /// Reachable links in source order; empty when the release cannot be downloaded.
+    uris: Vec<String>,
+}
+
+impl ReleaseLinks {
+    fn keep_reachable(mut self, results: &LinkResults) -> Self {
+        self.uris
+            .retain(|uri| results.get(uri).is_some_and(Result::is_ok));
+        self.size_bytes = self.size_bytes.or_else(|| {
+            self.uris
+                .first()
+                .and_then(|uri| results.get(uri)?.as_ref().ok().copied())
+        });
+        self
+    }
+}
+
+/// Reachable download links of every cached release of a game.
 pub(crate) async fn check_game(
     app: tauri::AppHandle,
     steam_app_id: u32,
-) -> Result<BTreeMap<String, u64>, String> {
+) -> Result<Vec<ReleaseLinks>, String> {
     use tauri::Manager;
     let database = app
         .state::<crate::database::DatabaseState>()
         .shared_database()?;
     let read_database = database.clone();
-    let (allowed, refused) = tauri::async_runtime::spawn_blocking(move || {
+    let (allowed, refused, releases) = tauri::async_runtime::spawn_blocking(move || {
         let mut links = BTreeMap::new();
+        let mut releases = Vec::new();
         for row in crate::legio_source_cache::cached_rows(&read_database)?.iter() {
             for entry in row.manifest.verified.iter().chain(&row.manifest.unverified) {
                 if entry.steam_app_id != steam_app_id {
@@ -96,6 +124,13 @@ pub(crate) async fn check_game(
                     .cloned()
                     .unwrap_or_else(|| vec![entry.download.url.clone()]);
                 let policy = PlainHttp::for_hash(entry.download.sha256.as_deref());
+                releases.push(ReleaseLinks {
+                    source_id: row.id.clone(),
+                    url: entry.download.url.clone(),
+                    version: entry.release.version.clone(),
+                    size_bytes: entry.download.size_bytes,
+                    uris: uris.clone(),
+                });
                 for uri in uris {
                     // A link shared with an unhashed release is never probed over plain HTTP.
                     let policy = match links.get(&uri) {
@@ -115,16 +150,16 @@ pub(crate) async fn check_game(
                 .map(|(uri, (size, _))| (uri, size))
                 .collect::<Vec<_>>()
         };
-        Ok::<_, String>((strip(allowed), strip(refused)))
+        Ok::<_, String>((strip(allowed), strip(refused), releases))
     })
     .await
     .map_err(|error| format!("Source cache task failed: {error}"))??;
     let client = crate::download_resolver::client()?;
     let mut results = check_links(database.clone(), &client, allowed, PlainHttp::Allowed).await?;
     results.extend(check_links(database, &client, refused, PlainHttp::Refused).await?);
-    Ok(results
+    Ok(releases
         .into_iter()
-        .filter_map(|(uri, result)| result.ok().map(|size| (uri, size)))
+        .map(|release| release.keep_reachable(&results))
         .collect())
 }
 
@@ -234,6 +269,40 @@ mod tests {
             ResolveError::Link("The download link returned a web page".into()),
         ];
         assert!(!permanent.iter().any(ResolveError::is_transient));
+    }
+
+    #[test]
+    fn releases_keep_only_reachable_links_and_fall_back_to_their_size() {
+        let release = |size_bytes, uris: &[&str]| ReleaseLinks {
+            source_id: "source".into(),
+            url: "https://example.test/a.zip".into(),
+            version: "1".into(),
+            size_bytes,
+            uris: uris.iter().map(|uri| (*uri).to_owned()).collect(),
+        };
+        let results = LinkResults::from([
+            ("https://a.test/1".to_owned(), Err("HTTP 404".to_owned())),
+            ("https://a.test/2".to_owned(), Ok(20)),
+            ("https://a.test/3".to_owned(), Ok(30)),
+        ]);
+        let all = [
+            "https://a.test/1",
+            "https://a.test/2",
+            "https://a.test/3",
+            "https://a.test/4",
+        ];
+        assert_eq!(
+            release(None, &all).keep_reachable(&results),
+            release(Some(20), &["https://a.test/2", "https://a.test/3"])
+        );
+        assert_eq!(
+            release(Some(5), &all).keep_reachable(&results).size_bytes,
+            Some(5)
+        );
+        assert_eq!(
+            release(None, &["https://a.test/1"]).keep_reachable(&results),
+            release(None, &[])
+        );
     }
 
     #[test]
