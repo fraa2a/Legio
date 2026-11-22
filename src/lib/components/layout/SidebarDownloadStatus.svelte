@@ -2,13 +2,7 @@
   import { fade } from "svelte/transition";
   import { t, language } from "../../i18n";
   import { fadeDuration } from "../../utils/motion";
-  import {
-    canCancelDownload,
-    canPauseDownload,
-    canResumeDownload,
-    downloadProgressPercent,
-    type DownloadJob,
-  } from "../../services/downloads";
+  import { downloadProgressPercent, type DownloadJob } from "../../services/downloads";
   import { phaseLabel } from "../../features/downloads/downloads-model";
   import { currentDownload, pauseJob, resumeJob } from "../../stores/downloads";
   import { selectSection } from "../../stores/navigation";
@@ -49,7 +43,7 @@
   const quickActions: QuickAction[] = $derived.by(() => {
     if (lead === null) return [];
     const actions: QuickAction[] = [];
-    if (canResumeDownload(lead.status) && lead.pauseReason !== "game_running") {
+    if (lead.actions.resume && lead.pauseReason !== "game_running") {
       actions.push({
         icon: "play",
         label: t("Riprendi il download di {0}", $language, [lead.name]),
@@ -57,7 +51,7 @@
         trigger: () => void run(resumeJob),
       });
     }
-    if (canPauseDownload(lead.status)) {
+    if (lead.actions.pause) {
       actions.push({
         icon: "pause",
         label: t("Metti in pausa il download di {0}", $language, [lead.name]),
@@ -65,7 +59,7 @@
         trigger: () => void run(pauseJob),
       });
     }
-    if (canCancelDownload(lead.status)) {
+    if (lead.actions.cancel) {
       actions.push({
         icon: "stop",
         label: t("Annulla il download di {0}", $language, [lead.name]),

@@ -57,6 +57,40 @@ pub struct DownloadJob {
     source_id: Option<String>,
     source_entry_id: Option<String>,
     parts: Option<PartProgress>,
+    actions: DownloadActions,
+}
+
+/// Commands the job accepts, derived from the same rules the commands enforce.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+struct DownloadActions {
+    pause: bool,
+    resume: bool,
+    retry: bool,
+    cancel: bool,
+    remove: bool,
+    reorder: bool,
+}
+
+impl DownloadActions {
+    /// `processing` tells whether a staging task still holds the job.
+    fn new(status: DownloadStatus, has_error: bool, processing: bool) -> Self {
+        Self {
+            pause: PAUSABLE.contains(&status),
+            resume: RESUMABLE.contains(&status),
+            // `retry_download` recovers a failed install stage in place.
+            retry: status == DownloadStatus::Failed
+                || (has_error
+                    && matches!(
+                        status,
+                        DownloadStatus::Downloaded
+                            | DownloadStatus::Staged
+                            | DownloadStatus::Finalizing
+                    )),
+            cancel: CANCELLABLE.contains(&status),
+            remove: is_removable(status, has_error, processing),
+            reorder: REORDERABLE.contains(&status),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -275,6 +309,14 @@ impl DownloadQueueState {
         self.limit_changed.notify_one();
     }
 
+    fn is_processing(&self, id: &str) -> Result<bool, String> {
+        Ok(self
+            .processing
+            .lock()
+            .map_err(|_| "Processing lock was poisoned".to_owned())?
+            .contains(id))
+    }
+
     pub(crate) fn interrupt(&self, id: &str) -> Result<(), String> {
         let active = self
             .active
@@ -412,6 +454,8 @@ fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DownloadJob> {
     let plan: Option<String> = row.get(18)?;
     let downloaded_bytes = u64::try_from(downloaded)
         .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(5, downloaded))?;
+    let status: DownloadStatus = row.get(8)?;
+    let error: Option<String> = row.get(9)?;
     // An unreadable plan fails the transfer with its own error; the list still shows the job.
     let parts = plan
         .and_then(|plan| MirrorPlan::load(&plan).ok())
@@ -438,8 +482,10 @@ fn job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DownloadJob> {
                 u64::try_from(value).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(7, value))
             })
             .transpose()?,
-        status: row.get(8)?,
-        error: row.get(9)?,
+        // Rows cannot see staging tasks; `list_downloads` adds them.
+        actions: DownloadActions::new(status, error.is_some(), false),
+        status,
+        error,
         updated_at,
         target_game_id: row.get(13)?,
         pause_reason: row.get(14)?,
@@ -709,6 +755,7 @@ pub(crate) fn enqueue_prepared(
         source_id: Some(source_id),
         source_entry_id: entry.id.clone(),
         parts: None,
+        actions: DownloadActions::new(DownloadStatus::Queued, false, false),
     })
 }
 
@@ -2099,9 +2146,20 @@ async fn interruptible_response<T>(
 
 #[tauri::command]
 pub async fn list_downloads(app: AppHandle) -> Result<Vec<DownloadJob>, String> {
-    tauri::async_runtime::spawn_blocking(move || list(app.state::<DatabaseState>().database()?))
-        .await
-        .map_err(|error| format!("Download list task failed: {error}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        let queue = app.state::<DownloadQueueState>();
+        let mut jobs = list(app.state::<DatabaseState>().database()?)?;
+        for job in &mut jobs {
+            job.actions = DownloadActions::new(
+                job.status,
+                job.error.is_some(),
+                queue.is_processing(&job.id)?,
+            );
+        }
+        Ok(jobs)
+    })
+    .await
+    .map_err(|error| format!("Download list task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -2231,15 +2289,19 @@ pub async fn queue_download(
     Ok(job)
 }
 
+const PAUSABLE: [DownloadStatus; 3] = [
+    DownloadStatus::Queued,
+    DownloadStatus::Downloading,
+    DownloadStatus::Waiting,
+];
+
+const RESUMABLE: [DownloadStatus; 2] = [DownloadStatus::Paused, DownloadStatus::Waiting];
+
 fn pause_job(app: &AppHandle, id: &str) -> Result<(), String> {
     change_status(
         app.state::<DatabaseState>().database()?,
         id,
-        &[
-            DownloadStatus::Queued,
-            DownloadStatus::Downloading,
-            DownloadStatus::Waiting,
-        ],
+        &PAUSABLE,
         DownloadStatus::Paused,
     )?;
     app.state::<DatabaseState>().database()?.with_connection(|connection| { connection.execute("UPDATE downloads SET pause_reason = NULL, interrupted_by_game = 0 WHERE id = ?1", [id]).map_err(db_error)?; Ok(()) })?;
@@ -2252,12 +2314,7 @@ fn resume_job(app: &AppHandle, id: &str) -> Result<(), String> {
     let database_state = app.state::<DatabaseState>();
     let database = database_state.database()?;
     crate::download_policy::require_resumable(database, &manager, id)?;
-    change_status(
-        database,
-        id,
-        &[DownloadStatus::Paused, DownloadStatus::Waiting],
-        DownloadStatus::Queued,
-    )?;
+    change_status(database, id, &RESUMABLE, DownloadStatus::Queued)?;
     database.with_connection(|connection| { connection.execute("UPDATE downloads SET manual_override = 1, automatic_update = 0, pause_reason = NULL WHERE id = ?1", [id]).map_err(db_error)?; Ok(()) })
 }
 
@@ -2430,6 +2487,14 @@ pub async fn retry_download<R: Runtime>(app: AppHandle<R>, id: String) -> Result
     Ok(())
 }
 
+const CANCELLABLE: [DownloadStatus; 5] = [
+    DownloadStatus::Queued,
+    DownloadStatus::Downloading,
+    DownloadStatus::Paused,
+    DownloadStatus::Waiting,
+    DownloadStatus::Failed,
+];
+
 #[tauri::command]
 pub async fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
     crate::startup_recovery::wait(&app).await?;
@@ -2440,13 +2505,7 @@ pub async fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
         change_status(
             database.database()?,
             &id,
-            &[
-                DownloadStatus::Queued,
-                DownloadStatus::Downloading,
-                DownloadStatus::Paused,
-                DownloadStatus::Waiting,
-                DownloadStatus::Failed,
-            ],
+            &CANCELLABLE,
             DownloadStatus::Cancelled,
         )?;
         queue.interrupt(&id)?;
@@ -2486,42 +2545,26 @@ const FINISHED: [DownloadStatus; 2] = [DownloadStatus::Cancelled, DownloadStatus
 
 /// A downloaded job whose staging failed before it started is no longer
 /// scheduled, so it is removable once no staging task still holds it.
-fn has_stalled_staging(
-    queue: &DownloadQueueState,
-    database: &Database,
-    id: &str,
-) -> Result<bool, String> {
-    if queue
-        .processing
-        .lock()
-        .map_err(|_| "Processing lock was poisoned".to_owned())?
-        .contains(id)
-    {
-        return Ok(false);
-    }
-    database.with_connection(|connection| {
-        connection
-            .query_row(
-                "SELECT error IS NOT NULL FROM downloads WHERE id = ?1",
-                [id],
-                |row| row.get(0),
-            )
-            .map_err(db_error)
-    })
+fn is_removable(status: DownloadStatus, has_error: bool, processing: bool) -> bool {
+    REMOVABLE.contains(&status)
+        || (status == DownloadStatus::Downloaded && has_error && !processing)
 }
 
 fn remove_entry(queue: &DownloadQueueState, database: &Database, id: &str) -> Result<(), String> {
     let id = Uuid::parse_str(id)
         .map_err(|_| "Download ID is invalid".to_owned())?
         .to_string();
-    let status = status(database, &id)?;
-    if !REMOVABLE
-        .iter()
-        .any(|candidate| candidate.as_str() == status)
-        && !(status == DownloadStatus::Downloaded.as_str()
-            && has_stalled_staging(queue, database, &id)?)
-    {
-        return Err(format!("Cannot remove a {status} download"));
+    let (status, has_error): (DownloadStatus, bool) = database.with_connection(|connection| {
+        connection
+            .query_row(
+                "SELECT status, error IS NOT NULL FROM downloads WHERE id = ?1",
+                [&id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(db_error)
+    })?;
+    if !is_removable(status, has_error, queue.is_processing(&id)?) {
+        return Err(format!("Cannot remove a {} download", status.as_str()));
     }
     // Files are removed before the row so a cleanup failure keeps the entry and
     // its error visible instead of leaking files silently. The installed game
@@ -4797,6 +4840,75 @@ mod tests {
                 Ok(())
             })
             .unwrap();
+    }
+
+    #[test]
+    fn job_actions_follow_the_command_rules() {
+        use DownloadStatus::*;
+        let actions = |status, error, processing| {
+            let DownloadActions {
+                pause,
+                resume,
+                retry,
+                cancel,
+                remove,
+                reorder,
+            } = DownloadActions::new(status, error, processing);
+            [pause, resume, retry, cancel, remove, reorder]
+        };
+        // [pause, resume, retry, cancel, remove, reorder]
+        assert_eq!(
+            actions(Queued, false, false),
+            [true, false, false, true, false, true]
+        );
+        assert_eq!(
+            actions(Downloading, false, false),
+            [true, false, false, true, false, false]
+        );
+        assert_eq!(
+            actions(Waiting, false, false),
+            [true, true, false, true, false, true]
+        );
+        assert_eq!(
+            actions(Paused, false, false),
+            [false, true, false, true, false, true]
+        );
+        assert_eq!(
+            actions(Failed, true, false),
+            [false, false, true, true, true, true]
+        );
+        assert_eq!(
+            actions(Installed, false, false),
+            [false, false, false, false, true, false]
+        );
+        assert_eq!(
+            actions(Cancelled, false, false),
+            [false, false, false, false, true, false]
+        );
+        for status in [Downloaded, Staging, Staged, Finalizing] {
+            assert_eq!(actions(status, false, false), [false; 6], "{status:?}");
+        }
+        assert_eq!(
+            actions(Downloaded, true, false),
+            [false, false, true, false, true, false]
+        );
+        assert_eq!(
+            actions(Downloaded, true, true),
+            [false, false, true, false, false, false]
+        );
+        assert_eq!(
+            actions(Staged, true, false),
+            [false, false, true, false, false, false]
+        );
+        assert_eq!(
+            actions(Finalizing, true, false),
+            [false, false, true, false, false, false]
+        );
+        assert_eq!(actions(Staging, true, false), [false; 6]);
+        assert_eq!(
+            actions(Installed, true, false),
+            [false, false, false, false, true, false]
+        );
     }
 
     #[test]

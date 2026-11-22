@@ -1,6 +1,5 @@
 export type StatusTone = "neutral" | "info" | "success" | "danger" | "warning";
 export type ProgressTone = "default" | "accent" | "warning" | "danger" | "success";
-type Action = "pause" | "resume" | "retry" | "cancel" | "remove";
 interface DownloadState {
   description: string;
   badge: string;
@@ -9,9 +8,7 @@ interface DownloadState {
   progress: ProgressTone;
   section: "processing" | "queue" | "finished";
   rank: number;
-  actions: readonly Action[];
   active: boolean;
-  reorderable: boolean;
 }
 
 const downloadStates = {
@@ -23,9 +20,7 @@ const downloadStates = {
     progress: "default",
     section: "queue",
     rank: 1,
-    actions: ["pause", "cancel"],
     active: true,
-    reorderable: true,
   },
   downloading: {
     description: "download in corso",
@@ -35,9 +30,7 @@ const downloadStates = {
     progress: "accent",
     section: "processing",
     rank: 0,
-    actions: ["pause", "cancel"],
     active: true,
-    reorderable: false,
   },
   waiting: {
     description: "in attesa",
@@ -47,9 +40,7 @@ const downloadStates = {
     progress: "default",
     section: "queue",
     rank: 1,
-    actions: ["pause", "resume", "cancel"],
     active: true,
-    reorderable: true,
   },
   paused: {
     description: "download in pausa",
@@ -59,9 +50,7 @@ const downloadStates = {
     progress: "warning",
     section: "queue",
     rank: 2,
-    actions: ["resume", "cancel"],
     active: false,
-    reorderable: true,
   },
   failed: {
     description: "download fallito",
@@ -71,9 +60,7 @@ const downloadStates = {
     progress: "danger",
     section: "queue",
     rank: 3,
-    actions: ["retry", "cancel", "remove"],
     active: false,
-    reorderable: true,
   },
   downloaded: {
     description: "download completato",
@@ -83,9 +70,7 @@ const downloadStates = {
     progress: "accent",
     section: "processing",
     rank: 0,
-    actions: [],
     active: true,
-    reorderable: false,
   },
   staging: {
     description: "estrazione in corso",
@@ -95,9 +80,7 @@ const downloadStates = {
     progress: "accent",
     section: "processing",
     rank: 0,
-    actions: [],
     active: true,
-    reorderable: false,
   },
   staged: {
     description: "estrazione completata",
@@ -107,9 +90,7 @@ const downloadStates = {
     progress: "accent",
     section: "processing",
     rank: 4,
-    actions: [],
     active: true,
-    reorderable: false,
   },
   finalizing: {
     description: "installazione in corso",
@@ -119,9 +100,7 @@ const downloadStates = {
     progress: "accent",
     section: "processing",
     rank: 0,
-    actions: [],
     active: true,
-    reorderable: false,
   },
   installed: {
     description: "installato",
@@ -131,9 +110,7 @@ const downloadStates = {
     progress: "success",
     section: "finished",
     rank: 5,
-    actions: ["remove"],
     active: false,
-    reorderable: false,
   },
   cancelled: {
     description: "download annullato",
@@ -143,9 +120,7 @@ const downloadStates = {
     progress: "default",
     section: "finished",
     rank: 6,
-    actions: ["remove"],
     active: false,
-    reorderable: false,
   },
 } satisfies Record<string, DownloadState>;
 
@@ -153,8 +128,4 @@ export type DownloadStatus = keyof typeof downloadStates;
 
 export function downloadState(status: string): DownloadState | undefined {
   return Object.hasOwn(downloadStates, status) ? downloadStates[status as DownloadStatus] : undefined;
-}
-
-export function supportsDownloadAction(status: string, action: Action): boolean {
-  return downloadState(status)?.actions.includes(action) ?? false;
 }

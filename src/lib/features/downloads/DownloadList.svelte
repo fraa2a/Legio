@@ -1,13 +1,6 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
-  import {
-    canCancelDownload,
-    canPauseDownload,
-    canRemoveDownload,
-    canResumeDownload,
-    canRetryDownload,
-    type DownloadJob,
-  } from "../../services/downloads";
+  import type { DownloadJob } from "../../services/downloads";
   import Badge from "../../components/ui/Badge.svelte";
   import Button from "../../components/ui/Button.svelte";
   import Icon from "../../components/ui/Icon.svelte";
@@ -142,7 +135,7 @@
       </div>
 
       <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
-        {#if canPauseDownload(job.status)}
+        {#if job.actions.pause}
           <Button
             label={t("Pausa", $language)}
             variant="secondary"
@@ -151,7 +144,7 @@
             onClick={() => onPause(job)}
           />
         {/if}
-        {#if canResumeDownload(job.status)}
+        {#if job.actions.resume}
           <Button
             label={t("Riprendi", $language)}
             variant="secondary"
@@ -160,7 +153,7 @@
             onClick={() => onResume(job)}
           />
         {/if}
-        {#if canRetryDownload(job.status, job.error)}
+        {#if job.actions.retry}
           <Button
             label={t("Riprova", $language)}
             variant="primary"
@@ -169,7 +162,7 @@
             onClick={() => onRetry(job)}
           />
         {/if}
-        {#if canCancelDownload(job.status)}
+        {#if job.actions.cancel}
           <Button
             label={t("Annulla", $language)}
             variant="danger-soft"
@@ -178,7 +171,7 @@
             onClick={() => onCancel(job)}
           />
         {/if}
-        {#if canRemoveDownload(job.status, job.error)}
+        {#if job.actions.remove}
           <Button
             label={t("Rimuovi", $language)}
             variant="secondary"
