@@ -1,6 +1,7 @@
 import { invoke } from "./invoke";
 
 import type { Appearance } from "./appearance";
+import type { CatalogAvailability, CatalogSort } from "./catalog";
 import type { PlayStatus } from "./library-organization";
 
 export type Theme = "system" | "dark" | "light" | "bronze" | "crimson" | "steel" | "emerald" | "sand" | "midnight" | "violet" | "contrast" | "oled" | "frost";
@@ -26,8 +27,8 @@ export interface Settings {
   language: "system" | "it" | "en";
   steamLibraryPollMinutes: number;
   syncSteamGames: boolean;
-  storeSort: "relevance" | "name_asc" | "name_desc";
-  storeAvailability: "all" | "available" | "verified";
+  storeSort: CatalogSort;
+  storeAvailability: CatalogAvailability;
   downloadPath: string | null;
   closeToTray: boolean;
   hideOnGameStart: boolean;

@@ -2,6 +2,7 @@ import { invoke } from "./invoke";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { t } from "../i18n";
 import presets from "./theme-presets.json";
+import contract from "./settings-contract.json";
 import { luminance, tintColor, type Tint } from "./color-tint";
 import type { Theme } from "./local-state";
 
@@ -64,7 +65,7 @@ export type StarDensity = "low" | "medium" | "high";
 export type Density = "compact" | "normal" | "wide";
 export type Corners = "square" | "sharp" | "soft" | "round";
 
-export const textScaleRange = { min: 90, max: 120 } as const;
+export const appearanceLimits = contract.limits.appearance;
 
 // Multipliers on the control heights and on container padding and rhythm.
 export const densityScales: Record<Density, { control: number; space: number }> = {
@@ -94,21 +95,11 @@ export function panelStyleOf(appearance: Appearance): PanelStyle | null {
 }
 
 export function defaultDither(): DitherSettings {
-  return {
-    waveSpeed: 0.05, waveFrequency: 3, waveAmplitude: 0.3,
-    waveColor: null, backgroundColor: "#000000", colorNum: 4, pixelSize: 2,
-    disableAnimation: false, enableMouseInteraction: true, mouseRadius: 1,
-  };
+  return structuredClone(contract.defaults.appearance.dither);
 }
 
 export function defaultAppearance(): Appearance {
-  return {
-    accent: null, background: null, backgroundBlur: 0, backgroundOpacity: 60,
-    animatedBackground: "none", animatedOpacity: 65, dither: defaultDither(),
-    season: "snow", starDensity: "medium", grain: 0,
-    ...panelStyles.glass, transparent: false,
-    density: "normal", corners: "soft", textScale: 100, gameAccent: false,
-  };
+  return structuredClone(contract.defaults.appearance) as Appearance;
 }
 
 export function activePalette(theme: Theme, prefersDark: boolean): ThemePreset {
@@ -150,7 +141,8 @@ export function paletteVariables(preset: ThemePreset, accent: string = preset.pa
 // The scale tokens in app.css multiply these variables. Unknown values fall back to the defaults.
 export function interfaceVariables(appearance: Pick<Appearance, "density" | "corners" | "textScale">): Record<string, string> {
   const density = densityScales[appearance.density] ?? densityScales.normal;
-  const textScale = Math.min(textScaleRange.max, Math.max(textScaleRange.min, appearance.textScale || 100));
+  const { textScale: range } = appearanceLimits;
+  const textScale = Math.min(range.max, Math.max(range.min, appearance.textScale || 100));
   return {
     "--legio-control-scale": String(density.control),
     "--legio-space-scale": String(density.space),

@@ -2046,6 +2046,52 @@ mod tests {
     }
 
     #[test]
+    fn frontend_contract_matches_backend() {
+        let contract: serde_json::Value = serde_json::from_str(include_str!(
+            "../../src/lib/services/settings-contract.json"
+        ))
+        .unwrap();
+        // Through text so f32 defaults compare at their printed precision.
+        let defaults: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&Settings::default()).unwrap()).unwrap();
+        assert_eq!(contract["defaults"], defaults);
+        let limits = &contract["limits"];
+        let number = |value: &serde_json::Value| value.as_u64().unwrap() as usize;
+        let range = |key: &str| (number(&limits[key]["min"]), number(&limits[key]["max"]));
+        assert_eq!(
+            range("steamLibraryPollMinutes"),
+            (
+                MIN_STEAM_LIBRARY_POLL_MINUTES as usize,
+                MAX_STEAM_LIBRARY_POLL_MINUTES as usize
+            )
+        );
+        assert_eq!(
+            range("libraryCoverScale"),
+            (
+                MIN_LIBRARY_COVER_SCALE as usize,
+                MAX_LIBRARY_COVER_SCALE as usize
+            )
+        );
+        assert_eq!(
+            number(&limits["collectionNameChars"]),
+            library_organization::MAX_COLLECTION_NAME_CHARS
+        );
+        assert_eq!(
+            number(&limits["launchProfileNameChars"]),
+            launch_profiles::MAX_PROFILE_NAME_CHARS
+        );
+        assert_eq!(
+            number(&limits["launchProfilesPerGame"]),
+            launch_profiles::MAX_PROFILES_PER_GAME
+        );
+        assert_eq!(
+            number(&limits["modProfileNameChars"]),
+            MAX_PROFILE_NAME_CHARS
+        );
+        assert_eq!(number(&limits["updateNotesChars"]), MAX_UPDATE_NOTES_CHARS);
+    }
+
+    #[test]
     fn launch_minimized_follows_system_start() {
         let directory = TempDir::new();
         let database = Database::open(&directory).unwrap();

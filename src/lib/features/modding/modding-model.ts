@@ -1,6 +1,7 @@
 import { t, type Language } from "../../i18n";
 import { toMessage } from "../../utils/errors";
 import { pageSize } from "../../utils/pagination";
+import contract from "../../services/settings-contract.json";
 import type {
   CategoryMode,
   EcosystemGameSummary,
@@ -76,7 +77,7 @@ function nameKey(name: string): string {
   return name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 }
 
-export const maxProfileNameLength = 64;
+export const maxProfileNameLength = contract.limits.modProfileNameChars;
 
 export function profileNameError(
   name: string,

@@ -7,6 +7,7 @@
   import { hiddenSteamGames, restoreSteamGame } from "../../stores/games";
   import { libraryView, previewLibraryView, updateLibraryView } from "../../stores/library-ui";
   import type { LibrarySortKey, LibraryViewPreferences } from "../../services/local-state";
+  import contract from "../../services/settings-contract.json";
   import { toMessage } from "../../utils/errors";
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import SettingsRow from "../../components/ui/SettingsRow.svelte";
@@ -29,9 +30,7 @@
   let restoringId = $state<string | null>(null);
   let removing = $state<GameLibrary | null>(null);
   let viewError = $state<string | null>(null);
-  // Mirrors MIN_LIBRARY_COVER_SCALE and MAX_LIBRARY_COVER_SCALE in database.rs.
-  const minCoverScale = 70;
-  const maxCoverScale = 150;
+  const coverScale = contract.limits.libraryCoverScale;
   const sortKeys: LibrarySortKey[] = ["name", "playtime", "lastPlayed", "added", "origin"];
   onMount(() => {
     void gameLibraries.reload();
@@ -140,8 +139,8 @@
     <Slider
       label={t("Dimensione copertine", $language)}
       class="w-48"
-      min={minCoverScale}
-      max={maxCoverScale}
+      min={coverScale.min}
+      max={coverScale.max}
       step={10}
       value={$libraryView.coverScale}
       valueText={`${$libraryView.coverScale}%`}

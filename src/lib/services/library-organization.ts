@@ -1,4 +1,5 @@
 import { invoke } from "./invoke";
+import contract from "./settings-contract.json";
 
 export const playStatuses = ["none", "backlog", "playing", "completed", "onHold", "dropped"] as const;
 export type PlayStatus = (typeof playStatuses)[number];
@@ -22,8 +23,7 @@ export interface LibraryOrganization {
   collections: Collection[];
 }
 
-// Mirrors MAX_COLLECTION_NAME_CHARS in src-tauri/src/database/library_organization.rs.
-export const maxCollectionNameLength = 64;
+export const maxCollectionNameLength = contract.limits.collectionNameChars;
 
 export function getLibraryOrganization(): Promise<LibraryOrganization> {
   return invoke<LibraryOrganization>("get_library_organization");

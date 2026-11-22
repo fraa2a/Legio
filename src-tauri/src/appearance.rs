@@ -573,6 +573,54 @@ mod tests {
     }
 
     #[test]
+    fn validation_matches_frontend_limits() {
+        let contract: serde_json::Value = serde_json::from_str(include_str!(
+            "../../src/lib/services/settings-contract.json"
+        ))
+        .unwrap();
+        let limits = &contract["limits"]["appearance"];
+        let dither = &limits["dither"];
+        type Setter = fn(&mut Appearance, f64);
+        let checks: [(&serde_json::Value, Setter); 15] = [
+            (&limits["blur"], |a, v| a.background_blur = v as u8),
+            (&limits["blur"], |a, v| a.surface_blur = v as u8),
+            (&limits["blur"], |a, v| a.dialog_blur = v as u8),
+            (&limits["percent"], |a, v| a.background_opacity = v as u8),
+            (&limits["percent"], |a, v| a.animated_opacity = v as u8),
+            (&limits["percent"], |a, v| a.surface_opacity = v as u8),
+            (&limits["percent"], |a, v| a.dialog_opacity = v as u8),
+            (&limits["percent"], |a, v| a.grain = v as u8),
+            (&limits["textScale"], |a, v| a.text_scale = v as u8),
+            (&dither["waveSpeed"], |a, v| a.dither.wave_speed = v as f32),
+            (&dither["waveFrequency"], |a, v| {
+                a.dither.wave_frequency = v as f32
+            }),
+            (&dither["waveAmplitude"], |a, v| {
+                a.dither.wave_amplitude = v as f32
+            }),
+            (&dither["colorNum"], |a, v| a.dither.color_num = v as u8),
+            (&dither["pixelSize"], |a, v| a.dither.pixel_size = v as u8),
+            (&dither["mouseRadius"], |a, v| {
+                a.dither.mouse_radius = v as f32
+            }),
+        ];
+        for (range, set) in checks {
+            let min = range["min"].as_f64().unwrap();
+            let max = range["max"].as_f64().unwrap();
+            let mut cases = vec![(min, true), (max, true), (max + 1.0, false)];
+            // Integer fields saturate below zero, so only a positive minimum has a value under it.
+            if min > 0.0 {
+                cases.push((min - 1.0, false));
+            }
+            for (value, valid) in cases {
+                let mut appearance = Appearance::default();
+                set(&mut appearance, value);
+                assert_eq!(validate(&appearance).is_ok(), valid, "{range} {value}");
+            }
+        }
+    }
+
+    #[test]
     fn new_installs_default_to_the_glass_panel_style() {
         // Keep in sync with panelStyles.glass in the frontend appearance service.
         let defaults = Appearance::default();
