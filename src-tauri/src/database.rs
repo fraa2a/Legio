@@ -687,7 +687,7 @@ impl Database {
     pub(crate) fn open(data_dir: &Path) -> Result<Self, String> {
         fs::create_dir_all(data_dir)
             .map_err(|error| format!("could not create application data directory: {error}"))?;
-        let connection = Connection::open(data_dir.join(DATABASE_FILE_NAME))
+        let mut connection = Connection::open(data_dir.join(DATABASE_FILE_NAME))
             .map_err(|error| format!("could not open the local database: {error}"))?;
 
         connection
