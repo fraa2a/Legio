@@ -4,7 +4,6 @@
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager, State};
 
 use super::{
@@ -53,7 +52,7 @@ async fn load_icon(
         .ok()
         .filter(is_allowed_url)
         .ok_or_else(|| "The mod icon address is not a Thunderstore address".to_owned())?;
-    let key = format!("{:x}", Sha256::digest(parsed.as_str().as_bytes()));
+    let key = crate::sha256::hex_digest(parsed.as_str().as_bytes());
     if let Some(cached) = read_cached(directory, &key).await {
         return Ok(cached);
     }

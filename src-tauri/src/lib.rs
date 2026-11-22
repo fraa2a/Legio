@@ -86,6 +86,7 @@ mod public_address;
 mod queue_shutdown;
 mod runner_discovery;
 mod settings;
+mod sha256;
 mod source_catalog;
 mod source_links;
 mod source_matching;

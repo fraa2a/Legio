@@ -109,8 +109,8 @@ fn content_key(id: &PackageVersionId, archive: &Path) -> Result<String, String> 
     let mut hasher = Sha256::new();
     hasher.update(id.to_string().as_bytes());
     hasher.update(b"\n");
-    io::copy(&mut file, &mut hasher).map_err(read)?;
-    Ok(format!("{:x}", hasher.finalize()))
+    crate::sha256::update_from(&mut hasher, &mut file).map_err(read)?;
+    Ok(crate::sha256::hex(&hasher.finalize()))
 }
 
 fn identify(

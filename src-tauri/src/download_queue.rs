@@ -2800,7 +2800,6 @@ mod tests {
             assert!(matches!(TransferError::from(error), TransferError::Link(_)));
         }
     }
-    use sha2::{Digest, Sha256};
     use std::{
         io::{Read, Write},
         net::TcpListener,
@@ -3462,7 +3461,7 @@ mod tests {
 
     fn archive_fixture() -> (&'static [u8], String) {
         let bytes: &'static [u8] = include_bytes!("../test-fixtures/archive/safe.zip");
-        (bytes, format!("{:x}", Sha256::digest(bytes)))
+        (bytes, crate::sha256::hex_digest(bytes))
     }
 
     // Name and content of the executable inside `install_archive_fixture`.
@@ -3489,7 +3488,7 @@ mod tests {
             writer.write_all(FIXTURE_EXECUTABLE.1).unwrap();
             Box::leak(writer.finish().unwrap().into_inner().into_boxed_slice())
         };
-        (bytes, format!("{:x}", Sha256::digest(bytes)))
+        (bytes, crate::sha256::hex_digest(bytes))
     }
 
     fn wait_for_installation(
@@ -5173,7 +5172,7 @@ mod tests {
         let folder = format!("{}/folder", host.base);
         let total: usize = parts.iter().map(|(_, bytes)| bytes.len()).sum();
         let joined: Vec<u8> = parts.iter().flat_map(|(_, bytes)| bytes.clone()).collect();
-        let hash = format!("{:x}", Sha256::digest(&joined));
+        let hash = crate::sha256::hex_digest(&joined);
         let plan = MirrorPlan::new(vec![folder.clone()], None);
         database
             .with_connection(|connection| {

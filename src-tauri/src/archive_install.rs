@@ -79,8 +79,9 @@ fn open_regular(path: &Path) -> Result<(File, u64), String> {
 
 fn hash_matches(source: &mut impl Read, expected_sha256: &str) -> Result<bool, String> {
     let mut hasher = Sha256::new();
-    io::copy(source, &mut hasher).map_err(|error| format!("Cannot verify download: {error}"))?;
-    Ok(format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(expected_sha256))
+    crate::sha256::update_from(&mut hasher, source)
+        .map_err(|error| format!("Cannot verify download: {error}"))?;
+    Ok(crate::sha256::hex(&hasher.finalize()).eq_ignore_ascii_case(expected_sha256))
 }
 
 fn read_magic(source: &mut (impl Read + Seek)) -> Result<[u8; 8], String> {
@@ -669,7 +670,7 @@ mod tests {
 
     fn run_fixture(bytes: &[u8], name: &str) -> (PathBuf, PathBuf, Result<PathBuf, String>) {
         let (root, archive) = fixture(bytes, name);
-        let hash = format!("{:x}", Sha256::digest(bytes));
+        let hash = crate::sha256::hex_digest(bytes);
         let stage = root.join("staging");
         let result = verify_and_stage(&archive, Some(&hash), &stage).map(|()| stage);
         (root, archive, result)
@@ -865,7 +866,7 @@ mod tests {
     fn uppercase_expected_hash_matches() {
         let bytes = include_bytes!("../test-fixtures/archive/safe.zip");
         let (root, archive) = fixture(bytes, "archive.zip");
-        let hash = format!("{:X}", Sha256::digest(bytes));
+        let hash = crate::sha256::hex_digest(bytes).to_uppercase();
         verify_and_stage(&archive, Some(&hash), &root.join("staging")).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
@@ -1134,7 +1135,7 @@ mod tests {
             .collect();
         let (root, parts) = parts_fixture(&volumes);
         let stage = root.join("staging");
-        let hash = format!("{:x}", Sha256::digest(&joined));
+        let hash = crate::sha256::hex_digest(&joined);
         verify_and_stage_parts(&parts, PartScheme::RarVolumes, Some(&hash), &stage).unwrap();
         assert_volume_fixture(&stage);
         fs::remove_dir_all(root).unwrap();
