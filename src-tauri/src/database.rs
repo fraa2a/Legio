@@ -744,7 +744,7 @@ impl Database {
         Ok(settings)
     }
 
-    pub fn save_settings(&self, settings: Settings) -> Result<Settings, String> {
+    pub fn save_settings(&self, mut settings: Settings) -> Result<Settings, String> {
         crate::appearance::validate(&settings.appearance)?;
         validate_steam_library_poll_minutes(settings.steam_library_poll_minutes)?;
         validate_library_view(&settings.library_view)?;
@@ -767,9 +767,8 @@ impl Database {
         {
             return Err("Update notes are too long".to_owned());
         }
-        if settings.launch_minimized && !settings.launch_on_system_start {
-            return Err("Launch minimized requires launch on system startup".to_owned());
-        }
+        // Starting minimized only applies to launches at system startup.
+        settings.launch_minimized &= settings.launch_on_system_start;
         if let Some(path) = &settings.download_path {
             let path = Path::new(path);
             if !path.is_absolute()
@@ -2044,6 +2043,16 @@ mod tests {
         let reopened = Database::open(&directory).unwrap();
         assert_eq!(reopened.settings().unwrap(), settings);
         drop(reopened);
+    }
+
+    #[test]
+    fn launch_minimized_follows_system_start() {
+        let directory = TempDir::new();
+        let database = Database::open(&directory).unwrap();
+        let mut settings = database.settings().unwrap();
+        settings.launch_on_system_start = false;
+        settings.launch_minimized = true;
+        assert!(!database.save_settings(settings).unwrap().launch_minimized);
     }
 
     #[test]
