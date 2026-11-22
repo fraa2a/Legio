@@ -83,7 +83,7 @@
       <ul class="flex flex-col gap-3">
         {#each $source.data.sources as installed (installed.id)}
           <li class="flex flex-col gap-3 rounded-control bg-legio-fill p-3">
-            <p class="text-sm font-medium text-legio-fg">{installed.name ?? installed.url} {installed.format === "hydra" ? "(Hydra)" : ""} {installed.isLocal ? t("(file locale)", $language) : ""}</p>
+            <p class="text-sm font-medium text-legio-fg">{installed.name} {installed.format === "hydra" ? "(Hydra)" : ""} {installed.isLocal ? t("(file locale)", $language) : ""}</p>
             {#if installed.diagnostics}
               {@const problems = [
                 ...(installed.diagnostics.unresolved > 0 ? [`${installed.diagnostics.unresolved} ${t("titoli non identificati", $language)}`] : []),

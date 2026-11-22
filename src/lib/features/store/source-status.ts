@@ -67,9 +67,7 @@ export function sourceReleaseId(entry: SourceEntry): string {
 }
 
 export function sourceNameFor(entry: SourceEntry, sources: InstalledSource[]): string | undefined {
-  const origin = sources.find(source => source.id === entry.sourceId);
-  if (origin === undefined) return undefined;
-  return origin.name || new URL(origin.url).hostname;
+  return sources.find(source => source.id === entry.sourceId)?.name;
 }
 
 export function releaseLinks(entry: SourceEntry, sources: InstalledSource[]): string[] {

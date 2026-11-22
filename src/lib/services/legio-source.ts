@@ -13,7 +13,7 @@ export interface SourceEntry {
 
 export interface SourceManifest {
   schemaVersion: number;
-  name?: string;
+  name: string;
   supportGameUpdates?: boolean;
   generatedAt: string;
   verified: SourceEntry[];
@@ -49,7 +49,7 @@ export interface InstalledSource {
   warning: string | null;
   gameCount: number;
   supportGameUpdates?: boolean;
-  name?: string;
+  name: string;
   format?: "legio" | "hydra";
   diagnostics?: { rejected: number; unsupported: number; unresolved: number; reasons: string[] };
   candidates?: Record<string, string[]>;
