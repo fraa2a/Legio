@@ -48,19 +48,9 @@ test("derives the install state with the running guard first", async () => {
 const game = (gameId, ecosystemGameId, packageKnown) => ({ gameId, name: gameId, ecosystemGameId, packageKnown });
 const resolution = (unsynced = [], missing = []) => ({ package: null, candidates: [], unsynced, missing });
 
-test("plans one refresh per community, forced only for a known package", async () => {
+test("names the games whose catalog lacks the linked version", async () => {
   const load = createModuleLoader({ "src/lib/i18n": i18n }).load;
   const model = await import(await load("src/lib/features/modding/mod-link-model.ts"));
-  const unsynced = (gameId, ecosystemGameId) => ({ gameId, name: gameId, ecosystemGameId });
-  assert.deepEqual(model.catalogRefreshes(resolution([unsynced("a", "x"), unsynced("b", "x"), unsynced("c", "y")])), [
-    { community: "x", force: false },
-    { community: "y", force: false },
-  ]);
-  assert.deepEqual(model.catalogRefreshes(resolution([], [game("a", "x", true), game("b", "x", true), game("c", "y", false)])), [
-    { community: "x", force: true },
-    { community: "y", force: false },
-  ]);
-  assert.deepEqual(model.catalogRefreshes(resolution()), []);
   assert.deepEqual(model.missingVersionNames(resolution([], [game("a", "x", true), game("c", "y", false)])), ["a"]);
 });
 
@@ -78,45 +68,13 @@ function loadLinkStore() {
   return createModuleLoader({
     "src/lib/services/mod-links": dataModule(`
       export const takeModLinks = async () => globalThis.modLinkPending();
-      export const resolveModLink = async (...args) => { globalThis.modLinkCalls.push(["resolve", ...args]); return globalThis.modLinkResolutions.shift(); };
       export const getModLinkHandler = async () => { globalThis.modLinkCalls.push(["handler"]); return "other"; };
       export const observeModLinks = async (callback) => { globalThis.modLinkEvents.callback = callback; return () => {}; };`),
-    "src/lib/stores/modding": dataModule(`export const refreshCatalog = async (id, force) => { globalThis.modLinkCalls.push(["sync", id, force]); };`),
     "src/lib/stores/settings": dataModule(`export const updateSettings = async (changes) => { globalThis.modLinkCalls.push(["save", changes.thunderstoreLinksEnabled]); };`),
     "src/lib/stores/toast": dataModule(`export const showToast = (message) => globalThis.modLinkCalls.push(["toast", message]);`),
     "src/lib/i18n": i18n,
   }).load;
 }
-
-test("refreshes unsynced and outdated catalogs once before resolving again", async () => {
-  const calls = [];
-  globalThis.modLinkCalls = calls;
-  const found = { package: { description: "d", icon: "i" }, candidates: [{ gameId: "a" }], unsynced: [], missing: [] };
-  const unsynced = { gameId: "a", name: "A", ecosystemGameId: "x" };
-  globalThis.modLinkResolutions = [
-    resolution([unsynced], [game("b", "y", true), game("c", "z", false)]),
-    found,
-    resolution(),
-  ];
-  const store = await import(await loadLinkStore()("src/lib/stores/mod-links.ts"));
-
-  assert.equal(await store.resolveLink("O-N", "1.0.0"), found);
-  assert.deepEqual(calls, [["resolve", "O-N", "1.0.0"], ["sync", "x", false], ["sync", "y", true], ["sync", "z", false], ["resolve", "O-N", "1.0.0"]]);
-
-  calls.length = 0;
-  assert.equal((await store.resolveLink("O-N", "1.0.0")).candidates.length, 0);
-  assert.deepEqual(calls, [["resolve", "O-N", "1.0.0"]]);
-});
-
-test("still reports a version that stays missing after the refresh", async () => {
-  const calls = [];
-  globalThis.modLinkCalls = calls;
-  const missing = resolution([], [game("b", "y", true)]);
-  globalThis.modLinkResolutions = [missing, missing];
-  const store = await import(await loadLinkStore()("src/lib/stores/mod-links.ts"));
-  assert.equal(await store.resolveLink("O-N", "2.0.0"), missing);
-  assert.equal(calls.filter(([name]) => name === "sync").length, 1);
-});
 
 test("queues drained links", async () => {
   const calls = [];

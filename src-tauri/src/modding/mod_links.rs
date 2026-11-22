@@ -9,11 +9,12 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use super::{
-    catalog_commands::supports_loader,
+    catalog_commands::{supports_loader, sync_catalog},
     ecosystem::EcosystemSchema,
     ecosystem_store::EcosystemStore,
     package_cache::{PackageCache, PackageVersionRecord},
     package_id::{PackageName, PackageVersionId, Version},
+    thunderstore_http::ThunderstoreHttp,
 };
 use crate::database::{Database, DatabaseState};
 
@@ -196,8 +197,8 @@ pub(crate) struct UnsyncedGame {
     ecosystem_game_id: String,
 }
 
-/// A bound game whose synced catalog lacks the requested version. The local
-/// copy may just be old, so the frontend refreshes it and resolves again.
+/// A bound game whose synced catalog lacks the requested version, even after
+/// the refresh [`resolve_mod_link`] runs first.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct MissingGame {
@@ -330,24 +331,62 @@ fn link_profiles(
     Ok(profiles)
 }
 
+/// Catalogs to download before the link can be trusted, with whether to
+/// force it: never synced ones, and synced ones without the version. A forced
+/// refresh is only worth it when the catalog knows the package, so the
+/// version is probably newer than the local copy.
+fn catalog_refreshes(resolution: &ModLinkResolution) -> Vec<(String, bool)> {
+    let mut refreshes: Vec<(String, bool)> = Vec::new();
+    let unsynced = resolution
+        .unsynced
+        .iter()
+        .map(|game| (&game.ecosystem_game_id, false));
+    let missing = resolution
+        .missing
+        .iter()
+        .map(|game| (&game.ecosystem_game_id, game.package_known));
+    for (community, force) in unsynced.chain(missing) {
+        match refreshes.iter_mut().find(|(known, _)| known == community) {
+            Some((_, forced)) => *forced |= force,
+            None => refreshes.push((community.clone(), force)),
+        }
+    }
+    refreshes
+}
+
+/// Resolves the link, refreshing once the catalogs that may just be old and
+/// resolving again. Catalog progress reaches the frontend as for any sync.
 #[tauri::command]
 pub async fn resolve_mod_link(
+    app: AppHandle,
     state: State<'_, DatabaseState>,
     ecosystem: State<'_, EcosystemStore>,
     packages: State<'_, PackageCache>,
+    http: State<'_, ThunderstoreHttp>,
     full_name: String,
     version: String,
 ) -> Result<ModLinkResolution, String> {
     let id = PackageVersionId::new(full_name.parse()?, version.parse()?);
     let schema = ecosystem.schema().await?;
     let database = state.shared_database()?;
-    packages
-        .run_blocking(move |cache| {
+    let resolve_now = || {
+        let (database, schema, id) = (database.clone(), schema.clone(), id.clone());
+        packages.run_blocking(move |cache| {
             resolve(&database, &schema, &id, |community, id| {
                 catalog_lookup(cache, community, id)
             })
         })
-        .await
+    };
+    let resolution = resolve_now().await?;
+    let refreshes = catalog_refreshes(&resolution);
+    if refreshes.is_empty() {
+        return Ok(resolution);
+    }
+    for (community, force) in refreshes {
+        // `sync_catalog` logs a failure; the link then resolves against the local copy.
+        let _ = sync_catalog(&app, &schema, &packages, &http, &community, force).await;
+    }
+    resolve_now().await
 }
 
 #[cfg(test)]
@@ -563,6 +602,42 @@ mod tests {
             .collect();
         assert_eq!(known, [("Lethal Company", false), ("Risk of Rain 2", true)]);
         assert_eq!(resolution.missing[1].game_id, ror2);
+    }
+
+    #[test]
+    fn plans_one_refresh_per_community_forced_only_for_a_known_package() {
+        let unsynced = |community: &str| UnsyncedGame {
+            game_id: "g".to_owned(),
+            name: "G".to_owned(),
+            ecosystem_game_id: community.to_owned(),
+        };
+        let missing = |community: &str, package_known| MissingGame {
+            game_id: "g".to_owned(),
+            name: "G".to_owned(),
+            ecosystem_game_id: community.to_owned(),
+            package_known,
+        };
+        let resolution = ModLinkResolution {
+            package: None,
+            candidates: Vec::new(),
+            unsynced: vec![unsynced("x"), unsynced("x"), unsynced("y")],
+            missing: vec![missing("z", true), missing("z", false), missing("w", false)],
+        };
+        assert_eq!(
+            catalog_refreshes(&resolution),
+            [
+                ("x".to_owned(), false),
+                ("y".to_owned(), false),
+                ("z".to_owned(), true),
+                ("w".to_owned(), false),
+            ]
+        );
+        let empty = ModLinkResolution {
+            unsynced: Vec::new(),
+            missing: Vec::new(),
+            ..resolution
+        };
+        assert!(catalog_refreshes(&empty).is_empty());
     }
 
     #[test]

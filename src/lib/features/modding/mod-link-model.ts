@@ -23,17 +23,6 @@ export function linkGameOptions(candidates: readonly ModLinkCandidate[]): { valu
   return candidates.map((candidate) => ({ value: candidate.gameId, label: candidate.name }));
 }
 
-export interface CatalogRefresh { community: string; force: boolean }
-
-// Catalogs to download before the link can be trusted: never synced ones, and synced ones without the version.
-// A forced refresh is only worth it when the catalog knows the package, so the version is probably newer than the local copy.
-export function catalogRefreshes(resolution: ModLinkResolution): CatalogRefresh[] {
-  const force = new Map<string, boolean>();
-  for (const game of resolution.unsynced) force.set(game.ecosystemGameId, false);
-  for (const game of resolution.missing) force.set(game.ecosystemGameId, (force.get(game.ecosystemGameId) ?? false) || game.packageKnown);
-  return [...force].map(([community, forced]) => ({ community, force: forced }));
-}
-
 // Games whose catalog has the package but not this version, even after the refresh.
 export function missingVersionNames(resolution: ModLinkResolution): string[] {
   return resolution.missing.filter((game) => game.packageKnown).map((game) => game.name);

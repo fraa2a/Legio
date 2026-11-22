@@ -32,6 +32,7 @@ export interface ModLinkResolution {
 export type LinkHandler = "legio" | "other" | "nobody";
 
 export const takeModLinks = () => invoke<ModLinkRequest[]>("take_mod_links");
+// Catalogs that were never downloaded, or lack the version, are refreshed once before the answer.
 export const resolveModLink = (fullName: string, version: string) =>
   invoke<ModLinkResolution>("resolve_mod_link", { fullName, version });
 

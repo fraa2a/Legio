@@ -1,8 +1,6 @@
 import { derived, writable } from "svelte/store";
-import { catalogRefreshes } from "../features/modding/mod-link-model";
-import { getModLinkHandler, observeModLinks, resolveModLink, takeModLinks, type LinkHandler, type ModLinkRequest, type ModLinkResolution } from "../services/mod-links";
+import { getModLinkHandler, observeModLinks, takeModLinks, type LinkHandler, type ModLinkRequest } from "../services/mod-links";
 import { toMessage } from "../utils/errors";
-import { refreshCatalog } from "./modding";
 import { updateSettings } from "./settings";
 import { showToast } from "./toast";
 
@@ -46,15 +44,6 @@ export function startModLinks(): Promise<void> {
     showToast(toMessage(error), "error");
   });
   return starting;
-}
-
-// A catalog that was never downloaded, or lacks the linked version, may just be old: it is refreshed once before giving up.
-export async function resolveLink(fullName: string, version: string): Promise<ModLinkResolution> {
-  const resolution = await resolveModLink(fullName, version);
-  const refreshes = catalogRefreshes(resolution);
-  if (refreshes.length === 0) return resolution;
-  await Promise.all(refreshes.map(({ community, force }) => refreshCatalog(community, force)));
-  return resolveModLink(fullName, version);
 }
 
 // Turning the option off is always saved. The returned handler is who still opens the links, so the page can say so.

@@ -7,10 +7,10 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import SelectField from "../../components/ui/SelectField.svelte";
   import Spinner from "../../components/ui/Spinner.svelte";
-  import type { ModLinkResolution } from "../../services/mod-links";
+  import { resolveModLink, type ModLinkResolution } from "../../services/mod-links";
   import { launchStateByGame } from "../../stores/launch";
   import { busyProfiles, cancelInstall, installPackages, installProgress } from "../../stores/modding";
-  import { currentModLink, dismissModLink, resolveLink } from "../../stores/mod-links";
+  import { currentModLink, dismissModLink } from "../../stores/mod-links";
   import { openModManager, selectSection } from "../../stores/navigation";
   import { showToast } from "../../stores/toast";
   import { toMessage } from "../../utils/errors";
@@ -72,7 +72,7 @@
     }
     resolving = true;
     try {
-      const resolved = await resolveLink(current.fullName, current.version);
+      const resolved = await resolveModLink(current.fullName, current.version);
       if (mine !== generation) return;
       resolution = resolved;
       const first = resolved.candidates[0] ?? null;
