@@ -3,7 +3,7 @@
   import { t, language } from "../../i18n";
   import { activeDownloadCount } from "../../stores/downloads";
   import { games } from "../../stores/games";
-  import { playtime } from "../../stores/playtime";
+  import { playtime, recentGameIds } from "../../stores/playtime";
   import { settings, updateSettings } from "../../stores/settings";
   import { showToast } from "../../stores/toast";
   import {
@@ -51,7 +51,7 @@
     });
   }
 
-  const gamesList = $derived(recentGames($games.data, $playtime.data).slice(0, 5).map(({ game }) => game));
+  const gamesList = $derived(recentGames($games.data, $playtime.data, $recentGameIds.data).slice(0, 5).map(({ game }) => game));
 
   let gamesScroller: HTMLElement | undefined = $state();
   let gamesContent: HTMLElement | undefined = $state();

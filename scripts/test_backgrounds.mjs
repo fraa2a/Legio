@@ -183,7 +183,7 @@ test("the ambient game is the open game page, the last played game on the home, 
   const { load: loadStore } = createModuleLoader({
     "src/lib/stores/navigation": dataModule(`import { writable } from ${JSON.stringify(import.meta.resolve("svelte/store"))}; export const activeSection = writable("home"); export const selectedGameId = writable(null); export const selectedStoreGame = writable(null);`),
     "src/lib/stores/games": store("games", { data: [{ id: "a", steamAppId: 10 }, { id: "b", steamAppId: 20 }, { id: "c", steamAppId: null }] }),
-    "src/lib/stores/playtime": store("playtime", { data: [{ gameId: "a", lastPlayedAt: 5 }, { gameId: "b", lastPlayedAt: 9 }] }),
+    "src/lib/stores/playtime": dataModule(`import { writable } from ${JSON.stringify(import.meta.resolve("svelte/store"))}; export const playtime = writable({ data: [{ gameId: "a", lastPlayedAt: 5 }, { gameId: "b", lastPlayedAt: 9 }] }); export const recentGameIds = writable({ data: ["b", "a"] });`),
   });
   const navigation = await import(await loadStore("src/lib/stores/navigation"));
   const { ambientSteamAppId } = await import(await loadStore("src/lib/stores/ambient-game.ts"));

@@ -29,7 +29,6 @@ const pendingImages = new Map<string, ImageTask>();
 const pendingAssets = new Map<string, Promise<SteamAsset>>();
 const fallbackImages = new Map<string, { key: string; request: SteamImageRequest }>();
 const appRefreshes = new Map<number, { promise: Promise<void>; policy: AssetPolicy; work?: ArtworkWork }>();
-const freshFor = 5 * 24 * 60 * 60 * 1000;
 const maxIdleImages = 128;
 const maxIdleBytes = 32 * 1024 * 1024;
 export const steamImageRevision = writable(0);
@@ -96,7 +95,7 @@ function beginImageTask(request: SteamImageRequest, origin: ArtworkWork["origin"
     if (task.users === 0) { URL.revokeObjectURL(url); await finish(result, "abandoned"); throw { kind: "cancelled", message: "Artwork request cancelled" }; }
     const cacheWarning = await finish(result, "displayed");
     if (task.users === 0) { URL.revokeObjectURL(url); throw { kind: "cancelled", message: "Artwork request cancelled" }; }
-    const image: Generation = { url, stale: result.stale, cacheWarning, refreshAt: result.stale ? 0 : result.refreshAfter ?? Date.now() + freshFor, byteLength: result.bytes.byteLength, users: 0, retired: false };
+    const image: Generation = { url, stale: result.stale, cacheWarning, refreshAt: result.stale ? 0 : result.refreshAfter, byteLength: result.bytes.byteLength, users: 0, retired: false };
     imageCache.set(key, image); if (previous) retire(previous);
     pruneImages(key); steamImageRevision.update(value => value + 1); return image;
   }).catch(error => {
@@ -159,6 +158,7 @@ function requestFromKey(key: string): SteamImageRequest {
   const [steamAppId, asset, fallbackAsset, index, screenshotIdentity, full, displayWidth] = JSON.parse(key);
   return { steamAppId, asset, fallbackAsset, index, screenshotIdentity: screenshotIdentity ?? undefined, full, displayWidth: displayWidth ?? undefined };
 }
+// Mirrors permanent_asset in steam_assets.rs, so opening a page skips an IPC round trip for artwork that never expires.
 function permanentArtwork(asset: SteamAssetKind): boolean {
   return ["hero_blur", "client_icon", "library_capsule", "library_header", "logo"].includes(asset);
 }

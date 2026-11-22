@@ -512,15 +512,29 @@ pub async fn add_game_library(app: AppHandle, directory: String) -> Result<Strin
     .map_err(|e| format!("Library task failed: {e}"))?
 }
 
+/// Empties the library, then forgets it. A game that cannot be moved or
+/// uninstalled stops the removal and keeps the library.
 #[tauri::command]
-pub async fn remove_game_library(app: AppHandle, id: String) -> Result<(), String> {
+pub async fn remove_game_library(
+    app: AppHandle,
+    id: String,
+    removal: crate::game_library::LibraryRemoval,
+) -> Result<crate::game_library::LibraryRemovalOutcome, String> {
     crate::startup_recovery::wait(&app).await?;
     tauri::async_runtime::spawn_blocking(move || {
-        let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
-        let _operation = manager.operation()?;
-        require_idle_games(&app)?;
-        let default_root = default_library_root(&app)?;
-        crate::game_library::remove(app.state::<DatabaseState>().database()?, &id, &default_root)
+        let outcome = crate::game_library::empty(&app, &id, &removal)?;
+        if outcome.failure.is_none() {
+            let manager = app.state::<crate::game_lifecycle::GameLaunchManager>();
+            let _operation = manager.operation()?;
+            require_idle_games(&app)?;
+            let default_root = default_library_root(&app)?;
+            crate::game_library::remove(
+                app.state::<DatabaseState>().database()?,
+                &id,
+                &default_root,
+            )?;
+        }
+        Ok(outcome)
     })
     .await
     .map_err(|e| format!("Library task failed: {e}"))?
@@ -539,6 +553,23 @@ pub async fn repair_game_library(app: AppHandle, directory: String) -> Result<()
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Ids of the played visible games, most recent first, as the tray lists them.
+#[tauri::command]
+pub async fn get_recent_game_ids(app: AppHandle) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatabaseState>();
+        let database = state.database()?;
+        let games = database.visible_games()?;
+        let summaries = database.playtime_summaries(database::now_milliseconds()?)?;
+        Ok(crate::tray_menu::recent_games(&games, &summaries)
+            .into_iter()
+            .map(|game| game.id.clone())
+            .collect())
+    })
+    .await
+    .map_err(|error| format!("Recent games task failed: {error}"))?
 }
 
 #[tauri::command]

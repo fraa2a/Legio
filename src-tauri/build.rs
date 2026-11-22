@@ -45,6 +45,7 @@ fn main() {
             "add_game_library",
             "remove_game_library",
             "repair_game_library",
+            "get_recent_game_ids",
             "get_playtime_activity",
             "get_playtime_recap",
             "get_playtime_recap_years",

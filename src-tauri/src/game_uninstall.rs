@@ -290,7 +290,7 @@ fn resumable_target(
 
 #[derive(Serialize)]
 pub struct UninstallResult {
-    warnings: Vec<String>,
+    pub(crate) warnings: Vec<String>,
 }
 
 pub(crate) fn protected_directories(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
@@ -343,6 +343,37 @@ pub async fn get_game_uninstall_target(app: AppHandle, id: String) -> Result<Str
     .map_err(|e| format!("Could not inspect game installation: {e}"))?
 }
 
+/// Removes a game installation. Without `installation_root`, the folder is
+/// resolved here under the same transfer reservation.
+pub(crate) fn uninstall(
+    app: &AppHandle,
+    id: &str,
+    installation_root: Option<&Path>,
+) -> Result<UninstallResult, String> {
+    crate::startup_recovery::require_ready(app)?;
+    let manager = app.state::<GameLaunchManager>();
+    let operation = manager.operation()?;
+    let _reservation = manager.reserve_transfer(id)?;
+    drop(operation);
+    let state = app.state::<DatabaseState>();
+    let database = state.database()?;
+    let protected = protected_directories(app)?;
+    let root = match installation_root {
+        Some(root) => root.to_path_buf(),
+        None => resumable_target(database, id, &protected)?,
+    };
+    remove_installation(database, id, &root, &protected)?;
+    let mut warnings = Vec::new();
+    if let Err(error) = crate::game_lifecycle::cleanup_removed_game(app, id) {
+        warnings.push(error);
+    }
+    if let Err(error) = crate::game_library::sync_default(app) {
+        warnings.push(error);
+    }
+    crate::disk_usage::invalidate(app, id);
+    Ok(UninstallResult { warnings })
+}
+
 #[tauri::command]
 pub async fn uninstall_game(
     app: AppHandle,
@@ -350,26 +381,7 @@ pub async fn uninstall_game(
     installation_root: String,
 ) -> Result<UninstallResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        crate::startup_recovery::require_ready(&app)?;
-        let manager = app.state::<GameLaunchManager>();
-        let operation = manager.operation()?;
-        let _reservation = manager.reserve_transfer(&id)?;
-        drop(operation);
-        remove_installation(
-            app.state::<DatabaseState>().database()?,
-            &id,
-            Path::new(&installation_root),
-            &protected_directories(&app)?,
-        )?;
-        let mut warnings = Vec::new();
-        if let Err(error) = crate::game_lifecycle::cleanup_removed_game(&app, &id) {
-            warnings.push(error);
-        }
-        if let Err(error) = crate::game_library::sync_default(&app) {
-            warnings.push(error);
-        }
-        crate::disk_usage::invalidate(&app, &id);
-        Ok(UninstallResult { warnings })
+        uninstall(&app, &id, Some(Path::new(&installation_root)))
     })
     .await
     .map_err(|e| format!("Game uninstall task failed: {e}"))?

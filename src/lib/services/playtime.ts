@@ -13,6 +13,11 @@ export function getPlaytimeSummaries(): Promise<PlaytimeSummary[]> {
   return invoke<PlaytimeSummary[]>("get_playtime_summaries");
 }
 
+// Played visible games, most recent first, with one entry per Steam game.
+export function getRecentGameIds(): Promise<string[]> {
+  return invoke<string[]>("get_recent_game_ids");
+}
+
 export function getPlaytimeActivity(dayBoundaries: number[]): Promise<number[]> {
   return invoke<number[]>("get_playtime_activity", { dayBoundaries });
 }

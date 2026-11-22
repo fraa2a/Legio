@@ -62,7 +62,9 @@ fn truncate_name(name: &str) -> String {
     shortened
 }
 
-fn recent_entries(games: &[Game], summaries: &[PlaytimeSummary]) -> Vec<RecentEntry> {
+/// Played games, most recent first. Installations of the same Steam game are
+/// listed once, by their most recent session. Shared with the home page.
+pub(crate) fn recent_games<'a>(games: &'a [Game], summaries: &[PlaytimeSummary]) -> Vec<&'a Game> {
     let mut played: Vec<(i64, &Game)> = games
         .iter()
         .filter_map(|game| {
@@ -74,7 +76,6 @@ fn recent_entries(games: &[Game], summaries: &[PlaytimeSummary]) -> Vec<RecentEn
         })
         .collect();
     played.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
-    // The same Steam game can exist in several libraries; the home view lists it once.
     let mut seen = HashSet::new();
     played
         .into_iter()
@@ -84,8 +85,15 @@ fn recent_entries(games: &[Game], summaries: &[PlaytimeSummary]) -> Vec<RecentEn
                     .map_or_else(|| game.id.clone(), |app_id| format!("steam:{app_id}")),
             )
         })
+        .map(|(_, game)| game)
+        .collect()
+}
+
+fn recent_entries(games: &[Game], summaries: &[PlaytimeSummary]) -> Vec<RecentEntry> {
+    recent_games(games, summaries)
+        .into_iter()
         .take(RECENT_LIMIT)
-        .map(|(_, game)| RecentEntry {
+        .map(|game| RecentEntry {
             id: game.id.clone(),
             label: truncate_name(&game.name),
         })

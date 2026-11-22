@@ -1,21 +1,15 @@
 import type { Game } from "../../services/local-state";
 import type { PlaytimeSummary } from "../../services/playtime";
 
-export function recentGames(games: Game[], summaries: PlaytimeSummary[]) {
-  const byId = new Map(summaries.map((summary) => [summary.gameId, summary]));
-  const seen = new Set<string>();
-  return games
-    .flatMap((game) => {
-      const summary = byId.get(game.id);
-      return summary?.lastPlayedAt == null ? [] : [{ game, summary }];
-    })
-    .sort((left, right) => (right.summary.lastPlayedAt ?? 0) - (left.summary.lastPlayedAt ?? 0))
-    .filter(({ game }) => {
-      const key = game.steamAppId === null ? game.id : `steam:${game.steamAppId}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+// The backend orders and deduplicates the recent games; this pairs its ids with the loaded data.
+export function recentGames(games: Game[], summaries: PlaytimeSummary[], recentIds: readonly string[]) {
+  const gameById = new Map(games.map((game) => [game.id, game]));
+  const summaryById = new Map(summaries.map((summary) => [summary.gameId, summary]));
+  return recentIds.flatMap((id) => {
+    const game = gameById.get(id);
+    const summary = summaryById.get(id);
+    return game === undefined || summary === undefined ? [] : [{ game, summary }];
+  });
 }
 
 export function monthCalendar(year: number, month: number) {
