@@ -8,7 +8,10 @@ export interface SteamVideoSurface {
 export function createSteamVideoSurface(video: HTMLVideoElement): SteamVideoSurface {
   const source = video.getAttribute("src");
   const sources = [...video.querySelectorAll("source")];
-  let loaded = true;
+  // Start without a source: a load started and aborted at once churns media pipelines, which crashes WebKitGTK.
+  video.removeAttribute("src");
+  video.replaceChildren();
+  let loaded = false;
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
 

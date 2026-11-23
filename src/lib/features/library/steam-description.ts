@@ -96,11 +96,11 @@ export function renderSteamDescription(target: HTMLElement, source: string): { u
           media.push(surface.destroy);
           parent.appendChild(surface.element);
           // A description can hold dozens of looping videos; only those near the viewport keep a decoder.
-          if (typeof IntersectionObserver !== "undefined") {
+          if (typeof IntersectionObserver === "undefined") surface.setNear(true);
+          else {
             videoObserver ??= new IntersectionObserver(entries => {
               for (const entry of entries) videos.get(entry.target)?.setNear(entry.isIntersecting);
             }, { rootMargin: "300px 0px" });
-            surface.setNear(false);
             videos.set(surface.element, surface);
             videoObserver.observe(surface.element);
           }
