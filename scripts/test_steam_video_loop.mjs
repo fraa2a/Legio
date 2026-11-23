@@ -10,6 +10,7 @@ let frameId = 0;
 globalThis.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };
 globalThis.cancelAnimationFrame = id => frames.delete(id);
 dom.window.HTMLMediaElement.prototype.pause = function () {};
+dom.window.HTMLMediaElement.prototype.load = function () {};
 const originalContext = dom.window.HTMLCanvasElement.prototype.getContext;
 dom.window.HTMLCanvasElement.prototype.getContext = () => ({ drawImage() {} });
 const { load } = createModuleLoader({});
@@ -25,6 +26,7 @@ function fixture(frameCallbacks = true) {
   }
   Object.defineProperties(video, { videoWidth: { value: 600 }, videoHeight: { value: 170 }, readyState: { value: 4, configurable: true }, seeking: { value: false, configurable: true }, paused: { value: false, configurable: true } });
   const surface = createSteamVideoSurface(video);
+  surface.setNear(true);
   document.body.append(surface.element);
   const canvas = surface.element.querySelector("canvas");
   return { video, surface, canvas, callbacks, frame() {
@@ -104,6 +106,10 @@ test("a video far from the viewport drops its source and retained frame until it
   video.cancelVideoFrameCallback = value => callbacks.delete(value);
   const surface = createSteamVideoSurface(video);
   try {
+    assert.equal(video.hasAttribute("src"), false, "a new video starts no load before it is near");
+    assert.equal(callbacks.size, 0);
+    surface.setNear(true);
+    assert.equal(loads, 1);
     const pending = [...callbacks.values()];
     callbacks.clear();
     for (const callback of pending) callback(0, {});
@@ -112,16 +118,16 @@ test("a video far from the viewport drops its source and retained frame until it
     surface.setNear(false);
     assert.equal(video.hasAttribute("src"), false);
     assert.equal(video.children.length, 0);
-    assert.equal(loads, 1, "reloading the emptied video releases its decoder");
+    assert.equal(loads, 2, "reloading the emptied video releases its decoder");
     assert.equal(canvas.width, 0);
     assert.equal(canvas.hidden, true);
     assert.equal(callbacks.size, 0, "a far video schedules no frame callbacks");
     surface.setNear(false);
-    assert.equal(loads, 1, "an unloaded video is not reloaded again");
+    assert.equal(loads, 2, "an unloaded video is not reloaded again");
     surface.setNear(true);
     assert.equal(video.getAttribute("src"), "https://cdn.steamstatic.com/loop.webm");
     assert.equal(video.querySelector("source"), source);
-    assert.equal(loads, 2);
+    assert.equal(loads, 3);
     assert.equal(callbacks.size, 1, "a returning video paints again");
   } finally { surface.destroy(); dom.window.HTMLMediaElement.prototype.load = originalLoad; }
 });
