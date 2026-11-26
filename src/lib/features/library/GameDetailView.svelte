@@ -37,7 +37,7 @@
   import SteamMetadata from "./SteamMetadata.svelte";
   import SteamArtwork from "./SteamArtwork.svelte";
   import SystemRequirements from "./SystemRequirements.svelte";
-    import GameLinks from "./GameLinks.svelte";
+  import GameLinks from "./GameLinks.svelte";
   import ProtonDbPanel from "./ProtonDbPanel.svelte";
   import LocalScreenshots from "./LocalScreenshots.svelte";
   import { gameLinks } from "./game-links";
@@ -398,8 +398,6 @@
 
     {#if game !== null}<GameUpdateButton gameId={game.id} />{/if}
 
-    <GameLinks links={usefulLinks} rating={badgeTier(protonState?.summary ?? null)} />
-
     <div class="grid flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
       <div class="flex min-w-0 flex-col gap-4">
         {#if steamAppId !== null}<SteamMetadata {steamAppId} />{/if}
@@ -414,6 +412,7 @@
           loading={detailsState?.status === "loading"}
           hasSteamAppId={steamAppId !== null}
         />
+        <GameLinks links={usefulLinks} rating={badgeTier(protonState?.summary ?? null)} />
         {#if game !== null}<GameModsPanel gameId={game.id} />{/if}
         {#if storeGame !== null}<Panel title={t("Info gioco", $language)}>
           <div class="flex flex-col gap-3">
