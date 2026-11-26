@@ -9,7 +9,7 @@
 
 ## License
 
-Legio uses source-available SA-NC-PD 1.0, not an open-source license. Read [LICENSE](LICENSE), especially section 5: contributions are permitted, but general distribution of modified versions is restricted. Submitting a contribution grants the rights described there. Only submit material you have the right to contribute.
+Legio is licensed under the Apache License 2.0 with the Commons Clause License Condition v1.0, which is source-available, not open source. Read [LICENSE](LICENSE). Under section 5 of the Apache License, any contribution you submit is licensed under the same terms, including the Commons Clause condition. Only submit material you have the right to contribute.
 
 ## Pull requests
 
