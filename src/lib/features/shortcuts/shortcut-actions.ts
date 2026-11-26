@@ -1,5 +1,4 @@
 import { get } from "svelte/store";
-import { paletteOpen } from "../../stores/command-palette";
 import { games } from "../../stores/games";
 import { launchStateByGame, pendingGameId, playGame } from "../../stores/launch";
 import { activeSection, sections, selectSection, selectedGameId, selectedModGame } from "../../stores/navigation";
@@ -11,7 +10,6 @@ const searchFieldId = "title-bar-search";
 function focusSearch(): void {
   const field = document.getElementById(searchFieldId);
   if (field instanceof HTMLElement && field.offsetParent !== null) field.focus();
-  else paletteOpen.set(true);
 }
 
 // Enter plays only on the game page, the one place with a single selected game.
@@ -27,8 +25,8 @@ function playOpenGame(): boolean {
 
 function run(action: ShortcutAction): boolean {
   switch (action.type) {
-    case "palette": paletteOpen.update((open) => !open); return true;
     case "section": selectSection(sections[action.index]); return true;
+    case "palette":
     case "search": focusSearch(); return true;
     case "play": return playOpenGame();
     case "help": shortcutsOpen.set(true); return true;

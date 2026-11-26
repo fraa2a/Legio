@@ -15,7 +15,6 @@
   import ErrorBanner from "./lib/components/ui/ErrorBanner.svelte";
   import MainContainer from "./lib/components/layout/MainContainer.svelte";
   import TitleBar from "./lib/components/layout/TitleBar.svelte";
-  import CommandPalette from "./lib/features/palette/CommandPalette.svelte";
   import SettingsDialog from "./lib/features/settings/SettingsDialog.svelte";
   import ToastNotice from "./lib/components/ui/ToastNotice.svelte";
   import Button from "./lib/components/ui/Button.svelte";
@@ -27,7 +26,6 @@
   import SourceLinkDialog from "./lib/features/settings/SourceLinkDialog.svelte";
   import ThemeLinkDialog from "./lib/features/settings/ThemeLinkDialog.svelte";
   import { checkForAppUpdateWhenEnabled, hydrateApp } from "./lib/stores/bootstrap";
-  import { paletteOpen } from "./lib/stores/command-palette";
   import { diskUsageDialogOpen } from "./lib/stores/disk-usage";
   import { shortcutsOpen } from "./lib/stores/shortcuts";
   import { startNotificationEvents } from "./lib/stores/notification-events";
@@ -144,10 +142,6 @@
 
 {#if $settingsOpen}
   <SettingsDialog onClose={closeSettings} {accent} />
-{/if}
-
-{#if $paletteOpen}
-  <CommandPalette />
 {/if}
 
 {#if $diskUsageDialogOpen}

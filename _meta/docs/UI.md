@@ -138,8 +138,10 @@ A nested radius is the outer radius minus the padding, as in `SegmentedControl`
   from the navigation stores. The back crumb and Escape run the same back navigation. Names
   truncate with a `title`. Page controls from `showTitleBarContent` follow the path (`start`).
 - **Search**: in the library and store lists, the `#title-bar-search` field filters the list.
-  Elsewhere a search-styled button opens the command palette; a key typed on it starts the
-  palette query. Ctrl+F focuses the filter or opens the palette.
+  Elsewhere the same id is `PaletteSearch.svelte`, a combobox that searches pages, games and
+  settings (ranked by `palette-model.ts`) and the Store. Its list grows out of the input as one
+  surface and collapses back into it; arrows move, Enter runs, Escape closes. Ctrl+F and Ctrl+K
+  focus the field.
 - **Status**: page `end` controls, the download status (count, progress and speed while
   downloads run; it opens Downloads), the notification bell, then the window controls.
 

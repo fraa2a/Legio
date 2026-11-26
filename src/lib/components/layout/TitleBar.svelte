@@ -28,13 +28,13 @@
   import RefreshIcon from "../ui/RefreshIcon.svelte";
   import TextField from "../ui/TextField.svelte";
   import { catalog, runCatalogSearch } from "../../stores/catalog";
-  import { openPalette } from "../../stores/command-palette";
   import { refreshSource, sourceBusy } from "../../stores/source";
   import { settings, updateSettings } from "../../stores/settings";
   import { showToast } from "../../stores/toast";
   import { toMessage } from "../../utils/errors";
   import { titleBarContent } from "../../stores/title-bar";
   import NotificationCenter from "../../features/notifications/NotificationCenter.svelte";
+  import PaletteSearch from "../../features/palette/PaletteSearch.svelte";
   import TitleBarDownloadStatus from "./TitleBarDownloadStatus.svelte";
   import { titleBarPath } from "./title-bar-model";
 
@@ -67,7 +67,7 @@
   const pageContent = $derived(onboarding ? null : $titleBarContent);
   const libraryList = $derived($activeSection === "library" && $selectedGameId === null);
   const storeList = $derived($activeSection === "store" && $selectedStoreGame === null);
-  // These views filter their own list from the title bar; the others search everywhere through the palette.
+  // These views filter their own list from the title bar; the others search everywhere inline.
   const searchList = $derived(!onboarding && (libraryList || storeList));
 
   $effect(() => {
@@ -132,24 +132,14 @@
     navigateBack();
   }
 
-  // Typing on the search button starts the palette query with that key.
-  function handleSearchKeydown(event: KeyboardEvent): void {
-    if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
-    if (event.key.length === 1 && event.key !== " ") {
-      event.preventDefault();
-      openPalette(event.key);
-    } else if (event.key === "ArrowDown") {
-      event.preventDefault();
-      openPalette();
-    }
-  }
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
 <!-- Only elements carrying data-tauri-drag-region drag the window, so every non-interactive wrapper has it.
-     When space runs out the search narrows first, then the path truncates; the right side never shrinks. -->
-<div class="@container my-1.5 flex shrink-0 items-center gap-2" data-tauri-drag-region>
+     The side columns share the width equally, so the search stays centered on the window on every page.
+     The right side never shrinks; the path truncates when space runs out. -->
+<div class="@container my-1.5 grid shrink-0 grid-cols-[minmax(0,1fr)_minmax(var(--spacing-control-md),28rem)_minmax(max-content,1fr)] items-center gap-2" data-tauri-drag-region>
   <div class="flex min-w-0 items-center gap-2" data-tauri-drag-region>
     <nav aria-label={t("Percorso", $language)} class="legio-glass flex h-control-md min-w-0 items-center rounded-card px-1" data-tauri-drag-region>
       <ol class="flex min-w-0 items-center gap-1 text-sm" data-tauri-drag-region>
@@ -201,8 +191,7 @@
     {/if}
     {#if pageContent?.start}{@render pageContent.start()}{/if}
   </div>
-  <!-- Under 12rem the palette button keeps only its icon. -->
-  <div class="@container flex min-w-control-md flex-1 justify-center" data-tauri-drag-region>
+  <div class="@container flex min-w-0 justify-center" data-tauri-drag-region>
     {#if searchList}
       {#snippet refreshStore()}
         <IconButton
@@ -217,7 +206,7 @@
         id="title-bar-search"
         type="search"
         variant="toolbar"
-        class="w-full max-w-md min-w-0"
+        class="w-full min-w-0"
         label={libraryList ? t("Cerca nella libreria", $language) : t("Cerca nello store", $language)}
         labelHidden
         bind:element={searchInput}
@@ -227,20 +216,7 @@
         trailing={storeList ? refreshStore : undefined}
       />
     {:else if !onboarding}
-      <button
-        id="title-bar-palette"
-        type="button"
-        aria-label={t("Cerca ovunque", $language)}
-        aria-haspopup="dialog"
-        aria-keyshortcuts="Control+K"
-        onclick={() => openPalette()}
-        onkeydown={handleSearchKeydown}
-        class="legio-glass flex h-control-md w-full max-w-md min-w-0 items-center gap-2.5 rounded-card px-3 text-sm text-legio-fg-subtle transition-colors hover:text-legio-fg-muted"
-      >
-        <span class="shrink-0"><Icon name="search" /></span>
-        <span class="hidden min-w-0 flex-1 truncate text-left @min-[12rem]:inline">{t("Cerca ovunque", $language)}</span>
-        <kbd class="hidden shrink-0 text-xs font-medium @min-[18rem]:inline">Ctrl K</kbd>
-      </button>
+      <PaletteSearch id="title-bar-search" />
     {/if}
   </div>
   <div class="flex shrink-0 items-center gap-2" data-tauri-drag-region>

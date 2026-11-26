@@ -241,7 +241,7 @@ test("icon button titles appear as a tooltip after a delay and hide on leave or 
   } finally { await unmount(instance); target.remove(); }
 });
 
-test("command palette ranks games and pages, moves with the arrows and runs the chosen entry", async () => {
+test("top bar search ranks games and pages, moves with the arrows and runs the chosen entry", async () => {
   const calls = [];
   globalThis.paletteFixture = { calls, games: writable({ data: [{ id: "g1", name: "Hollow Knight" }, { id: "g2", name: "Portal 2" }] }), query: writable("") };
   const { load: loadPalette } = createModuleLoader({
@@ -255,17 +255,19 @@ test("command palette ranks games and pages, moves with the arrows and runs the 
       export const openSettings = id => globalThis.paletteFixture.calls.push(["settings", id]);
       export const openPlaytimeRecap = () => globalThis.paletteFixture.calls.push(["recap"]);`),
   });
-  const { paletteOpen } = await import(await loadPalette("src/lib/stores/command-palette.ts"));
-  const CommandPalette = (await import(await loadPalette("src/lib/features/palette/CommandPalette.svelte"))).default;
+  const PaletteSearch = (await import(await loadPalette("src/lib/features/palette/PaletteSearch.svelte"))).default;
   const target = document.createElement("div"); document.body.append(target);
-  paletteOpen.set(true);
-  let instance = mount(CommandPalette, { target });
-  const press = (key) => document.activeElement.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true }));
-  const type = (value) => { const input = document.querySelector('input[role="combobox"]'); input.value = value; input.dispatchEvent(new window.Event("input", { bubbles: true })); };
+  const instance = mount(PaletteSearch, { target, props: { id: "title-bar-search" } });
+  const field = () => document.querySelector('input[role="combobox"]');
+  const press = (key) => field().dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+  const type = (value) => { field().value = value; field().dispatchEvent(new window.Event("input", { bubbles: true })); };
   const labels = () => [...document.querySelectorAll('[role="option"]')].map(option => option.querySelector("span.truncate").textContent);
   try {
     await settle();
-    assert.equal(document.activeElement, document.querySelector('input[role="combobox"]'));
+    assert.equal(field().getAttribute("aria-expanded"), "false");
+    assert.equal(document.querySelector('[role="listbox"]'), null, "the list stays closed until the field is used");
+    field().focus(); await settle();
+    assert.equal(field().getAttribute("aria-expanded"), "true");
     assert.deepEqual(labels().slice(0, 4), ["Home", "Libreria", "Store", "Download"]);
     type("kni"); await settle();
     assert.deepEqual(labels(), ["Hollow Knight", "Cerca nello Store: kni"]);
@@ -274,16 +276,18 @@ test("command palette ranks games and pages, moves with the arrows and runs the 
     press("Enter"); await settle();
     assert.deepEqual(calls, [["section", "store"]]);
     assert.equal(get(globalThis.paletteFixture.query), "kni");
-    assert.equal(get(paletteOpen), false, "choosing an entry closes the palette");
-    // App.svelte unmounts the palette once it closes and mounts a new one when it opens again.
-    await unmount(instance);
-    calls.length = 0; paletteOpen.set(true);
-    instance = mount(CommandPalette, { target }); await settle();
+    assert.equal(document.querySelector('[role="listbox"]'), null, "choosing an entry closes the list");
+    assert.equal(field().value, "", "and clears the query");
+    calls.length = 0;
     type("aspetto"); await settle();
     press("Enter"); await settle();
     assert.deepEqual(calls, [["settings", "appearance"]]);
-    paletteOpen.set(true); await settle();
     type("zzzz"); await settle();
     assert.deepEqual(labels(), ["Cerca nello Store: zzzz"]);
+    press("Escape"); await settle();
+    assert.equal(document.querySelector('[role="listbox"]'), null, "Escape closes the list");
+    assert.equal(field().getAttribute("aria-expanded"), "false");
+    press("ArrowDown"); await settle();
+    assert.deepEqual(labels(), ["Cerca nello Store: zzzz"], "an arrow key opens it again");
   } finally { await unmount(instance); target.remove(); delete globalThis.paletteFixture; }
 });
