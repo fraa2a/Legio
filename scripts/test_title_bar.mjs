@@ -199,6 +199,7 @@ async function titleBar() {
   const { load } = createModuleLoader({
     "src/lib/i18n": i18n,
     "src/lib/components/ui/Icon.svelte": await stub("<span></span>"),
+    "src/lib/utils/motion": dataModule("export const reducedMotion = true, fadeDuration = 0, pageTransitionDuration = 0;"),
     "src/lib/services/window": dataModule("export const closeWindow = async () => {}, isWindowMaximized = async () => false, minimizeWindow = async () => {}, onWindowResized = async () => () => {}, toggleMaximizeWindow = async () => {};"),
     "src/lib/stores/app-info": fromGlobal("titleBarFixture", ["appInfo"]),
     "src/lib/stores/games": fromGlobal("titleBarFixture", ["games"]),
@@ -209,17 +210,15 @@ async function titleBar() {
     "src/lib/stores/downloads": fromGlobal("titleBarFixture", ["activeDownloads"]),
   });
   const navigation = await import(await load("src/lib/stores/navigation.ts"));
-  const palette = await import(await load("src/lib/stores/command-palette.ts"));
   const { notifications: history, toast } = await notificationStores(load);
   navigation.selectSection("home");
-  palette.paletteOpen.set(false);
   const Component = (await import(await load("src/lib/components/layout/TitleBar.svelte"))).default;
   const target = document.createElement("div");
   document.body.append(target);
   const instance = mount(Component, { target });
   await settle();
   const destroy = async () => { await unmount(instance); target.remove(); };
-  return { fixture, navigation, palette, toast, history, target, destroy, load };
+  return { fixture, navigation, toast, history, target, destroy, load };
 }
 
 test("the title bar shows the path and goes back from its first crumb or Escape", async () => {
@@ -242,29 +241,28 @@ test("the title bar shows the path and goes back from its first crumb or Escape"
   } finally { await destroy(); }
 });
 
-test("list views keep filtering from the title bar while other views open the palette", async () => {
-  const { fixture, navigation, palette, target, destroy } = await titleBar();
+test("list views filter from the title bar while other views search everywhere inline", async () => {
+  const { fixture, navigation, target, destroy } = await titleBar();
   try {
     navigation.selectSection("library"); await settle();
     const filter = target.querySelector("#title-bar-search");
-    assert.ok(filter, "Ctrl+F still finds the library filter");
-    assert.equal(target.querySelector("#title-bar-palette"), null);
+    assert.ok(filter, "Ctrl+F finds the library filter");
+    assert.equal(filter.getAttribute("role"), null);
     filter.value = "knight";
     filter.dispatchEvent(new Event("input", { bubbles: true }));
     assert.equal(get(fixture.libraryQuery), "knight");
-    assert.equal(get(palette.paletteOpen), false);
 
     navigation.selectSection("home"); await settle();
-    assert.equal(target.querySelector("#title-bar-search"), null, "Ctrl+F opens the palette where nothing is filtered");
-    const launcher = target.querySelector("#title-bar-palette");
-    launcher.click();
-    assert.equal(get(palette.paletteOpen), true);
-    assert.equal(get(palette.paletteSeed), "");
-    palette.paletteOpen.set(false);
-    launcher.focus();
-    key(launcher, "h");
-    assert.equal(get(palette.paletteOpen), true);
-    assert.equal(get(palette.paletteSeed), "h", "the typed key starts the palette query");
+    const search = target.querySelector("#title-bar-search");
+    assert.equal(search.getAttribute("role"), "combobox", "the same field id searches everywhere");
+    assert.equal(target.querySelector("[role=listbox]"), null);
+    search.focus(); await settle();
+    assert.equal(search.getAttribute("aria-expanded"), "true");
+    search.value = "very"; search.dispatchEvent(new Event("input", { bubbles: true })); await settle();
+    assert.ok([...target.querySelectorAll("[role=option]")].some(option => option.textContent.includes("A very long game name")));
+    search.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); await settle();
+    assert.equal(get(navigation.selectedGameId), "g1", "Enter opens the first result");
+    assert.equal(get(navigation.activeSection), "library");
   } finally { await destroy(); }
 });
 
@@ -309,31 +307,4 @@ test("the bell counts unread notices and opens an accessible history panel", asy
     document.body.click(); await settle();
     assert.equal(bell().getAttribute("aria-expanded"), "false", "a click outside closes the panel");
   } finally { await destroy(); }
-});
-
-test("the palette starts from the text typed into the title bar search", async () => {
-  globalThis.paletteFixture = { appInfo: writable({ data: { platform: "linux" } }), games: writable({ data: [] }) };
-  const { load } = createModuleLoader({
-    "src/lib/i18n": i18n,
-    "src/lib/components/ui/Icon.svelte": await stub("<span></span>"),
-    "src/lib/components/ui/Dialog.svelte": await stub('<script>let { title, children } = $props();</script><section role="dialog" aria-label={title}>{@render children(() => {})}</section>'),
-    "src/lib/stores/app-info": fromGlobal("paletteFixture", ["appInfo"]),
-    "src/lib/stores/games": fromGlobal("paletteFixture", ["games"]),
-    "src/lib/stores/library-ui": dataModule(`${storeImport} export const addGameDialogOpen = writable(false), storeQuery = writable("");`),
-  });
-  const palette = await import(await load("src/lib/stores/command-palette.ts"));
-  palette.openPalette("Ho");
-  const Component = (await import(await load("src/lib/features/palette/CommandPalette.svelte"))).default;
-  const target = document.createElement("div");
-  document.body.append(target);
-  const instance = mount(Component, { target });
-  try {
-    await settle();
-    assert.equal(target.querySelector('[role="combobox"]').value, "Ho");
-    assert.equal(get(palette.paletteSeed), "", "the seed is used once");
-    assert.ok([...target.querySelectorAll('[role="option"]')].some(option => option.textContent.includes("Home")));
-  } finally {
-    await unmount(instance);
-    target.remove();
-  }
 });
