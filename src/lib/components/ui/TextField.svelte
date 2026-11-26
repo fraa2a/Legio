@@ -72,7 +72,7 @@
   {:else}
     <div class="relative">
       {#if type === "search"}
-        <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-legio-fg-subtle"><Icon name="search" /></span>
+        <span class="pointer-events-none absolute inset-y-0 left-3 z-10 flex items-center text-legio-fg-subtle"><Icon name="search" /></span>
       {/if}
       <input
         {...attributes}
