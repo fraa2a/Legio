@@ -245,6 +245,8 @@
   "Velocità di download": "Download speed",
   "Limite di banda": "Bandwidth limit",
   "{0} MB/s": "{0} MB/s",
+  "MB/s": "MB/s",
+  "Limite di banda in MB/s": "Bandwidth limit in MB/s",
   "Il limite viene applicato subito e riportato al prossimo avvio.": "The limit applies immediately and is restored on the next launch.",
   "Applica": "Apply",
   "Cartella dei giochi installati": "Installed games folder",

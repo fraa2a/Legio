@@ -6,6 +6,7 @@
   import SettingsGroup from "../../components/ui/SettingsGroup.svelte";
   import Slider from "../../components/ui/Slider.svelte";
   import ResetSetting from "../../components/ui/ResetSetting.svelte";
+  import TextField from "../../components/ui/TextField.svelte";
   import ToggleSetting from "../../components/ui/ToggleSetting.svelte";
   import { defaultSettings, settings, updateSettings as saveChanges } from "../../stores/settings";
   import { toMessage } from "../../utils/errors";
@@ -14,16 +15,19 @@
     bandwidthLimitError,
     saveBandwidthLimit,
   } from "../../stores/downloads";
-  import { formatMegabytes, nearestStop, stopBytes, unlimitedStop } from "./bandwidth-stops";
+  import { formatMegabytes, nearestStop, parseMegabytes, stopBytes, unlimitedStop } from "./bandwidth-stops";
 
+  // Bytes, so a typed value between two stops is kept as typed.
   let limitDraft = $state<number | null>(null);
+  let typedLimit = $state<string | null>(null);
   let savingLimit = $state(false);
   let failedLimit: number | null = null;
   const saveQueue = createSaveQueue();
 
-  const draftBytes = $derived(limitDraft === null ? $bandwidthLimit.data : stopBytes(limitDraft));
+  const draftBytes = $derived(limitDraft ?? $bandwidthLimit.data);
   const draftChanged = $derived(limitDraft !== null && draftBytes !== $bandwidthLimit.data);
-  const thumbBytes = $derived(stopBytes(limitDraft ?? nearestStop($bandwidthLimit.data)));
+  const thumbBytes = $derived(limitDraft ?? stopBytes(nearestStop($bandwidthLimit.data)));
+  const limitText = $derived(thumbBytes === 0 ? "" : formatMegabytes(thumbBytes));
   const limitLabel = $derived(thumbBytes === 0 ? t("Senza limite", $language) : t("{0} MB/s", $language, [formatMegabytes(thumbBytes)]));
 
   $effect(() => {
@@ -55,6 +59,12 @@
     });
   }
 
+  function commitTypedLimit(): void {
+    const bytes = parseMegabytes(typedLimit ?? "");
+    if (bytes !== null) limitDraft = bytes;
+    typedLimit = null;
+  }
+
   let settingsError = $state<string | null>(null);
 
   async function updateSettings(changes: Partial<typeof $settings.data>): Promise<void> {
@@ -75,16 +85,21 @@
 
 
   <SettingsGroup icon="speed" title={t("Velocità di download", $language)}>
-    <div class="flex max-w-md flex-col gap-2">
+    <div class="flex flex-col gap-2">
       <div class="flex items-center justify-between gap-2">
         <label for="download-bandwidth-limit" class="text-sm font-medium text-legio-fg">{t("Limite di banda", $language)}</label>
-        <div class="flex shrink-0 items-center gap-1">
-          <output for="download-bandwidth-limit" class="text-xs tabular-nums text-legio-fg-muted">{limitLabel}</output>
-          <ResetSetting label={t("Ripristina limite di banda", $language)} disabled={draftBytes === 0} onClick={() => { limitDraft = unlimitedStop; }} />
+        <ResetSetting label={t("Ripristina limite di banda", $language)} disabled={draftBytes === 0} onClick={() => { limitDraft = 0; typedLimit = null; }} />
+      </div>
+      <div class="flex items-center gap-4">
+        <Slider id="download-bandwidth-limit" label={t("Limite di banda", $language)} value={nearestStop(draftBytes)} min={0} max={unlimitedStop} valueText={limitLabel}
+          disabled={$bandwidthLimit.status === "error"} class="min-w-0 flex-1" onInput={(value) => { limitDraft = stopBytes(value); typedLimit = null; }} />
+        <div class="flex shrink-0 items-center gap-2">
+          <TextField id="download-bandwidth-input" label={t("Limite di banda in MB/s", $language)} labelHidden type="number" inputmode="numeric" min="0" max="200" step="1"
+            placeholder={t("Senza limite", $language)} class="w-28" disabled={$bandwidthLimit.status === "error"}
+            value={typedLimit ?? limitText} oninput={(value) => { typedLimit = value; }} onchange={commitTypedLimit} />
+          <span class="text-sm text-legio-fg-muted">{t("MB/s", $language)}</span>
         </div>
       </div>
-      <Slider id="download-bandwidth-limit" label={t("Limite di banda", $language)} value={limitDraft ?? nearestStop($bandwidthLimit.data)} min={0} max={unlimitedStop} valueText={limitLabel}
-        disabled={$bandwidthLimit.status === "error"} class="w-full" onInput={(value) => { limitDraft = value; }} />
       <p class="text-xs text-legio-fg-muted">{t("Il limite viene applicato subito e riportato al prossimo avvio.", $language)}</p>
     </div>
   </SettingsGroup>
