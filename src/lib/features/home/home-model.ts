@@ -33,3 +33,10 @@ export function formatPlaytime(milliseconds: number): string {
 export function activityIntensity(milliseconds: number): number {
   return Math.min(1, Math.max(0, milliseconds / (8 * 3600000)));
 }
+
+// Playtime first, then the last session; a never-played game has no second part.
+export function heroStats(summary: PlaytimeSummary, describeLastPlayed: (lastPlayedAt: number) => string): string[] {
+  const parts = [formatPlaytime(summary.totalMilliseconds)];
+  if (summary.lastPlayedAt !== null) parts.push(describeLastPlayed(summary.lastPlayedAt));
+  return parts;
+}

@@ -296,7 +296,6 @@
   "{0} non è presente in libreria.": "{0} is not in the library.",
   "Limite impostato a {0}/s": "Limit set to {0}/s",
   "Calendario di {0}": "Calendar for {0}",
-  "Informazioni su {0}": "Information about {0}",
   "Impostazioni di {0}": "Settings for {0}",
   "Immagine del gioco: {0}": "Game image: {0}",
   "Dettagli del gioco: {0}": "Game details: {0}",
@@ -1413,5 +1412,6 @@
   "Come mostrare la libreria": "How to show the library",
   "Vale per la griglia e gli scaffali.": "Applies to the grid and the shelves.",
   "Più tardi": "Later",
-  "Aggiorna ora": "Update now"
+  "Aggiorna ora": "Update now",
+  "Dettagli": "Details"
 }

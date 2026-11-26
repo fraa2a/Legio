@@ -129,6 +129,15 @@ A nested radius is the outer radius minus the padding, as in `SegmentedControl`
   `type="textarea"` for code), `SelectField`, `SegmentedControl`, `RadioCard`, `Slider`
   and `Toggle` instead of raw inputs. Clickable tiles and the video player surface stay raw.
 
+## Home
+
+- The hero continues the last played game: sharper blurred artwork (`blur-md`) under a bottom scrim, with
+  the eyebrow "Continua a giocare", status chips (running, update available), the game logo (the name is
+  a screen reader heading), and a stats line of total playtime and relative last played time.
+- Actions are the hero Play control (`GameLaunchControls`, `hero` size), a labelled "Dettagli" button and the
+  settings icon button. Below 30rem of hero width Play fills the row and "Dettagli" becomes icon-only.
+- The recently played panel hides on windows shorter than 700px and the changelog on short containers.
+
 ## Title bar
 
 `TitleBar.svelte` is a context bar of `md` glass groups, left to right:
