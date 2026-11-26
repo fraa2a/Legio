@@ -279,15 +279,6 @@
   <p class="legio-glass rounded-card p-6 text-legio-fg-muted">{t("Il gioco non è più disponibile.", $language)}</p>
 {:else}
   <div class="relative isolate flex min-h-full flex-col gap-4">
-    {#if customBannerUrl !== null || steamAppId !== null}
-      <div class="pointer-events-none absolute inset-x-0 top-0 -z-10 h-160 overflow-hidden mask-b-from-20% opacity-50 light:opacity-25" aria-hidden="true">
-        {#if customBannerUrl !== null}
-          <img src={customBannerUrl} alt="" class="size-full scale-125 object-cover blur-3xl" />
-        {:else if steamAppId !== null}
-          <SteamArtwork {steamAppId} asset="hero_blur" caption={false} class="size-full scale-125 object-cover blur-3xl" />
-        {/if}
-      </div>
-    {/if}
     <section class="relative isolate z-20 aspect-[1920/620] min-h-80 w-full rounded-panel">
       <div class="absolute inset-0 overflow-hidden rounded-panel bg-legio-fill {launch?.status === 'launching' ? 'legio-cover-launching' : ''}">
         {#if customBannerUrl !== null}
