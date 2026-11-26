@@ -5,36 +5,26 @@
   import TrailerPlayer from "./TrailerPlayer.svelte";
   import ArtworkViewer from "./ArtworkViewer.svelte";
   import SteamArtwork from "./SteamArtwork.svelte";
-  import type { LocalImage } from "./local-screenshots";
 
   let {
     steamAppId = 0,
     name,
     screenshots = [],
     movies = [],
-    local = undefined,
-    onActive,
   }: {
     steamAppId?: number;
     name: string;
     screenshots?: SteamDetails["assets"]["screenshots"];
     movies?: NonNullable<SteamDetails["assets"]["movies"]>;
-    // Local files shown instead of Steam screenshots.
-    local?: readonly LocalImage[];
-    onActive?: (index: number) => void;
   } = $props();
 
-  const count = $derived(local?.length ?? screenshots.length);
+  const count = $derived(screenshots.length);
   const mediaCount = $derived(movies.length + count);
   let selected = $state(0);
   const active = $derived(Math.max(0, Math.min(selected, mediaCount - 1)));
   const activeMovie = $derived(active < movies.length ? movies[active] : null);
   const screenshotIndex = $derived(active - movies.length);
   let open = $state(false);
-
-  $effect(() => {
-    if (local !== undefined && activeMovie === null) onActive?.(screenshotIndex);
-  });
 
   let strip: HTMLElement | undefined = $state();
 
@@ -56,14 +46,6 @@
     aria-label={t("Ingrandisci schermata {0} di {1}", $language, [screenshotIndex + 1, count])}
     onclick={() => (open = true)}
   >
-    {#if local !== undefined}
-      {@const image = local[screenshotIndex]}
-      {#if image?.fullUrl ?? image?.thumbUrl}
-        <img src={image.fullUrl ?? image.thumbUrl} alt={t("Schermata {0} di {1}", $language, [screenshotIndex + 1, name])} draggable="false" class="aspect-video w-full object-cover" />
-      {:else}
-        <div class="aspect-video w-full"><span role="status" class="sr-only">{t("Caricamento immagine...", $language)}</span></div>
-      {/if}
-    {:else}
     <SteamArtwork
       {steamAppId}
       asset="screenshot"
@@ -75,7 +57,6 @@
       caption={false}
       class="aspect-video w-full object-cover"
     />
-    {/if}
     {#if count > 1}
       <span
         class="absolute right-3 bottom-3 rounded-full bg-black/70 px-2.5 py-1 text-xs tabular-nums text-zinc-100 backdrop-blur-sm"
@@ -95,7 +76,7 @@
           <span class="absolute inset-0 grid place-items-center bg-black/20"><span class="grid size-8 place-items-center rounded-full bg-black/70 text-white"><Icon name="play" /></span></span>
         </button>
       {/each}
-      {#each local ?? screenshots as screenshot, position (local ? (screenshot as LocalImage).id : ((screenshot as (typeof screenshots)[number]).thumbnail ?? (screenshot as (typeof screenshots)[number]).full))}
+      {#each screenshots as screenshot, position (screenshot.thumbnail ?? screenshot.full)}
         <button
           type="button"
           data-index={movies.length + position}
@@ -107,20 +88,16 @@
           aria-current={movies.length + position === active}
           onclick={() => select(movies.length + position)}
         >
-          {#if local !== undefined}
-            {#if (screenshot as LocalImage).thumbUrl}<img src={(screenshot as LocalImage).thumbUrl} alt="" draggable="false" class="size-full object-cover" />{/if}
-          {:else}
           <SteamArtwork
             {steamAppId}
             asset="screenshot"
             index={position}
-            screenshotIdentity={(screenshot as (typeof screenshots)[number]).thumbnail ?? (screenshot as (typeof screenshots)[number]).full ?? undefined}
+            screenshotIdentity={screenshot.thumbnail ?? screenshot.full ?? undefined}
 
             alt=""
             caption={false}
             class="size-full object-cover"
           />
-          {/if}
         </button>
       {/each}
     </div>
@@ -133,7 +110,6 @@
     asset="screenshot"
     index={screenshotIndex}
     screenshotIdentity={screenshots[screenshotIndex]?.full ?? screenshots[screenshotIndex]?.thumbnail ?? undefined}
-    {local}
     {count}
 
     alt={t("Schermata {0} di {1}", $language, [screenshotIndex + 1, name])}

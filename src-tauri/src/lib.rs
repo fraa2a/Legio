@@ -45,7 +45,6 @@ mod game_artwork;
 mod game_library;
 mod game_lifecycle;
 mod game_process;
-mod game_screenshots;
 mod game_transfer;
 mod game_uninstall;
 mod game_updates;
@@ -636,11 +635,6 @@ fn run_application(
             commands::search_steamgriddb_games,
             commands::list_steamgriddb_artwork,
             commands::apply_steamgriddb_artwork,
-            commands::list_game_screenshots,
-            commands::get_game_screenshot,
-            commands::open_game_screenshots_folder,
-            commands::set_game_screenshots_folder,
-            commands::import_game_screenshot_background,
             commands::get_steam_asset,
             commands::finish_steam_asset_update,
             commands::set_artwork_game,

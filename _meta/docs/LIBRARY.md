@@ -245,24 +245,6 @@ same 2 MiB limit, format sniffing and dimension checks as an image picked from d
 Heroes and landscape covers fill the custom banner; icons fill the custom icon.
 Thumbnails load directly from the CDN, which the existing `img-src https:` allows.
 
-## Local screenshots
-
-The game page lists screenshots newest first, 12 per page and at most 500 per game, from
-two places: the Steam folder `userdata/<account>/760/remote/<appid>/screenshots` of every
-local Steam account, and one folder per game. That folder defaults to
-`game-screenshots/<game id>` in the Legio data directory; an override chosen in the UI is
-stored in the key/value `settings` table as `game_screenshot_folder.<game id>` (no schema
-migration) and removed with the game.
-
-Only regular files with a `png`, `jpg`, `jpeg` or `webp` extension whose first bytes match
-one of those formats are listed. Symbolic links are skipped and never opened, files over
-32 MiB are ignored, and the frontend only uses opaque ids resolved by the backend inside
-the known folders. Images reach the WebView through the artwork IPC response as object
-URLs; the strip uses 480 px JPEG thumbnails made on demand and the full image loads for
-the screenshot on display. "Open folder" opens the folder of the selected screenshot.
-"Set as wallpaper" imports the file through the appearance background pipeline
-(normalized PNG, up to 2560 px) and selects it as the app wallpaper.
-
 ## Exporting games to Steam
 
 "Add to Steam" in a game's settings and "Export to Steam" in the Steam section of the
