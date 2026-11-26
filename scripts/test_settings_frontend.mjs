@@ -74,10 +74,21 @@ assert.deepEqual(frontendRepro.bandwidthCalls,[]);assert.equal(get(downloads.ban
 await unmount(instance);target.remove();
 });
 
+test("typing a bandwidth limit clamps it and moves the slider", async () => {
+downloads.bandwidthLimit.set(0);frontendRepro.bandwidthCalls.length=0;
+const target=document.createElement('div');document.body.append(target);const instance=mount(DownloadSettings,{target});await settle();
+const input=target.querySelector('#download-bandwidth-input');input.value='999';input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));await settle();
+assert.equal(input.value,'200');assert.equal(target.querySelector('#download-bandwidth-limit').value,'7');
+await new Promise(resolve=>setTimeout(resolve,550));await settle();assert.deepEqual(frontendRepro.bandwidthCalls,[200*1024*1024]);
+await unmount(instance);target.remove();
+});
+
 test("bandwidth stops map saved limits to the nearest stop", async () => {
 const stops=await import(await loader.load('src/lib/features/settings/bandwidth-stops.ts'));
 assert.equal(stops.nearestStop(0),stops.unlimitedStop);assert.equal(stops.stopBytes(stops.unlimitedStop),0);
 assert.equal(stops.nearestStop(1049),0);assert.equal(stops.stopBytes(stops.nearestStop(9*1024*1024)),10*1024*1024);
+const mb=1024*1024;assert.equal(stops.parseMegabytes('15'),15*mb);assert.equal(stops.parseMegabytes('999'),200*mb);assert.equal(stops.parseMegabytes('0.2'),mb);
+assert.equal(stops.parseMegabytes(''),0);assert.equal(stops.parseMegabytes('-3'),0);assert.equal(stops.parseMegabytes('abc'),null);
 });
 
 test("obsolete scans cannot overwrite a newer directory or reset", async () => {

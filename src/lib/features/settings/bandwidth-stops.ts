@@ -22,3 +22,11 @@ export function nearestStop(bytes: number): number {
 export function formatMegabytes(bytes: number): string {
   return (bytes / bytesPerMegabyte).toFixed(2).replace(/\.?0+$/, "");
 }
+
+// Typed text becomes a limit in bytes: empty or 0 is unlimited, anything else is rounded and kept within the slider range. Not a number returns null.
+export function parseMegabytes(text: string): number | null {
+  const value = text.trim() === "" ? 0 : Number(text);
+  if (!Number.isFinite(value)) return null;
+  if (value <= 0) return 0;
+  return Math.min(Math.max(Math.round(value), stops[0]), stops[unlimitedStop - 1]) * bytesPerMegabyte;
+}
