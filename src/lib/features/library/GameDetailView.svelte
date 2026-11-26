@@ -37,8 +37,7 @@
   import SteamMetadata from "./SteamMetadata.svelte";
   import SteamArtwork from "./SteamArtwork.svelte";
   import SystemRequirements from "./SystemRequirements.svelte";
-  import GameInstalledSize from "./GameInstalledSize.svelte";
-  import GameLinks from "./GameLinks.svelte";
+    import GameLinks from "./GameLinks.svelte";
   import ProtonDbPanel from "./ProtonDbPanel.svelte";
   import LocalScreenshots from "./LocalScreenshots.svelte";
   import { gameLinks } from "./game-links";
@@ -397,7 +396,6 @@
     {/if}
 
 
-    {#if game !== null}<GameInstalledSize {game} />{/if}
     {#if game !== null}<GameUpdateButton gameId={game.id} />{/if}
 
     <GameLinks links={usefulLinks} rating={badgeTier(protonState?.summary ?? null)} />

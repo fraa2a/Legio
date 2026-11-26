@@ -27,6 +27,7 @@
   import SteamAccountPanel from "./SteamAccountPanel.svelte";
   import SteamStartSetting from "./SteamStartSetting.svelte";
   import SteamLaunchSettings from "./SteamLaunchSettings.svelte";
+  import GameInstalledSize from "./GameInstalledSize.svelte";
   import SteamExportDialog from "./SteamExportDialog.svelte";
   import { isSteamExportable } from "./steam-export";
   import GameModSettings from "../modding/GameModSettings.svelte";
@@ -166,6 +167,7 @@
               </div>
             </Panel>
           {/if}
+          <GameInstalledSize {game} />
         </div>
       {:else if selectedCategory === "customization"}
         <GameArtworkPanel {game} />
