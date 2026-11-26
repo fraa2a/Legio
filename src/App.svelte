@@ -17,9 +17,6 @@
   import TitleBar from "./lib/components/layout/TitleBar.svelte";
   import SettingsDialog from "./lib/features/settings/SettingsDialog.svelte";
   import ToastNotice from "./lib/components/ui/ToastNotice.svelte";
-  import Button from "./lib/components/ui/Button.svelte";
-  import CloseButton from "./lib/components/ui/CloseButton.svelte";
-  import Icon from "./lib/components/ui/Icon.svelte";
   import DiskUsageDialog from "./lib/features/settings/DiskUsageDialog.svelte";
   import AccountSwitchDialog from "./lib/features/library/AccountSwitchDialog.svelte";
   import ModLinkDialog from "./lib/features/modding/ModLinkDialog.svelte";
@@ -34,10 +31,10 @@
   import { closeSettings, settingsOpen } from "./lib/stores/navigation";
   import { settings } from "./lib/stores/settings";
   import { databaseFailure } from "./lib/stores/database-recovery";
-  import { installAppUpdate, updateState } from "./lib/services/app-updater";
+  import { updateState } from "./lib/services/app-updater";
   import { startPeriodicChecks } from "./lib/services/update-schedule";
-  import { openReleaseNotes } from "./lib/stores/update-notes";
   import ReleaseNotesDialog from "./lib/features/updates/ReleaseNotesDialog.svelte";
+  import AppUpdateDialog from "./lib/features/updates/AppUpdateDialog.svelte";
   import { windowActive, windowVisible } from "./lib/stores/window-activity";
   import { hasRunningGame } from "./lib/stores/launch";
   import { observeMediaPlayback } from "./lib/services/media-playback";
@@ -53,15 +50,6 @@
   const palette = $derived(activePalette(theme, prefersDark));
   const gameAccent = $derived(appearance.gameAccent && $gameArtColor !== null ? adjustAccent($gameArtColor.color, palette.palette, palette.scheme) : null);
   const accent = $derived(gameAccent ?? resolvedAccent(palette, appearance));
-
-  let updateDismissed = $state(false);
-
-  $effect(() => {
-    if (!$updateState.version || $appInfo.data.platform !== "linux") return;
-    updateDismissed = false;
-    const timer = setTimeout(() => { updateDismissed = true; }, 8000);
-    return () => clearTimeout(timer);
-  });
 
   onMount(() => {
     const stopArtworkSelection = startArtworkSelectionTracking();
@@ -157,21 +145,6 @@
 {/if}
 <SourceLinkDialog />
 <ReleaseNotesDialog />
+<AppUpdateDialog />
 <ThemeLinkDialog />
 <ToastNotice />
-
-{#if $updateState.version && !updateDismissed && ($appInfo.data.platform !== "linux" || !$updateState.nativeNotified)}
-  <div class="legio-popover fixed right-5 bottom-5 z-50 flex max-w-sm items-center gap-3 rounded-card p-4 text-sm text-legio-fg shadow-xl shadow-black/30 inset-ring inset-ring-legio-info/25 light:shadow-zinc-900/15" role="status">
-    <span class="shrink-0 text-legio-info"><Icon name="info" /></span>
-    <span>{t("Legio {0} disponibile.", $language, [$updateState.version])}{#if $updateState.aur} {t("Aggiorna tramite AUR.", $language)}{/if}</span>
-    {#if $updateState.notes !== null}
-      <Button label={t("Cosa c'è di nuovo", $language)} variant="link" onClick={() => openReleaseNotes({ version: $updateState.version ?? "", notes: $updateState.notes ?? "" })} />
-    {/if}
-    {#if $appInfo.data.platform !== "linux" && !$updateState.aur}
-      <Button label={$updateState.installing ? t("Installazione...", $language) : t("Aggiorna", $language)} size="sm" disabled={$updateState.installing} onClick={() => void installAppUpdate()} />
-    {/if}
-    {#if $appInfo.data.platform !== "linux"}
-      <CloseButton label={t("Chiudi avviso aggiornamento", $language)} onClick={() => (updateDismissed = true)} />
-    {/if}
-  </div>
-{/if}
