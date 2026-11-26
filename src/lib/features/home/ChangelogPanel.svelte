@@ -14,6 +14,7 @@
   import StateBlock from "../../components/ui/StateBlock.svelte";
   import Panel from "../../components/ui/Panel.svelte";
   import Callout from "../../components/ui/Callout.svelte";
+  import RenderedMarkdown from "../../components/ui/RenderedMarkdown.svelte";
 
   let refreshing = $state(false);
   const releases = $derived($changelog.data.releases);
@@ -40,7 +41,7 @@
               <span class="text-sm font-semibold text-legio-fg">{release.version}{#if release.prerelease}<span class="ml-2 text-xs font-normal text-legio-fg-muted">{t("Anteprima", $language)}</span>{/if}</span>
               <time class="text-xs text-legio-fg-muted" datetime={release.publishedAt}>{date(release.publishedAt)}</time>
             </div>
-            {#if release.notes}<p class="line-clamp-3 whitespace-pre-line wrap-anywhere text-xs text-legio-fg-muted">{release.notes}</p>{/if}
+            {#if release.notes}<RenderedMarkdown markdown={release.notes} class="max-h-24 overflow-hidden text-xs text-legio-fg-muted [mask-image:linear-gradient(to_bottom,black_60%,transparent)]" />{/if}
             <div class="flex gap-2">
               {#if release.notes}<Button label={t("Mostra di più", $language)} variant="link" size="sm" onClick={() => openReleaseNotes({ version: release.version, notes: release.notes })} />{/if}
               <Button label={t("Apri su GitHub", $language)} variant="link" size="sm" onClick={() => void openGameLink(release.url)} />

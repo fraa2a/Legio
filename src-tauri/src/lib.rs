@@ -501,6 +501,7 @@ fn run_application(
             commands::notify_update_available,
             commands::get_changelog,
             commands::refresh_changelog,
+            commands::render_markdown,
             commands::get_settings,
             commands::save_settings,
             appearance::import_theme_background,

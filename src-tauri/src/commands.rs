@@ -1493,6 +1493,11 @@ pub async fn refresh_changelog(
 }
 
 #[tauri::command]
+pub fn render_markdown(markdown: String) -> String {
+    crate::modding::markdown_html::render_markdown(&markdown)
+}
+
+#[tauri::command]
 pub async fn add_download_source(
     app: tauri::AppHandle,
     state: State<'_, NetworkState>,
