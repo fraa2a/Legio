@@ -69,7 +69,7 @@ test("transfer asks only for a destination library and stays disabled while the 
     "src/lib/services/local-state": dataModule('export const createDesktopShortcut=async()=>({}); export const transferGame=async(...args)=>{globalThis.libraryFixture.calls.push(args);return {game:globalThis.libraryFixture.game,warning:null};};'),
     "src/lib/components/ui/Dialog.svelte": await stub('<script>let {open,children}=$props();</script>{#if open}<div>{@render children?.()}</div>{/if}'),
   };
-  for (const panel of ["GameArtworkPanel", "GameDetailsPanel", "ExecutablePanel", "GameSettingsPanel", "SteamAccountPanel", "SteamLaunchSettings", "SteamStartSetting"]) {
+  for (const panel of ["GameArtworkPanel", "GameDetailsPanel", "GameInstalledSize", "ExecutablePanel", "GameSettingsPanel", "SteamAccountPanel", "SteamLaunchSettings", "SteamStartSetting"]) {
     mocks[`src/lib/features/library/${panel}.svelte`] = empty;
   }
   const loader = createModuleLoader(mocks);

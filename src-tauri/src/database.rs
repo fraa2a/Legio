@@ -1237,52 +1237,10 @@ impl Database {
             if changed == 0 {
                 return Err("game was not found".to_owned());
             }
-            connection
-                .execute(
-                    "DELETE FROM settings WHERE key = ?1",
-                    [screenshot_folder_key(&id)],
-                )
-                .map_err(database_error)?;
             Ok(())
         })?;
         crate::game_library::flush_registered(self);
         Ok(())
-    }
-
-    /// Per-game screenshot folder override. It lives in the key/value settings table
-    /// because a dedicated column would need a schema migration.
-    pub(crate) fn screenshot_folder(&self, game_id: &str) -> Result<Option<String>, String> {
-        let key = screenshot_folder_key(&parse_game_id(game_id)?);
-        self.with_connection(|connection| {
-            connection
-                .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| {
-                    row.get(0)
-                })
-                .optional()
-                .map_err(database_error)
-        })
-    }
-
-    pub(crate) fn set_screenshot_folder(
-        &self,
-        game_id: &str,
-        folder: Option<&str>,
-    ) -> Result<(), String> {
-        let id = parse_game_id(game_id)?;
-        let key = screenshot_folder_key(&id);
-        self.game(&id)?;
-        self.with_connection(|connection| {
-            match folder {
-                Some(folder) => connection.execute(
-                    "INSERT INTO settings (key, value) VALUES (?1, ?2)
-                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                    params![key, folder],
-                ),
-                None => connection.execute("DELETE FROM settings WHERE key = ?1", [key]),
-            }
-            .map(|_| ())
-            .map_err(database_error)
-        })
     }
 
     pub(crate) fn with_connection<T>(
@@ -1764,10 +1722,6 @@ fn normalize_prefix_path(value: Option<String>) -> Result<Option<String>, String
         }
     };
     Ok(Some(normalized.to_string_lossy().into_owned()))
-}
-
-fn screenshot_folder_key(game_id: &str) -> String {
-    format!("game_screenshot_folder.{game_id}")
 }
 
 fn parse_game_id(value: &str) -> Result<String, String> {

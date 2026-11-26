@@ -22,7 +22,7 @@
 </script>
 
 {#if size !== undefined}
-  <p class="text-xs text-legio-fg-muted">
+  <p class="text-sm text-legio-fg-muted">
     {t("Spazio su disco: {0}", $language, [formatBytes(size.bytes, $language)])}{size.partial ? ` (${t("parziale", $language)})` : ""}
   </p>
 {/if}
