@@ -23,7 +23,6 @@
   "Pagina {0}": "Page {0}",
   "Una voce KEY=VALUE per riga. Applicate solo all'avvio di questo gioco.": "One KEY=VALUE entry per line. Applied only when launching this game.",
   "Aggiorna tramite AUR.": "Update through AUR.",
-  "Chiudi avviso aggiornamento": "Dismiss update notification",
   "Chiudi": "Close",
   "Recenti": "Recent",
   "Comprimi": "Collapse",
@@ -1412,5 +1411,7 @@
   "Solo preferiti": "Favorites only",
   "Gestisci raccolte": "Manage collections",
   "Come mostrare la libreria": "How to show the library",
-  "Vale per la griglia e gli scaffali.": "Applies to the grid and the shelves."
+  "Vale per la griglia e gli scaffali.": "Applies to the grid and the shelves.",
+  "Più tardi": "Later",
+  "Aggiorna ora": "Update now"
 }

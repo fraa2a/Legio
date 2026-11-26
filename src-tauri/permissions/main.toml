@@ -8,6 +8,7 @@ commands.allow = [
   "notify_update_available",
   "get_changelog",
   "refresh_changelog",
+  "render_markdown",
   "get_settings",
   "save_settings",
   "import_theme_background",

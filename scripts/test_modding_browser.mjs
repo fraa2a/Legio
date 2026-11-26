@@ -73,7 +73,7 @@ test("the active filter count and the reset keep the search and sort", () => {
 test("the document view opens links outside the webview", async () => {
   const calls = [];
   globalThis.browserInvoke = async (command, args) => { calls.push([command, args]); if (args.url.includes("fail")) throw new Error("no browser"); };
-  const Component = (await import(await load("src/lib/features/modding/ModDocument.svelte"))).default;
+  const Component = (await import(await load("src/lib/components/ui/Markdown.svelte"))).default;
   const target = document.createElement("div");
   document.body.append(target);
   const errors = [];
@@ -101,6 +101,26 @@ test("the document view opens links outside the webview", async () => {
     target.remove();
     delete globalThis.browserInvoke;
   }
+});
+
+test("rendered markdown shows sanitized backend html and falls back to plain text", async () => {
+  const Component = (await import(await load("src/lib/components/ui/RenderedMarkdown.svelte"))).default;
+  const render = async (response) => {
+    globalThis.browserInvoke = async (command, args) => { assert.equal(command, "render_markdown"); return response(args.markdown); };
+    const target = document.createElement("div");
+    document.body.append(target);
+    const instance = mount(Component, { target, props: { markdown: "## Hi\n- **a**" } });
+    await settle();
+    return { target, done: async () => { await unmount(instance); target.remove(); delete globalThis.browserInvoke; } };
+  };
+  const ok = await render(() => "<h2>Hi</h2><ul><li><strong>a</strong></li></ul>");
+  assert.equal(ok.target.querySelector("h2")?.textContent, "Hi");
+  assert.equal(ok.target.querySelector("li strong")?.textContent, "a");
+  await ok.done();
+  const failing = await render(() => { throw new Error("offline"); });
+  assert.equal(failing.target.querySelector("h2"), null);
+  assert.match(failing.target.textContent, /## Hi/);
+  await failing.done();
 });
 
 const summary = (fullName, extra = {}) => {

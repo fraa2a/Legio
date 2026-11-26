@@ -15,7 +15,7 @@
   import { formatBytes, formatDate, regionalLocale } from "../../utils/format";
   import { describeModdingError, displayPackageId, formatCount, installedState, modKey, packageTitle, splitFullName, splitPackageId } from "./modding-model";
   import { installActionLabel, splitModTags, versionChoices, type ModTab } from "./mod-panel-model";
-  import ModDocument from "./ModDocument.svelte";
+  import Markdown from "../../components/ui/Markdown.svelte";
   import ModIcon from "./ModIcon.svelte";
   import { loadPackageDocument } from "./package-documents";
 
@@ -293,7 +293,7 @@
           onRetry={() => documentAttempt++}
         />
         {#if documentStatus === "ready"}
-          <ModDocument html={documentHtml} onError={(message) => (error = describeModdingError(message, $language))} />
+          <Markdown class="rounded-control bg-legio-fill p-4" html={documentHtml} onError={(message) => (error = describeModdingError(message, $language))} />
         {/if}
       {/if}
     </div>
