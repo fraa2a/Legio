@@ -1,9 +1,10 @@
 <script lang="ts">
   import { t, language } from "../../i18n";
-  import Button from "../../components/ui/Button.svelte";
   import ConfirmDialog from "../../components/ui/ConfirmDialog.svelte";
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Panel from "../../components/ui/Panel.svelte";
+  import Toggle from "../../components/ui/Toggle.svelte";
+  import Tooltip from "../../components/ui/Tooltip.svelte";
   import { enableQueueShutdown, queueShutdown, queueShutdownCountdown } from "../../stores/queue-shutdown";
   import { toMessage } from "../../utils/errors";
 
@@ -14,6 +15,7 @@
   let actionError = $state<string | null>(null);
 
   const phase = $derived($queueShutdown.phase);
+  let enabled = $derived(phase !== "off");
 
   async function apply(enabled: boolean): Promise<void> {
     if (pending) return;
@@ -24,6 +26,7 @@
       confirming = false;
     } catch (error) {
       actionError = toMessage(error);
+      enabled = phase !== "off";
     } finally {
       pending = false;
     }
@@ -48,28 +51,21 @@
       <p class="text-sm text-legio-fg" role="status">
         {t("Il computer si spegnerà 30 secondi dopo il completamento di tutta la coda.", $language)}
       </p>
-    {:else}
-      <p class="text-xs text-legio-fg-subtle">
-        {t("Spegne il computer 30 secondi dopo che tutti i download sono stati estratti e installati. I download falliti restano in coda.", $language)}
-      </p>
     {/if}
 
-    {#if phase === "off"}
-      <Button
-        label={t("Spegni a fine coda", $language)}
-        variant="secondary"
-        class="self-start"
-        disabled={!hasPendingWork || pending}
-        onClick={() => { actionError = null; confirming = true; }}
+    {#snippet toggle()}
+      <Toggle
+        label={t("Spegnimento automatico", $language)}
+        labelHidden
+        bind:checked={enabled}
+        disabled={(phase === "off" && !hasPendingWork) || pending}
+        onChange={(value) => { if (value) { actionError = null; confirming = true; } else void apply(false); }}
       />
+    {/snippet}
+    {#if phase === "off" && !hasPendingWork}
+      <Tooltip text={t("Disponibile quando ci sono download in coda.", $language)}>{@render toggle()}</Tooltip>
     {:else}
-      <Button
-        label={phase === "countdown" ? t("Annulla spegnimento", $language) : t("Disattiva", $language)}
-        variant={phase === "countdown" ? "primary" : "secondary"}
-        class="self-start"
-        disabled={pending}
-        onClick={() => void apply(false)}
-      />
+      {@render toggle()}
     {/if}
   </div>
 </Panel>
@@ -83,5 +79,5 @@
   {pending}
   error={actionError}
   onConfirm={() => void apply(true)}
-  onClose={() => (confirming = false)}
+  onClose={() => { confirming = false; enabled = phase !== "off"; }}
 />
