@@ -36,7 +36,7 @@
     <div class="flex min-h-0 min-w-0 flex-col">
       {#if lastPlayed !== null}
         {#key lastPlayed.game.id}
-          <LastPlayedHero game={lastPlayed.game} onSettings={() => settingsGameId = lastPlayed?.game.id ?? null} />
+          <LastPlayedHero game={lastPlayed.game} summary={lastPlayed.summary} onSettings={() => settingsGameId = lastPlayed?.game.id ?? null} />
         {/key}
       {:else if loading}
         <StateBlock status="loading" error={null} loadingMessage={t("Caricamento dell'ultima partita...", $language)} />
