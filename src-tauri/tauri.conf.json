@@ -31,8 +31,11 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "copyright": "Copyright 2026 fraa2a",
+    "license": "LicenseRef-Apache-2.0-with-Commons-Clause",
     "resources": {
       "../LICENSE": "LICENSE",
+      "../NOTICE": "NOTICE",
       "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
       "../src/assets/fonts/OFL.txt": "licenses/Inter-OFL.txt",
       "../_meta/licenses/lucide.txt": "licenses/lucide.txt",

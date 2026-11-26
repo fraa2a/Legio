@@ -21,6 +21,7 @@ class PackagingTests(unittest.TestCase):
         resources = json.loads(manifest.read_text(encoding="utf-8"))["bundle"]["resources"]
         required = {
             "../LICENSE": "LICENSE",
+            "../NOTICE": "NOTICE",
             "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
             "../src/assets/fonts/OFL.txt": "licenses/Inter-OFL.txt",
             "../_meta/licenses/lucide.txt": "licenses/lucide.txt",
