@@ -1,4 +1,4 @@
-export const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+export const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 
 // Runs `check` on a fixed interval until stopped. A tick is skipped while `isBusy` is true
 // or the previous check has not finished.
