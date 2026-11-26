@@ -69,8 +69,9 @@ for checks and the pull request workflow.
 
 ## License
 
-Legio is source-available under SA-NC-PD 1.0, not an open-source license.
-The license restricts commercial use and distribution of modified versions,
-with a specific exception for proposing contributions. Read [LICENSE](LICENSE)
-for the complete terms and [Contributing](CONTRIBUTING.md) before submitting changes.
+Legio is source-available under the Apache License 2.0 with the Commons Clause
+License Condition v1.0, not an open-source license. You may use, modify and
+redistribute it for free, but you may not sell it, modified or not, including
+paid hosting, support or consulting based on it. Read [LICENSE](LICENSE) for the
+complete terms and [NOTICE](NOTICE) for attribution. For permission requests, write to fraa2a@proton.me.
 Third-party material retains its own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

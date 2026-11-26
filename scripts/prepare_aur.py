@@ -34,6 +34,8 @@ if __name__ == "__main__":
         "WRAPPER_SHA256": sha256(args.directory / "legio-launcher"),
         "DESKTOP_SHA256": sha256(args.directory / "legio-launcher.desktop"),
         "LICENSE_SHA256": sha256(args.directory / "LICENSE"),
+        "NOTICE_SHA256": sha256(args.directory / "NOTICE"),
+        "THIRD_PARTY_SHA256": sha256(args.directory / "THIRD_PARTY_NOTICES.md"),
     }
     for old, new in values.items():
         if old not in content:

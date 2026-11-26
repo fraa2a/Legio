@@ -383,7 +383,7 @@ jobs:
         shell: bash
         run: |
           mkdir aur-files
-          cp packaging/aur/PKGBUILD packaging/aur/legio-launcher packaging/aur/legio-launcher.desktop src-tauri/icons/icon.png LICENSE aur-files/
+          cp packaging/aur/PKGBUILD packaging/aur/legio-launcher packaging/aur/legio-launcher.desktop src-tauri/icons/icon.png LICENSE NOTICE THIRD_PARTY_NOTICES.md aur-files/
           gh release download "$TAG" --pattern '*.AppImage' --dir aur-files
           python scripts/prepare_aur.py aur-files "$VERSION"
           docker run --rm -v "$PWD/aur-files:/work" archlinux:base-devel bash -c \
@@ -405,12 +405,12 @@ jobs:
           chmod 600 ~/.ssh/known_hosts
           export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
           git clone ssh://aur@aur.archlinux.org/legio-launcher-bin.git aur-repo
-          cp aur-files/{PKGBUILD,.SRCINFO,legio-launcher,legio-launcher.desktop,LICENSE} aur-repo/
+          cp aur-files/{PKGBUILD,.SRCINFO,legio-launcher,legio-launcher.desktop,LICENSE,NOTICE,THIRD_PARTY_NOTICES.md} aur-repo/
           cd aur-repo
           git config user.name 'Legio release bot'
           git config user.email 'actions@users.noreply.github.com'
           git rm --ignore-unmatch icon.png
-          git add PKGBUILD .SRCINFO legio-launcher legio-launcher.desktop LICENSE
+          git add PKGBUILD .SRCINFO legio-launcher legio-launcher.desktop LICENSE NOTICE THIRD_PARTY_NOTICES.md
           if ! git diff --cached --quiet; then
             git commit -m "Update to $VERSION"
             git push origin HEAD:master

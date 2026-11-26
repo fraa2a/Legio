@@ -1,6 +1,6 @@
 # Third-party notices
 
-Third-party code and assets retain their own license terms. Legio's SA-NC-PD license does not replace those terms. MIT-licensed adaptations may be included in a differently licensed application, but their copyright and permission notices must be preserved.
+Third-party code and assets retain their own license terms. Legio's Apache 2.0 with Commons Clause license does not replace those terms. MIT-licensed adaptations may be included in a differently licensed application, but their copyright and permission notices must be preserved.
 
 ## Inter
 
