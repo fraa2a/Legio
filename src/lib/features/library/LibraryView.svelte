@@ -144,7 +144,7 @@
             <h2 class="text-base font-semibold text-legio-fg">
               {shelf.name} <span class="text-sm font-normal text-legio-fg-muted tabular-nums">{shelf.entries.length}</span>
             </h2>
-            <ul class="flex gap-4 overflow-x-auto pb-2">
+            <ul use:reflowOnResize={libraryPortrait} class="relative flex gap-4 overflow-x-auto pb-2">
               {#each shelf.entries as entry (entry.game.id)}
                 {@render card(entry, "w-(--library-tile-width) shrink-0")}
               {/each}
