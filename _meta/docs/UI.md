@@ -142,6 +142,9 @@ A nested radius is the outer radius minus the padding, as in `SegmentedControl`
   settings (ranked by `palette-model.ts`) and the Store. Its list grows out of the input as one
   surface and collapses back into it; arrows move, Enter runs, Escape closes. Ctrl+F and Ctrl+K
   focus the field.
+- **Filters**: the library and the store put a funnel button (`FilterMenu`) in the title bar. Its panel
+  grows out of the button as one surface; the store lists sort order and availability there, and a
+  dot on the button marks any non-default choice.
 - **Status**: page `end` controls, the download status (count, progress and speed while
   downloads run; it opens Downloads), the notification bell, then the window controls.
 

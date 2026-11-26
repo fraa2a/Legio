@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { JSDOM } from "jsdom";
+import { compile } from "svelte/compiler";
 import { get, writable } from "svelte/store";
 import { createModuleLoader, dataModule } from "./test_module_loader.mjs";
 
@@ -9,6 +10,7 @@ for (const key of ["window", "document", "navigator", "Node", "Text", "Comment",
   Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
 }
 HTMLElement.prototype.showPopover = function () {};
+HTMLElement.prototype.animate = () => ({});
 Element.prototype.scrollIntoView = function () {};
 globalThis.matchMedia = () => ({ matches: true });
 const { mount, unmount, flushSync } = await import("svelte");
@@ -41,35 +43,42 @@ test("store controls combine filters and reset pagination when either choice cha
     search: (...args) => calls.push(args), more: (...args) => more.push(args),
   };
   const stores = import.meta.resolve("svelte/store");
-  const { load } = createModuleLoader({
+  const { load, resolveImports } = createModuleLoader({
     "src/lib/i18n": dataModule(`import { writable } from ${JSON.stringify(stores)}; export const language = writable("it"); export const t = (value, language, values = []) => value.replace(/\\{(\\d+)\\}/g, (_, index) => String(values[index] ?? ""));`),
     "src/lib/stores/catalog": dataModule("export const catalog = globalThis.storeFilterFixture.catalog; export const runCatalogSearch = (...args) => globalThis.storeFilterFixture.search(...args); export const loadMoreCatalog = (...args) => globalThis.storeFilterFixture.more(...args);"),
     "src/lib/stores/library-ui": dataModule("export const storeQuery = globalThis.storeFilterFixture.query;"),
     "src/lib/stores/source": dataModule(`import { writable } from ${JSON.stringify(stores)}; export const source = globalThis.storeFilterFixture.source; export const sourceRefreshError = writable(null); export const refreshSource = async () => {};`),
     "src/lib/stores/settings": dataModule(`import { get } from ${JSON.stringify(stores)}; export const settings = globalThis.storeFilterFixture.settings; export const updateSettings = async patch => { const current = get(settings).data; const updated = { ...current, ...patch }; settings.set({ data: updated, status: "ready" }); return updated; };`),
-    "src/lib/stores/navigation": dataModule(`import { writable } from ${JSON.stringify(stores)}; export const selectedStoreGame = writable(null); export const openStoreGame = () => {};`),
+    "src/lib/stores/navigation": dataModule(`import { writable } from ${JSON.stringify(stores)}; export const activeSection = writable("store"); export const selectedStoreGame = writable(null); export const openStoreGame = () => {};`),
     "src/lib/stores/toast": dataModule("export const showToast = (...args) => globalThis.storeFilterNotifications.push(args);"),
     "src/lib/features/store/StoreGameCard.svelte": dataModule("export default function () {}"),
     "src/lib/features/library/GameDetailView.svelte": dataModule("export default function () {}"),
   });
   const StoreView = (await import(await load("src/lib/features/store/StoreView.svelte"))).default;
+  const { titleBarContent } = await import(await load("src/lib/stores/title-bar.ts"));
+  const host = dataModule(await resolveImports(compile("<script>let { content } = $props();</script>{@render content.start?.()}", { generate: "client" }).js.code, "stub.svelte"));
   const target = document.createElement("div");
   document.body.append(target);
   const instance = mount(StoreView, { target });
+  await settle();
+  const bar = document.createElement("div");
+  document.body.append(bar);
+  const barInstance = mount((await import(host)).default, { target: bar, props: { content: get(titleBarContent) } });
   const pageButton = label => target.querySelector(`button[aria-label="${label}"]`);
   const loadMore = () => pageButton("Pagina successiva").click();
   const current = () => target.querySelector('nav button[aria-pressed="true"]')?.getAttribute("aria-label");
-  async function choose(id, label) {
-    const trigger = target.querySelector(`#${id}`);
-    assert.ok(trigger, `${id} must be available before a search returns results`);
-    trigger.click(); await settle();
-    [...target.querySelectorAll('[role="option"]')].find(option => option.textContent.trim() === label).click();
+  const trigger = () => bar.querySelector('button[aria-haspopup="dialog"]');
+  async function choose(group, label) {
+    assert.ok(trigger(), "the filter menu must be available before a search returns results");
+    if (trigger().getAttribute("aria-expanded") !== "true") { trigger().click(); await settle(); }
+    [...bar.querySelectorAll(`[role="radiogroup"][aria-label="${group}"] [role="radio"]`)].find(option => option.textContent.trim() === label).click();
     await searchDelay();
   }
   try {
     await searchDelay();
     assert.deepEqual(calls.at(-1), ["portal", { sort: "relevance", availability: "all" }]);
     assert.equal(current(), "Pagina 1");
+    assert.equal(trigger().getAttribute("aria-label"), "Filtri", "default filters show no indicator");
     loadMore(); await settle();
     loadMore(); await settle();
     assert.equal(current(), "Pagina 3");
@@ -80,18 +89,19 @@ test("store controls combine filters and reset pagination when either choice cha
     pageButton("Pagina precedente").click(); await settle();
     assert.equal(current(), "Pagina 3");
     assert.equal(more.length, 1, "going back never loads more games");
-    await choose("store-sort", "Alfabetico decrescente (Z-A)");
+    await choose("Ordina per", "Alfabetico decrescente (Z-A)");
     assert.deepEqual(calls.at(-1), ["portal", { sort: "name_desc", availability: "all" }]);
+    assert.equal(trigger().getAttribute("aria-label"), "Filtri, attivi");
     assert.equal(current(), "Pagina 1", "changing sort must restart at the first page");
     loadMore(); await settle();
     assert.equal(more.length, 1);
     loadMore(); await settle();
-    await choose("store-availability", "Solo verified");
+    await choose("Disponibilità", "Solo verified");
     assert.deepEqual(calls.at(-1), ["portal", { sort: "name_desc", availability: "verified" }]);
     loadMore(); await settle();
     assert.equal(current(), "Pagina 2");
     assert.equal(more.length, 1, "changing availability must restart at the first page");
-    await choose("store-availability", "Solo disponibili");
+    await choose("Disponibilità", "Solo disponibili");
     assert.deepEqual(calls.at(-1), ["portal", { sort: "name_desc", availability: "available" }]);
     assert.deepEqual(get(globalThis.storeFilterFixture.settings).data, { storeSort: "name_desc", storeAvailability: "available" });
     globalThis.storeFilterFixture.source.set({ data: { manifest: { verified: [], unverified: [] }, warning: null } });
@@ -105,5 +115,6 @@ test("store controls combine filters and reset pagination when either choice cha
     globalThis.storeFilterFixture.catalog.set({ results: results.slice(0, 15), total: 15, status: "ready", refreshing: false, error: null, nextOffset: 50 });
     await settle();
     assert.equal(target.querySelector("nav"), null, "a 15-result search must not offer another page");
-  } finally { await unmount(instance); target.remove(); }
+  } finally { await unmount(barInstance); await unmount(instance); bar.remove(); target.remove(); }
+  assert.equal(get(titleBarContent), null, "the filter menu leaves the title bar with the page");
 });

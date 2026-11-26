@@ -5,19 +5,19 @@
   import ErrorBanner from "../../components/ui/ErrorBanner.svelte";
   import Pagination from "../../components/ui/Pagination.svelte";
   import StateBlock from "../../components/ui/StateBlock.svelte";
-  import SelectField from "../../components/ui/SelectField.svelte";
   import Callout from "../../components/ui/Callout.svelte";
-  import type { CatalogSort, CatalogAvailability } from "../../services/catalog";
   import type { Settings } from "../../services/local-state";
   import { catalog, loadMoreCatalog, runCatalogSearch } from "../../stores/catalog";
   import { settings, updateSettings } from "../../stores/settings";
   import { toMessage } from "../../utils/errors";
   import { pageCountFor, pageItems, pageSize } from "../../utils/pagination";
   import { storeQuery } from "../../stores/library-ui";
-  import { openStoreGame, selectedStoreGame } from "../../stores/navigation";
+  import { activeSection, openStoreGame, selectedStoreGame } from "../../stores/navigation";
+  import { showTitleBarContent } from "../../stores/title-bar";
   import type { LoadStatus } from "../../stores/resource";
   import { refreshSource, sourceRefreshError, source } from "../../stores/source";
   import GameDetailView from "../library/GameDetailView.svelte";
+  import StoreFilterMenu from "./StoreFilterMenu.svelte";
   import StoreGameCard from "./StoreGameCard.svelte";
   import { sourceReleasesFor, type SourceStatus } from "./source-status";
 
@@ -30,6 +30,7 @@
   const manifest = $derived($source.data.manifest);
   const trimmed = $derived($storeQuery.trim());
   const options = $derived({ sort: $settings.data.storeSort, availability: $settings.data.storeAvailability });
+  const onPage = $derived($activeSection === "store" && $selectedStoreGame === null);
   let page = $state(1);
   let savingFilter = $state(false);
   let filterError = $state<string | null>(null);
@@ -67,6 +68,11 @@
       savingFilter = false;
     }
   }
+
+  $effect(() => {
+    if (!onPage) return;
+    return showTitleBarContent({ start: filterControls });
+  });
 
   // Each title appears once; its releases are selected on the detail page.
   const entries: StoreEntry[] = $derived($catalog.results
@@ -135,27 +141,6 @@
         retryLabel={t("Riprova", $language)} />
     {/if}
 
-    <div class="flex flex-wrap gap-3">
-      <SelectField id="store-sort" label={t("Ordina per", $language)} value={options.sort}
-        class="min-w-48 flex-1 sm:max-w-64"
-        options={[
-          { value: "relevance", label: t("Più affine", $language) },
-          { value: "name_asc", label: t("Alfabetico crescente (A-Z)", $language) },
-          { value: "name_desc", label: t("Alfabetico decrescente (Z-A)", $language) },
-        ]}
-        disabled={savingFilter}
-        onChange={(value) => void saveFilter({ storeSort: value as CatalogSort })} />
-      <SelectField id="store-availability" label={t("Disponibilità", $language)} value={options.availability}
-        class="min-w-48 flex-1 sm:max-w-64"
-        options={[
-          { value: "all", label: t("Tutti", $language) },
-          { value: "available", label: t("Solo disponibili", $language) },
-          { value: "verified", label: t("Solo verified", $language) },
-        ]}
-        disabled={savingFilter}
-        onChange={(value) => void saveFilter({ storeAvailability: value as CatalogAvailability })} />
-    </div>
-
     {#if trimmed.length > 0 && $catalog.results.length > 0}
       <div class="flex flex-wrap items-center gap-3 text-xs text-legio-fg-subtle">
         {#if $catalog.refreshing}
@@ -196,3 +181,7 @@
     {/if}
   </div>
 {/if}
+
+{#snippet filterControls()}
+  <StoreFilterMenu sort={options.sort} availability={options.availability} disabled={savingFilter} onChange={(changes) => void saveFilter(changes)} />
+{/snippet}
