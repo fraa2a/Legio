@@ -143,8 +143,8 @@
     onRetry={() => void downloads.load()}
   />
 
-  <div class="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_17rem]">
-    <div class="flex min-w-0 flex-col gap-4">
+  <div class="grid flex-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_17rem]">
+    <div class={["flex min-w-0 flex-col gap-4", $downloads.status === "empty" && "h-full items-center justify-center"]}>
       {#if $downloads.status === "empty"}
         <EmptyState icon="downloads" title={t("Nessun download", $language)}>
           <Button label={t("Sfoglia lo store", $language)} variant="primary" onClick={() => selectSection("store")} />
