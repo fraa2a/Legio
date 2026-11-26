@@ -416,6 +416,7 @@ fn run_application(
             let icon = tauri::image::Image::new_owned(icon.into_raw(), width, height);
             let tray_result = TrayIconBuilder::with_id("main-tray")
                 .icon(icon)
+                .icon_as_template(true)
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
