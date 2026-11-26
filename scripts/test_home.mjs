@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { activityIntensity, monthCalendar, recentGames } from "../src/lib/features/home/home-model.ts";
+import { activityIntensity, heroStats, monthCalendar, recentGames } from "../src/lib/features/home/home-model.ts";
 
 test("calendar leaves days outside the month blank and expands to six weeks", () => {
   const october = monthCalendar(2026, 9);
@@ -40,4 +40,10 @@ test("activity intensity increases continuously and saturates at eight hours", (
   assert.equal(activityIntensity(4 * 3600000), 0.5);
   assert.equal(activityIntensity(8 * 3600000), 1);
   assert.equal(activityIntensity(12 * 3600000), 1);
+});
+
+test("hero stats list playtime then the last session", () => {
+  const summary = { gameId: "a", totalMilliseconds: 5400000, activeSessions: 2, lastPlayedAt: 1000 };
+  assert.deepEqual(heroStats(summary, (time) => `at ${time}`), ["1 h 30 min", "at 1000"]);
+  assert.deepEqual(heroStats({ ...summary, lastPlayedAt: null }, () => "unused"), ["1 h 30 min"]);
 });
