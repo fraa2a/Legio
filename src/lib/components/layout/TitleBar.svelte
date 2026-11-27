@@ -219,7 +219,7 @@
       <PaletteSearch id="title-bar-search" />
     {/if}
   </div>
-  <div class="flex shrink-0 items-center gap-2" data-tauri-drag-region>
+  <div class="flex shrink-0 items-center justify-end gap-2" data-tauri-drag-region>
     {#if pageContent?.end}{@render pageContent.end()}{/if}
     {#if !onboarding}
       <TitleBarDownloadStatus />
