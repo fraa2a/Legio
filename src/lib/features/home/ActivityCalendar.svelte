@@ -32,7 +32,7 @@
   }, 30000));
 </script>
 
-<Panel title={t("Attività di gioco", $language)} description={monthLabel.charAt(0).toLocaleUpperCase() + monthLabel.slice(1)} class="min-h-0">
+<Panel title={t("Attività di gioco", $language)} description={monthLabel.charAt(0).toLocaleUpperCase() + monthLabel.slice(1)}>
   {#snippet actions()}
     <div class="flex items-center gap-1">
       <Button label={t("Annata di gioco", $language)} variant="secondary" size="sm" onClick={openPlaytimeRecap} />
