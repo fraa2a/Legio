@@ -44,7 +44,9 @@ fn linux_steam_launcher(path: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
 
 /// Steam must not inherit the AppImage's bundled libraries, which break its shell launcher.
 fn steam_command(executable: PathBuf) -> std::process::Command {
+    #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
     let mut command = command(executable);
+    #[cfg(target_os = "linux")]
     crate::launch_environment::apply(&mut command);
     command
 }
@@ -112,6 +114,7 @@ enum ActiveAccount {
     SignedIn,
     SignedOut,
     /// Steam wrote a complete registry without an active account entry.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     Unreported,
 }
 
