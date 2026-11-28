@@ -1,6 +1,6 @@
 [package]
 name = "legio"
-version = "1.0.4"
+version = "1.0.5"
 description = "A desktop game launcher for Windows and Linux"
 edition = "2024"
 license-file = "../LICENSE"
