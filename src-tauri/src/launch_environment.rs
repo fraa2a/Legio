@@ -27,22 +27,6 @@ fn apply_from(
     environment: impl IntoIterator<Item = (OsString, OsString)>,
 ) {
     for (key, value) in environment {
-        if !matches!(
-            key.to_str(),
-            Some(
-                "PATH"
-                    | "LD_LIBRARY_PATH"
-                    | "PYTHONPATH"
-                    | "PYTHONHOME"
-                    | "GIO_MODULE_DIR"
-                    | "GDK_PIXBUF_MODULE_FILE"
-                    | "GST_PLUGIN_PATH"
-                    | "GST_PLUGIN_SYSTEM_PATH"
-                    | "XDG_DATA_DIRS"
-            )
-        ) {
-            continue;
-        }
         let host = without_bundle_paths(&value, directory);
         if host != value {
             if host.is_empty() {
@@ -72,6 +56,10 @@ mod tests {
                 ),
                 ("PYTHONHOME", "/tmp/.mount_Legio/usr"),
                 ("GIO_MODULE_DIR", "/tmp/.mount_Legio/usr/lib/gio/modules"),
+                (
+                    "GST_PLUGIN_SYSTEM_PATH_1_0",
+                    "/tmp/.mount_Legio/usr/lib/gstreamer-1.0:",
+                ),
                 ("WINEPREFIX", "/games/prefix"),
                 ("DISPLAY", ":0"),
             ]
@@ -90,6 +78,7 @@ mod tests {
         );
         assert_eq!(environment[OsStr::new("PYTHONHOME")], None);
         assert_eq!(environment[OsStr::new("GIO_MODULE_DIR")], None);
+        assert_eq!(environment[OsStr::new("GST_PLUGIN_SYSTEM_PATH_1_0")], None);
         assert!(!environment.contains_key(OsStr::new("WINEPREFIX")));
         assert!(!environment.contains_key(OsStr::new("DISPLAY")));
         assert_eq!(

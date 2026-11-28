@@ -7,6 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
+#[cfg(windows)]
 const STEAM_ID64_BASE: u64 = 76_561_197_960_265_728;
 
 pub(crate) fn steam_executable(steam_root: &Path) -> Result<PathBuf, String> {
@@ -39,6 +40,13 @@ fn linux_steam_launcher(path: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
             .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
             .then_some(launcher)
     })
+}
+
+/// Steam must not inherit the AppImage's bundled libraries, which break its shell launcher.
+fn steam_command(executable: PathBuf) -> std::process::Command {
+    let mut command = command(executable);
+    crate::launch_environment::apply(&mut command);
+    command
 }
 
 fn executable_candidates(steam_root: &Path, windows: bool) -> Vec<PathBuf> {
@@ -76,7 +84,7 @@ pub(crate) fn ensure_running(
         let executable = steam_executable(steam_root)?;
         check_cancelled(cancel)?;
         Some(
-            command(executable)
+            steam_command(executable)
                 .spawn()
                 .map_err(|error| format!("Could not start Steam: {error}"))?,
         )
@@ -97,6 +105,14 @@ enum LoginState {
     Pending,
     NeedsCredentials,
     Ready,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ActiveAccount {
+    SignedIn,
+    SignedOut,
+    /// Steam wrote a complete registry without an active account entry.
+    Unreported,
 }
 
 /// Starts Steam when needed and waits until it is signed in and its library is ready, so a
@@ -126,11 +142,8 @@ pub(crate) fn ensure_signed_in(
                     "Steam login log has no state; waiting for the active account only",
                 );
             }
-            let account_active = signed_in_account_id(steam_root)?.is_some();
-            Ok((
-                client_is_running()?,
-                effective_login_state(account_active, login),
-            ))
+            let account = active_account(steam_root)?;
+            Ok((client_is_running()?, effective_login_state(account, login)))
         },
     )
 }
@@ -173,11 +186,13 @@ fn wait_for_sign_in(
 }
 
 /// Steam sets the active account at logon, before its library is ready, so the login log
-/// decides when the account is active. Without a usable log the active account decides alone.
-fn effective_login_state(account_active: bool, login: Option<LoginState>) -> LoginState {
-    match login {
-        Some(LoginState::Ready) | None if account_active => LoginState::Ready,
-        Some(LoginState::NeedsCredentials) => LoginState::NeedsCredentials,
+/// decides when the account is active. Without a usable log the active account decides alone,
+/// and when Steam does not report an active account the log decides alone.
+fn effective_login_state(account: ActiveAccount, login: Option<LoginState>) -> LoginState {
+    match (account, login) {
+        (ActiveAccount::SignedIn, Some(LoginState::Ready) | None)
+        | (ActiveAccount::Unreported, Some(LoginState::Ready)) => LoginState::Ready,
+        (_, Some(LoginState::NeedsCredentials)) => LoginState::NeedsCredentials,
         _ => LoginState::Pending,
     }
 }
@@ -224,22 +239,27 @@ fn login_state_from_log(log: &str) -> Option<LoginState> {
     state
 }
 
-/// The account Steam is signed in to right now, or `None` while it is signed out or still starting.
-fn signed_in_account_id(steam_root: &Path) -> Result<Option<String>, String> {
+/// Whether Steam is signed in to an account right now. It is signed out while still starting.
+fn active_account(steam_root: &Path) -> Result<ActiveAccount, String> {
     #[cfg(windows)]
     {
         let _ = steam_root;
-        windows_active_account_id()
+        Ok(match windows_active_account_id()? {
+            Some(_) => ActiveAccount::SignedIn,
+            None => ActiveAccount::SignedOut,
+        })
     }
     #[cfg(target_os = "linux")]
     {
         let Ok(path) = crate::steam_local::steam_registry_path(steam_root) else {
             // Steam creates registry.vdf on its first start.
-            return Ok(None);
+            return Ok(ActiveAccount::SignedOut);
         };
         match std::fs::read(path) {
-            Ok(bytes) => Ok(active_user_from_registry(&bytes)),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Ok(bytes) => Ok(active_account_from_registry(&bytes)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok(ActiveAccount::SignedOut)
+            }
             Err(error) => Err(format!("Could not read Steam's active account: {error}")),
         }
     }
@@ -291,9 +311,10 @@ fn registry_has_running_game(bytes: &[u8]) -> bool {
 }
 
 /// Steam rewrites registry.vdf while it signs in, so an unreadable document counts as signed out.
+/// Recent Steam clients write no `ActiveProcess` entry at all.
 #[cfg(target_os = "linux")]
-fn active_user_from_registry(bytes: &[u8]) -> Option<String> {
-    let value = crate::steam_vdf::keyvalues_scalar(
+fn active_account_from_registry(bytes: &[u8]) -> ActiveAccount {
+    let value = match crate::steam_vdf::keyvalues_scalar(
         bytes,
         &[
             "HKCU",
@@ -303,10 +324,15 @@ fn active_user_from_registry(bytes: &[u8]) -> Option<String> {
             "ActiveProcess",
             "ActiveUser",
         ],
-    )
-    .ok()?;
-    let account_id = value.parse::<u32>().ok().filter(|id| *id != 0)?;
-    Some((STEAM_ID64_BASE + u64::from(account_id)).to_string())
+    ) {
+        Ok(value) => value,
+        Err(crate::steam_vdf::VdfError::ScalarNotFound) => return ActiveAccount::Unreported,
+        Err(_) => return ActiveAccount::SignedOut,
+    };
+    match value.parse::<u32>() {
+        Ok(account_id) if account_id != 0 => ActiveAccount::SignedIn,
+        _ => ActiveAccount::SignedOut,
+    }
 }
 
 fn wait_for_client_interface(
@@ -355,7 +381,7 @@ pub(crate) fn request_game_launch(
     check_cancelled(cancel)?;
     let executable = steam_executable(steam_root)?;
     check_cancelled(cancel)?;
-    command(executable)
+    steam_command(executable)
         .arg("-applaunch")
         .arg(app_id.to_string())
         .args(arguments)
@@ -378,7 +404,7 @@ pub(crate) fn request_shutdown_and_wait(
     let executable = steam_executable(steam_root)?;
     check_cancelled(cancel)?;
     let start = Instant::now();
-    let mut request = command(executable)
+    let mut request = steam_command(executable)
         .arg("-shutdown")
         .spawn()
         .map_err(|error| format!("Could not request Steam shutdown: {error}"))?;
@@ -415,7 +441,7 @@ pub(crate) fn launch_and_wait_selected_account(
     }
     let executable = steam_executable(steam_root)?;
     check_cancelled(cancel)?;
-    command(executable)
+    steam_command(executable)
         .spawn()
         .map_err(|error| format!("Could not start Steam: {error}"))?;
 
@@ -819,25 +845,36 @@ mod tests {
 
     #[test]
     fn active_account_is_ready_only_after_the_library_is_ready() {
+        use ActiveAccount::{SignedIn, SignedOut, Unreported};
         assert_eq!(
-            effective_login_state(true, Some(LoginState::Pending)),
+            effective_login_state(SignedIn, Some(LoginState::Pending)),
             LoginState::Pending
         );
         assert_eq!(
-            effective_login_state(true, Some(LoginState::Ready)),
+            effective_login_state(SignedIn, Some(LoginState::Ready)),
             LoginState::Ready
         );
         assert_eq!(
-            effective_login_state(false, Some(LoginState::Ready)),
+            effective_login_state(SignedOut, Some(LoginState::Ready)),
             LoginState::Pending
         );
         // Without a usable login log the active account decides alone.
-        assert_eq!(effective_login_state(true, None), LoginState::Ready);
-        assert_eq!(effective_login_state(false, None), LoginState::Pending);
+        assert_eq!(effective_login_state(SignedIn, None), LoginState::Ready);
+        assert_eq!(effective_login_state(SignedOut, None), LoginState::Pending);
         assert_eq!(
-            effective_login_state(false, Some(LoginState::NeedsCredentials)),
+            effective_login_state(SignedOut, Some(LoginState::NeedsCredentials)),
             LoginState::NeedsCredentials
         );
+        // Without an active account entry the login log decides alone.
+        assert_eq!(
+            effective_login_state(Unreported, Some(LoginState::Ready)),
+            LoginState::Ready
+        );
+        assert_eq!(
+            effective_login_state(Unreported, Some(LoginState::Pending)),
+            LoginState::Pending
+        );
+        assert_eq!(effective_login_state(Unreported, None), LoginState::Pending);
     }
 
     #[test]
@@ -877,8 +914,8 @@ mod tests {
 }
 "#;
         assert_eq!(
-            active_user_from_registry(registry).as_deref(),
-            Some("76561197960265729")
+            active_account_from_registry(registry),
+            ActiveAccount::SignedIn
         );
     }
 
@@ -911,9 +948,22 @@ mod tests {
         let signed_out = br#""Registry" { "HKCU" { "Software" { "Valve" { "Steam" { "ActiveProcess" { "ActiveUser" "0" } } } } } }"#;
         let partial = br#""Registry" { "HKCU" { "Software" { "Valve" { "Steam" { "ActiveProcess" { "ActiveUser" "1""#;
 
-        assert_eq!(active_user_from_registry(signed_out), None);
-        assert_eq!(active_user_from_registry(partial), None);
-        assert_eq!(active_user_from_registry(b""), None);
+        let unreported =
+            br#""Registry" { "HKCU" { "Software" { "Valve" { "Steam" { "AutoLoginUser" "player" } } } } }"#;
+
+        assert_eq!(
+            active_account_from_registry(signed_out),
+            ActiveAccount::SignedOut
+        );
+        assert_eq!(
+            active_account_from_registry(partial),
+            ActiveAccount::SignedOut
+        );
+        assert_eq!(active_account_from_registry(b""), ActiveAccount::SignedOut);
+        assert_eq!(
+            active_account_from_registry(unreported),
+            ActiveAccount::Unreported
+        );
     }
 
     #[cfg(target_os = "linux")]
