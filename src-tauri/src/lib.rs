@@ -84,6 +84,8 @@ mod proton_runtime;
 mod public_address;
 mod queue_shutdown;
 mod runner_discovery;
+#[cfg(target_os = "linux")]
+mod scheme_handler;
 mod settings;
 mod sha256;
 mod source_catalog;

@@ -3,6 +3,7 @@ use std::sync::Mutex;
 
 use serde::Serialize;
 use tauri::{Emitter, Manager};
+#[cfg(not(target_os = "linux"))]
 use tauri_plugin_deep_link::DeepLinkExt;
 
 use crate::appearance::AppearanceProfile;
@@ -155,25 +156,13 @@ impl SourceLinks {
 
 pub fn register(app: &tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "linux")]
-    if crate::commands::is_aur_package() {
-        // The package wrapper preserves the AUR updater settings.
-        let status = std::process::Command::new("xdg-mime")
-            .args([
-                "default",
-                "legio-launcher.desktop",
-                "x-scheme-handler/legio",
-            ])
-            .status()
-            .map_err(|error| format!("Could not register packaged Legio links: {error}"))?;
-        return if status.success() {
-            Ok(())
-        } else {
-            Err(format!("Could not register packaged Legio links: {status}"))
-        };
-    }
-    app.deep_link()
+    let result = crate::scheme_handler::register(app, "legio");
+    #[cfg(not(target_os = "linux"))]
+    let result = app
+        .deep_link()
         .register_all()
-        .map_err(|error| format!("Could not register Legio links: {error}"))
+        .map_err(|error| error.to_string());
+    result.map_err(|error| format!("Could not register Legio links: {error}"))
 }
 
 pub fn forward(app: &tauri::AppHandle, arguments: &[String]) -> Result<(), String> {
