@@ -153,62 +153,27 @@ mod platform {
 
 #[cfg(target_os = "linux")]
 mod platform {
-    use std::process::Command;
-
     use tauri::{AppHandle, Manager};
-    use tauri_plugin_deep_link::DeepLinkExt;
 
     use super::{LinkHandler, SCHEME, classify};
-
-    const AUR_DESKTOP_FILE: &str = "legio-launcher.desktop";
+    use crate::scheme_handler;
 
     fn mime_type() -> String {
         format!("x-scheme-handler/{SCHEME}")
     }
 
-    /// The desktop file that opens Legio: the package wrapper on the AUR,
-    /// else the one the plugin writes.
-    fn own_desktop_file() -> Result<String, String> {
-        if crate::commands::is_aur_package() {
-            return Ok(AUR_DESKTOP_FILE.to_owned());
-        }
-        let exe = tauri::utils::platform::current_exe()
-            .map_err(|error| format!("Could not find Legio executable: {error}"))?;
-        let name = exe
-            .file_name()
-            .ok_or_else(|| "Legio executable has no file name".to_owned())?;
-        Ok(format!("{}-handler.desktop", name.to_string_lossy()))
-    }
-
     pub(super) fn handler(_app: &AppHandle) -> Result<LinkHandler, String> {
-        let output = Command::new("xdg-mime")
+        let output = scheme_handler::xdg_mime()
             .args(["query", "default", &mime_type()])
             .output()
             .map_err(|error| format!("Could not read Thunderstore links: {error}"))?;
         let default = String::from_utf8_lossy(&output.stdout);
         let default = Some(default.trim()).filter(|name| !name.is_empty());
-        Ok(classify(default, &own_desktop_file()?))
+        Ok(classify(default, &scheme_handler::desktop_file()?))
     }
 
     pub(super) fn register(app: &AppHandle) -> Result<(), String> {
-        if crate::commands::is_aur_package() {
-            // Like the legio:// handler, the package wrapper keeps the AUR updater settings.
-            let status = Command::new("xdg-mime")
-                .args(["default", AUR_DESKTOP_FILE, &mime_type()])
-                .status()
-                .map_err(|error| {
-                    format!("Could not register packaged Thunderstore links: {error}")
-                })?;
-            return if status.success() {
-                Ok(())
-            } else {
-                Err(format!(
-                    "Could not register packaged Thunderstore links: {status}"
-                ))
-            };
-        }
-        app.deep_link()
-            .register(SCHEME)
+        scheme_handler::register(app, SCHEME)
             .map_err(|error| format!("Could not register Thunderstore links: {error}"))
     }
 
@@ -216,12 +181,14 @@ mod platform {
         if handler(app)? != LinkHandler::Legio {
             return Ok(false);
         }
-        if !crate::commands::is_aur_package() {
-            app.deep_link()
-                .unregister(SCHEME)
-                .map_err(|error| format!("Could not release Thunderstore links: {error}"))?;
-            return Ok(true);
-        }
+        // Drop the default first so a failed cache refresh cannot leave it behind.
+        let removed_default = remove_default(app)?;
+        let removed_handler = scheme_handler::remove(app, SCHEME)
+            .map_err(|error| format!("Could not release Thunderstore links: {error}"))?;
+        Ok(removed_default || removed_handler)
+    }
+
+    fn remove_default(app: &AppHandle) -> Result<bool, String> {
         let path = app
             .path()
             .config_dir()
@@ -232,7 +199,8 @@ mod platform {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
             Err(error) => return Err(format!("Could not release Thunderstore links: {error}")),
         };
-        let Some(updated) = super::without_default(&contents, &mime_type(), AUR_DESKTOP_FILE)
+        let Some(updated) =
+            super::without_default(&contents, &mime_type(), &scheme_handler::desktop_file()?)
         else {
             return Ok(false);
         };
