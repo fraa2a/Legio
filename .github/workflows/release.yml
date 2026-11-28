@@ -126,7 +126,7 @@ jobs:
         timeout-minutes: 30
         uses: ./.github/actions/linux-dependencies
         with:
-          extra-packages: rpm gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav
+          extra-packages: rpm gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav patchelf
 
       - name: Set up Rust 1.98.1
         shell: bash
